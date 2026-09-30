@@ -87,11 +87,19 @@ class HestiaOS:
             max_concurrency=int(_maxc) if _maxc.isdigit() else None,
             spine=self.event_spine)
 
+        # 【P1-2·统一治理审计】governance.decision 事件流 + {data_dir}/audit/governance.jsonl
+        # 落盘。须在 PolicyGate/Orchestrator 之前建好(二者都注入它);HESTIA_GOVERNANCE_AUDIT=0
+        # 时 attach 返回 None,各层按 None 跳过记录(零开销降级)。
+        from .core.governance_audit import attach as _attach_gov_audit
+        self.governance_auditor = _attach_gov_audit(self.event_spine, self.data_dir)
+
         # 【v2 ① Step4·统一准入门】把 Harness(推理漂移)与 skill-guard(动作权限)统一到
         # 一套 Verdict 词汇 + 一个接口。evaluate 注入(避免 kernel→skills 环)。
+        # 【P3-4】auditor 注入后,每次裁决带 decision_id 并记入治理审计流(非 allow)。
         from .kernel import PolicyGate
         from .skills.permission import evaluate as _perm_eval
-        self.policy_gate = PolicyGate(spine=self.event_spine, action_evaluator=_perm_eval)
+        self.policy_gate = PolicyGate(spine=self.event_spine, action_evaluator=_perm_eval,
+                                      auditor=self.governance_auditor)
 
         # 【P1-3·能力注册中枢】Composition Root 的解析中枢:组件按名解析同伴,不再直接互持。
         # 必须在 Agent 之前建好并注入,以打断 agents⇄search_runtime、Supervisor⇄Orchestrator 两处直接环。
@@ -186,9 +194,10 @@ class HestiaOS:
         self.admin.attach_runtime(self.itinerary_runtime)
 
         # 给主管挂载编排引擎(全局态势 + 跨 Agent 编排)
-        # 【P1-3】编排器经注册中枢惰性解析 agents,不再直接持有含主管的 agents 字典
+        # 【P1-3】编排器经注册中枢惰性解析 agents,不再直接持有含主管的 agents 字典;
+        # 裁决经 auditor 记入治理审计流(原本完全无观测)。
         from .orchestration import Orchestrator
-        self.orchestrator = Orchestrator(self.capabilities)
+        self.orchestrator = Orchestrator(self.capabilities, auditor=self.governance_auditor)
         self.supervisor.attach_orchestrator(self.orchestrator)
         self.capabilities.register("orchestrator", self.orchestrator)
 

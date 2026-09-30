@@ -176,17 +176,38 @@ class SkillAdapter:
         with _span("skill.invoke", id=skill.id, kind=skill.kind):
             return self._invoke_inner(skill, args, confirmed, mode, evaluate)
 
+    def _audit_terminal(self, skill: SkillSpec, verdict, outcome: str,
+                        reason: str, detail: dict = None) -> None:
+        """【P2-0】把 skill 执行终态记入统一治理审计流(governance.decision, layer=skill)。
+
+        审计器从 policy_gate.auditor 取(standalone 无 gate → 无审计,与既有降级策略一致);
+        correlation_id 用权限裁决的 decision_id(P3-4:同一 invoke 的「裁决→执行」可 join);
+        早于权限管线的出口(封杀/pre钩子)没有裁决,correlation_id 为空。
+        审计失败绝不影响调用(审计器内部已兜异常)。"""
+        gate = self.policy_gate
+        auditor = getattr(gate, "auditor", None) if gate is not None else None
+        if auditor is None:
+            return
+        auditor.record(layer="skill", actor="",
+                       action=f"invoke:{skill.id}", verdict=outcome, reason=reason,
+                       detail=detail or {},
+                       correlation_id=(verdict.decision_id if verdict is not None else None))
+
     def _invoke_inner(self, skill: SkillSpec, args: dict,
                       confirmed: bool, mode: str, evaluate) -> SkillResult:
 
         # —— 全局封杀策略(deny 压倒一切,kill-switch:所有结构化技能执行的唯一咽喉)——
         pol = self.skill_policy
         if pol is not None and pol.is_blocked(skill.id):
+            self._audit_terminal(skill, None, "deny", "该技能已被策略封杀(deny)",
+                                 {"gate": "skill_policy"})
             return SkillResult(skill.id, False, status="blocked", message="该技能已被策略封杀(deny)")
 
         # —— pre_skill 钩子(可阻断 / 可改 args)——
         pre = self.hooks.fire("pre_skill", skill.id, {"args": args, "skill": skill.to_dict()})
         if pre.blocked:
+            self._audit_terminal(skill, None, "deny", f"pre钩子阻断: {pre.reason}",
+                                 {"gate": "pre_skill_hook"})
             return SkillResult(skill.id, False, status="blocked",
                                message=f"pre钩子阻断: {pre.reason}")
         if pre.modified_args is not None:
@@ -194,9 +215,13 @@ class SkillAdapter:
 
         # —— 四阶段权限管线(先判权限,再占断路器探针)。经统一 PolicyGate(Step4);
         #    拿到的仍是同一 PermissionDecision(行为一致),门面额外发统一 policy.decision 事件。——
+        # 【P3-4】保留整个 Verdict:decision_id 要作为本层执行审计的 correlation_id,
+        #    把「谁批准的(permission 裁决)」与「执行结果如何(skill 终态)」join 起来。
+        verdict = None
         if self.policy_gate is not None:
-            decision = self.policy_gate.check_action(
-                skill, args, rules=self.rules, confirmed=confirmed, mode=mode).raw
+            verdict = self.policy_gate.check_action(
+                skill, args, rules=self.rules, confirmed=confirmed, mode=mode)
+            decision = verdict.raw
         else:
             decision = evaluate(skill, args, rules=self.rules,
                                 confirmed=confirmed, mode=mode)
@@ -212,6 +237,9 @@ class SkillAdapter:
         # (放在权限判定之后:deny/ask 不会执行,就不该占用 half_open 探针名额)
         if not self.breaker.allow(skill.id):
             st = self.breaker.status(skill.id)
+            self._audit_terminal(skill, verdict, "deny",
+                                 f"断路器开启(连续失败 {st['failures']} 次)",
+                                 {"gate": "circuit_breaker", "failures": st["failures"]})
             return SkillResult(skill.id, False, status="circuit_open",
                 message=f"「{skill.name}」连续失败 {st['failures']} 次,断路器已开启,暂停调用")
 
@@ -224,6 +252,11 @@ class SkillAdapter:
             else:
                 self.breaker.record_failure(skill.id)
                 self.hooks.fire("on_error", skill.id, {"result": res.to_dict()})
+            # 【P2-0】执行终态审计(成功/失败都记;deny/ask 已由 permission 层记录,不重复)
+            self._audit_terminal(
+                skill, verdict, "success" if res.success else "failed",
+                res.message, {"kind": skill.kind,
+                              "trust_downgrade": _downgrade})
             # 循环检测:记录本次调用,若检测到死循环,在结果上附警告
             loop = self.loop_detector.record(skill.id, args, res.output)
             if loop.stuck:
@@ -233,6 +266,8 @@ class SkillAdapter:
         except Exception as e:
             self.breaker.record_failure(skill.id)
             self.hooks.fire("on_error", skill.id, {"error": str(e)})
+            self._audit_terminal(skill, verdict, "failed", f"调用异常: {e}",
+                                 {"kind": skill.kind, "exception": True})
             return SkillResult(skill.id, False, status="blocked",
                                message=f"调用失败: {e}")
 

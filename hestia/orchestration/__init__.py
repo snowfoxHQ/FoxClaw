@@ -57,8 +57,11 @@ class Orchestrator:
     (打断 Supervisor⇄Orchestrator 直接环:主管持有本引擎,本引擎经注册表解析 agents,
     不再反向直接持有含主管的 agents 字典)。"""
 
-    def __init__(self, caps):
+    def __init__(self, caps, auditor=None):
         self._caps = caps               # CapabilityRegistry
+        # 【P1-3】统一治理审计(可空:standalone 无审计)。裁决事件原本**完全没有**——
+        # 跨 Agent 委派的批准/拒绝/转人工,事前无任何可观测记录。
+        self._auditor = auditor
         # 【深审修复·长期运行泄漏】原为普通 list、只增不减且**全库从不读**——每次跨 Agent 请求
         # append 一个 req → 无界增长。改有界 deque(保留最近 N 条供未来观测,符合本库 token_meter/
         # HookManager 的有界日志惯例);deque.append 原子 ⇒ 并发路由也安全。
@@ -112,7 +115,25 @@ class Orchestrator:
                 req.status = "needs_confirmation"
                 req.verdict = f"裁决异常,转人工确认: {e}"
         self.request_log.append(req)
+        self._audit_verdict(req)
         return req
+
+    def _audit_verdict(self, req: CrossAgentRequest) -> None:
+        """【P1-3】把本次裁决记入统一治理审计流(governance.decision)。
+
+        correlation_id=req.id:negotiate 的多轮裁决共用同一 req.id ⇒ 协商链可 join;
+        每次裁决的 decision_id 各自独立(由审计器生成)。审计失败绝不影响路由。"""
+        if self._auditor is None:
+            return
+        verdict = {"approved": "allow", "rejected": "deny",
+                   "needs_confirmation": "confirm"}.get(req.status, req.status)
+        self._auditor.record(
+            layer="orchestration", actor=req.from_agent,
+            action=f"cross_request:{req.request_type}->{req.to_agent}",
+            verdict=verdict, reason=req.verdict,
+            detail={"status": req.status,
+                    "negotiation_round": len(req.negotiation)},
+            correlation_id=req.id)
 
     # ── 协商闭环:被拒 → 发起方让步 → 再裁决 ──────────────────────────
     def negotiate(self, req: CrossAgentRequest, max_rounds: int = 3) -> CrossAgentRequest:
