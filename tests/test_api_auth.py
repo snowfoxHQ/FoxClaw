@@ -10,6 +10,9 @@ import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# 本测试要精确控制 HESTIA_API_KEY 的有/无;若 .env 带真实 key 会污染判定
+# (见 hestia/api.py 中 HESTIA_SKIP_DOTENV 的说明),故关掉 .env。
+os.environ["HESTIA_SKIP_DOTENV"] = "1"
 
 import tempfile
 os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_test_")  # 不污染仓库根

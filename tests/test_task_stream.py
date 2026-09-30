@@ -8,8 +8,10 @@ os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
 os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
 os.environ["HESTIA_STREAM_RATE"] = "60"   # 放开限流(限流由 test_streaming 覆盖),这里只验通路
 os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_taskstream_")
-# 强制 stub(离线/确定性/免费):清空可能的 key。api.py load_dotenv(override=False) 不覆盖已存在
-# 的环境变量,故这里的空值优先,.env 里的真实 key 被忽略 → ModelRouter 降级 stub。同清鉴权 key。
+# 强制 stub(离线/确定性/免费):关掉 .env,使进程环境变量成为唯一来源。
+# (旧写法是逐个把 key 置空以依赖 load_dotenv(override=False)——但那挡不住「先 pop 再
+#  import」的路径,也挡不住 .env 里的 HESTIA_MCP_SERVER 等非 key 变量。见 api.py 说明。)
+os.environ["HESTIA_SKIP_DOTENV"] = "1"
 for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
            "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "HESTIA_API_KEY"):
     os.environ[_k] = ""

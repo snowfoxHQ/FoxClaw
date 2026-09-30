@@ -21,11 +21,22 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-# 加载项目根目录的 .env(若存在),让所有 Key 从配置文件读取
+# 加载项目根目录的 .env(若存在),让所有 Key 从配置文件读取。
+#
+# 【HESTIA_SKIP_DOTENV】跳过 .env,只用进程环境变量 —— 专供测试/CI 使用。
+# 为什么必须有这个逃生口:load_dotenv(override=False) 只保护「进程里已存在的键」。
+# 测试若先 pop 掉某键(如 test_gateway.py pop HESTIA_API_KEY 以验证「未设即开放」),
+# 再 import 本模块,.env 就会把它灌回来 → 测试实际跑在开发者的真实配置上。
+# 后果有三:(1) 同一份代码在不同机器上结果不同,回归不可复现;
+# (2) .env 里的真实 Key 会让测试真的打到外部 API(产生费用);
+# (3) HESTIA_DATA_DIR=./hestia_data 会让测试写进用户的真实数据目录。
+# 设 HESTIA_SKIP_DOTENV=1 后,进程环境变量成为唯一来源,测试环境完全自洽。
 try:
     from dotenv import load_dotenv
     _env_path = Path(__file__).parent.parent / ".env"
-    if _env_path.exists():
+    if os.environ.get("HESTIA_SKIP_DOTENV", "").strip() in ("1", "true", "True", "yes"):
+        print("[HestiaOS] ○ HESTIA_SKIP_DOTENV=1 —— 跳过 .env,仅用进程环境变量")
+    elif _env_path.exists():
         load_dotenv(_env_path)
         print(f"[HestiaOS] ✓ 已加载配置文件 .env")
 except ImportError:

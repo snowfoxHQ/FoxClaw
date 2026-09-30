@@ -8,9 +8,12 @@ from pathlib import Path
 
 # Windows GBK 控制台无法编码 ✓/✗(✓/✗)等字符 → 运行器自己把 stdout/stderr 切到
 # utf-8,不依赖调用者预先 set PYTHONUTF8。否则打印结果时 UnicodeEncodeError 直接崩掉汇总。
+# line_buffering=True:本文件由 run_all 汇总输出,单个测试跑满 300s 时整轮可达十余分钟;
+# 若不开行缓冲,`python tests/run_all.py > log.txt` 会因块缓冲而**全程看不到进度**,
+# 只能等结束。开启后每条结果即时落盘,可 tail -f 观察。
 for _s in (sys.stdout, sys.stderr):
     try:
-        _s.reconfigure(encoding="utf-8")
+        _s.reconfigure(encoding="utf-8", line_buffering=True)
     except Exception:
         pass
 
@@ -34,7 +37,7 @@ TESTS = [
     ("test_memory_recall.py", "M4 · 记忆隔离召回完整性(根治)"),
     ("test_toplevel_concurrency.py", "顶层任务并发隔离(contextvars)"),
     ("test_api_auth.py",     "API 可选鉴权(X-API-Key)"),
-    ("test_llm_routing.py",  "LLM 辅助路由(关键词未命中精修)"),
+    ("test_supervisor_triage.py", "主管分诊与自答策略(关键词直路 / 自答 / stub 兜底)"),
     ("test_browser.py",      "浏览器子系统(HIR-Browser:核心逻辑/线程包装/降级)"),
     ("test_hkc.py",          "知识核心(HKC融入:装配/检索/H1资源修复/惰性teardown)"),
     ("test_search.py",       "认知搜索(HSR融入:编排/证据融合/迭代上限/端口降级)"),
@@ -94,15 +97,34 @@ def main():
     # 即便模型已缓存。实测让单次 init 从 ~44s 降到 ~7s,并去除网络抖动(否则被 HF 限流时
     # 某个子测试会顶穿 300s 超时)。模型已本地缓存,离线读取即可;未缓存时 Harness 会自动
     # 降级 n-gram 哈希嵌入,不影响测试判定。PYTHONUTF8:防 Windows GBK 控制台的 ✓/✗ 编码错。
+    # ── 测试环境隔离(必须放在最前,否则回归不可复现)────────────────────────
+    # HESTIA_SKIP_DOTENV=1:让 api.py 完全不读项目根目录的 .env。
+    #   为什么不能只靠下面那些空字符串:.env 的加载是 load_dotenv(override=False),
+    #   它只保护「当前进程里已存在的键」。但测试常常要 pop 掉某键来验证「未设时的行为」
+    #   (如 test_gateway.py / test_api_auth.py pop HESTIA_API_KEY),pop 完再 import api,
+    #   .env 就会把键灌回来 —— 空字符串挡不住这种路径。
+    #   实测证据:对照树(0 改动)+ 含 HESTIA_API_KEY 的 .env → test_gateway 报
+    #   KeyError: 'enabled';同树删掉 .env → 通过。故必须在源头关掉 .env。
+    #   另:开发者 .env 里有真实 Key 与 HESTIA_DATA_DIR=./hestia_data,不隔离会让测试
+    #   真的打外部 API(花钱)并写进真实数据目录。
+    # 下面显式置空的 key 作为**第二道防线**,覆盖那些会 import 本运行器 env dict
+    # 或直接读 os.environ 的路径(且便于单独运行单个测试文件时也保持确定性)。
     env = dict(os.environ, HESTIA_SHADOW_ROUNDS="50",
                HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
-               # 强制 stub:即使项目 .env 里有真实 LLM key(api.py 会 load_dotenv),回归也
-               # 保持离线/免费/确定性。load_dotenv 默认 override=False,故这里的空值优先,
-               # .env 的 key 被忽略,ModelRouter 降级 stub。也清掉 HESTIA_API_KEY(鉴权由
-               # test_api_auth 自己控制)。
+               HESTIA_SKIP_DOTENV="1",
+               # 强制 stub:回归保持离线/免费/确定性。鉴权与网关必须为「未设」态——
+               # test_api_auth / test_gateway 要自行控制 HESTIA_API_KEY,这里先兜底清空。
                DEEPSEEK_API_KEY="", ANTHROPIC_API_KEY="", OPENAI_API_KEY="",
                GOOGLE_API_KEY="", DASHSCOPE_API_KEY="", HESTIA_API_KEY="",
+               # .env 里 HESTIA_MCP_SERVER=1 会让 api.py 在 import 时构建 MCP 服务器,
+               # 而 test_tracing.py 有两处 `with TestClient(app)`(82/189 行),第二次进
+               # lifespan 会撞 StreamableHTTPSessionManager「.run() can only be called
+               # once per instance」。回归默认关;test_mcp_server.py 自己会置 1。
+               HESTIA_MCP_SERVER="0",
+               # 锁 stub 模型路由:.env 里 HESTIA_PROVIDER=openai/HESTIA_MODEL=abab6.5s-chat
+               # 是开发者的真实配置,回归不继承(否则路由判定随机器变化)。
+               HESTIA_PROVIDER="", HESTIA_MODEL="",
                # 产品默认 HKC_EMBEDDING=auto(真语义),但回归锁 stub 保确定+快;
                # 真语义单独由 test_semantic.py 显式验证。
                HKC_EMBEDDING="stub")

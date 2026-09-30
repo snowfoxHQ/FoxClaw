@@ -18,7 +18,6 @@ import asyncio
 import json
 import time
 from datetime import datetime, timezone
-from typing import Optional
 from .base import CognitiveAgent, HarnessBlockedError
 from ..planning import planner as P   # 统一规划原语(P1-2:关键词命中单一真源)
 
@@ -174,23 +173,12 @@ class SupervisorAgent(CognitiveAgent):
         """任务是否命中任一领域关键词(命中 = 关键词路由可信,不必再问 LLM)。"""
         return any(P.keyword_hits(task, kws) for kws in self.ROUTING_KEYWORDS.values())
 
-    async def _llm_classify(self, task: str) -> Optional[str]:
-        """关键词没命中时,用 LLM 把任务分到某个领域 Agent(真机分诊精修)。
-        真机 E2E 暴露:纯关键词路由会把"房租占比/向量数据库/会议冲突"这类没含确切
-        关键词的任务全落到 assistant。LLM 分类补上这块。stub 下不调用(见调用点)。"""
-        prompt = ("把用户任务分派给最合适的 Agent,只回一个英文词,不要解释:\n"
-                  "finance(理财/收支/预算/风控/消费) / admin(日程/行程/会议/出行/预约) / "
-                  "office(学习/知识/研究/写作/解释概念) / assistant(其它通用)。\n"
-                  f"任务:{task}\n只输出一个词:")
-        try:
-            resp = await self._call_llm([{"role": "user", "content": prompt}], max_tokens=8)
-            r = (resp or "").strip().lower()
-            for aid in ("finance", "admin", "office", "assistant"):
-                if aid in r:
-                    return aid
-        except Exception:
-            pass
-        return None
+    # 【已删除 · 请勿凭记忆加回】这里原有一个 `_llm_classify(task) -> Optional[str]`:
+    # 关键词未命中时用一次 LLM 把任务分诊到领域 Agent。它已被 `run_task` 中的分支取代
+    # 并成为死代码(全仓库零调用点),故删除。当时的取舍见 run_task 内「无关键词命中 →
+    # 主管直接自答」一段:每次分诊要多一次约 5s 的串行 LLM 往返,正面对话不值当,于是
+    # 改为主管自答。如需恢复精修,应从 git 历史取回本方法,并同时改回 run_task 的分支、
+    # 补回对应测试 —— 只加回方法不接线等于再制造一处死代码。
 
     def _plan_task(self, task: str, sched=None):
         """用 planner 判断任务是否需要拆解(多步)。

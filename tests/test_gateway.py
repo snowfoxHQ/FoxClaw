@@ -3,6 +3,10 @@
 import os, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# 本测试用 pop("HESTIA_API_KEY") 验证「未设即网关默认关」,但 pop 之后 load_dotenv
+# (override=False)仍会从 .env 把键灌回来(开发者 .env 常带真实 HESTIA_API_KEY)→ 判定
+# 随机器漂移。关掉 .env 使本测试自洽,单独运行也稳定。
+os.environ["HESTIA_SKIP_DOTENV"] = "1"
 # 必须在 import hestia.api 之前设好:网关实例在模块加载时按环境变量建
 os.environ["HESTIA_GATEWAY"] = "1"
 os.environ["HESTIA_GATEWAY_RATE"] = "5"        # 每分钟 5 → 桶容量 5,突发 5 后限流

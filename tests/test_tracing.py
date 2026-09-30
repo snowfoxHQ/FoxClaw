@@ -3,6 +3,10 @@
 import os, sys, time, json, threading, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# 关掉 .env:否则开发者 .env 的 HESTIA_MCP_SERVER=1 会在 import api 时构建 MCP 服务器,
+# 而本测试有**两处** `with TestClient(app)`(82/189 行),第二次进 lifespan 会撞
+# StreamableHTTPSessionManager「.run() can only be called once per instance」而失败。
+os.environ["HESTIA_SKIP_DOTENV"] = "1"
 os.environ["HKC_EMBEDDING"] = "stub"
 os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
 os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_trace_")
