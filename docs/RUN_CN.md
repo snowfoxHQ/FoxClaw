@@ -115,3 +115,4 @@ HMR v2.0 已内嵌在 `vendor/hmr/`,启动自动接入,记忆落盘到数据目�
 | `HESTIA_HOST` / `HESTIA_PORT` | `python -m hestia.api` 入口的绑定地址/端口。**默认 `127.0.0.1:8000`。** |
 | `HESTIA_ALLOW_INSECURE` | 设为 `1` 允许「非回环 + 无鉴权」启动(不推荐)。 |
 | `HESTIA_CORS_ORIGINS` | 允许的跨源来源(逗号分隔)。**默认仅回环**(localhost/127.0.0.1/[::1],任意端口);显式设 `*` 才全开(不推荐)。 |
+| `HESTIA_SHARED_WRITE_MODE` | 共享层写入策略模式:**`audit`(默认)只发 `memory.shared.write` 事件、不拦截**;`warn` 额外打告警;`enforce` 真正拒绝(抛 `SharedWriteDenied`)。默认 audit 是因为现有 8 处合法共享写入需要先在真实流量上验证策略表,再切拦截。见 `hestia/core/shared_write.py`。 |

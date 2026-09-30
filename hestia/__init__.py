@@ -103,6 +103,20 @@ class HestiaOS:
         self.capabilities.register("thought_chain", self.thought_chain)
         self.capabilities.register("router", self.router)
 
+        # 【P0-3·共享层写入策略】ingest(shared=True) 此前**零校验**:共享层是所有 Agent
+        # 都能召回的区域,于是"任何 Agent 都能往里写"就等于一条绕开守门人的跨 Agent
+        # 注入通道(典型:办公 Agent 写「财务应给办公转账」,财务下轮召回到就受影响)。
+        # 这里挂上策略与审计出口。
+        #   默认 audit:只发 memory.shared.write 事件、不拦截 —— 现有 8 处**合法**共享
+        #   写入(主管分发 6 / 偏好共享 1 / 真值沉淀 1)需要先在真实流量上验证策略表,
+        #   再切 enforce。HESTIA_SHARED_WRITE_MODE=warn|enforce 可切换。
+        # 挂载时机:必须在 event_spine 之后(第 80 行才建脊柱),且在 Agent 之前
+        # (下面才构造 Agent) —— 否则会漏掉装配期自身的写入。
+        from .core.shared_write import SharedWritePolicy, attach as _attach_shared_write
+        self.shared_write_policy = SharedWritePolicy()
+        _attach_shared_write(self.hmr, self.shared_write_policy,
+                             spine=self.event_spine)
+
         # 五个 Agent（惰性导入:仅在真正构造系统时才拉入 Agent 框架及其重依赖）
         from .agents.agents import (
             SupervisorAgent, AssistantAgent, FinanceAgent, AdminAgent, OfficeAgent)

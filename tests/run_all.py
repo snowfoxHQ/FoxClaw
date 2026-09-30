@@ -26,6 +26,7 @@ TESTS = [
     ("test_skills.py",       "助手 Skill 接入层"),
     ("test_kernel.py",       "内核新模块回归"),
     ("test_governance.py",   "运行时治理(幂等/恢复/队列/压缩/循环/钩子)"),
+    ("test_shared_write.py", "P0-3 · 共享层写入策略(audit/warn/enforce)"),
     ("test_channels.py",     "消息渠道(四适配器+闭环+幂等去重)"),
     ("test_evals_smoke.py",  "M1 · 治理评测冒烟(拦截率/误报/收敛)"),
     ("test_parallel_dispatch.py", "M2 · 并行子 Agent(fork-join/隔离/并发安全)"),

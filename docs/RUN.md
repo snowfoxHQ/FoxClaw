@@ -69,3 +69,4 @@ HMR v2.0 is embedded in `vendor/hmr/`, auto-loaded, persisting to the data dir's
 | `HESTIA_HOST` / `HESTIA_PORT` | Bind address / port for the `python -m hestia.api` entry. **Default `127.0.0.1:8000`.** |
 | `HESTIA_ALLOW_INSECURE` | Set to `1` to let the entry start on a non-loopback host without `HESTIA_API_KEY` (not recommended). |
 | `HESTIA_CORS_ORIGINS` | Comma-separated allowed origins. **Default: loopback only** (`localhost` / `127.0.0.1` / `[::1]`, any port). Set explicitly for cross-origin deploys; `*` opens it fully (not recommended). |
+| `HESTIA_SHARED_WRITE_MODE` | Shared-memory write policy mode: **`audit` (default) publishes `memory.shared.write` events without blocking**; `warn` also logs; `enforce` actually denies (raises `SharedWriteDenied`). Default is audit because the 8 existing legitimate shared writes must validate the policy table on real traffic before enforcement is switched on. See `hestia/core/shared_write.py`. |

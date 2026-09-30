@@ -19,6 +19,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from .shared_write import guard_shared_write
+
 
 def _ensure_hmr_importable():
     """把 vendor/ 加入 sys.path,使内嵌的 HMR 可被导入。"""
@@ -84,6 +86,10 @@ class HMRAdapter:
         mtype = type if type in valid else "concept"
         if not title:
             title = self._derive_title(content) or None
+        # 【P0-3】共享层写入闸门:必须在**落库之前**判定(见 core/shared_write.py)。
+        # 未挂策略时返回 None 直接放行;audit 只记事件;enforce 才抛 SharedWriteDenied。
+        if shared:
+            guard_shared_write(self, agent_id, content, mtype, meta_tags)
         with self._lock:
             return self._hmr.ingest(content, memory_type=mtype, title=title, metadata=metadata)
 
@@ -398,7 +404,11 @@ class MockHMR:
     def save_workspace(self, agent_id: str):
         pass
 
-    def ingest(self, content, type="concept", agent_id=None, **kwargs):
+    def ingest(self, content, type="concept", agent_id=None, shared=False, **kwargs):
+        # 【P0-3】与 HMRAdapter 同一道闸门:Mock 后端也过策略。否则在无 HMR 的环境里
+        # 策略形同虚设 —— 而测试与降级场景恰好都落在这一支,那是最需要行为一致的地方。
+        if shared:
+            guard_shared_write(self, agent_id, content, type, kwargs.get("tags") or [])
         from types import SimpleNamespace
         # 注意:不能用内置 type() 构造对象——参数名 type 已覆盖内置 type。
         return SimpleNamespace(id="mock_mem", type=type)
