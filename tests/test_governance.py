@@ -295,11 +295,19 @@ def test_harness_action_wiring():
     r2 = h2.check(node(entities=["e0", "x1", "x2"]))
     check(r2.scores["scope"] == 1.0, "restrict_scope 生效:超上限 scope 抬到 1.0")
 
-    # —— 端到端:一次真实 BLOCK 应自动学到规则并重建索引 ——
+    # —— 端到端:一次真实 BLOCK → 【P0-1 新行为】规则进**影子**(不生效),不再立即重建索引 ——
     h3 = fresh({"预算"})
-    h3.check(node(tool="delete_everything"))   # delete 类越权 → BLOCK → 学 penalize_tool
+    h3.check(node(tool="delete_everything"))   # delete 类越权 → BLOCK → 影子候选
+    check(not h3._is_penalized_tool("delete_everything"),
+          "P0-1:BLOCK 后规则进影子,**不立即生效**(未重建索引)")
+    shadow = h3._policy.get("shadow_rules", [])
+    check(len(shadow) == 1 and shadow[0]["action"]["type"] == "penalize_tool"
+          and shadow[0]["shadow"]["status"] == "observing",
+          "P0-1:影子规则已入库且处于 observing")
+    # 手工 promote 后应立即生效(升迁路径与自动升迁同构)
+    h3._promote_rule(shadow[0])
     check(h3._is_penalized_tool("delete_everything"),
-          "真实 BLOCK 后自动学到 penalize_tool 并已重建索引")
+          "P0-1:promote 后规则生效(索引已重建)")
 
 
 def test_harness_thread_safety():

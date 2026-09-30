@@ -220,6 +220,20 @@ def run_self_learning(rounds: int = 8) -> dict:
     monotone = all(w_curve[i] >= w_curve[i - 1] for i in range(1, len(w_curve)))
     converged = (monotone and all(b == 1.0 for b in block_curve)
                  and all(f == 0.0 for f in hard_fpr_curve))
+    # 【P0-1】规则级学习已影子化:BLOCK 后候选进 shadow_rules(**不立即生效**),
+    # 观察 N 次后才 promote/discard。因此「学到」的判定拆成两层:
+    #   ① proposed —— 重复越权确实产出了 penalize 影子候选(学习管线触发);
+    #   ② promote_path —— 经 promote 路径升迁后规则真的生效(生效机制端到端)。
+    # 注意:重复同一场景时影子证据是「影子与 real 判定一致」(real 已 BLOCK),
+    # 按设计这类候选最终会因「无增量价值」被 discard —— 这是 P0-1 的预期行为,
+    # 不是学习失效;权重级学习(+0.05/轮)仍即时生效,见 block_curve 全 1.0。
+    cands = [r for r in h._policy.get("shadow_rules", [])
+             if (r.get("action") or {}).get("tool_pattern") == "delete_ledger"]
+    proposed = bool(cands)
+    promote_path = False
+    if cands:
+        h._promote_rule(cands[0])
+        promote_path = h._is_penalized_tool("delete_ledger")
     return {
         "rounds": rounds,
         "tool_weight_curve": w_curve,
@@ -227,7 +241,8 @@ def run_self_learning(rounds: int = 8) -> dict:
         "benign_hard_fpr_curve": hard_fpr_curve,
         "benign_soft_warn_curve": soft_warn_curve,
         "weight_monotone_nondecreasing": monotone,
-        "penalized_tool_learned": h._is_penalized_tool("delete_ledger"),
+        "penalized_tool_proposed": proposed,
+        "penalize_promote_path_ok": promote_path,
         "converged": bool(converged),
         "note": "软 WARN 曲线随权重从 semantic 移向 tool 而自行下降,是学习的良性副作用",
     }

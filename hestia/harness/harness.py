@@ -215,6 +215,7 @@ class Harness:
         shadow_rounds: int = 20,
         embedding_model: str = None,
         spine=None,                       # 【P0】全局 EventSpine(可空:standalone/governance 场景)
+        promote_min_obs: int = None,      # 【P0-1】影子规则升迁所需观察次数(None→env/默认 50)
     ):
         # embedding 可经 HESTIA_EMBEDDING_MODEL 环境变量切换(体现"模型无关"):
         # 中文部署设成 paraphrase-multilingual-MiniLM-L12-v2,语义漂移对中文的硬拦率
@@ -263,6 +264,18 @@ class Harness:
 
         # Policy
         self._policy: dict = self._load_policy()
+        # 【P0-1】影子学习段(旧 YAML 没有 → 补空段;不重命名既有键,版本兼容)
+        self._policy.setdefault("shadow_rules", [])
+        self._policy.setdefault("history", [])
+
+        # 【P0-1】影子观察达标线:observations 凑满才做 promote/discard 判定。
+        # 显式构造参数 > 环境变量 > 默认 50(文稿建议值)。个人级低频使用下一条影子
+        # 规则可能长期 observing —— 这正是影子的目的:证据不够就不生效。
+        if promote_min_obs is not None:
+            self.promote_min_obs = promote_min_obs
+        else:
+            _env = os.environ.get("HESTIA_SHADOW_PROMOTE_MIN_OBS", "").strip()
+            self.promote_min_obs = int(_env) if _env.isdigit() else 50
 
         # 把已学习规则的 action 编译成 check() 可直接应用的结构(规则级生效)
         self._penalized_tools: set[str] = set()
@@ -422,7 +435,15 @@ class Harness:
                 scores=scores, reason=reason,
             )
 
-            # BLOCK：触发 Policy 学习(mutates weights/_policy/_reindex,须在锁内)
+            # 【P0-1】影子规则双轨观察(锁内):用**已算好的 scores** 模拟应用影子规则的
+            # action,只记录 would_block/would_pass,绝不改变上面的 real result。
+            # 不重新做语义嵌入 —— 开销是 O(观察中规则数) 的纯算术,远优于文稿预估的 2x。
+            # 顺序有意**先于**下方的 BLOCK 学习:本次 check 是对**既有**候选的一次观察样本;
+            # 本次 BLOCK 诞生的新候选从**下一次** check 才开始积累证据(诞生事件≠观察样本)。
+            if self._policy.get("shadow_rules"):
+                self._observe_shadow_rules(node, result, scores)
+
+            # BLOCK：触发 Policy 学习(mutates weights/_policy,须在锁内)
             if status == "BLOCK":
                 self._trigger_policy_learning(node, result)
 
@@ -435,28 +456,61 @@ class Harness:
         })
         return result
 
-    # ── Policy 学习 ────────────────────────────────────────
+    # ── Policy 学习(P0-1:影子验证 + 回滚 + 边界)────────────────
+
+    # 【P0-1 边界】可生成影子规则的维度。semantic 可学但**仅权重级**(不生成规则——
+    # 原 increase_semantic_threshold 规则本就无规则级应用,判定行为不变);
+    # 不在 weights 里的未知维度 → 只记录不学习(fail-closed,防未来新维度被默认自学)。
+    _LEARNABLE_RULE_DIMS = frozenset({"tool", "scope"})
 
     def _trigger_policy_learning(self, node: ThoughtNode, result: HarnessResult):
-        """BLOCK 事件 → 生成 Policy 规则候选 → 写回 YAML"""
-        new_rule = {
-            "id": f"rule_{node.id}",
-            "trigger": {
-                "harness_status": "BLOCK",
-                "dominant_dim": result.dominant_dim,
-                "delta_threshold": round(result.delta, 3),
-            },
-            "action": self._generate_policy_action(node, result),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "source": "harness_learned",
-            "agent_id": self.agent_id,
-        }
+        """BLOCK 事件 → 规则候选进 **shadow_rules(不生效)** → 影子观察 → promote/discard。
 
-        # 合并到 Policy
-        self._policy.setdefault("rules", []).append(new_rule)
-        self._save_policy()
-        # 重建学习规则索引 → 新学到的 action 立即在后续 check() 生效(规则级)
-        self._reindex_learned_actions()
+        【P0-1】原为「BLOCK → 规则直接写 rules + reindex → 下次 check 立即生效」——
+        在线无验证学习是真实风险(一次偶发 BLOCK 就永久改变判定)。改后:
+          · 规则级:候选进 shadow_rules,观察 N 次达标才 promote(生效)/discard;
+          · 权重级:保持现状(触发维度 +0.05 归一化)——文稿只影子化规则级,权重微调风险低;
+          · 边界:semantic 仅权重级不生成规则;未知维度连权重都不学,只记录。
+        """
+        dim = result.dominant_dim
+
+        # ── 边界:未知维度 fail-closed,只记录不学习(权重也不动)──
+        if dim not in self.weights:
+            self._record_history("skip", "",
+                                 note=f"未知维度 '{dim}' 禁止自学习(fail-closed)")
+            self._save_policy()
+            return
+
+        # ── 规则级:tool/scope 生成影子候选;semantic 仅权重级 ──
+        if dim in self._LEARNABLE_RULE_DIMS:
+            new_rule = {
+                "id": f"rule_{node.id}",
+                "trigger": {
+                    "harness_status": "BLOCK",
+                    "dominant_dim": dim,
+                    "delta_threshold": round(result.delta, 3),
+                },
+                "action": self._generate_policy_action(node, result),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "source": "harness_learned",
+                "agent_id": self.agent_id,
+                # 影子账本:observations=适用次数;would_block=若生效会多拦;
+                # would_pass=若生效会多放。三者是 promote/discard 的全部证据。
+                "shadow": {
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "observations": 0, "would_block": 0, "would_pass": 0,
+                    "status": "observing",
+                },
+            }
+            self._policy.setdefault("shadow_rules", []).append(new_rule)
+            self._record_history("propose", new_rule["id"],
+                                 note=f"{dim} 维度 BLOCK → 影子观察")
+            # 不 _reindex_learned_actions —— 影子规则**不得**影响判定
+            self.bus.emit("shadow_rule_proposed", {
+                "agent_id": self.agent_id, "rule_id": new_rule["id"],
+                "dominant_dim": dim,
+                "action_type": new_rule["action"].get("type", ""),
+            })
 
         # 更新权重：触发截断的维度权重 +δ
         # 必须**先把新权重算完整再整体赋值**,不能"原地 +0.05 再归一化":
@@ -464,19 +518,171 @@ class Harness:
         # (get_policy_summary / policy_updated 的监听者),拿到的就是未归一化的错值。
         # 实测:同一份 summary 持有的 weights 引用会被读出 0.35,而稍后再取是 0.333 —— 正是
         # 这个中间态被观察到。
-        dim = result.dominant_dim
-        if dim in self.weights:
-            bumped = dict(self.weights)
-            bumped[dim] = min(bumped[dim] + 0.05, 0.8)
-            total = sum(bumped.values())
-            self.weights = {k: v / total for k, v in bumped.items()}
+        bumped = dict(self.weights)
+        bumped[dim] = min(bumped[dim] + 0.05, 0.8)
+        total = sum(bumped.values())
+        self.weights = {k: v / total for k, v in bumped.items()}
 
+        self._save_policy()
         self.bus.emit("policy_updated", {
             "agent_id": self.agent_id,
-            "rule_id": new_rule["id"],
-            "dominant_dim": result.dominant_dim,
+            "rule_id": "",
+            "dominant_dim": dim,
             "new_weights": dict(self.weights),
         })
+
+    # ── 影子观察(双轨判定)──────────────────────────────────
+
+    def _observe_shadow_rules(self, node: ThoughtNode, result: HarnessResult,
+                              real_scores: dict):
+        """对观察中的影子规则做双轨计数,达标后 promote/discard。锁内调用。
+
+        适用性:当前场景的 dominant_dim 与规则 trigger.dominant_dim 相同。
+        (trigger.delta_threshold 仅记录生成时的漂移强度,不作匹配条件——否则
+        observations 几乎无法积累,影子机制会失去意义。)
+
+        落盘节流:promote/discard 立即 save;普通计数每 10 次 save 一次(进程崩溃
+        最多丢 9 次观察计数,可接受)——否则「有影子规则时每次 check 都写 YAML」,
+        一次任务几十次 check 就是几十次磁盘写。
+        """
+        need_save = False
+        for rule in list(self._policy.get("shadow_rules", [])):
+            sh = rule.get("shadow") or {}
+            if sh.get("status") != "observing":
+                continue
+            trig = rule.get("trigger") or {}
+            if trig.get("dominant_dim") != result.dominant_dim:
+                continue
+
+            sh["observations"] = sh.get("observations", 0) + 1
+
+            # 双轨:把该规则的 action 应用到 scores 副本,用**同一套权重与阈值**判定
+            shadow_status = self._status_with_action(rule, node, real_scores)
+            real_blocked = result.is_blocked
+            shadow_blocked = shadow_status == "BLOCK"
+            if shadow_blocked and not real_blocked:
+                sh["would_block"] = sh.get("would_block", 0) + 1
+            elif not shadow_blocked and real_blocked:
+                sh["would_pass"] = sh.get("would_pass", 0) + 1
+
+            verdict = self._should_promote(sh)
+            if verdict is True:
+                self._promote_rule(rule)
+                need_save = True
+            elif verdict is False:
+                self._discard_rule(rule, "影子证据不达标")
+                need_save = True
+            elif sh["observations"] % 10 == 0:
+                need_save = True                    # 计数节流持久化
+        if need_save:
+            self._save_policy()
+
+    def _status_with_action(self, rule: dict, node: ThoughtNode,
+                            real_scores: dict) -> str:
+        """模拟应用单条影子规则的 action,给出「若它生效」的判定(复用同一权重/阈值)。"""
+        scores = dict(real_scores)
+        action = rule.get("action") or {}
+        atype = action.get("type")
+        if atype == "penalize_tool":
+            pat = action.get("tool_pattern", "")
+            tool_name = getattr(node, "tool_name", "") or ""
+            # 与 _is_penalized_tool 同语义:**仅当前工具命中 pattern 才抬分**。
+            # 若不看匹配、凡 tool 分非零就抬,会把「毫不相干工具的场景」误记成
+            # would_block —— 影子证据完全失真,好规则会被冤判成误伤 discard。
+            if pat and tool_name and (tool_name == pat or pat in tool_name):
+                scores["tool"] = 1.0
+        elif atype == "restrict_scope":
+            # 与 check() 里 restrict_scope 的判定同构:新增实体超限则抬 scope
+            lim = action.get("entity_expansion_limit")
+            baseline = self._baseline
+            if isinstance(lim, int) and baseline is not None and baseline.baseline_entities:
+                new_entities = set(node.entities) - baseline.baseline_entities
+                if len(new_entities) > lim:
+                    scores["scope"] = 1.0
+        delta = sum(self.weights[k] * v for k, v in scores.items())
+        if delta > self._block_threshold:
+            return "BLOCK"
+        if delta > self._warn_threshold:
+            return "WARN"
+        return "PASS"
+
+    def _should_promote(self, sh: dict):
+        """影子证据判定(文稿第四步):True=promote / False=discard / None=继续观察。"""
+        obs = sh.get("observations", 0)
+        if obs < self.promote_min_obs:
+            return None
+        wb, wp = sh.get("would_block", 0), sh.get("would_pass", 0)
+        # 会多拦很多(可能误伤)→ 不 promote
+        if wb / max(obs, 1) > 0.3:
+            return False
+        # 几乎不改变判定 → promote 没意义
+        if wb == 0 and wp == 0:
+            return False
+        return True
+
+    def _promote_rule(self, rule: dict):
+        """影子 → 生效:移入 rules、重建索引、记 history、发事件。"""
+        rule.get("shadow", {})["status"] = "promoted"
+        self._policy.setdefault("shadow_rules", []).remove(rule)
+        rule.pop("shadow", None)                      # 生效规则不再背影子账本
+        self._policy.setdefault("rules", []).append(rule)
+        self._reindex_learned_actions()
+        self._record_history("promote", rule["id"],
+                             note=f"观察达标升迁(维度 {rule.get('trigger', {}).get('dominant_dim', '?')})")
+        self.bus.emit("shadow_rule_promoted", {
+            "agent_id": self.agent_id, "rule_id": rule["id"],
+            "dominant_dim": rule.get("trigger", {}).get("dominant_dim", ""),
+        })
+
+    def _discard_rule(self, rule: dict, why: str):
+        """影子证据不达标:标记 discarded(保留供审计回放,不再参与双轨评估)。"""
+        sh = rule.get("shadow") or {}
+        sh["status"] = "discarded"
+        self._record_history("discard", rule.get("id", ""), note=why)
+        self.bus.emit("shadow_rule_discarded", {
+            "agent_id": self.agent_id, "rule_id": rule.get("id", ""),
+            "reason": why,
+            "observations": sh.get("observations", 0),
+            "would_block": sh.get("would_block", 0),
+            "would_pass": sh.get("would_pass", 0),
+        })
+
+    def rollback(self, rule_id: str) -> bool:
+        """【P0-1 回滚】把一条已生效规则撤出生效集(误 promote 的后悔药)。
+
+        规则从 rules 移回 shadow_rules 并标记 rolled_back(不再生效、保留可审计),
+        重建索引 + 记 history + 发事件。找不到返回 False。"""
+        for rule in list(self._policy.get("rules", [])):
+            if rule.get("id") != rule_id:
+                continue
+            self._policy["rules"].remove(rule)
+            rule["shadow"] = {
+                "created_at": rule.get("created_at", ""),
+                "observations": 0, "would_block": 0, "would_pass": 0,
+                "status": "rolled_back",
+            }
+            self._policy.setdefault("shadow_rules", []).append(rule)
+            self._reindex_learned_actions()
+            self._record_history("rollback", rule_id, note="人工/自动回滚")
+            self._save_policy()
+            self.bus.emit("shadow_rule_rolled_back", {
+                "agent_id": self.agent_id, "rule_id": rule_id,
+            })
+            return True
+        return False
+
+    def _record_history(self, event: str, rule_id: str, note: str = ""):
+        """policy YAML 的 history 段(文稿第六步):propose/promote/discard/rollback/skip 全轨迹。
+        有界保留最近 500 条(与库内有界日志惯例一致)。"""
+        hist = self._policy.setdefault("history", [])
+        hist.append({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": event, "rule_id": rule_id,
+            "version": self._policy.get("version", 1),
+            "note": note[:200],
+        })
+        if len(hist) > 500:
+            del hist[:-500]
 
     def _generate_policy_action(self, node: ThoughtNode, result: HarnessResult) -> dict:
         """生成结构化策略动作,随 learned rule 持久化到 policy 文件。
@@ -600,11 +806,17 @@ class Harness:
 
     def get_policy_summary(self) -> dict:
         rules = self._policy.get("rules", [])
+        shadow = self._policy.get("shadow_rules", [])
         return {
             "version": self._policy.get("version", 1),
             "total_rules": len(rules),
             "manual_rules": sum(1 for r in rules if r.get("source") == "manual"),
             "learned_rules": sum(1 for r in rules if r.get("source") == "harness_learned"),
+            # 【P0-1】影子学习账本:observing=观察中(不生效);discarded/rolled_back 保留供审计
+            "shadow_observing": sum(1 for r in shadow
+                                    if (r.get("shadow") or {}).get("status") == "observing"),
+            "shadow_total": len(shadow),
+            "history_events": len(self._policy.get("history", [])),
             # 返回**副本**:此前直接返回 self.weights 引用 —— 调用方拿到的不是快照,
             # 既可能被后续权重更新"隔空改写"(读到的值取决于时机),也能反向改坏内部状态。
             "weights": dict(self.weights),

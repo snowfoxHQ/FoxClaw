@@ -32,6 +32,7 @@ TESTS = [
     ("test_shared_write.py", "P0-3 · 共享层写入策略(audit/warn/enforce)"),
     ("test_audit_sink.py",   "P0-3 · 审计落盘 sink(环形缓冲外的持久样本)"),
     ("test_governance_audit.py", "批次3 · 治理审计链(P1-2/P1-3/P2-0/P3-4 decision_id)"),
+    ("test_shadow_learning.py", "批次4 · P0-1 影子学习(shadow→promote/discard+回滚+边界)"),
     ("test_channels.py",     "消息渠道(四适配器+闭环+幂等去重)"),
     ("test_evals_smoke.py",  "M1 · 治理评测冒烟(拦截率/误报/收敛)"),
     ("test_parallel_dispatch.py", "M2 · 并行子 Agent(fork-join/隔离/并发安全)"),

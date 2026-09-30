@@ -57,7 +57,9 @@ def main():
     check(all(b == 1.0 for b in sl["block_rate_curve"]), "重复越权每轮都被 BLOCK")
     check(all(f == 0.0 for f in sl["benign_hard_fpr_curve"]), "学习不产生正常任务硬误报")
     check(sl["converged"], "自学习整体收敛")
-    check(sl["penalized_tool_learned"], "越权工具被学入 penalize 规则")
+    # 【P0-1】规则级学习影子化:「学到」= 候选已提出(进 shadow)+ promote 路径可生效
+    check(sl["penalized_tool_proposed"], "越权工具产出 penalize 影子候选(P0-1)")
+    check(sl["penalize_promote_path_ok"], "promote 后 penalize 规则真实生效(P0-1)")
 
     print("\n【总判定】")
     check(rep["checks"]["loops_detected"] and rep["checks"]["recovery_ok"]

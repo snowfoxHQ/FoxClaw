@@ -125,12 +125,16 @@ async def main():
         print(f"    原因: {blocked.result.reason}")
         pol2 = os_.finance.harness.get_policy_summary()
         print(f"  ✓ Policy 学习触发! v{pol['version']}→v{pol2['version']} "
-              f"学习规则 {pol['learned_rules']}→{pol2['learned_rules']}")
+              f"影子规则 {pol.get('shadow_observing', 0)}→{pol2['shadow_observing']}")
         print(f"  ✓ 权重已调整: {pol2['weights']}")
         check(pol2["version"] > pol["version"],
               f"Policy 版本因截断而递增(v{pol['version']} → v{pol2['version']})")
-        check(pol2["learned_rules"] > pol["learned_rules"],
-              f"从截断中真的学到规则({pol['learned_rules']} → {pol2['learned_rules']})")
+        # 【P0-1 新行为】BLOCK 后规则进**影子**(不立即生效):learned_rules 不变,
+        # shadow_observing +1。在线无验证学习已被影子验证取代。
+        check(pol2["shadow_observing"] > pol.get("shadow_observing", 0),
+              f"截断产生影子规则候选({pol.get('shadow_observing', 0)} → {pol2['shadow_observing']})")
+        check(pol2["learned_rules"] == pol["learned_rules"],
+              "P0-1:影子期规则未生效(learned_rules 不变)")
         # 主导维度是 tool → 学习应**上调**工具维度权重(惩罚越界工具),其余相对下降
         check(pol2["weights"]["tool"] > pol["weights"]["tool"],
               f"主导维度 tool 的权重被上调({pol['weights']['tool']} → {pol2['weights']['tool']})")
