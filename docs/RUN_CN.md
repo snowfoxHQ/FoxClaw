@@ -115,5 +115,5 @@ HMR v2.0 已内嵌在 `vendor/hmr/`,启动自动接入,记忆落盘到数据目�
 | `HESTIA_HOST` / `HESTIA_PORT` | `python -m hestia.api` 入口的绑定地址/端口。**默认 `127.0.0.1:8000`。** |
 | `HESTIA_ALLOW_INSECURE` | 设为 `1` 允许「非回环 + 无鉴权」启动(不推荐)。 |
 | `HESTIA_CORS_ORIGINS` | 允许的跨源来源(逗号分隔)。**默认仅回环**(localhost/127.0.0.1/[::1],任意端口);显式设 `*` 才全开(不推荐)。 |
-| `HESTIA_SHARED_WRITE_MODE` | 共享层写入策略模式:**`audit`(默认)只发 `memory.shared.write` 事件、不拦截**;`warn` 额外打告警;`enforce` 真正拒绝(抛 `SharedWriteDenied`)。默认 audit 是因为现有 8 处合法共享写入需要先在真实流量上验证策略表,再切拦截。见 `hestia/core/shared_write.py`。 |
+| `HESTIA_SHARED_WRITE_MODE` | 共享层写入策略模式:**`audit`(默认)只发 `memory.shared.write` 事件、不拦截**;`warn` 额外打告警;`enforce` 真正拒绝(抛 `SharedWriteDenied`)。默认 audit 是因为现有 8 处合法共享写入需要先在真实流量上验证策略表,再切拦截。见 `hestia/core/shared_write.py`。**灰度推进前先跑 `python tools/shared_write_audit.py`**(端到端验收:8 处真实写入零误伤 + 5 类越界注入被识别,退出码 0 才算过)。 |
 | `HESTIA_SKIP_DOTENV` | 设为 `1` 则**完全不加载项目根目录 `.env`**,只用进程环境变量。**专供测试/CI**:`.env` 里若带真实 Key 或 `HESTIA_MCP_SERVER=1` / `HESTIA_API_KEY`,会污染测试判定(同代码在不同机器结果不同)、让测试真的打外部 API 并写进真实数据目录。`tests/run_all.py` 已默认设 `1`。**本地开发不要设。** |
