@@ -10,6 +10,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hestia import HestiaOS
+from hestia.agents.base import HarnessBlockedError
+
+
+def check(cond, msg):
+    if not cond:
+        raise AssertionError(f"✗ {msg}")
+    print(f"  ✓ {msg}")
+
 
 async def main():
     print("="*64)
@@ -23,6 +31,9 @@ async def main():
     print("\n【1】系统初始化")
     print(f"  Harness 嵌入模式: {os_.finance.harness.sem_drift.mode}")
     print(f"  五 Agent: {list(os_._agents.keys())}")
+    check(set(os_._agents.keys()) == {"supervisor", "assistant", "finance", "admin", "office"},
+          f"五个 Agent 全部就绪({sorted(os_._agents.keys())})")
+    check(os_.finance.harness.sem_drift.mode != "", "Harness 语义漂移器已定模式")
 
     print("\n【2】连续跑任务,触发 Shadow 校准")
     finance_tasks = [
@@ -34,6 +45,7 @@ async def main():
         "规划明年预算",
         "对比去年同期支出",
     ]
+    modes, runs, blocks = [], [], []
     for i, t in enumerate(finance_tasks, 1):
         r = await os_.finance.run_task(t)
         th = os_.finance.harness.thresholds
@@ -41,12 +53,21 @@ async def main():
         err = r.get("error", "")
         print(f"  [{i}] {t[:16]:<16} mode={mode} run={th['run_count']} "
               f"block_th={th['block']:.3f} {err}")
+        modes.append(bool(th["shadow_mode"])); runs.append(th["run_count"]); blocks.append(th["block"])
+    check(runs == sorted(runs) and runs[-1] > runs[0],
+          f"推理节点随任务稳定累积(run {runs[0]} → {runs[-1]})")
+    check(modes[0] is True and modes[-1] is False,
+          "Shadow 校准已生效:从 SHADOW 进入 ACTIVE(阈值开始拦截)")
 
     print("\n【3】校准后的阈值(来自真实 Δ 分布,非硬编码)")
     th = os_.finance.harness.thresholds
     print(f"  WARN 阈值:  {th['warn']:.4f}")
     print(f"  BLOCK 阈值: {th['block']:.4f}")
     print(f"  Shadow 模式: {th['shadow_mode']}")
+    # 这是本项目"阈值自适应而非拍脑袋"的核心主张:校准前后 BLOCK 阈值必须发生变化。
+    # 若两者相同,说明阈值其实来自硬编码默认值,校准没起作用 —— 这正是需要红的场景。
+    check(blocks[0] != blocks[-1],
+          f"BLOCK 阈值由校准真实改变({blocks[0]:.3f} → {blocks[-1]:.3f},非硬编码默认值)")
 
     print("\n【4】ThoughtChain 真实写入验证")
     summary = os_.thought_chain.get_summary("finance")
@@ -54,24 +75,36 @@ async def main():
     print(f"  平均置信度:   {summary['avg_confidence']}")
     print(f"  平均漂移 Δ:   {summary['avg_delta']}")
     print(f"  截断节点:     {summary['blocked_nodes']}")
+    check(summary["total_nodes"] > 0, f"ThoughtChain 有真实写入({summary['total_nodes']} 个节点)")
+    check(0.0 <= summary["avg_delta"] <= 1.0,
+          f"平均漂移 Δ 落在 [0,1](实为 {summary['avg_delta']})")
 
     print("\n【5】跨 Agent 隔离验证(各自独立 ThoughtChain)")
     await os_.office.run_task("学习 AI 论文")
     await os_.admin.run_task("安排明天的会议")
+    per_agent = {}
     for aid in ["finance", "office", "admin", "supervisor"]:
         s = os_.thought_chain.get_summary(aid)
+        per_agent[aid] = s["total_nodes"]
         print(f"  {aid:<12} 节点={s['total_nodes']:<3} 置信度={s['avg_confidence']}")
+    check(per_agent["finance"] > 0 and per_agent["office"] > 0 and per_agent["admin"] > 0,
+          "跑过任务的三个 Agent 各有独立 ThoughtChain 记录")
+    # 隔离的硬证据:supervisor **从未跑过领域任务**,它的链应当纹丝不动。
+    # 若这里 > 0,说明某个 Agent 的推理被错记到了别的 Agent 名下(链串了)。
+    check(per_agent["supervisor"] == 0,
+          f"未跑任务的 supervisor 链保持为 0,证明链未串(实为 {per_agent['supervisor']})")
 
     print("\n【6】Policy 状态(手写 vs 学习规则)")
     pol = os_.finance.harness.get_policy_summary()
     print(f"  版本: v{pol['version']}  规则数: {pol['total_rules']}  "
           f"学习规则: {pol['learned_rules']}")
     print(f"  权重: {pol['weights']}")
+    check(pol["learned_rules"] == 0, f"校准期尚未产生学习规则(实为 {pol['learned_rules']})")
 
     print("\n【7】触发漂移截断 + Policy 学习")
     # 注册一个收支分析目标后,强行执行越界工具(删除),制造高漂移
     os_.finance.start_session("分析收支", entities=["收支"])
-    from hestia.agents.base import HarnessBlockedError
+    blocked = None
     try:
         # 直接 _think 一个完全跑题 + 越界工具的节点
         os_.finance._think(
@@ -80,28 +113,44 @@ async def main():
             tool_name="delete_all_data",
             entities=["磁盘", "数据库", "系统文件"],
         )
-        print("  未触发截断(漂移未超阈值)")
     except HarnessBlockedError as e:
-        print(f"  ✓ Harness 截断! Δ={e.result.delta:.3f} "
-              f"主导维度={e.result.dominant_dim}")
-        print(f"    原因: {e.result.reason}")
+        blocked = e
+    # 原实现此处是 if/else:两者都打印、都通过 —— 等于没验。Harness 的漂移截断是本项目
+    # 最核心的差异化能力,必须断言它**真的触发了**。
+    check(blocked is not None,
+          "越界工具意图被 Harness 截断(HarnessBlockedError 已抛出)")
+    if blocked is not None:
+        print(f"  ✓ Harness 截断! Δ={blocked.result.delta:.3f} "
+              f"主导维度={blocked.result.dominant_dim}")
+        print(f"    原因: {blocked.result.reason}")
         pol2 = os_.finance.harness.get_policy_summary()
         print(f"  ✓ Policy 学习触发! v{pol['version']}→v{pol2['version']} "
               f"学习规则 {pol['learned_rules']}→{pol2['learned_rules']}")
         print(f"  ✓ 权重已调整: {pol2['weights']}")
+        check(pol2["version"] > pol["version"],
+              f"Policy 版本因截断而递增(v{pol['version']} → v{pol2['version']})")
+        check(pol2["learned_rules"] > pol["learned_rules"],
+              f"从截断中真的学到规则({pol['learned_rules']} → {pol2['learned_rules']})")
+        # 主导维度是 tool → 学习应**上调**工具维度权重(惩罚越界工具),其余相对下降
+        check(pol2["weights"]["tool"] > pol["weights"]["tool"],
+              f"主导维度 tool 的权重被上调({pol['weights']['tool']} → {pol2['weights']['tool']})")
 
     print("\n【8】Policy YAML 真实落盘")
     pf = Path(_data) / "policy_finance.yaml"
+    check(pf.exists(), f"Policy 已落盘到磁盘({pf.name})")
     if pf.exists():
         content = pf.read_text()
         print(f"  文件: {pf} ({len(content)} 字节)")
         print("  ---")
         for line in content.splitlines()[:18]:
             print(f"  {line}")
+        check("penalize_tool" in content and "delete_all_data" in content,
+              "落盘的规则指向被截断的工具(penalize_tool / delete_all_data)")
 
     print("\n" + "="*64)
     print("✓ 认知运行时端到端验证完成")
     print("="*64)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

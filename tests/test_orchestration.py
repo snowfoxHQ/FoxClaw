@@ -13,6 +13,12 @@ import asyncio
 from hestia import HestiaOS
 
 
+def check(cond, msg):
+    if not cond:
+        raise AssertionError(f"✗ {msg}")
+    print(f"  ✓ {msg}")
+
+
 async def main():
     print("=" * 60)
     print("主管编排 · 全局态势 + 跨 Agent 协调")
@@ -41,6 +47,13 @@ async def main():
     print(f"  跨域告警 {len(sit['alerts'])} 条:")
     for a in sit["alerts"][:5]:
         print(f"    [{a['severity']}] ({a['domain']}) {a['msg']}")
+    # "驾驶舱"的意义在于态势**来自各内核的真实数据**,不是空壳。故断言三域计数与导入一致。
+    check(sit["finance"]["transactions"] == 13, f"财务态势反映 13 笔导入交易(实为 {sit['finance']['transactions']})")
+    check(sit["learning"]["total_items"] == 8, f"学习态势反映 8 个知识点(实为 {sit['learning']['total_items']})")
+    check(sit["itinerary"]["waypoints"] == 5, f"行程态势反映 5 个行程点(实为 {sit['itinerary']['waypoints']})")
+    sev = {a["severity"] for a in sit["alerts"]}
+    check(len(sit["alerts"]) >= 2 and "critical" in sev,
+          f"跨域告警被汇总且含 critical(实为 {sorted(sev)})")
 
     # 2. 跨 Agent 编排:差旅预算申请(小额,应批准)
     print("\n【2】跨 Agent 编排:行程→财务 差旅预算申请(小额)")
@@ -50,6 +63,8 @@ async def main():
         reason="出差北京高铁票")
     print(f"  申请: 差旅 150 元 → 状态【{r1['status']}】")
     print(f"  财务裁决: {r1['verdict']}")
+    check(r1["status"] == "approved",
+          f"小额(150)且在预算内 → 直接批准(实为 {r1['status']})")
 
     # 3. 跨 Agent 编排:大额差旅(触发守门人确认)
     print("\n【3】跨 Agent 编排:大额差旅(触发守门人)")
@@ -59,6 +74,10 @@ async def main():
         reason="出差住宿3晚")
     print(f"  申请: 差旅 680 元 → 状态【{r2['status']}】")
     print(f"  财务裁决: {r2['verdict']}")
+    check(r2["status"] == "needs_confirmation",
+          f"大额(680>500) → 转人工确认(实为 {r2['status']})")
+    # 金额确实改变结论(不是两条路都走同一个分支)
+    check(r1["status"] != r2["status"], "金额不同 → 裁决结论确实不同(150 批准 / 680 待确认)")
 
     # 4. 跨 Agent 编排:日程占用申请
     print("\n【4】跨 Agent 编排:日程占用申请→行政检查冲突")
@@ -68,6 +87,21 @@ async def main():
         reason="客户临时约电话会")
     print(f"  申请: 10:30 电话会 → 状态【{r3['status']}】")
     print(f"  行政裁决: {r3['verdict']}")
+    check(r3["status"] == "needs_confirmation",
+          f"与既有行程时段冲突 → 转人工确认(实为 {r3['status']})")
+
+    # 5. 【P1-0 守护】目标 Agent 不存在时必须 fail-closed
+    # 这是回归守卫:此前该分支返回 "approved"(默认放行)= fail-open —— 发起方会拿到
+    # "已批准",但**没有任何 Agent 真的处理过这个请求**。若哪天有人把它改回去,这里必须红。
+    print("\n【5】目标 Agent 不存在 → 必须转人工(不得默认放行)")
+    r4 = os_.supervisor.cross_request(
+        from_agent="admin", to_agent="不存在的Agent", request_type="budget_request",
+        payload={"amount": 1, "category": "travel", "entity": "x", "account": "default"},
+        reason="路由到不存在的目标")
+    print(f"  申请 → 状态【{r4['status']}】")
+    print(f"  裁决: {r4['verdict']}")
+    check(r4["status"] == "needs_confirmation",
+          f"目标不存在 → needs_confirmation 而非默认放行(实为 {r4['status']})")
 
     import shutil
     shutil.rmtree(_data, ignore_errors=True)
