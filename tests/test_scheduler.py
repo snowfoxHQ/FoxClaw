@@ -4,7 +4,8 @@
 覆盖:
   1. 无上限(默认):准入直通,行为不变;并发不受限(Barrier 确定性达峰值 N)
   2. 有上限:并发配额生效(peak_running 不超过 max_concurrency = 背压)
-  3. 生命周期事件:每任务 emit task.lifecycle.{scheduled,started,completed};失败 → failed
+  3. 生命周期事件:每任务 emit task.lifecycle.{scheduled,running,completed};失败 → failed
+     (【P5-2】回退路径原用 started,与 ProcessManager 的 running 不一致,已统一为 running)
   4. 记账 + 结果透传 + 异常透传
 """
 import sys, threading, time
@@ -64,7 +65,7 @@ def test_lifecycle_events_and_accounting():
     # 成功任务
     r = sched.run(lambda: 42, agent_id="finance", task="算账")
     assert r == 42
-    assert spine.events == ["task.lifecycle.scheduled", "task.lifecycle.started",
+    assert spine.events == ["task.lifecycle.scheduled", "task.lifecycle.running",
                             "task.lifecycle.completed"], spine.events
     # 失败任务:异常透传 + failed 事件 + 记账
     spine.events.clear()
@@ -74,7 +75,7 @@ def test_lifecycle_events_and_accounting():
     except RuntimeError:
         raised = True
     assert raised, "异常应透传"
-    assert spine.events == ["task.lifecycle.scheduled", "task.lifecycle.started",
+    assert spine.events == ["task.lifecycle.scheduled", "task.lifecycle.running",
                             "task.lifecycle.failed"], spine.events
     st = sched.stats()
     assert st["submitted"] == 2 and st["completed"] == 1 and st["failed"] == 1
