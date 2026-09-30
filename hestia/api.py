@@ -249,6 +249,11 @@ async def _api_key_guard(request, call_next):
         # /knowledge/* 是 HKC 星球的数据面(graph/ingest/reset),必须同 /api 一起鉴权,
         # 否则 ingest/reset/graph 对公众开放(泄密+可乱写)。/ws 由端点内部鉴权。
         if path.startswith("/api") or path.startswith("/knowledge"):
+            # CORS 预检(OPTIONS + Access-Control-Request-Method)按规范**不携带**自定义请求头,
+            # 浏览器也不会给它带 X-API-Key。必须放行交给 CORSMiddleware 处理;否则一旦启用鉴权,
+            # 跨源请求会在预检阶段被 401 拦死(且响应无 CORS 头,浏览器只报 CORS 错误,极难定位)。
+            if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
+                return await call_next(request)
             import hmac
             # 常量时间比对,防对 API Key 的计时攻击(MCP 暴露后更重要)
             if not hmac.compare_digest(request.headers.get("X-API-Key", "") or "", api_key):
