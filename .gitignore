@@ -36,5 +36,12 @@ Thumbs.db
 /*.zip
 /*.rar
 
-# 意外累积的重复副本(含整套项目旧拷贝 + skills-main,建议手动确认后删除)
+# 意外累积的重复副本(含整套项目旧拷贝 + skills-main,已于 2026-09-30 移出至 hestiaOS-private/duplicate-copy/)
 新建文件夹/
+
+# 编辑器/IDE 本机配置(含本机路径,不跨机共享)
+.claude/launch.json
+
+# 备份文件(bak 冗余文件不入库;确需保留请移出仓库)
+*.bak
+*.bak-*
