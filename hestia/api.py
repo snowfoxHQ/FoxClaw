@@ -123,6 +123,11 @@ def _prewarm_hkc(osi):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _os_instance, _broadcast_task
+    # 启动自检:未设 HESTIA_API_KEY 即等于无鉴权。此处只做提醒(绑定地址由启动方式决定,
+    # 拿不到 host);__main__ 入口对「非回环 + 无鉴权」有硬拦截。
+    if not os.environ.get("HESTIA_API_KEY", "").strip():
+        print("[HestiaOS API] ⚠ 未设置 HESTIA_API_KEY —— 当前无鉴权,"
+              "仅本地回环安全;对外暴露前务必设置。")
     _os_instance = HestiaOS(
         data_dir=os.environ.get("HESTIA_DATA_DIR", "./hestia_data"),
         shadow_rounds=int(os.environ.get("HESTIA_SHADOW_ROUNDS", "20")),
@@ -194,7 +199,7 @@ if os.environ.get("HESTIA_MCP_SERVER", "0").strip() in ("1", "true", "True"):
     if not os.environ.get("HESTIA_API_KEY", "").strip():
         print("[HestiaOS API] ⚠ 内置 MCP 服务器已开启但未设 HESTIA_API_KEY —— "
               "对外暴露前务必设置,否则任何人可读你的知识/记忆")
-    if os.environ.get("HESTIA_CORS_ORIGINS", "*").strip() == "*":
+    if os.environ.get("HESTIA_CORS_ORIGINS", "").strip() == "*":
         print("[HestiaOS API] ⚠ MCP 已开启但 CORS=* —— 生产建议用 HESTIA_CORS_ORIGINS 收紧允许来源")
 
 app = FastAPI(
@@ -211,12 +216,24 @@ if _hestia_mcp_app is not None:
 # 设了 → 所有 /api/* 请求必须带正确的 X-API-Key,否则 401。
 # 注意:http 中间件**看不到 websocket scope**,故 /ws 的鉴权在 WS 端点内单独做
 # (见 harness_websocket,用 ?key= 查询参数)。前端(静态)与 /docs 始终开放。
-_CORS_ORIGINS = [o.strip() for o in
-                 os.environ.get("HESTIA_CORS_ORIGINS", "*").split(",") if o.strip()]
+# 默认只放行回环来源(本地开发足够:前端与 API 是同源挂载,同源请求本就不经 CORS)。
+# 需要跨源时设 HESTIA_CORS_ORIGINS=来源1,来源2(逗号分隔);显式设 "*" 才会全开(不推荐,
+# 与未鉴权叠加等于把 API 交给任意网页)。收紧默认值属于「默认安全」:不再默认 allow_origins=["*"]。
+_cors_env = os.environ.get("HESTIA_CORS_ORIGINS", "").strip()
+if _cors_env == "*":
+    _CORS_ORIGINS: list[str] = ["*"]
+    _CORS_ORIGIN_REGEX: str | None = None
+elif _cors_env:
+    _CORS_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()]
+    _CORS_ORIGIN_REGEX = None
+else:
+    _CORS_ORIGINS = []
+    _CORS_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_CORS_ORIGINS or ["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1783,9 +1800,25 @@ if frontend_dir.exists():
 
 if __name__ == "__main__":
     import uvicorn
+
+    # 默认只绑回环地址(本地开发)。对外暴露必须显式设 HESTIA_HOST,且应同时设置 HESTIA_API_KEY——
+    # 否则该端口上任何可达者都能读写记忆、执行技能、摄入文件(这些端点全部无鉴权)。
+    # 用 `python -m uvicorn hestia.api:app --host ...` 启动时会绕过本检查,故 lifespan 另有软提醒。
+    _host = os.environ.get("HESTIA_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    _port = int(os.environ.get("HESTIA_PORT", "8000"))
+    _LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
+    if _host not in _LOOPBACK and not os.environ.get("HESTIA_API_KEY", "").strip():
+        print(
+            f"\n[HestiaOS API] ⚠⚠  绑定 {_host} 但未设置 HESTIA_API_KEY:\n"
+            "    该端口上任何可达者都能读写记忆、执行技能、摄入文件。\n"
+            "    请设置 HESTIA_API_KEY,或改用 HESTIA_HOST=127.0.0.1。\n"
+            "    确认自担风险,可设 HESTIA_ALLOW_INSECURE=1 跳过此检查。\n"
+        )
+        if os.environ.get("HESTIA_ALLOW_INSECURE", "").strip() != "1":
+            raise SystemExit("[HestiaOS API] 已拒绝启动:非回环绑定 + 无鉴权。")
     uvicorn.run(
         "hestia.api:app",
-        host="0.0.0.0",
-        port=8000,
+        host=_host,
+        port=_port,
         reload=True,
     )

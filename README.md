@@ -47,7 +47,7 @@ Keeps the system reliable under message redelivery, crashes, long tasks, and loo
 
 ```bash
 pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets pyyaml numpy scikit-learn rich pydantic
-python tests/run_all.py        # full regression, expect 35/35
+python tests/run_all.py        # full regression (all green)
 export DEEPSEEK_API_KEY=sk-...  # or ANTHROPIC_API_KEY; unset → stub
 python -m uvicorn hestia.api:app --port 8000
 ```

@@ -24,6 +24,10 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# Python 构建产物(pip install -e . 生成)
+*.egg-info/
+build/
+
 # Harness 学习产物
 *_policy.yaml
 *_learned.yaml
@@ -35,6 +39,7 @@ Thumbs.db
 # 归档产物(打包结果不入库;二进制大文件会污染历史)
 /*.zip
 /*.rar
+dist/
 
 # 意外累积的重复副本(含整套项目旧拷贝 + skills-main,已于 2026-09-30 移出至 hestiaOS-private/duplicate-copy/)
 新建文件夹/

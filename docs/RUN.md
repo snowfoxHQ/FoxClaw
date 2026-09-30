@@ -15,9 +15,9 @@ python tests/run_all.py
 ## 1. Install
 
 ```bash
-pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets pyyaml numpy scikit-learn rich pydantic
-# optional, more precise semantic detection (~800MB; falls back to n-gram if absent):
-pip install sentence-transformers
+pip install -e .      # dependencies come from pyproject.toml (single source of truth)
+# lightweight alternative (uninstalled extras degrade gracefully):
+# pip install fastapi uvicorn "httpx<0.28" cryptography websockets pyyaml numpy scikit-learn rich pydantic python-dotenv
 ```
 
 `cryptography` → Feishu encrypted-event decryption; `websockets` → Discord Gateway; `httpx` → channel HTTP + web tools.
@@ -25,7 +25,7 @@ pip install sentence-transformers
 ## 2. Verify (no API key needed)
 
 ```bash
-python tests/run_all.py        # full regression, expect 35/35
+python tests/run_all.py        # full regression (all green)
 python tests/test_e2e.py       # cognitive runtime only
 python tests/test_api.py       # API layer
 ```
@@ -38,7 +38,9 @@ These run without an LLM key or real HMR — proving cognition is decoupled from
 export DEEPSEEK_API_KEY=sk-...         # or ANTHROPIC_API_KEY; Windows: $env:...="..."
 export HESTIA_PROVIDER=deepseek        # optional explicit provider
 export HESTIA_DATA_DIR=./hestia_data
-python -m uvicorn hestia.api:app --host 0.0.0.0 --port 8000
+# binds 127.0.0.1 by default. Exposing to LAN requires HESTIA_HOST=0.0.0.0 **and** HESTIA_API_KEY
+# (the __main__ entry refuses to start on non-loopback without a key; override with HESTIA_ALLOW_INSECURE=1).
+python -m uvicorn hestia.api:app --host 127.0.0.1 --port 8000
 ```
 
 ## 4. Channels & governance
@@ -58,5 +60,7 @@ HMR v2.0 is embedded in `vendor/hmr/`, auto-loaded, persisting to the data dir's
 | `HESTIA_DATA_DIR` | data directory |
 | `HESTIA_SHADOW_ROUNDS` | shadow calibration rounds |
 | `HESTIA_EMBEDDING_MODEL` | 语义漂移 embedding 模型；中文部署设 `paraphrase-multilingual-MiniLM-L12-v2`（中文跑题硬拦率 0→1.0，见 `evals/governance/compare_embeddings.py`）；默认 `all-MiniLM-L6-v2` |
-| `HESTIA_API_KEY` | **可选鉴权**：设了则 `/api/*` 需带 `X-API-Key: <该值>`（否则 401）；WebSocket `/ws/harness` 因浏览器无法设 WS 头，改用 `?key=<该值>`（前端自动带，从 `localStorage.hestiaApiKey` 读）。不设=开放（本地默认）。前端与 `/docs` 始终开放。 |
-| `HESTIA_CORS_ORIGINS` | 逗号分隔的允许来源；默认 `*`。部署时收紧到你的前端域名。 |
+| `HESTIA_API_KEY` | **Optional auth**: when set, `/api/*` requires `X-API-Key: <value>` (else 401); WebSocket `/ws/harness` uses `?key=<value>` instead (browsers can't set WS headers; the frontend reads it from `localStorage.hestiaApiKey`). When unset, auth is off — safe only on loopback. Frontend and `/docs` stay open. |
+| `HESTIA_HOST` / `HESTIA_PORT` | Bind address / port for the `python -m hestia.api` entry. **Default `127.0.0.1:8000`.** |
+| `HESTIA_ALLOW_INSECURE` | Set to `1` to let the entry start on a non-loopback host without `HESTIA_API_KEY` (not recommended). |
+| `HESTIA_CORS_ORIGINS` | Comma-separated allowed origins. **Default: loopback only** (`localhost` / `127.0.0.1` / `[::1]`, any port). Set explicitly for cross-origin deploys; `*` opens it fully (not recommended). |

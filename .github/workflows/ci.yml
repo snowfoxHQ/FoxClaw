@@ -28,10 +28,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 显式依赖清单(与 README 一致)。不 pip install -e . —— HMR 是 vendor 内嵌,
-          # 走 sys.path 加载,无需从 PyPI 装同名包。
-          pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets \
-            pyyaml numpy scikit-learn rich pydantic python-dotenv sentence-transformers
+          # 单源安装:依赖以 pyproject.toml 为唯一来源,避免手写清单与它双份漂移。
+          # HMR/HKC 是 vendor 内嵌、走 sys.path 加载,不是 PyPI 依赖(已在 pyproject 注明)。
+          # dev extra 提供 pytest(当前回归仍走 run_all.py,保留以备迁移)。
+          pip install -e ".[dev]"
 
       - name: Warm embedding cache
         # 先联网下好默认 embedding,run_all 会以 HF_HUB_OFFLINE 离线读取(与本地一致)。

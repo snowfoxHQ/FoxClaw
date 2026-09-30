@@ -1,22 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hestia-os"
 version = "0.1.0"
 description = "Hestia OS - Cognitive Agent Operating System built on HMR"
 requires-python = ">=3.11"
 
+# 依赖以本表为唯一来源(CI 用 `pip install -e .` 安装,不再手写第二份清单)。
+# 注意:HMR 与 HKC 以 vendor/ 内嵌随包分发、走 sys.path 加载,不是 PyPI 依赖,
+# 故此处**不**声明 hmr/hkc —— 此前声明 hmr>=1.0.0 是空转项(永不从 PyPI 安装)。
 dependencies = [
+    # LLM 提供商(未装/未配 key 时模型路由降级 stub,其余功能照常)
     "anthropic>=0.25.0",
-    "hmr>=1.0.0",
+    "openai>=1.0.0",
+    # 语义嵌入与向量检索(Harness 语义漂移检测 + HKC 语义搜索)
     "sentence-transformers>=2.7.0",
     "numpy>=1.26.0",
     "scikit-learn>=1.4.0",
-    "pyyaml>=6.0.0",
+    # API 服务
     "fastapi>=0.111.0",
     "uvicorn>=0.29.0",
     "websockets>=12.0",
+    "pydantic>=2.0.0",
+    # HTTP 客户端(渠道适配器 + Web 工具)。沿用既有 <0.28 约束
+    "httpx>=0.24,<0.28",
+    # 飞书加密事件解密
+    "cryptography>=41.0.0",
+    # 配置与终端输出
+    "pyyaml>=6.0.0",
     "python-dotenv>=1.0.0",
     "rich>=13.7.0",
 ]
+
+[tool.setuptools.packages.find]
+# 只把主包 hestia 纳入安装;vendor/、tests/、frontend/ 等以仓库相对路径使用,不入包。
+include = ["hestia*"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23.0"]

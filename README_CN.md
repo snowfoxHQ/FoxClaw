@@ -85,7 +85,7 @@ hestia_os/
 │   ├── capability/ governance/   embedding 单例 / 治理中间件
 ├── vendor/hmr/ vendor/hkc/       HMR v2.0 记忆运行时 + HKC 知识核心(已内嵌)
 ├── examples/                     样例数据
-├── tests/                        35 个测试文件 + run_all.py
+├── tests/                        62 个测试文件 + run_all.py
 └── docs/                         RUN / CHANNELS / GOVERNANCE / 配置指南(公开)
 ```
 
@@ -105,7 +105,7 @@ pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets pyyaml n
 pip install sentence-transformers
 
 # 3. 验证认知运行时(无需 API key)
-python tests/run_all.py        # 全量回归,应 35/35 通过
+python tests/run_all.py        # 全量回归(全绿)
 
 # 4. 启动服务(配 key 则真实调模型,不配则 stub)
 export DEEPSEEK_API_KEY=sk-...  # 或 ANTHROPIC_API_KEY;Windows: $env:DEEPSEEK_API_KEY="sk-..."

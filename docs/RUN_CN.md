@@ -17,11 +17,13 @@ python tests/run_all.py
 ## 一、安装依赖
 
 ```bash
-pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets pyyaml numpy scikit-learn rich pydantic
+pip install -e .                # 依赖以 pyproject.toml 为唯一来源(推荐)
 # Windows 上 pip 装系统包可能需要 --break-system-packages
 
-# 可选(更精确语义检测,约 800MB,不装则降级 n-gram):
-pip install sentence-transformers
+# 轻量安装(不用全部依赖时,相关能力会自动降级):
+# pip install fastapi uvicorn "httpx<0.28" cryptography websockets pyyaml numpy scikit-learn rich pydantic python-dotenv
+# 不装 sentence-transformers → 线束语义检测降级为 n-gram 哈希;
+# 不装 openai/anthropic → 模型路由降级为 stub。
 ```
 
 依赖说明:`cryptography` 用于飞书加密事件解密;`websockets` 用于 Discord Gateway;`httpx` 用于各渠道 HTTP 调用与 Web 工具。未装 `sentence-transformers` 时线束语义检测自动降级为 n-gram 哈希,不会崩溃。
@@ -29,7 +31,7 @@ pip install sentence-transformers
 ## 二、验证(无需 API key)
 
 ```bash
-# 全量回归(应 35/35 通过)
+# 全量回归(全绿)
 python tests/run_all.py
 
 # 单独验证认知运行时 / API 层
@@ -48,7 +50,9 @@ export DEEPSEEK_API_KEY=sk-...         # 或 ANTHROPIC_API_KEY
 export HESTIA_PROVIDER=deepseek        # 可选:显式指定 provider
 export HESTIA_DATA_DIR=./hestia_data   # 数据目录
 
-python -m uvicorn hestia.api:app --host 0.0.0.0 --port 8000
+# 默认绑 127.0.0.1(仅本机)。对外暴露必须同时设 HESTIA_HOST=0.0.0.0 与 HESTIA_API_KEY——
+# __main__ 入口在「非回环 + 无鉴权」时会拒绝启动(确需如此可设 HESTIA_ALLOW_INSECURE=1)。
+python -m uvicorn hestia.api:app --host 127.0.0.1 --port 8000
 ```
 
 浏览器访问 http://localhost:8000 。
@@ -92,7 +96,7 @@ HMR v2.0 已内嵌在 `vendor/hmr/`,启动自动接入,记忆落盘到数据目�
 | `GET  /api/harness/{agent}/policy` | 完整策略 YAML |
 | `WS   /ws/harness` | 实时线束事件流 |
 
-(完整 35 个端点见 `hestia/api.py`,含财务/学习/行程内核与 AHS 相关接口。)
+(完整 85 个端点见 `hestia/api.py`,含财务/学习/行程内核与 AHS 相关接口。)
 
 ## 八、环境变量
 
@@ -102,3 +106,7 @@ HMR v2.0 已内嵌在 `vendor/hmr/`,启动自动接入,记忆落盘到数据目�
 | `HESTIA_PROVIDER` | 显式指定 provider(deepseek/anthropic…) |
 | `HESTIA_DATA_DIR` | 数据目录 |
 | `HESTIA_SHADOW_ROUNDS` | 影子校准轮数 |
+| `HESTIA_API_KEY` | **可选鉴权**:设了则 `/api/*` 与 `/knowledge/*` 需带 `X-API-Key`(否则 401);WS 用 `?key=`。**不设=无鉴权,仅回环地址安全。** |
+| `HESTIA_HOST` / `HESTIA_PORT` | `python -m hestia.api` 入口的绑定地址/端口。**默认 `127.0.0.1:8000`。** |
+| `HESTIA_ALLOW_INSECURE` | 设为 `1` 允许「非回环 + 无鉴权」启动(不推荐)。 |
+| `HESTIA_CORS_ORIGINS` | 允许的跨源来源(逗号分隔)。**默认仅回环**(localhost/127.0.0.1/[::1],任意端口);显式设 `*` 才全开(不推荐)。 |
