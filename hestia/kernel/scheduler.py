@@ -90,7 +90,9 @@ class Scheduler:
             if proc is not None:
                 pm.mark_running(proc.process_id)
             else:
-                self._emit("started", agent_id, task, priority)
+                # 【P5-2】回退路径的词汇与 ProcessManager 对齐:started → running
+                # (pm 的词汇是 created/queued/scheduled/running/completed/failed)
+                self._emit("running", agent_id, task, priority)
             result = fn()
             with self._lock:
                 self._stats["completed"] += 1

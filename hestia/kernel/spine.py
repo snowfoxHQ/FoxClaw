@@ -90,6 +90,8 @@ class EventSpine:
 
     def stats(self) -> dict:
         with self._lock:
+            # 【P4-2】补 history_limit(deque.maxlen):只报 history_size 无法判断「是否已满」。
             return {"subscriptions": len(self._subs),
                     "projections": len(self._projections),
-                    "history_size": len(self._history)}
+                    "history_size": len(self._history),
+                    "history_limit": self._history.maxlen}

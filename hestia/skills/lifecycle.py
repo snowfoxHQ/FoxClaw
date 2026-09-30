@@ -135,8 +135,23 @@ class CircuitBreaker:
                     "recovery_threshold": self.recovery_threshold}
 
     def is_open(self, sid: str) -> bool:
+        """只读查询:该 skill 当前是否处于「阻止调用」状态。
+
+        【P4-0】原实现写的是 `state == "open" and not self.allow(sid)` —— 但 allow() 在
+        「open 且冷却已满」时会**副作用性地**转入 half_open 并占掉唯一的探针名额。于是
+        「只想看一眼断路器开着没」的监控代码会意外消耗掉恢复探测机会,把真正该放行的探针
+        挡在外面。这里改成纯读,不做任何状态迁移。
+
+        语义:open 且冷却未满 → 阻止;open 且冷却已满 → 视作「下次调用会被放行」,不计为打开;
+        half_open 仅当探针在飞且未超时时计入。
+        """
         with self._lock:
-            return self._get(sid).state == "open" and not self.allow(sid)
+            e = self._get(sid)
+            if e.state == "open":
+                return (time.time() - e.opened_at) < self.cooldown
+            if e.state == "half_open":
+                return e.probe_in_flight and (time.time() - e.probe_started_at) < self.probe_timeout
+            return False
 
 
 # ============ 生命周期钩子 ============
@@ -221,7 +236,13 @@ class HookManager:
 
     def fire(self, event: HookEvent, skill_id: str = "", ctx: dict = None) -> HookResult:
         """触发某事件的所有匹配 hook。仅 before_tool_call(原 pre_skill)的 block 生效;
-        CONTEXT_HOOKS(pre_reasoning/agent_start)返回的 additional_context 会被收集拼接。"""
+        CONTEXT_HOOKS(pre_reasoning/agent_start)返回的 additional_context 会被收集拼接。
+
+        【P4-3】⚠ ctx 是**浅拷贝**(dict(...)),不是深拷贝。hook 不得原地修改 ctx 里的嵌套
+        dict(如 ctx["args"]["x"])——那会连带改掉调用方的原对象。要改参数请用返回值
+        `{"modified_args": {...}}` 整块替换(仅 before_tool_call 生效)。此处刻意不做 deepcopy,
+        以免每次工具调用都付深拷贝开销;约束靠本注释 + 钩子约定维持。
+        """
         from .hooks_spec import (normalize_hook, BLOCKING_HOOKS, TOOL_SCOPED_HOOKS,
                                  CONTEXT_HOOKS)
         event = normalize_hook(event)   # 旧名/标准名统一

@@ -41,6 +41,11 @@ python tests/test_api.py
 
 这些测试在没有大模型 key、没有真实 HMR 的情况下也能跑 —— 证明认知运行时与大模型解耦。
 
+> **关于 pytest**:62 个测试中有 4 个是 pytest 风格(`test_tool_use` / `test_injection_guard` /
+> `test_sessions` / `test_stats_and_events`,共 121 条断言),需 `pip install pytest`
+> (或 `pip install -e ".[dev]"`)才会执行。未安装时运行器会**显式标记这 4 项为「跳过」**
+> 并从分母扣除 —— 不会静默消失,也不会伪装成通过。
+
 ## 三、启动服务
 
 ```bash

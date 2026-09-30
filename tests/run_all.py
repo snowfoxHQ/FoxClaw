@@ -73,7 +73,18 @@ TESTS = [
     ("test_evidence_semantic.py", "证据融合语义化(否定词边界·幻影矛盾·语义支持边·降级)"),
     ("test_domain_evals.py", "领域推理评测(漏报/误报率+误报归因到规则+规则实例隔离)"),
     ("test_negotiation.py",  "智能体层·跨域协商闭环(被拒→让步→再裁决·有界·拒绝不降级)"),
+    # —— 以下 4 项此前遗漏于本运行器（P4-4 修复）——
+    # 它们是 pytest 风格测试（`pytest.main([__file__])`），需装 pytest 才能运行；
+    # 未安装时会被**显式标记为「跳过」**而非静默消失。完整回归请先 pip install -e ".[dev]"。
+    ("test_tool_use.py",        "P2·function-calling 工具化(多轮工具循环/注册表/降级)"),
+    ("test_injection_guard.py", "提示词注入纵深防御(检出/wrap_untrusted/内核前缀/隔离)"),
+    ("test_sessions.py",        "会话存储(增删改查/标题提炼/路径穿越/并发追加)"),
+    ("test_stats_and_events.py","记忆统计 + 活动事件(hmr.stats 计数修复/chat.completed)"),
 ]
+
+# 以 pytest 风格编写、运行需 pytest 的测试（见 main() 中的可用性检测）。
+PYTEST_TESTS = {"test_tool_use.py", "test_injection_guard.py",
+                "test_sessions.py", "test_stats_and_events.py"}
 
 def main():
     here = Path(__file__).parent
@@ -98,7 +109,19 @@ def main():
     print("Hestia OS · 全量回归测试")
     print("=" * 64)
     results = []
+    try:
+        import pytest  # noqa: F401
+        have_pytest = True
+    except Exception:
+        have_pytest = False
+    if not have_pytest:
+        print("⚠ 未安装 pytest —— 依赖它的测试将标记为「跳过」。"
+              "完整回归请先 `pip install -e \".[dev]\"` 或 `pip install pytest`。\n")
     for fn, desc in TESTS:
+        if fn in PYTEST_TESTS and not have_pytest:
+            results.append((desc, "跳过", 0.0))
+            print(f"  ○ {desc:<28} [跳过:需 pytest]")
+            continue
         path = here / fn
         if not path.exists():
             results.append((desc, "缺失", 0)); continue
@@ -125,9 +148,12 @@ def main():
 
     print("\n" + "=" * 64)
     passed = sum(1 for _, s, _ in results if s == "通过")
-    print(f"结果:{passed}/{len(results)} 通过")
+    skipped = sum(1 for _, s, _ in results if s == "跳过")
+    total = len(results) - skipped
+    suffix = f"（另有 {skipped} 项因缺 pytest 跳过）" if skipped else ""
+    print(f"结果:{passed}/{total} 通过{suffix}")
     print("=" * 64)
-    return 0 if passed == len(results) else 1
+    return 0 if passed == total else 1
 
 if __name__ == "__main__":
     sys.exit(main())

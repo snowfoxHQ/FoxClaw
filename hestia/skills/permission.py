@@ -97,8 +97,15 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     # TRUST_LEVEL dict,与 trust_level() 重复且含死 key(bundled/remote —— kind 永不取此二值);对 3 个
     # 合法 SkillKind(local/web_api/mcp)二者 downgrade 行为完全一致,故收敛为单一真源、行为不变。
     # duck-typed skill 无 trust_level 方法时 fail-closed 当低信任。
+    # 【P5-0】trust_level() 抛异常 → 当低信任(fail-closed),不让权限管线崩。
+    # 第三方 skill 的 trust_level() 若有 bug(如 AttributeError),原实现会让异常直接冒泡、
+    # evaluate 崩溃,用户看到「调用失败」而非「权限拒绝」——这是 fail-open。改为兜住异常、
+    # 按最低信任(low)处理:无法判定信任等级时,宁可保守。
     _tl = getattr(skill, "trust_level", None)
-    trust = _tl() if callable(_tl) else "low"
+    try:
+        trust = _tl() if callable(_tl) else "low"
+    except Exception:
+        trust = "low"
     downgrade = trust == "low"   # 低信任(mcp/远程)结果须按不可信处理
 
     # readonly 模式:非只读一律拒绝
