@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hestia",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HESTIA_EMBEDDING_MODEL=hestia-nonexistent-fast DEEPSEEK_API_KEY= ANTHROPIC_API_KEY= python -m uvicorn hestia.api:app --host 127.0.0.1 --port 8000"],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8899", "--directory", "frontend"],
+      "port": 8899
+    }
+  ]
+}

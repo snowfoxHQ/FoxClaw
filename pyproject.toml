@@ -1,0 +1,30 @@
+[project]
+name = "hestia-os"
+version = "0.1.0"
+description = "Hestia OS - Cognitive Agent Operating System built on HMR"
+requires-python = ">=3.11"
+
+dependencies = [
+    "anthropic>=0.25.0",
+    "hmr>=1.0.0",
+    "sentence-transformers>=2.7.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+    "pyyaml>=6.0.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+    "websockets>=12.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23.0"]
+# 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
+# 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
+browser = ["playwright>=1.44.0"]
+# 知识核心(HKC,vendor/hkc)。核心运行时依赖;缺失时 /api/knowledge/* 优雅降级。
+# 真实语义向量另需 sentence-transformers+faiss(已随本体);文件摄入见 knowledge-files。
+knowledge = ["networkx>=3.0", "rank-bm25>=0.2", "aiofiles>=23.0", "requests>=2.31"]
+# HKC 文件摄入(PDF/epub/mobi/docx/xlsx)。仅当要摄入电子书/PDF/Office 文档时需要。
+knowledge-files = ["pymupdf>=1.24", "ebooklib>=0.18", "beautifulsoup4>=4.12", "mobi>=0.3.3", "python-multipart>=0.0.9", "python-docx>=1.1", "openpyxl>=3.1"]

@@ -1,0 +1,14 @@
+amount,category,entity,account,timestamp,tags
+-29.99,subscription,Netflix,credit_card_1,2026-06-01T10:00:00,recurring|media
+-15.00,subscription,Spotify,credit_card_1,2026-06-01T10:05:00,recurring|media
+-9.99,subscription,iCloud,credit_card_1,2026-06-02T08:00:00,recurring
+-12.00,subscription,YouTube,credit_card_1,2026-06-02T08:30:00,recurring|media
+-50.00,subscription,健身房,debit,2026-06-03T07:00:00,recurring
+-25.00,subscription,ChatGPT,credit_card_1,2026-06-03T09:00:00,recurring
+-35.50,food,星巴克,credit_card_1,2026-06-04T12:00:00,
+-42.00,food,海底捞,credit_card_1,2026-06-05T19:00:00,
+-38.00,food,麦当劳,debit,2026-06-06T13:00:00,
+-450.00,food,高级餐厅,credit_card_1,2026-06-07T20:00:00,
+-30.00,transport,滴滴,alipay,2026-06-04T08:00:00,
+-25.00,transport,地铁,alipay,2026-06-05T08:00:00,
+12000.00,income,工资,debit,2026-06-01T00:00:00,salary

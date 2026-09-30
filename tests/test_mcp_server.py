@@ -1,0 +1,83 @@
+"""HestiaOS 内置 MCP 服务器 端到端(带鉴权,贴真实暴露场景):
+- 防后门:不带 X-API-Key 访问 /api/mcp/ → 401
+- 带 key 的 MCP 客户端能 initialize + list_tools(3 只读 + ask_hestia) + call
+真起 uvicorn(MCP over Streamable HTTP 需真实 URL)。"""
+import os, sys, tempfile, threading, time, asyncio, urllib.request, urllib.error
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
+os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_mcpsrv_")
+os.environ["HESTIA_API_KEY"] = "mcp-test-key"              # ★ 开鉴权,测真实暴露
+os.environ["HESTIA_MCP_SERVER"] = "1"
+os.environ["HESTIA_MCP_AGENTS"] = "1"
+os.environ["HESTIA_MCP_RATE_AGENT"] = "1"                  # ask_hestia 限 1/桶,测限流
+os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
+
+import uvicorn
+import httpx
+from hestia.api import app, _hestia_mcp
+
+assert _hestia_mcp is not None, "HESTIA_MCP_SERVER=1 时应构建 MCP 服务器"
+print("=" * 60); print("HestiaOS 内置 MCP 服务器验证(带鉴权)"); print("=" * 60)
+
+PORT = 8079
+KEY = "mcp-test-key"
+threading.Thread(target=lambda: uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="error"),
+                 daemon=True).start()
+for _ in range(60):
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2); break   # /health 开放
+    except urllib.error.HTTPError:
+        break
+    except Exception:
+        time.sleep(1)
+
+# [0] 防后门:设了 key,不带/错 key 访问 /api/mcp/ 必须 401(未被鉴权绕过)
+with httpx.Client(timeout=8) as c:
+    body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+    hdr = {"Accept": "application/json, text/event-stream"}
+    r = c.post(f"http://127.0.0.1:{PORT}/api/mcp/", json=body, headers=hdr)
+    assert r.status_code == 401, f"后门!/api/mcp 未受鉴权保护: {r.status_code}"
+    r = c.post(f"http://127.0.0.1:{PORT}/api/mcp/", json=body, headers={**hdr, "X-API-Key": "wrong"})
+    assert r.status_code == 401, "错误 key 应 401"
+print("[0] 防后门:无key/错key 访问 /api/mcp/ → 401 OK")
+
+
+async def probe():
+    from mcp.client.streamable_http import streamablehttp_client
+    from mcp import ClientSession
+    # 带正确 key 连接
+    async with streamablehttp_client(f"http://127.0.0.1:{PORT}/api/mcp/",
+                                     headers={"X-API-Key": KEY}) as (r, w, _):
+        async with ClientSession(r, w) as s:
+            await s.initialize()
+            tools = {t.name for t in (await s.list_tools()).tools}
+            assert tools == {"knowledge_search", "knowledge_get", "memory_recall", "ask_hestia"}, tools
+            print("[1] 带key initialize + list_tools(3 只读 + ask_hestia) OK")
+
+            res = await s.call_tool("knowledge_search", {"query": "anything", "top_k": 999999})  # 试超大 top_k(应被钳制不崩)
+            assert res.content is not None
+            print("[2] knowledge_search 可调 + top_k 钳制不崩 OK")
+
+            res = await s.call_tool("memory_recall", {"query": "hello"})
+            assert res.content is not None
+            print("[3] memory_recall 可调 OK")
+
+            res = await s.call_tool("knowledge_get", {"ku_id": "nonexistent"})
+            txt = res.content[0].text if res.content else ""
+            assert "not_found" in txt or "error" in txt
+            print("[4] knowledge_get 不存在 → not_found OK")
+
+            res = await s.call_tool("ask_hestia", {"task": "分析这个月支出"})
+            txt = res.content[0].text if res.content else ""
+            assert "dispatched_to" in txt or "reply" in txt or "error" in txt, txt
+            print("[5] ask_hestia Agent 调度可调(返回 reply/dispatched_to) OK")
+
+            # [6] 限流:agent 桶设 1,上面已消耗 → 再调应被限流
+            res = await s.call_tool("ask_hestia", {"task": "再来一次"})
+            txt = res.content[0].text if res.content else ""
+            assert "rate limited" in txt, f"限流未生效: {txt}"
+            print("[6] ask_hestia 限流(令牌桶)生效 OK")
+
+asyncio.run(probe())
+print("\nHestiaOS 内置 MCP 服务器验证全部通过")
