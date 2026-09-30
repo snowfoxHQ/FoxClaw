@@ -117,6 +117,17 @@ class HestiaOS:
         _attach_shared_write(self.hmr, self.shared_write_policy,
                              spine=self.event_spine)
 
+        # 【P0-3·审计落盘】脊柱 history 是进程内环形缓冲(deque maxlen=1000,全系统共享、
+        # 不落盘)—— 高频事件会很快把 memory.shared.write 冲掉,进程退出即全丢。而切
+        # enforce 的判据是「真实流量中有没有合法写入被拒」,没落盘这个样本永远积累不起来。
+        # 把审计事件逐条 JSON 追加到 {data_dir}/audit/shared_write.jsonl;写失败静默
+        # (审计绝不影响主流程)。HESTIA_SHARED_WRITE_AUDIT=0 可关。
+        # 挂载时机:在 _attach_shared_write 之后、Agent 构造之前 → 装配期与运行期的
+        # 共享写入全量覆盖。
+        from .core.audit_sink import attach as _attach_shared_write_audit
+        self.shared_write_audit = _attach_shared_write_audit(
+            self.event_spine, self.data_dir)
+
         # 五个 Agent（惰性导入:仅在真正构造系统时才拉入 Agent 框架及其重依赖）
         from .agents.agents import (
             SupervisorAgent, AssistantAgent, FinanceAgent, AdminAgent, OfficeAgent)
