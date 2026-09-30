@@ -96,8 +96,13 @@ class Orchestrator:
         """把请求路由给目标 Agent,由**目标 Agent**用自己的守门人裁决(编排层不懂领域)。"""
         target = self.agents.get(req.to_agent)
         if target is None:
-            req.status = "approved"
-            req.verdict = f"目标 Agent '{req.to_agent}' 不存在,默认放行"
+            # 【P1-0】原为 status="approved"(默认放行)—— 那是 fail-open:发起方会拿到
+            # "已批准",但**没有任何 Agent 真的处理过这个请求**。后果是实打实的,例如
+            # 行程 Agent 向未注册的 finance 申请差旅预算,会直接拿到批准并据此下单。
+            # 与下方「裁决异常 → 转人工确认」同属一条原则:裁决权不在编排层,凡未真正
+            # 裁决过的,都不能算通过。改为 needs_confirmation 同样"不崩",只是不再说谎。
+            req.status = "needs_confirmation"
+            req.verdict = f"目标 Agent '{req.to_agent}' 不存在,无法裁决,转人工确认"
         else:
             try:
                 target.handle_cross_request(req)

@@ -10,7 +10,7 @@
   1. 结构去耦:Orchestrator 删除 _handle_* 领域方法;编排层源码零领域内核 API 引用
   2. 领域逻辑归属 Agent:finance/admin 有 handle_cross_request,base 默认放行
   3. 行为保持:态势聚合 + 小额批准/大额确认/日程冲突确认(裁决与原一致)
-  4. 通用性:路由到不存在的 Agent → 默认放行(不崩)
+  4. 通用性:路由到不存在的 Agent → 转人工确认(P1-0 修 fail-open,仍不崩)
 """
 import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
@@ -74,10 +74,13 @@ def test_behavior_and_generic_routing():
         assert r_sched["status"] in ("needs_confirmation", "approved"), r_sched
         print(f"  ✓ 小额={r_small['status']} 大额={r_big['status']} 日程={r_sched['status']}(委托目标守门人)")
 
-        # 通用性:路由到不存在的 Agent → 默认放行,不崩
+        # 通用性:路由到不存在的 Agent → 转人工确认,不崩(P1-0)
+        # 原断言锁的是 status == "approved" —— 那等于"没有任何 Agent 处理过,却回报批准",
+        # 是 fail-open:发起方会据此继续推进(如拿到"预算已批"去下单)。
         r_unknown = os_.supervisor.cross_request("x", "nonexistent", "budget_request", {}, "未知目标")
-        assert r_unknown["status"] == "approved" and "不存在" in r_unknown["verdict"]
-        print(f"  ✓ 路由到不存在 Agent → {r_unknown['status']}(通用兜底,不崩)")
+        assert r_unknown["status"] == "needs_confirmation", r_unknown
+        assert "不存在" in r_unknown["verdict"]
+        print(f"  ✓ 路由到不存在 Agent → {r_unknown['status']}(不再 fail-open 放行,仍不崩)")
 
         # 深审修复:守门人裁决崩溃(畸形 payload)必须 fail-safe → 转人工确认,绝不自动放行
         r_bad = os_.supervisor.cross_request("x", "admin", "schedule_request",

@@ -19,7 +19,18 @@ from datetime import datetime
 
 
 class TruthPipeline:
-    """事件驱动的真值管线。订阅执行事件,自动流转到审计与记忆。"""
+    """事件驱动的真值管线。订阅执行事件,自动流转到审计与记忆。
+
+    入队方式:任何持有**同一个 EventBus** 的组件,只要 publish execution.completed 即可
+    启动整条真值链,例如:
+
+        bus.publish("execution.completed",
+                    {"agent_id": ..., "task": ..., "result": ..., "blocked": ...})
+
+    项目内部的实际入口是 agents/base.py 的 CognitiveAgent._emit_execution()
+    (经 EventSpine 转发到同一事件名)。本类**不再自带便捷转发方法** —— 事件名本身就是
+    契约,多留一个转发壳只会让「谁能触发真值链」存在两种说法(P3-9 死代码清理)。
+    """
 
     def __init__(self, bus, hmr=None):
         self.bus = bus
@@ -79,11 +90,3 @@ class TruthPipeline:
                 update = {"persisted": False, "error": str(e)}
         self.last_memory_update = update
         self.bus.publish("memory.updated", {**p, "memory_update": update})
-
-    def emit_execution(self, agent_id: str, task: str, result, blocked: bool = False,
-                       schedule: dict = None):
-        """便捷入口:执行方调用它来启动整条真值链。"""
-        return self.bus.publish("execution.completed", {
-            "agent_id": agent_id, "task": task, "result": result,
-            "blocked": blocked, "schedule": schedule,
-        })

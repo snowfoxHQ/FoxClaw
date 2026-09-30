@@ -89,10 +89,13 @@ def test_truth_pipeline():
     bus = SystemBus()
     hmr = FakeHMR()
     tp = TruthPipeline(bus, hmr=hmr)
-    tp.emit_execution("finance", "分析预算", "预算正常", blocked=False)
+    # 【P3-9】TruthPipeline.emit_execution 已删除:事件名即契约,直接经 bus 入队。
+    bus.publish("execution.completed", {"agent_id": "finance", "task": "分析预算",
+                                        "result": "预算正常", "blocked": False})
     check(tp.last_trace is not None, "执行→审计 trace 生成")
     check(len(hmr.items) == 1, "真值沉淀到记忆")
-    tp.emit_execution("finance", "危险", "x", blocked=True)
+    bus.publish("execution.completed", {"agent_id": "finance", "task": "危险",
+                                        "result": "x", "blocked": True})
     check(not tp.last_memory_update.get("persisted"), "被拦截任务不沉淀记忆")
 
 
