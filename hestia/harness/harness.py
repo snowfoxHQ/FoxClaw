@@ -459,18 +459,23 @@ class Harness:
         self._reindex_learned_actions()
 
         # 更新权重：触发截断的维度权重 +δ
+        # 必须**先把新权重算完整再整体赋值**,不能"原地 +0.05 再归一化":
+        # 后者会让 self.weights 出现「各维之和 = 1.05」的瞬时中间态,而此刻若有人读到它
+        # (get_policy_summary / policy_updated 的监听者),拿到的就是未归一化的错值。
+        # 实测:同一份 summary 持有的 weights 引用会被读出 0.35,而稍后再取是 0.333 —— 正是
+        # 这个中间态被观察到。
         dim = result.dominant_dim
         if dim in self.weights:
-            self.weights[dim] = min(self.weights[dim] + 0.05, 0.8)
-            # 重新归一化
-            total = sum(self.weights.values())
-            self.weights = {k: v / total for k, v in self.weights.items()}
+            bumped = dict(self.weights)
+            bumped[dim] = min(bumped[dim] + 0.05, 0.8)
+            total = sum(bumped.values())
+            self.weights = {k: v / total for k, v in bumped.items()}
 
         self.bus.emit("policy_updated", {
             "agent_id": self.agent_id,
             "rule_id": new_rule["id"],
             "dominant_dim": result.dominant_dim,
-            "new_weights": self.weights,
+            "new_weights": dict(self.weights),
         })
 
     def _generate_policy_action(self, node: ThoughtNode, result: HarnessResult) -> dict:
@@ -600,5 +605,7 @@ class Harness:
             "total_rules": len(rules),
             "manual_rules": sum(1 for r in rules if r.get("source") == "manual"),
             "learned_rules": sum(1 for r in rules if r.get("source") == "harness_learned"),
-            "weights": self.weights,
+            # 返回**副本**:此前直接返回 self.weights 引用 —— 调用方拿到的不是快照,
+            # 既可能被后续权重更新"隔空改写"(读到的值取决于时机),也能反向改坏内部状态。
+            "weights": dict(self.weights),
         }
