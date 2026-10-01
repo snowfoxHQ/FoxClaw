@@ -271,9 +271,12 @@ class HestiaOS:
         # 崩溃/重启恢复:启动时扫描上次被中断的任务
         from .core.recovery import RestartRecovery
         self.recovery = RestartRecovery(
-            log_path=str(self.data_dir / "task_log.jsonl"))
+            log_path=str(self.data_dir / "task_log.jsonl"),
+            spine=self.event_spine)              # 【P2-4】注入审计脊柱(recovery.plan 事件)
         self._agents["supervisor"]._recovery = self.recovery
         self.interrupted_tasks = self.recovery.scan_interrupted()
+        # 【P2-4】生成恢复计划(retryable/notify_user/needs_manual),供 API 层/前端消费
+        self.recovery_plan = self.recovery.plan_recovery(self.interrupted_tasks)
 
         # 浏览器子系统(HIR-Browser 融入):"AI 用的浏览器"。async 安全 + 可选依赖优雅降级。
         # 构造极轻(不开线程/不 launch chromium),首次 perceive/act 时才在专用工作线程上
@@ -300,7 +303,9 @@ class HestiaOS:
         print(f"[HestiaOS] ✓ 五个 Agent 已就绪: {list(self._agents.keys())}")
         if self.interrupted_tasks:
             print(f"[HestiaOS] ⚠ 检测到 {len(self.interrupted_tasks)} 个上次被中断的任务"
-                  f"(进程崩溃/重启)：")
+                  f"(进程崩溃/重启)——恢复计划:可重试 {len(self.recovery_plan.retryable)},"
+                  f"通知用户 {len(self.recovery_plan.notify_user)},"
+                  f"需人工 {len(self.recovery_plan.needs_manual)}：")
             for t in self.interrupted_tasks[:5]:
                 print(f"           · 「{t.description[:40]}」(中断于 pid={t.pid})")
         _ri = self.router.info()

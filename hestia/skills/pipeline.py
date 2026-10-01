@@ -12,6 +12,7 @@ router / planner / composition 在这里实现;guard / breaker / hooks 复用
 permission.py + lifecycle.py;contract 复用 SkillResult。
 """
 from __future__ import annotations
+import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -121,6 +122,19 @@ class CompositionResult:
     rollback_clean: bool = True                       # 回滚是否干净完成(无补偿失败/无需人工)
     rollback_log: list = field(default_factory=list)  # 回滚记录 [{skill,status,detail}]
     needs_manual: list = field(default_factory=list)  # 需人工处理的 skill(无补偿/补偿失败)
+    # 【P2-2】待确认状态:遇到 needs_confirmation 时填充(不回滚),供调用方展示+断点续跑
+    pending_confirmation: dict = None                 # {task_id,skill_id,stage,message,args,completed_steps,resume_at}
+    # 【P2-2】已完成步骤(断点续跑所需的现场): [(task_id, skill_id, output)]
+    completed_steps: list = field(default_factory=list)
+
+    @property
+    def is_pending(self) -> bool:
+        """【P2-2】是否处于待确认暂停态。"""
+        return self.pending_confirmation is not None
+
+    @property
+    def is_failed(self) -> bool:
+        return bool(self.failed)
 
 
 def _build_args(skill, task_text: str, upstream: dict) -> dict:
@@ -178,12 +192,41 @@ def _rollback(executed, registry, res: CompositionResult):
             res.needs_manual.append(sid)
 
 
-def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False) -> CompositionResult:
-    """skill-composition:按计划顺序执行各 skill;关键路径失败 → 逆序回滚补偿。"""
+def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
+            resume_state: dict = None) -> CompositionResult:
+    """skill-composition:按计划顺序执行各 skill。
+
+    结束态三种:
+      · success —— 全部成功
+      · pending —— 遇到 needs_confirmation,**暂停(不回滚)**,待用户确认后续跑
+      · failed  —— 遇到 blocked/circuit_open/error/timeout,逆序回滚补偿
+
+    【P2-2】needs_confirmation 不再当失败处理:暂停而非回滚,避免撤销已完成的
+    有效步骤(反例:创建日程已成功、发邮件待确认,旧逻辑会把日程回滚掉)。
+    可选 resume_state(上次 compose 的 pending_confirmation)用于从断点续跑:
+    恢复已完成步骤的 upstream/executed 现场,跳过 resume_at 之前的步骤。
+    """
     res = CompositionResult(mode=plan_obj.flow_type)
     upstream = {}     # skill_id -> output(供下游读取)
     executed = []     # [(skill_id, output)] 按执行顺序,供回滚
+
+    # 【P2-2】恢复已完成步骤(断点续跑)
+    resume_at = None
+    if resume_state:
+        for tid, sid, output in resume_state.get("completed_steps", []):
+            upstream[sid] = output
+            executed.append((sid, output))
+            res.completed_steps.append((tid, sid, output))
+        resume_at = resume_state.get("resume_at")
+
     for i, t in enumerate(plan_obj.tasks, 1):
+        # 【P2-2】跳过已完成的步骤(断点续跑):resume_at 之前的步骤不重跑;
+        # 命中断点后清空 resume_at,让断点及其之后的步骤正常执行。
+        # (若照抄"!= resume_at 就 continue",断点之后的步骤会被一并跳过)
+        if resume_at:
+            if t.id != resume_at:
+                continue
+            resume_at = None
         sid = t.suggested_skill
         if not sid or not registry.get(sid):
             res.failed.append(t.id); continue
@@ -194,10 +237,28 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False) -> Compo
         if out.success:
             upstream[sid] = out.output
             executed.append((sid, out.output))
+            res.completed_steps.append((t.id, sid, out.output))
+        elif out.status == "needs_confirmation":
+            # 【P2-2】待确认 → 暂停,不回滚;把断点现场打包给调用方
+            res.pending_confirmation = {
+                "task_id": t.id,
+                "skill_id": sid,
+                "stage": i,
+                "message": out.message,
+                "args": call_args,
+                "completed_steps": list(res.completed_steps),
+                "resume_at": t.id,
+            }
+            res.final_output = {
+                "pending": True,
+                "at": t.id,
+                "completed": [s[0] for s in res.completed_steps],
+            }
+            return res
         else:
+            # blocked/circuit_open/error/timeout → 关键路径失败 → 逆序回滚
             res.failed.append(t.id)
             res.final_output = {"error": out.message, "failed_at": t.id}
-            # 关键路径失败 → 逆序回滚已执行的有副作用步骤
             _rollback(executed, registry, res)
             return res
     res.final_output = upstream
@@ -215,6 +276,16 @@ class PipelineResult:
     success: bool
     summary: str
 
+    @property
+    def pending_confirmation(self) -> dict:
+        """【P2-2】待确认状态(若无则 None)。结构见 compose 的 pending_confirmation。"""
+        return self.composition.get("pending_confirmation")
+
+    @property
+    def is_pending(self) -> bool:
+        """【P2-2】是否处于待确认暂停态(此时 success=False,但语义是"暂停等确认")。"""
+        return self.pending_confirmation is not None
+
 
 class AHSPipeline:
     """AHS 执行链编排器:一条龙跑通 router→planner→composition,全程过 guard+breaker+hooks。"""
@@ -223,7 +294,10 @@ class AHSPipeline:
         self.registry = registry
         self.adapter = adapter
 
-    def run(self, task: str, confirmed: bool = False) -> PipelineResult:
+    def run(self, task: str, confirmed: bool = False,
+            resume_state: dict = None) -> PipelineResult:
+        """同步执行。【P2-2】resume_state 用于从待确认状态断点续跑
+        (传上次返回的 pending_confirmation;确认后调 run(task, confirmed=True, resume_state=...))。"""
         # session_start 钩子
         self.adapter.hooks.fire("session_start", "", {"task": task})
 
@@ -234,14 +308,23 @@ class AHSPipeline:
         p = plan(task, self.registry)
 
         # 3. composition 编排执行(每步内部过 guard+breaker+hooks)
-        c = compose(p, self.registry, self.adapter, confirmed=confirmed)
+        c = compose(p, self.registry, self.adapter,
+                    confirmed=confirmed, resume_state=resume_state)
 
         # session_end 钩子
         self.adapter.hooks.fire("session_end", "", {"task": task})
 
-        success = not c.failed and bool(c.stages)
-        summary = (f"执行 {len(c.stages)} 步,"
-                   f"{'全部成功' if success else '部分失败:' + ','.join(c.failed)}")
+        # 【P2-2】success 判定区分 pending:待确认不是失败,但也不是成功
+        # (旧语义:pending 会进 failed → success=False;新语义:pending 非空 → success=False。
+        #  外向结果一致,语义不同——pending 的步骤没有被回滚,可以续跑)
+        success = not c.failed and bool(c.stages) and not c.pending_confirmation
+        if c.pending_confirmation:
+            summary = (f"执行 {len(c.stages)} 步,待确认:"
+                       f"{c.pending_confirmation['skill_id']}")
+        elif c.failed:
+            summary = f"执行 {len(c.stages)} 步,部分失败:{','.join(c.failed)}"
+        else:
+            summary = f"执行 {len(c.stages)} 步,全部成功"
         return PipelineResult(
             task=task,
             route={"primary": r.primary, "confidence": r.confidence,
@@ -252,5 +335,19 @@ class AHSPipeline:
             composition={"mode": c.mode, "stages": len(c.stages),
                          "failed": c.failed, "final": c.final_output,
                          "rolled_back": c.rolled_back, "rollback_clean": c.rollback_clean,
-                         "rollback_log": c.rollback_log, "needs_manual": c.needs_manual},
+                         "rollback_log": c.rollback_log, "needs_manual": c.needs_manual,
+                         # 【P2-2】待确认 + 已完成步骤(供前端识别/续跑)
+                         "pending_confirmation": c.pending_confirmation,
+                         "completed_steps": [s[0] for s in c.completed_steps]},
             success=success, summary=summary)
+
+    async def run_async(self, task: str, confirmed: bool = False,
+                        resume_state: dict = None) -> PipelineResult:
+        """【P2-1】异步入口:把同步 run 放到线程池,避免阻塞事件循环。
+
+        内部用 asyncio.to_thread 包装,故 run 里的同步 IO(MCP/Web API/本地 handler)
+        不会阻塞调用方的事件循环。async 调用方(如 /api/ahs/run)应调本方法。
+        注意:asyncio.to_thread 会复制当前 contextvars 到子线程(如 skill actor),
+        子线程异常原样抛回 await 处——两者都是想要的行为。
+        """
+        return await asyncio.to_thread(self.run, task, confirmed, resume_state)
