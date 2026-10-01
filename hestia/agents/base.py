@@ -857,6 +857,19 @@ class CognitiveAgent(ABC):
         """记忆召回查询(领域 Agent 可加前缀,如财务/行程)。默认用原任务。"""
         return task
 
+    # ── 【P1-1】任务生命周期钩子(默认 no-op)────────────────────
+    # 供有"跨任务横切关注点"的 Agent 挂载:主管用它们做崩溃/重启恢复记账
+    # (RestartRecovery)。会话开启后、管线执行前触发 started;任务终结时触发 settled
+    # (done=正常终态含 Harness 兜底/中断;failed=未兜底异常)。run_task 与
+    # run_task_stream 共用 _run_task_core,故两条路径都会触发。
+    def _on_session_started(self, session_id: str, task: str, context: dict) -> None:
+        """会话已开、管线未跑。默认 no-op;主管覆盖为 recovery.task_started。"""
+        return
+
+    def _on_task_settled(self, session_id: str, status: str) -> None:
+        """任务终结(done/failed)。默认 no-op;主管覆盖为 recovery.task_finished。"""
+        return
+
     def _cognitive_pipeline(self):
         """本 Agent 的认知管线(v2 ②)。默认 recall→act 两个 stage;领域 Agent 可覆盖以
         插入/替换 stage(后续步骤加 verify/reflect/plan/route/perceive)。缓存一份即可
@@ -886,6 +899,9 @@ class CognitiveAgent(ABC):
         from ..pipeline import PipelineContext
         context = context or {}
         session_id = self.start_session(goal=task, entities=self._task_entities(task))
+        # 【P1-1】生命周期钩子:会话已开、管线未跑。默认 no-op;主管借此做崩溃/重启
+        # 恢复记账(task_started)——恢复记账需先于执行落日志,故必须在管线之前。
+        self._on_session_started(session_id, task, context)
         # E2:pre_reasoning(agent_start)钩子——推理开始前触发,可注入 additionalContext(前插进 act
         # 的 LLM 上下文,见 _call_llm)。默认无钩子/无注入 → 行为逐字不变。hooks 由 HestiaOS 装配注入;
         # standalone/测试 Agent 无 hooks 属性 → getattr None → 整个钩子逻辑跳过。
@@ -944,6 +960,7 @@ class CognitiveAgent(ABC):
                 _hooks.fire("agent_end", "", {"task": task, "agent_id": self.AGENT_ID,
                                               "result": resp.get("result"),
                                               "interrupted": bool(ctx.interrupted)})
+            self._on_task_settled(session_id, "done")   # 【P1-1】正常终态(含中断/被拦提升)
             return resp
         except HarnessBlockedError as e:
             self._emit_execution(
@@ -952,8 +969,12 @@ class CognitiveAgent(ABC):
             if _hooks is not None:   # task_complete 也覆盖被拦截结束(带 error 供上报)
                 _hooks.fire("agent_end", "", {"task": task, "agent_id": self.AGENT_ID,
                                               "error": "harness_blocked"})
+            self._on_task_settled(session_id, "done")   # 被拦截是已兜底的正常终态(非崩溃)
             return {"error": "harness_blocked", "reason": e.result.reason,
                     "session_id": session_id}
+        except Exception:
+            self._on_task_settled(session_id, "failed")  # 【P1-1】未兜底异常 → failed(供恢复)
+            raise
         finally:
             if _inject_tok is not None:
                 _reasoning_inject.reset(_inject_tok)   # 复位注入 contextvar,不泄漏到后续任务
@@ -1009,8 +1030,8 @@ class CognitiveAgent(ABC):
         + CognitiveState/WS 可观测。修复"共享真值记录只在主管分发路径产生"的不一致:
         现在直连领域 Agent 的任务也统一走这条真值链。
 
-        被主管分发/路由调用时(context['_no_emit']=True)跳过——那时主管会带 schedule 上下文
-        统一 publish 一条,避免同一子任务双发(见 SupervisorAgent 的分发路径)。
+        被主管分发/路由调用时(context['_no_emit']=True)跳过——由主管任务级别的统一
+        `_emit_execution` 承载(P1-1 后主管也走本模板),避免同一子任务双发。
         经能力中枢解析事件脊柱;无中枢(standalone/治理场景)则静默跳过。"""
         if context.get("_no_emit"):
             return
@@ -1028,7 +1049,8 @@ class CognitiveAgent(ABC):
     async def _execute(self, task: str, context: dict, session_id: str,
                        memories: list) -> tuple:
         """领域执行步骤(召回之后 → 返回之前)。返回 (result, extra_dict)。
-        领域 Agent 必须实现。SupervisorAgent 例外:它重写 run_task 走路由分发,不用本钩子。"""
+        领域 Agent 必须实现。SupervisorAgent 例外:它的 pipeline 不含 act stage
+        (路由分发由 supervisor_stages 的 dispatch stage 承担),不会走到本钩子。"""
         raise NotImplementedError(f"{self.AGENT_ID} 未实现 _execute()")
 
     # ── 编排协作接口(P3:领域知识归属领域 Agent,编排层只做通用聚合/路由)──────

@@ -18,7 +18,7 @@ import asyncio
 import json
 import time
 from datetime import datetime, timezone
-from .base import CognitiveAgent, HarnessBlockedError
+from .base import CognitiveAgent
 from ..planning import planner as P   # 统一规划原语(P1-2:关键词命中单一真源)
 
 # ── 多步链式上下文 ────────────────────────────────────────────
@@ -174,11 +174,12 @@ class SupervisorAgent(CognitiveAgent):
         return any(P.keyword_hits(task, kws) for kws in self.ROUTING_KEYWORDS.values())
 
     # 【已删除 · 请勿凭记忆加回】这里原有一个 `_llm_classify(task) -> Optional[str]`:
-    # 关键词未命中时用一次 LLM 把任务分诊到领域 Agent。它已被 `run_task` 中的分支取代
-    # 并成为死代码(全仓库零调用点),故删除。当时的取舍见 run_task 内「无关键词命中 →
-    # 主管直接自答」一段:每次分诊要多一次约 5s 的串行 LLM 往返,正面对话不值当,于是
-    # 改为主管自答。如需恢复精修,应从 git 历史取回本方法,并同时改回 run_task 的分支、
-    # 补回对应测试 —— 只加回方法不接线等于再制造一处死代码。
+    # 关键词未命中时用一次 LLM 把任务分诊到领域 Agent。它已被「无关键词命中 → 主管直接
+    # 自答」分支取代并成为死代码(全仓库零调用点),故删除。当时的取舍:每次分诊要多一次
+    # 约 5s 的串行 LLM 往返,正面对话不值当,于是改为主管自答。P1-1 后该分支在
+    # pipeline/supervisor_stages.py 的 route(决策)/dispatch(执行)两个 stage 里。
+    # 如需恢复精修,应从 git 历史取回本方法,并同时改回那两个 stage、补回对应测试
+    # —— 只加回方法不接线等于再制造一处死代码。
 
     def _plan_task(self, task: str, sched=None):
         """用 planner 判断任务是否需要拆解(多步)。
@@ -255,12 +256,10 @@ class SupervisorAgent(CognitiveAgent):
                 # 长链 + 大输出会滚成可观的内存与拷贝开销。
                 prior.append({"step": idx, "agent": ag,
                               "output": str(sub_output)[:PRIOR_MAX_CHARS]})
-            if bus is not None:
-                bus.publish("execution.completed", {
-                    "agent_id": ag, "task": subtask, "result": sub_output,
-                    "blocked": blocked, "schedule": sched.to_dict()})
-            elif not blocked:
-                # 无总线(部分测试/独立调用)→ 主管手动兜底沉淀记忆,与单步路径一致
+            # 【P1-1】execution.completed 不再逐子任务手动 publish——改由 base 模板
+            # `_emit_execution` 统一发一条**任务级**事件(子 Agent 均带 _no_emit=True)。
+            # 无总线(部分测试/独立调用)→ 主管手动兜底沉淀记忆,与单步路径一致
+            if bus is None and not blocked:
                 self._store_memory(
                     content=f"任务「{subtask}」由 {ag} 处理。要点:{str(sub_output)[:200]}",
                     mem_type="decision",
@@ -341,10 +340,8 @@ class SupervisorAgent(CognitiveAgent):
                     q.publish(batch, ag, {"idx": idx, "subtask": subtask, "agent": ag,
                                           "output": str(out)[:200], "blocked": blocked,
                                           "failed": False})
-                    if bus is not None:
-                        bus.publish("execution.completed", {
-                            "agent_id": ag, "task": subtask, "result": out,
-                            "blocked": blocked, "schedule": sched.to_dict()})
+                    # 【P1-1】execution.completed 不再逐子任务手动 publish——
+                    # 改由 base 模板 `_emit_execution` 统一发任务级事件。
                 except asyncio.TimeoutError:
                     if proc:
                         pm.mark_failed(proc.process_id, reason="timeout")
@@ -405,245 +402,122 @@ class SupervisorAgent(CognitiveAgent):
             "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
         }
 
-    async def run_task(self, task: str, context: dict = None) -> dict:
-        session_id = self.start_session(
-            goal=task,
-            entities=self._extract_entities(task),
-        )
-        context = context or {}
-        subagents = getattr(self, "_subagents", {})
+    # ── 【P1-1】主管 pipeline 化:不再重写 run_task ────────────────────
+    # 生命周期(会话/召回/返回体/Harness 兜底/hooks/流式/中断/统一 _emit_execution)
+    # 全部走 base 的 _run_task_core;路由分发逻辑拆成 7 个 pipeline stage
+    # (hestia/pipeline/supervisor_stages.py:recall→meta_check→schedule→route→plan→
+    # dispatch→aggregate)。本类只保留:pipeline 覆盖、领域钩子、恢复记账、分发执行体。
 
-        # 崩溃/重启恢复:记录任务开始(进行中),无论如何结束都会标记完成
+    def _cognitive_pipeline(self):
+        """主管的认知管线:SUPERVISOR_STAGES(路由分发),而非领域 Agent 的 DEFAULT_STAGES。"""
+        pipe = getattr(self, "_pipeline_cache", None)
+        if pipe is None:
+            from ..pipeline import CognitivePipeline
+            from ..pipeline.supervisor_stages import SUPERVISOR_STAGES
+            pipe = self._pipeline_cache = CognitivePipeline(SUPERVISOR_STAGES)
+        return pipe
+
+    def _task_entities(self, task: str) -> list:
+        """主管的目标基线实体(旧 run_task 用 _extract_entities 开会话,逐字保留)。"""
+        return self._extract_entities(task)
+
+    # 崩溃/重启恢复记账(与生命周期正交的横切关注点;_recovery 由 HestiaOS 装配注入,
+    # standalone/测试无此属性 → 跳过)。经 base 生命周期钩子接入,run_task 与
+    # run_task_stream 两条路径都会被记账。
+    def _on_session_started(self, session_id: str, task: str, context: dict) -> None:
         _recovery = getattr(self, "_recovery", None)
         if _recovery is not None:
             _recovery.task_started(
                 task_id=session_id, description=task,
-                session_id=session_id, channel=context.get("channel", ""))
-        try:
-            result = await self._run_task_body(task, context, session_id, subagents)
-            if _recovery is not None:
-                _recovery.task_finished(session_id, status="done")
-            return result
-        except Exception:
-            # 任务抛异常 → 标记 failed(语义准确,区别于正常完成)
-            if _recovery is not None:
-                _recovery.task_finished(session_id, status="failed")
-            raise
+                session_id=session_id, channel=(context or {}).get("channel", ""))
 
-    async def _run_task_body(self, task, context, session_id, subagents) -> dict:
-        try:
-            # 1. 召回相关记忆(含共享层)
-            memories = self._recall_memory(task)
+    def _on_task_settled(self, session_id: str, status: str) -> None:
+        _recovery = getattr(self, "_recovery", None)
+        if _recovery is not None:
+            _recovery.task_finished(session_id, status=status)
 
-            # 1.5 元问题(你是谁/能做什么/介绍)→ 主管以总管身份自答,不分派
-            if self._is_meta(task):
-                self._think(
-                    content=f"元问题「{task}」由主管直接回答(系统介绍,不分派)",
-                    node_type="decision", conf=0.92,
-                )
-                sub_names = {
-                    "finance": "财务 Agent(理财、收支、预算、风控)",
-                    "admin": "行政 Agent(日程、行程、出差、地图规划)",
-                    "office": "办公 Agent(学习、知识管理、研究、写作)",
-                    "assistant": "助手 Agent(通用任务、整理、沟通协助)",
-                }
-                available = [v for k, v in sub_names.items() if k in subagents]
-                team = "\n".join(f"· {x}" for x in available) if available else "(子 Agent 尚未注册)"
-                intro_prompt = (
-                    f"你是 Hestia OS 的主管 Agent(Supervisor),负责统筹协调整个智能体团队。"
-                    f"用户问:「{task}」。请以主管身份友好、简洁地直接回答用户这个问题。\n"
-                    f"背景信息(供你回答时参考):\n"
-                    f"- 你统领的团队:\n{team}\n"
-                    f"- 关于联网:Hestia OS 已接入百度 AI 搜索,具备联网查询实时信息的能力"
-                    f"(当用户问最新版本、新闻、价格等时会自动联网)。所以如果用户问你能不能联网,"
-                    f"应回答「可以联网」,而不是说没有联网能力。\n"
-                    f"请针对用户的实际问题回答,控制在 150 字内,口吻像专业总管,不要自称助手,"
-                    f"不要答非所问地只做自我介绍。"
-                )
-                reply = await self._call_llm([{"role": "user", "content": intro_prompt}])
-                self._store_memory(
-                    content=f"主管自答元问题「{task}」",
-                    mem_type="decision",
-                    title=f"主管介绍_{datetime.now().strftime('%Y%m%d_%H%M')}",
-                    shared=True,
-                )
-                return {
-                    "result": {"dispatched_to": "supervisor", "sub_result": reply,
-                               "self_answered": True},
-                    "session_id": session_id,
-                    "agent": self.AGENT_ID,
-                    "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
-                }
+    async def _dispatch_single(self, task, target, sched, session_id,
+                               subagents, context, memories, plan_obj) -> dict:
+        """单 Agent 分发(从原 _run_task_body 抽出,行为逐字一致,除两点 P1-1 变更):
+        ① execution.completed 不再在此手动 publish——改由 base 模板 `_emit_execution`
+          统一发一条**任务级**事件(子 Agent 调用带 _no_emit=True 仍不双发);
+        ② 返回体不再带 session_id/agent/thought_summary(由 base 模板统一组装)。"""
+        # 创建进程(任务即进程),携带调度决策 → 状态 scheduled
+        pm = getattr(self, "_process_manager", None)
+        proc = pm.create(task, agent_id=target, schedule=sched.to_dict()) if pm else None
 
-            # 2. 认知调度:先做 OS 式调度决策(优先级/负载/抢占),再分诊
-            sched = self._schedule(task, subagents)
-            self._think(
-                content=(f"认知调度:{sched.reason}"
-                         + (f" · 抢占({sched.preemption_reason})" if sched.preemptible else "")),
-                node_type="decision", conf=0.9,
-            )
+        self._think(
+            content=f"调度 {target} Agent 执行子任务",
+            node_type="tool_intent",
+            tool_name=f"dispatch_{target}",
+            conf=0.92,
+        )
+        # 进程进入 running
+        if proc:
+            pm.mark_running(proc.process_id)
+        # _no_emit:子 Agent 不自发,主管任务级统一 emit(见 base._emit_execution),避免双发
+        sub_result = await subagents[target].run_task(task, {**context, "_no_emit": True})
 
-            # 2.1 推理:决定调度目标(关键词 + 调度意图综合)
-            target = self._route(task, sched)
-            # 无关键词命中 = 正面对话/泛化问题 → 主管**直接自答一次**,省掉"LLM 分诊 + 派发"的
-            # 第二次串行 LLM 调用(每次约 5s 网络往返,正面对话不值当)。只有命中领域关键词
-            # (财务/行政/办公/…)才派发给对应子 Agent。stub 下保持原路径(零额外调用、离线测试确定)。
-            # 权衡:少数本该派给领域 Agent 的"无关键词"任务会由主管自答——用户明确选速度优先。
-            if not self._has_keyword_hit(task) and not self.router.is_stub:
-                self._think(
-                    content="无关键词命中 → 主管直接自答(省掉二次分诊派发,正面对话提速)",
-                    node_type="decision", conf=0.88)
-                _msgs = [{"role": "user", "content": (
-                    f"你是 Hestia OS 的主管 Agent(Supervisor),统筹整个智能体团队。"
-                    f"用户说:「{task}」。请以主管身份**直接、友好、专业**地回答,针对用户的实际"
-                    f"问题作答,不要只做自我介绍、不要答非所问。若确属需要专门领域深办的任务,可"
-                    f"简要引导用户去对应能力,但仍先给出有用的直接回应。"
-                )}]
-                # 联网增强:新闻/实时类(_web_augment 内 needs_search 命中)走百度搜索注入真实结果
-                # 再作答,避免主管凭空编造(系统 prompt 明令严禁模拟搜索)。纯闲聊 needs_search=False,
-                # 不搜、不减速。阻塞 I/O 放线程池(与 base._execute 同法),不堵 async 事件循环。
-                _msgs = await asyncio.to_thread(self._web_augment, task, _msgs)
-                reply = await self._call_llm(_msgs)
-                self._store_memory(
-                    content=f"主管自答正面对话「{task}」", mem_type="decision",
-                    title=f"主管自答_{datetime.now().strftime('%Y%m%d_%H%M')}", shared=True)
-                return {
-                    "result": {"dispatched_to": "supervisor", "sub_result": reply,
-                               "self_answered": True},
-                    "session_id": session_id,
-                    "agent": self.AGENT_ID,
-                    "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
-                }
-            # 用 planner 检测任务是否需要多步拆解,并为每个子任务算路由
-            plan_obj, step_routes = self._plan_task(task, sched)
-            if plan_obj is not None:
-                routes_desc = " → ".join(f"{name}[{ag}]" for name, ag in step_routes)
-                self._think(
-                    content=f"planner 判定为多步任务({len(plan_obj.tasks)}步):{routes_desc}",
-                    node_type="decision", conf=0.85,
-                )
-                # 若子任务跨不同 Agent,标记为多 Agent 顺序执行
-                distinct_agents = {ag for _, ag in step_routes}
-                multi_agent = len(distinct_agents) > 1
+        # 汇聚子 Agent 结果
+        sub_output = sub_result.get("result", "")
+        if isinstance(sub_output, dict):
+            sub_output = json.dumps(sub_output, ensure_ascii=False)
+        blocked = sub_result.get("error") == "harness_blocked"
+
+        # 进程终态:被拦截/出错→failed,否则→completed
+        if proc:
+            if blocked:
+                pm.mark_failed(proc.process_id, reason="harness_blocked")
             else:
-                multi_agent = False
-            self._think(
-                content=f"任务分诊:「{task}」→ 派给 {target} Agent。已有相关记忆 {len(memories)} 条",
-                node_type="decision",
-                conf=0.9,
-            )
+                pm.mark_completed(proc.process_id)
 
-            # 多 Agent 执行:并行计划(无依赖)→ fork-join 并发;否则顺序执行后汇聚
-            if multi_agent and step_routes:
-                if getattr(plan_obj, "flow_type", "sequential") == "parallel":
-                    self._think(
-                        content=f"计划为并行({len(step_routes)}个无依赖子任务)→ fork-join 并发调度",
-                        node_type="decision", conf=0.88,
-                    )
-                    return await self._dispatch_parallel(
-                        task, step_routes, sched, session_id, subagents, context, memories)
-                return await self._dispatch_multi(
-                    task, step_routes, sched, session_id, subagents, context, memories)
+        self._think(
+            content=f"{target} 返回结果(截断={blocked}):{str(sub_output)[:120]}",
+            node_type="reflection",
+            conf=0.88,
+        )
 
-            # 3. 真实调度:调用子 Agent 执行(D 阶段核心)
-            if target in subagents:
-                # 创建进程(任务即进程),携带调度决策 → 状态 scheduled
-                pm = getattr(self, "_process_manager", None)
-                proc = pm.create(task, agent_id=target, schedule=sched.to_dict()) if pm else None
-
-                self._think(
-                    content=f"调度 {target} Agent 执行子任务",
-                    node_type="tool_intent",
-                    tool_name=f"dispatch_{target}",
-                    conf=0.92,
-                )
-                # 进程进入 running
-                if proc:
-                    pm.mark_running(proc.process_id)
-                # _no_emit:子 Agent 不自发,主管下方统一 publish(带 schedule),避免双发
-                sub_result = await subagents[target].run_task(task, {**context, "_no_emit": True})
-
-                # 4. 汇聚子 Agent 结果
-                sub_output = sub_result.get("result", "")
-                if isinstance(sub_output, dict):
-                    sub_output = json.dumps(sub_output, ensure_ascii=False)
-                blocked = sub_result.get("error") == "harness_blocked"
-
-                # 进程终态:被拦截/出错→failed,否则→completed
-                if proc:
-                    if blocked:
-                        pm.mark_failed(proc.process_id, reason="harness_blocked")
-                    else:
-                        pm.mark_completed(proc.process_id)
-
-                self._think(
-                    content=f"{target} 返回结果(截断={blocked}):{str(sub_output)[:120]}",
-                    node_type="reflection",
-                    conf=0.88,
-                )
-
-                # 5. 记忆沉淀:优先由真值管线(事件驱动)负责;
-                #    无总线时(如部分测试场景)主管手动兜底,避免丢记忆。
-                bus = getattr(self, "_system_bus", None)
-                if bus is None:
-                    self._store_memory(
-                        content=f"任务「{task}」由 {target} 处理。要点:{str(sub_output)[:200]}",
-                        mem_type="decision",
-                        title=f"调度记录_{datetime.now().strftime('%Y%m%d_%H%M')}",
-                        tags=["dispatch", f"to:{target}"],
-                        shared=True,
-                    )
-
-                # 6. 发执行完成事件 → 真值管线自动流转(审计→记忆)
-                if bus is not None:
-                    bus.publish("execution.completed", {
-                        "agent_id": target, "task": task,
-                        "result": sub_output, "blocked": blocked,
-                        "schedule": sched.to_dict(),
-                    })
-
-                return {
-                    "result": {
-                        "dispatched_to": target,
-                        "sub_result": sub_output,
-                        "blocked": blocked,
-                        "summary": f"主管已将任务派给 {subagents[target].AGENT_NAME} 处理并汇聚结果",
-                    },
-                    "schedule": sched.to_dict(),
-                    "plan": ({"steps": [t.name for t in plan_obj.tasks],
-                              "multi_step": True} if plan_obj else {"multi_step": False}),
-                    "process_id": proc.process_id if proc else None,
-                    "session_id": session_id,
-                    "agent": self.AGENT_ID,
-                    "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
-                }
-
-            # 子 Agent 不可用(未注册):主管自行处理
-            plan_response = await self._call_llm_web(task, [{
-                "role": "user",
-                "content": f"任务:{task}\n请直接给出处理方案。"
-            }])
-            self._think(content=f"主管自处理:{plan_response[:150]}", node_type="decision", conf=0.85)
+        # 记忆沉淀:正常由真值管线(事件驱动,经 base._emit_execution)负责;
+        # 无总线时(如部分测试场景)主管手动兜底,避免丢记忆。
+        bus = getattr(self, "_system_bus", None)
+        if bus is None:
             self._store_memory(
-                content=f"任务:{task}\n方案:{plan_response[:300]}",
+                content=f"任务「{task}」由 {target} 处理。要点:{str(sub_output)[:200]}",
                 mem_type="decision",
-                title=f"主管处理_{datetime.now().strftime('%Y%m%d_%H%M')}",
+                title=f"调度记录_{datetime.now().strftime('%Y%m%d_%H%M')}",
+                tags=["dispatch", f"to:{target}"],
                 shared=True,
             )
-            return {
-                "result": {"dispatched_to": "supervisor", "sub_result": plan_response},
-                "session_id": session_id,
-                "agent": self.AGENT_ID,
-                "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
-            }
 
-        except HarnessBlockedError as e:
-            return {
-                "error": "harness_blocked",
-                "reason": e.result.reason,
-                "delta": e.result.delta,
-                "session_id": session_id,
-            }
+        return {
+            "result": {
+                "dispatched_to": target,
+                "sub_result": sub_output,
+                "blocked": blocked,
+                "summary": f"主管已将任务派给 {subagents[target].AGENT_NAME} 处理并汇聚结果",
+            },
+            "schedule": sched.to_dict(),
+            "plan": ({"steps": [t.name for t in plan_obj.tasks],
+                      "multi_step": True} if plan_obj else {"multi_step": False}),
+            "process_id": proc.process_id if proc else None,
+        }
+
+    async def _dispatch_fallback(self, task, context) -> dict:
+        """子 Agent 不可用(未注册):主管自行处理。"""
+        plan_response = await self._call_llm_web(task, [{
+            "role": "user",
+            "content": f"任务:{task}\n请直接给出处理方案。"
+        }])
+        self._think(content=f"主管自处理:{plan_response[:150]}", node_type="decision", conf=0.85)
+        self._store_memory(
+            content=f"任务:{task}\n方案:{plan_response[:300]}",
+            mem_type="decision",
+            title=f"主管处理_{datetime.now().strftime('%Y%m%d_%H%M')}",
+            shared=True,
+        )
+        return {
+            "result": {"dispatched_to": "supervisor", "sub_result": plan_response},
+        }
 
     def _extract_entities(self, text: str) -> list[str]:
         """简单实体提取(规则版,后续可接 NER)。

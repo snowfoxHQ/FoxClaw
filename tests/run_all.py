@@ -41,6 +41,7 @@ TESTS = [
     ("test_toplevel_concurrency.py", "顶层任务并发隔离(contextvars)"),
     ("test_api_auth.py",     "API 可选鉴权(X-API-Key)"),
     ("test_supervisor_triage.py", "主管分诊与自答策略(关键词直路 / 自答 / stub 兜底)"),
+    ("test_supervisor_pipeline.py", "批次5 · P1-1 主管 pipeline 化(七 stage/统一 emit/流式/恢复记账)"),
     ("test_browser.py",      "浏览器子系统(HIR-Browser:核心逻辑/线程包装/降级)"),
     ("test_hkc.py",          "知识核心(HKC融入:装配/检索/H1资源修复/惰性teardown)"),
     ("test_search.py",       "认知搜索(HSR融入:编排/证据融合/迭代上限/端口降级)"),

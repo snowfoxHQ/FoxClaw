@@ -13,9 +13,11 @@ from .cognitive_pipeline import (
     stage_perceive, stage_recall, stage_plan, stage_route, stage_act,
     stage_verify, stage_reflect, DEFAULT_STAGES,
 )
+from .supervisor_stages import SUPERVISOR_STAGES
 
 __all__ = [
     "PipelineContext", "CognitivePipeline",
     "stage_perceive", "stage_recall", "stage_plan", "stage_route", "stage_act",
     "stage_verify", "stage_reflect", "DEFAULT_STAGES",
+    "SUPERVISOR_STAGES",
 ]

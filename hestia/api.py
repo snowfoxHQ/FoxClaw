@@ -1139,17 +1139,20 @@ async def chat_stream(req: TaskRequest, request: Request):
 async def task_stream(req: TaskRequest, request: Request):
     """流式任务执行(D1):SSE 逐 stage 进度 + act 逐 token + 最终结果。用于任务/分析等走**完整
     认知管线**的场景(对话直答走 /api/chat/stream)。事件:`{stage}`/`{delta}`/`{result}`/`{error}`。
+    【P3-3】主管(P1-1 pipeline 化后)同样可走本端点:stage 事件为主管管线的
+    recall/meta_check/schedule/route/plan/dispatch/aggregate;分发场景下子 Agent 的 act
+    token 随 contextvar 传播一并流出。
     背压与断连处理与 chat_stream 一致:断连 → stop_event 同时停管线 stage(P3)+ 停 act LLM 生成。"""
     if not _STREAM_LIMITER.allow():
         async def _rl():
             yield "data: " + json.dumps({"error": "rate limited"}) + "\n\n"
         return StreamingResponse(_rl(), media_type="text/event-stream")
 
-    agent = _os_instance._agents.get(req.agent_id) or _os_instance.assistant
-    # 流式跑完整认知管线,须是"模板 run_task(pipeline)"路径的领域 Agent。SupervisorAgent 重写了
-    # run_task 做路由分派、且未实现 _execute(pipeline 的 act 会落空),故不走它 → 回落 assistant
-    # (与 /api/chat/stream 一致:流式端点面向具体领域 Agent,不做主管路由)。
-    if agent is _os_instance.supervisor:
+    agent = _os_instance._agents.get(req.agent_id)
+    # 【P3-3】P1-1 落地后主管走统一 pipeline(supervisor_stages),支持 run_task_stream,
+    # 不再回落 assistant。未知 agent_id 仍回落 assistant 兼容旧客户端,但打 warning 不静默。
+    if agent is None:
+        print(f"[HestiaOS API] ⚠ /api/task/stream 收到未知 agent_id={req.agent_id},回落 assistant")
         agent = _os_instance.assistant
 
     async def async_sse():

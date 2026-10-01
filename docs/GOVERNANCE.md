@@ -47,7 +47,9 @@ rec.task_finished(task_id, status="done")  # 结束(done/failed)
 interrupted = rec.scan_interrupted()       # 启动时扫描:返回被中断的任务列表
 ```
 
-**已接入:** `HestiaOS` 启动时自动扫描,检测到中断任务会打印提示;主管 `run_task` 用 try/finally 自动记录开始/结束(异常标 failed)。
+**已接入:** `HestiaOS` 启动时自动扫描,检测到中断任务会打印提示;主管任务经 base 模板的
+生命周期钩子(`_on_session_started`/`_on_task_settled`,P1-1)自动记录开始/结束
+(正常终态标 done、未兜底异常标 failed;`run_task` 与 `run_task_stream` 两条路径都记账)。
 
 **设计要点:**
 - **boot_id 防 pid 复用**:每次启动生成唯一 ID,判据是"非本次启动的 in_progress 任务=被中断"。比单纯靠 pid 可靠——pid 会被 OS 复用,旧任务的 pid 被新进程占用会导致漏判。

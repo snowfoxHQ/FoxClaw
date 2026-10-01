@@ -42,15 +42,29 @@ with TestClient(app) as c:
         assert results[0].get("agent") == "assistant" and "result" in results[0], results[0]
     print(f"[1] /api/task/stream SSE(stage={len(stages)} delta={len(deltas)} result=1) OK")
 
-    # 2) 主管路由不走流式管线 → 端点回落 assistant(仍 200 + 正常出 result,不崩)
+    # 2) 【P3-3】主管不再回落 assistant:P1-1 pipeline 化后主管自身支持流式,
+    #    stage 事件是主管管线七阶段,result.agent=supervisor,路由结论照常(stub 无关键词
+    #    → 兜底派发 assistant),子 Agent 的 act token 随 contextvar 传播流出。
     with c.stream("POST", "/api/task/stream",
                   json={"task": "随便问问", "agent_id": "supervisor"}) as resp:
         assert resp.status_code == 200, resp.status_code
-        got_result = False
+        stages, results, errors = [], [], []
         for line in resp.iter_lines():
-            if line.startswith("data: ") and "result" in json.loads(line[6:]):
-                got_result = True
-        assert got_result, "supervisor 请求应回落 assistant 并正常产出 result"
-    print("[2] agent_id=supervisor → 回落 assistant,正常产出(不跑主管路由) OK")
+            if not line or not line.startswith("data: "):
+                continue
+            ev = json.loads(line[6:])
+            if "stage" in ev: stages.append(ev["stage"])
+            if "result" in ev: results.append(ev["result"])
+            if "error" in ev: errors.append(ev["error"])
+        assert not errors, f"不应有 error 事件: {errors}"
+        assert len(results) == 1, f"应恰有一个最终 result 事件,实得 {len(results)}"
+        r0 = results[0]
+        assert r0.get("agent") == "supervisor", \
+            f"P3-3:主管走自身 pipeline,不再回落 assistant(实为 {r0.get('agent')})"
+        assert "dispatch" in stages and "route" in stages, \
+            f"应见主管管线 stage(route/dispatch): {stages}"
+        assert r0["result"].get("dispatched_to") == "assistant", \
+            f"stub 无关键词 → 主管路由照常兜底派发 assistant(实为 {r0['result'].get('dispatched_to')})"
+    print("[2] agent_id=supervisor → 主管自身流式管线(P3-3,不再回落) OK")
 
 print("\nD1 /api/task/stream 验证通过")

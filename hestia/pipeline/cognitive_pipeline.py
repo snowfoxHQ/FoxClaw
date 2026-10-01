@@ -44,6 +44,15 @@ class PipelineContext:
     # ── 协作式中断(P3,opt-in)──────────────────────────────
     stop_event: Any = None      # 置位则在下一 stage 边界 / reflect 重试迭代前优雅停止;默认 None=永不停
     interrupted: bool = False   # 被 stop_event 提前中断(供调用方识别"部分完成、未跑完全部 stage")
+    # ── 【P1-1】主管路由专用字段(领域 Agent 不用,默认空)──────────
+    # 主管 pipeline(supervisor_stages.SUPERVISOR_STAGES)在 schedule/route/plan/dispatch
+    # 各 stage 间经这些字段传递路由决策;领域 Agent 的 DEFAULT_STAGES 从不读它们。
+    sched: Any = None                       # schedule stage 的 ScheduleDecision
+    target: str = ""                        # route stage 的分诊目标(子 Agent id)
+    plan_obj: Any = None                    # plan stage 的 planner 拆解结果(多步计划)
+    step_routes: list = field(default_factory=list)   # [(子任务文本, 目标 Agent)]
+    multi_agent: bool = False               # 是否跨多 Agent(顺序链式 / 并行 fork-join)
+    dispatch_result: dict = field(default_factory=dict)  # dispatch stage 的原始分发返回
 
 
 def _emit_stage(ctx: "PipelineContext", stage_name: str) -> None:

@@ -20,12 +20,19 @@ from hestia.agents.agents import (
 
 
 def test_structural_convergence():
-    print("\n【1】结构收敛:领域 Agent 复用模板 run_task,只实现 _execute")
+    print("\n【1】结构收敛:全部 Agent 复用模板 run_task(主管经 P1-1 pipeline 化收敛)")
     for A in (FinanceAgent, AdminAgent, OfficeAgent, AssistantAgent):
         assert A.run_task is CognitiveAgent.run_task, f"{A.__name__} 不应重写 run_task"
         assert A._execute is not CognitiveAgent._execute, f"{A.__name__} 应实现 _execute"
-    assert SupervisorAgent.run_task is not CognitiveAgent.run_task, "主管路由器保留自身 run_task"
-    print("  ✓ 4 领域 Agent 共用唯一 run_task 模板;主管合法例外")
+    # 【P1-1】主管也不再重写 run_task:路由分发拆成 SUPERVISOR_STAGES 七个 pipeline
+    # stage,走 base 统一模板(获得 hooks/流式/中断/统一 emit)。主管的差异收敛为
+    # _cognitive_pipeline 覆盖 + 领域钩子,而非另起生命周期。(本断言此前锁的是
+    # "主管保留自身 run_task" 的旧结构,P1-1 落地时同步翻转——又一处"测试锁旧行为"。)
+    assert SupervisorAgent.run_task is CognitiveAgent.run_task, \
+        "P1-1:主管不再重写 run_task(路由分发在 pipeline stage 里)"
+    assert SupervisorAgent._cognitive_pipeline is not CognitiveAgent._cognitive_pipeline, \
+        "主管应覆盖 _cognitive_pipeline 使用 SUPERVISOR_STAGES"
+    print("  ✓ 5 个 Agent 共用唯一 run_task 模板;主管差异收敛为 pipeline 覆盖(P1-1)")
 
 
 def test_domain_hooks():
