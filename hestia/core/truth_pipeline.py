@@ -38,10 +38,12 @@ class TruthPipeline:
         self.last_trace = None
         self.last_memory_update = None
 
-        # 订阅事件链
-        bus.subscribe("execution.completed", self._on_execution_completed)
-        bus.subscribe("trace.recorded", self._on_trace_recorded)
-        bus.subscribe("truth.appended", self._on_truth_appended)
+        # 订阅事件链。【P4-1】三个都是精确 channel 名 → exact=True:
+        # 门面化后 SystemBus 默认是前缀匹配,不锁定的话 "execution.completed.extra"
+        # 之类的前缀事件也会触发真值链(语义漂移)。
+        bus.subscribe("execution.completed", self._on_execution_completed, exact=True)
+        bus.subscribe("trace.recorded", self._on_trace_recorded, exact=True)
+        bus.subscribe("truth.appended", self._on_truth_appended, exact=True)
 
     def _on_execution_completed(self, msg):
         """执行完成 → 生成审计 trace,发 trace.recorded。"""
@@ -58,8 +60,18 @@ class TruthPipeline:
         self.bus.publish("trace.recorded", {**p, "trace": trace})
 
     def _on_trace_recorded(self, msg):
-        """审计已记录 → 真值落库,发 truth.appended。"""
+        """审计已记录 → 真值落库,发 truth.appended。
+
+        【P3-5】blocked=True 的任务不沉淀真值:被拦截 ≠ 真值。只留审计 trace
+        (trace.recorded 照常发——审计要记录"发生过什么"),发 truth.skipped 事件
+        供前端/审计观测"这次真值沉淀被跳过",不进入真值链。否则订阅 truth.appended
+        的下游(如 TruthCrystallizer)会把被拦截的任务当真值结晶进 HKC。
+        """
         p = msg.payload
+        if p.get("blocked"):
+            self.last_memory_update = {"persisted": False, "reason": "blocked"}
+            self.bus.publish("truth.skipped", {**p, "reason": "blocked"})
+            return
         # 真值 = "任务被如此处理"的事实 + 产出要点(信息量足够供日后召回)
         result_brief = str(p.get("result", ""))[:200]
         truth = {
@@ -70,19 +82,29 @@ class TruthPipeline:
         self.bus.publish("truth.appended", {**p, "truth": truth})
 
     def _on_truth_appended(self, msg):
-        """真值落库 → 沉淀到 HMR 共享记忆,发 memory.updated。"""
+        """真值落库 → 沉淀到 HMR 共享记忆,发 memory.updated。
+
+        【P3-0】写共享层用 agent_id="system":真值沉淀是系统级管线行为,不是某个
+        Agent 的自主写入——若按来源 Agent 归因,memory.shared.write 审计事件会把
+        系统写入误记成该 Agent 的写入(审计归因失真)。来源 Agent 保留在 tags 的
+        origin:<id> 里,便于追溯。权限侧由 SharedWritePolicy 的 facet 全局豁免
+        (tags 含 "truth_pipeline")+ 策略表 system:{"*"} 双通道保证不被误拦。
+
+        【P3-5】双保险:_on_trace_recorded 已挡 blocked,这里再检查一次。
+        """
         p = msg.payload
         update = {"persisted": False}
         if self.hmr is not None and not p.get("blocked"):
             try:
                 # 沉淀到 HMR 共享层(所有 Agent 可见),用真实的 ingest 接口
                 content = p.get("truth", {}).get("fact", "")
+                origin_agent = p.get("agent_id", "unknown")
                 self.hmr.ingest(
                     content,
                     type="execution",
-                    agent_id=p.get("agent_id", "system"),
+                    agent_id="system",      # 【P3-0】系统级写入(非来源 Agent)
                     title=f"真值_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                    tags=["truth_pipeline"],
+                    tags=["truth_pipeline", f"origin:{origin_agent}"],   # 来源可追溯
                     shared=True,
                 )
                 update = {"persisted": True, "content": content}

@@ -250,6 +250,29 @@ app.add_middleware(
 )
 
 
+def _constant_time_eq(a: str, b: str) -> bool:
+    """【P3-1】常量时间字符串比较,防计时攻击。
+
+    攻击者可通过普通 == 的逐字符短路耗时差异逐位猜出 API Key(猜对前缀越长、
+    响应越慢),从而把请求从 ip:* 身份伪造成 k:* 身份绕过 IP 限流。
+    compare_digest 接受 bytes 或 ASCII str;API Key 可能含非 ASCII,故统一先
+    encode("utf-8")。None 由调用方用 or "" 兜底。
+    """
+    import hmac
+    return hmac.compare_digest((a or "").encode("utf-8"), (b or "").encode("utf-8"))
+
+
+def _is_guarded_path(path: str) -> bool:
+    """【P3-8】需要鉴权/限流/追踪的数据面路径:/api/* 和 /knowledge/*。
+
+    抽成辅助函数:此前 _api_key_guard / _gateway_mw / _trace_mw 各自重复
+    `startswith("/api") or startswith("/knowledge")`,未来加新前缀(如 /ws 之外的
+    新数据面)只改一处,也避免三处漂移出不一致的防护口径。
+    /knowledge/* 是 HKC 数据面(graph/ingest/reset),必须与 /api 同一防护口径。
+    """
+    return path.startswith("/api") or path.startswith("/knowledge")
+
+
 @app.middleware("http")
 async def _api_key_guard(request, call_next):
     """设了 HESTIA_API_KEY 时,保护 /api/* 与 /ws/*。未设则放行(本地默认)。
@@ -259,15 +282,14 @@ async def _api_key_guard(request, call_next):
         path = request.url.path
         # /knowledge/* 是 HKC 星球的数据面(graph/ingest/reset),必须同 /api 一起鉴权,
         # 否则 ingest/reset/graph 对公众开放(泄密+可乱写)。/ws 由端点内部鉴权。
-        if path.startswith("/api") or path.startswith("/knowledge"):
+        if _is_guarded_path(path):
             # CORS 预检(OPTIONS + Access-Control-Request-Method)按规范**不携带**自定义请求头,
             # 浏览器也不会给它带 X-API-Key。必须放行交给 CORSMiddleware 处理;否则一旦启用鉴权,
             # 跨源请求会在预检阶段被 401 拦死(且响应无 CORS 头,浏览器只报 CORS 错误,极难定位)。
             if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
                 return await call_next(request)
-            import hmac
-            # 常量时间比对,防对 API Key 的计时攻击(MCP 暴露后更重要)
-            if not hmac.compare_digest(request.headers.get("X-API-Key", "") or "", api_key):
+            # 【P3-1】常量时间比对,防对 API Key 的计时攻击(MCP 暴露后更重要)
+            if not _constant_time_eq(request.headers.get("X-API-Key", "") or "", api_key):
                 from fastapi.responses import JSONResponse
                 return JSONResponse(
                     {"error": "unauthorized: 缺少或无效的 X-API-Key"}, status_code=401)
@@ -302,7 +324,7 @@ async def _gateway_mw(request, call_next):
     client 身份:持有效 key → 按 key 计;否则按来源 IP 计(故轮换错误 key 无法绕过 IP 限流)。
     超限 → 429 + Retry-After。默认关(本地);配鉴权或显式开启才生效。"""
     path = request.url.path
-    guarded = path.startswith("/api") or path.startswith("/knowledge")
+    guarded = _is_guarded_path(path)
     # ① 请求体大小硬顶(始终生效):Content-Length 超限 → 413,在读 body 前拦下
     if guarded:
         cl = request.headers.get("content-length")
@@ -314,7 +336,9 @@ async def _gateway_mw(request, call_next):
     if guarded and _gateway_on():
         valid = os.environ.get("HESTIA_API_KEY", "").strip()
         hdr = (request.headers.get("X-API-Key") or "").strip()
-        client = ("k:" + hdr) if (valid and hdr == valid) \
+        # 【P3-1】常量时间比较:普通 == 的短路耗时可被用来逐位猜 key,
+        # 把请求从 ip:* 伪造成 k:* 身份绕过 IP 限流
+        client = ("k:" + hdr) if (valid and _constant_time_eq(hdr, valid)) \
             else ("ip:" + (request.client.host if request.client else "anon"))
         allowed, retry, reason = _GATEWAY.check(client)
         if not allowed:
@@ -331,7 +355,7 @@ async def _trace_mw(request, call_next):
     skill 里的 span 仍归属本次请求)。响应带 X-Trace-Id 便于定位。只追数据面,不污染静态/探针。"""
     from .core.tracing import start_trace, clear_trace, TRACES, parse_traceparent
     path = request.url.path
-    if not (path.startswith("/api") or path.startswith("/knowledge")):
+    if not _is_guarded_path(path):
         return await call_next(request)
     # 跨进程接链:外部(如经 /api/mcp 调进来的 Agent)带了 W3C traceparent 就复用其 trace_id,
     # 这样两边的链路能对齐;非法/缺失则自己开一条(不信外部输入)。
@@ -1582,6 +1606,16 @@ def _hkc_or_none():
         return None
 
 
+# 【P3-7】异常分类用 isinstance 优先:hasattr(e, "missing_skills") 是鸭子判断,
+# 任何恰好带了同名属性的无关异常都会被误吞成「覆盖不足」证据 gate(真实错误被掩盖)。
+# 真实类型在 vendor 的 hkc_sdk.exceptions(test_hkc.py 同源引用);缺 vendor/hkc 时
+# import 失败降级 None,运行时回退 hasattr 判断,行为与旧版一致。
+try:
+    from hkc_sdk.exceptions import HKCInsufficientCoverage as _HKCInsuffCov
+except Exception:
+    _HKCInsuffCov = None
+
+
 @app.post("/api/knowledge/search")
 async def knowledge_search(p: KnowledgeSearchPayload):
     """混合检索知识库。HKC 未启用或检索失败时返回空 hits(与整体降级哲学一致)。"""
@@ -1638,8 +1672,16 @@ async def knowledge_ability(ability_key: str):
     try:
         ab = await asyncio.to_thread(hkc.client.compile_ability, ability_key)
     except Exception as e:
-        # 覆盖不足(HKCInsufficientCoverage 带 coverage/missing_skills)→ 证据 gate,非错误
-        if hasattr(e, "missing_skills"):
+        # 覆盖不足(HKCInsufficientCoverage 带 coverage/missing_skills)→ 证据 gate,非错误。
+        # 【P3-7】isinstance 可用时**只**用 isinstance(精确判断:带 missing_skills 属性的
+        # 无关异常不再被误吞成「覆盖不足」);import 失败(缺 vendor)才回退 hasattr 鸭子判断。
+        # 文稿骨架写的是 isinstance OR hasattr 叠加,与其自身设计决策(「失败才回退」=二选一)
+        # 不一致——OR 下鸭子判断永远生效,精确化形同虚设,故按设计决策实现。
+        if _HKCInsuffCov is not None:
+            is_insufficient = isinstance(e, _HKCInsuffCov)
+        else:
+            is_insufficient = hasattr(e, "missing_skills")
+        if is_insufficient:
             return {"available": True, "sufficient": False,
                     "coverage": getattr(e, "coverage", {}),
                     "missing_skills": getattr(e, "missing_skills", []),
@@ -1716,7 +1758,9 @@ async def harness_websocket(websocket: WebSocket):
     if api_key:
         provided = (websocket.query_params.get("key")
                     or websocket.headers.get("x-api-key"))
-        if provided != api_key:
+        # 【P3-1】常量时间比较(与 HTTP 中间件同一辅助函数);None 由 or "" 兜底——
+        # api_key 非空时 not eq("", api_key) 必为 True,与原 None != api_key 行为一致
+        if not _constant_time_eq(provided or "", api_key):
             await websocket.close(code=1008)   # policy violation
             return
     await manager.connect(websocket)

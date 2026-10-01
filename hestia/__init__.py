@@ -251,7 +251,8 @@ class HestiaOS:
         self.truth_crystallizer = TruthCrystallizer(
             hkc_provider=lambda: self.hkc,
             enabled=os.environ.get("HESTIA_TRUTH_TO_HKC", "") == "1")
-        self.system_bus.subscribe("truth.appended", self.truth_crystallizer.on_truth)
+        self.system_bus.subscribe("truth.appended", self.truth_crystallizer.on_truth,
+                                  exact=True)   # 【P4-1】精确 channel 名,防前缀事件误入结晶
         # 进程管理器:把每个任务当进程管理(状态机 + 历史)。它是唯一 Lifecycle 后端,
         # emit 唯一词汇 task.lifecycle.<state>(Step3)。
         from .kernel import ProcessManager

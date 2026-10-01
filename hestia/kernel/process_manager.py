@@ -160,13 +160,22 @@ class ProcessManager:
         return rec
 
     def _transition(self, rec: ProcessRecord, next_state: str):
-        """受状态机约束的状态流转。真正非法的跳转(如跳过中间态)抛错 fail-fast。"""
+        """受状态机约束的状态流转。真正非法的跳转(如跳过中间态)抛错 fail-fast。
+
+        【P5-3】终态守卫:已是终态的进程再流转 → 幂等忽略(不改状态、不重复 -1)。
+        此前"不会重复 -1"完全依赖上游 _safe_transition/mark_failed 的守卫——若未来
+        新增调用点直接调本方法,活跃计数会被重复扣减(可扣成负数,stats 失真)。
+        这里是双保险。注意行为变更:终态 → 任何状态,从抛 ValueError 变为静默忽略。
+        """
+        # 已是终态 → 幂等忽略(不再 -1,不再改状态)
+        if rec.state in _TERMINAL:
+            return
         allowed = _VALID_TRANSITIONS.get(rec.state, set())
         if next_state not in allowed:
             raise ValueError(
                 f"非法状态流转: {rec.state} → {next_state}(进程 {rec.process_id})")
-        # 进入终态 → 活跃计数 -1(终态幂等由上游 _safe_transition/mark_failed 的守卫保证,
-        # 已终态者不会再进这里,故不会重复 -1;每进程恰好 create 时 +1、首次入终态时 -1)。
+        # 进入终态 → 活跃计数 -1(每进程恰好 create 时 +1、首次入终态时 -1;
+        # 上面的终态守卫保证不会重复扣减)。
         if next_state in _TERMINAL:
             self._active -= 1
         rec.state = next_state

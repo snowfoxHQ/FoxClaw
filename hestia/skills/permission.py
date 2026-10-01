@@ -16,6 +16,17 @@ from typing import Literal, Optional
 
 Decision = Literal["allow", "ask", "deny"]
 
+# 【P5-1】ask 的结构化原因码。此前 ask + requires_confirmation=True 只有一个语义:
+# 「用户确认后就能执行」。但 Stage 1 的「缺参数」不是「需确认」——用户确认一百次
+# 也补不上参数,必须先补数据。reason_code 让调用方(前端/编排层/审计)能区分:
+MISSING_PARAMS = "MISSING_PARAMS"                # 缺必填参数,不可通过确认绕过(先补数据)
+DESTRUCTIVE_CONFIRM = "DESTRUCTIVE_CONFIRM"      # 不可逆操作,需确认
+SIDE_EFFECT_CONFIRM = "SIDE_EFFECT_CONFIRM"      # write/send/pay 副作用,需确认
+ASK_RULE = "ASK_RULE"                            # 命中宿主 ask 规则
+EXTERNAL_CONFIRM = "EXTERNAL_CONFIRM"            # 外部调用,需确认
+# deny / allow 侧文稿未定义 code,保守留 "":deny 的铁律语义(deny 不可覆盖)已由
+# decision + stage 充分表达,不擅自扩大枚举面。
+
 
 @dataclass
 class PermissionRules:
@@ -46,12 +57,15 @@ class PermissionDecision:
     reason: str = ""
     trust_downgrade: bool = False   # 结果是否须按「不可信」处理(MCP/远程)
     requires_confirmation: bool = False
+    # 【P5-1】ask 的结构化原因码(见模块顶部常量);非 ask 或文稿未定义的情形为 ""
+    reason_code: str = ""
 
     def to_dict(self) -> dict:
         return {
             "decision": self.decision, "stage": self.stage, "reason": self.reason,
             "trust_downgrade": self.trust_downgrade,
             "requires_confirmation": self.requires_confirmation,
+            "reason_code": self.reason_code,
         }
 
 
@@ -75,9 +89,10 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
             missing.append(k)
     if missing:
         # 校验失败 → 优雅降级为 ask(不是安全拒绝,是数据不全)
+        # 【P5-1】MISSING_PARAMS:确认无法绕过缺参数,调用方须先补数据
         return PermissionDecision("ask", 1,
             reason=f"缺少必填参数: {', '.join(missing)}",
-            requires_confirmation=True)
+            requires_confirmation=True, reason_code=MISSING_PARAMS)
 
     # ---------- Stage 2: rule-match(deny > ask > allow 铁律)----------
     if rules.hits_deny(sid):
@@ -117,7 +132,8 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     if destructive and not confirmed:
         return PermissionDecision("ask", 3,
             reason="不可逆(destructive)操作,必须用户确认",
-            trust_downgrade=downgrade, requires_confirmation=True)
+            trust_downgrade=downgrade, requires_confirmation=True,
+            reason_code=DESTRUCTIVE_CONFIRM)
 
     # trusted 模式:跳过 ask,只保留 deny(上面已查)+ destructive(上面已查)
     if mode == "trusted":
@@ -131,9 +147,12 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     if needs_confirm and not confirmed:
         why = ("命中 ask 规则" if ask_by_rule else
                "外部调用" if external else f"{side_effect} 副作用")
+        # 【P5-1】三个分支各自的结构化原因码
+        code = (ASK_RULE if ask_by_rule else
+                EXTERNAL_CONFIRM if external else SIDE_EFFECT_CONFIRM)
         return PermissionDecision("ask", 4,
             reason=f"需确认: {why}", trust_downgrade=downgrade,
-            requires_confirmation=True)
+            requires_confirmation=True, reason_code=code)
 
     # 放行:显式 allow 规则,或只读无副作用,或已确认
     reason = ("命中 allow 规则" if allow_by_rule else

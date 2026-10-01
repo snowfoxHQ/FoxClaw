@@ -43,6 +43,7 @@ TESTS = [
     ("test_supervisor_triage.py", "主管分诊与自答策略(关键词直路 / 自答 / stub 兜底)"),
     ("test_supervisor_pipeline.py", "批次5 · P1-1 主管 pipeline 化(七 stage/统一 emit/流式/恢复记账)"),
     ("test_ahs_p2.py",       "批次6 · P2层(compose pending/run_async/idempotency日志/recovery计划)+P3-2"),
+    ("test_p3_p5_hardening.py", "批次7 · P3收尾(isinstance/常量时间/exact/blocked短路/system归因)+P5-1/P5-3"),
     ("test_browser.py",      "浏览器子系统(HIR-Browser:核心逻辑/线程包装/降级)"),
     ("test_hkc.py",          "知识核心(HKC融入:装配/检索/H1资源修复/惰性teardown)"),
     ("test_search.py",       "认知搜索(HSR融入:编排/证据融合/迭代上限/端口降级)"),
@@ -62,6 +63,7 @@ TESTS = [
     ("test_tool_center.py",  "工具中心①·技能台真实化(安装/启停/删除/测试/持久化/SSRF审核门/治理)"),
     ("test_mcp_connectors.py", "工具中心②·MCP 连接器(接入/工具成技能/审核/调用/移除/持久化)"),
     ("test_markdown_skills.py", "工具中心③·SKILL.md 指令技能(上传/解析/审核/注入/持久化)"),
+    ("test_markdown_skills_openclaw.py", "工具中心③·OpenClaw 兼容(zip包/描述触发/编辑触发词·进程隔离防原生库崩溃)"),
     ("test_mcp_server.py",   "内置 MCP 服务器(HestiaOS 作提供者:只读知识+记忆暴露成 MCP 工具)"),
     ("test_mcp_no_memory.py", "MCP ask_hestia 不污染记忆(外部任务不写 HMR,正常任务照写)"),
     ("test_streaming.py",    "LLM 流式输出(router.stream 分块 + /api/chat/stream SSE 逐字)"),
@@ -165,6 +167,22 @@ def main():
             # 简单判定:退出码 0 且输出里没有 Traceback
             if "Traceback" in (r.stdout + r.stderr):
                 ok = False
+            # 原生库偶发崩溃的精准重试:Windows 访问冲突 0xC0000005
+            # 是 torch/FAISS/ST 在模型重加载或解释器 teardown 阶段的进程级崩溃——
+            # 无 Python Traceback、与断言失败(exit=1)互不混淆,故只对它在同一干净
+            # 环境下重试一次(批次4/7 均实锤:基线对照同样崩溃,与业务改动无关;
+            # 手动小范围跑全绿,全量回归高内存压力下概率显著升高)。
+            # 注意:subprocess 在 Windows 返回无符号 DWORD(0xC0000005=3221225477),
+            # PowerShell $LASTEXITCODE 则按有符号显示(-1073741819),两种都表示同一崩溃。
+            _ACCESS_VIOLATION = (3221225477, -1073741819)
+            if not ok and r.returncode in _ACCESS_VIOLATION and \
+                    "Traceback" not in (r.stdout + r.stderr):
+                r = subprocess.run([sys.executable, str(path)],
+                                   capture_output=True, text=True, timeout=300, env=env,
+                                   encoding="utf-8", errors="replace")
+                ok = r.returncode == 0 and "Traceback" not in (r.stdout + r.stderr)
+                if ok:
+                    print(f"  ↻ {desc} 首次 0xC0000005 原生崩溃,重试通过(已知环境性偶发)")
             results.append((desc, "通过" if ok else "失败", time.time() - t0))
             if not ok:
                 tail = (r.stdout + r.stderr).strip().splitlines()[-3:]

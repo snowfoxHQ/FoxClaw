@@ -108,8 +108,10 @@ class CognitiveStateTracker:
         self.process_manager = process_manager
         self._lock = threading.Lock()   # 事件可能跨线程触发,保护状态更新
         if bus is not None:
-            bus.subscribe("execution.completed", self._on_exec)
-            bus.subscribe("memory.updated", self._on_mem)
+            # 【P4-1】前两个是精确 channel 名 → exact=True;task.lifecycle 是刻意的前缀
+            # 订阅(收 created/queued/running/... 一族),保持默认前缀匹配。
+            bus.subscribe("execution.completed", self._on_exec, exact=True)
+            bus.subscribe("memory.updated", self._on_mem, exact=True)
             bus.subscribe("task.lifecycle", self._on_proc)   # Step3:统一生命周期词汇(前缀匹配)
 
     def _on_exec(self, msg):
