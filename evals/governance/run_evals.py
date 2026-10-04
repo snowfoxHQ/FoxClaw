@@ -124,6 +124,11 @@ def run_detection(scn) -> dict:
         "scenario": scn["name"],
         "embedding_mode": h.sem_drift.mode,
         "embedding_model": "all-MiniLM-L6-v2" if h.sem_drift.mode == "transformer" else "hash-3gram",
+        # 降级可见性(B 类修复):语义维度停用时,本场景的 block_recall/flag_recall
+        # 不再代表「语义漂移检测能力」,只代表「治理层 fail-open 后的实际表现」。
+        # 报告里必须带上这个标志,否则读者会把降级下的低召回误读成算法缺陷,
+        # 或反过来把降级下的 0 误报当成能力达标。
+        "semantic_degraded": bool(getattr(h, "semantic_degraded", False)),
         "block_recall": round(blocked_of_block / n_block, 3) if n_block else None,
         "flag_recall": round(detected_of_adv / n_adv, 3) if n_adv else None,
         "hard_fpr": round(block_benign / n_benign, 3) if n_benign else 0.0,

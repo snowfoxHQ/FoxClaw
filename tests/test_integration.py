@@ -10,6 +10,20 @@ os.environ["HESTIA_SHADOW_ROUNDS"] = "3"   # 快速进入 active 模式以触发
 import tempfile
 os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_test_")  # 不污染仓库根
 
+# ── 测试隔离(补齐,仿 tests/run_all.py 的第二道防线)────────────────────
+# 病根:本文件直接运行时不经 run_all.py,会加载项目根的真实 .env。若其中
+# HESTIA_API_KEY 已设置,api.py 的鉴权中间件会对所有 /api/task 返回 **401**,
+# 任务根本没执行 → harness 一次都不跑 → 本文件断言的"事件总线实时工作"
+# 恒为 0 条。此前该失败被误判为「embedding 降级导致不拦截」,实际是 401。
+# 证据:日志里每条 POST /api/task 都是 "HTTP/1.1 401 Unauthorized"。
+# run_all.py 已在 env dict 里清空 HESTIA_API_KEY 并设 HESTIA_SKIP_DOTENV=1,
+# 但单独运行本文件时那套不生效,故此处显式声明。
+os.environ["HESTIA_SKIP_DOTENV"] = "1"
+os.environ["HESTIA_API_KEY"] = ""            # 置空 = 未设鉴权(与 run_all.py 一致)
+for _k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
+           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY"):
+    os.environ[_k] = ""                      # 强制 stub,回归不联网、不产生费用
+
 from fastapi.testclient import TestClient
 from hestia.api import app
 
@@ -39,7 +53,8 @@ def main():
         os_inst = api_mod._os_instance
         captured = []
         for aid, agent in os_inst._agents.items():
-            for ev in ["harness_block", "harness_warn", "policy_updated", "shadow_calibrated"]:
+            for ev in ["harness_block", "harness_warn", "harness_pass",
+                       "policy_updated", "shadow_calibrated"]:
                 agent.harness.bus.on(ev, lambda d, e=ev: captured.append({"event": e, "data": d}))
         for t in ["分析支出", "制定预算", "评估风险", "季度报告", "追踪消费"]:
             client.post("/api/task", json={"task": t, "agent_id": "finance"})
@@ -57,8 +72,22 @@ def main():
         # 此前它只在有事件时打印一句 ✓、无事件时打印"⚠ 未捕获"然后照常通过 —— 等于不验。
         check(len(captured) > 0,
               f"事件总线实时工作:任务触发的 harness 事件被即时捕获({len(captured)} 条)")
-        check("harness_block" in ev_types,
-              f"shadow_rounds=3 后进入 active 并真的产生 BLOCK(实为 {sorted(ev_types)})")
+        # BLOCK 断言按嵌入模式分述(B 类修复):
+        #   · transformer 模式:语义维度可用,跑题应真的产生 BLOCK —— 这是校准生效的证据。
+        #   · hash 降级模式:语义维度已**停用**(fail-open),正常任务不再被拦,
+        #     故不会有 harness_block。此时该断言的是「停用是显式的」——
+        #     事件仍要通、且必须能观察到 semantic_degraded 标记。
+        #     硬要求 BLOCK 会让本测试在降级下恒红,掩盖真实信号。
+        _emb_degraded = getattr(os_inst._agents["finance"].harness, "semantic_degraded", False)
+        if _emb_degraded:
+            print(f"  [降级模式] 语义维度已停用 → 断言 fail-open 正确性而非 BLOCK")
+            check("harness_block" not in ev_types,
+                  f"降级下正常任务不产生 BLOCK(实为 {sorted(ev_types)})")
+            check("harness_pass" in ev_types,
+                  f"降级下正常任务应放行并发出 harness_pass(实为 {sorted(ev_types)})")
+        else:
+            check("harness_block" in ev_types,
+                  f"shadow_rounds=3 后进入 active 并真的产生 BLOCK(实为 {sorted(ev_types)})")
         # 广播队列由后台任务持续消费,qsize 是竞态值(实测常为 0),故只作观察不断言。
         print(f"  广播队列当前 qsize={api_mod._event_queue.qsize()}(由后台任务消费,竞态值,仅观察)")
 
@@ -81,8 +110,20 @@ def main():
         print(f"  Harness shadow: {h['thresholds']['shadow_mode']} "
               f"· block阈值: {h['thresholds']['block']:.3f} "
               f"· policy版本: v{h['policy']['version']}")
+        # 降级可见性(B 类修复):状态接口须透出嵌入模式与语义维度是否停用,
+        # 否则运维只能从服务端日志猜「为什么跑题没被拦」。
+        print(f"  嵌入模式: {h['thresholds'].get('embedding_mode')} "
+              f"· 语义维度降级: {h['thresholds'].get('semantic_degraded')}")
+        check("semantic_degraded" in h["thresholds"],
+              "harness status 透出 semantic_degraded(降级可见)")
+        check("embedding_mode" in h["thresholds"],
+              "harness status 透出 embedding_mode(降级可见)")
         check(s["total_nodes"] > 0, f"任务执行后 ThoughtChain 有真实节点({s['total_nodes']} 个)")
-        check(s["blocked_nodes"] > 0, f"推理链上确发生截断({s['blocked_nodes']} 次)")
+        # blocked_nodes 依赖语义拦截,降级下正常任务本就不该被截断(B 类修复)。
+        if getattr(os_inst._agents["finance"].harness, "semantic_degraded", False):
+            print("  [降级模式] 语义维度停用 → 正常任务不被截断属预期,不硬断言 blocked_nodes")
+        else:
+            check(s["blocked_nodes"] > 0, f"推理链上确发生截断({s['blocked_nodes']} 次)")
         check(h["thresholds"]["shadow_mode"] is False,
               "shadow_rounds=3 后已退出 shadow 进入 active(阈值生效)")
         check(h["policy"]["version"] >= 1, f"Policy 已落版本(v{h['policy']['version']})")

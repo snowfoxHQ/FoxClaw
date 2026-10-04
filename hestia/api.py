@@ -263,14 +263,16 @@ def _constant_time_eq(a: str, b: str) -> bool:
 
 
 def _is_guarded_path(path: str) -> bool:
-    """【P3-8】需要鉴权/限流/追踪的数据面路径:/api/* 和 /knowledge/*。
+    """【P3-8】需要鉴权/限流/追踪的数据面路径:/api/*、/knowledge/*、/config/*。
 
     抽成辅助函数:此前 _api_key_guard / _gateway_mw / _trace_mw 各自重复
     `startswith("/api") or startswith("/knowledge")`,未来加新前缀(如 /ws 之外的
     新数据面)只改一处,也避免三处漂移出不一致的防护口径。
     /knowledge/* 是 HKC 数据面(graph/ingest/reset),必须与 /api 同一防护口径。
+    /config/* 是 HKC 运行时 LLM 配置(连接设置),属可变状态,与数据面同口径保护。
     """
-    return path.startswith("/api") or path.startswith("/knowledge")
+    return (path.startswith("/api") or path.startswith("/knowledge")
+            or path.startswith("/config"))
 
 
 @app.middleware("http")
@@ -416,6 +418,12 @@ try:
 
     app.dependency_overrides[_hkc_get_container] = _resolve_hkc_container
     app.include_router(_hkc_knowledge_router)
+    # 连接设置(星球 UI 左下的「连接设置」面板)POST /config/llm 做运行时 LLM 配置,
+    # 覆盖 .env 的 HKC_LLM_*。独立 hkc-api 有这个路由,嵌入式 hestia 之前没挂 → 前端
+    # 报「模型配置失败:404」且改配置无效。这里补挂 config 路由(同一容器 override 已覆盖),
+    # 让「连接设置」的「知识抽取模型」段在 hestia 下真正生效。
+    from hkc_api.routes.config import router as _hkc_config_router
+    app.include_router(_hkc_config_router)   # /config/llm(GET 读配置 / POST 改配置)
     # 星球副面板(冲突裁决/能力编译/最短路径)用的 HKC 路由。不挂的话 /conflicts、
     # /abilities、/search/path 在 hestiaOS 下 404 → 星球「冲突裁决」面板拉不到数据、
     # 永远显示 0(误导),能力/路径面板同样空。这里补挂(同一容器 override 已覆盖)。
@@ -427,7 +435,7 @@ try:
         _sub = "/abilities, /conflicts, /search/*"
     except Exception as _e2:
         _sub = f"(能力/搜索路由未挂: {_e2})"
-    print(f"[HestiaOS API] ✓ HKC 星球数据面已挂载 (/knowledge/*, {_sub})")
+    print(f"[HestiaOS API] ✓ HKC 星球数据面已挂载 (/knowledge/*, /config/*, {_sub})")
 except Exception as _e:
     print(f"[HestiaOS API] · HKC 星球数据面未挂载(可选): {_e}")
 
@@ -1013,6 +1021,10 @@ async def get_system_info():
             "shadow_mode": h.is_shadow_mode,
             "shadow_rounds": h.shadow_rounds,
             "run_count": getattr(h, "_run_count", 0),
+            # 降级可见性(B 类修复):语义维度停用时,漂移检测只剩 tool/scope 两维,
+            # 跑题不会被拦截 —— 前端需据此提示,不能只在服务端日志里静默。
+            "semantic_degraded": getattr(h, "semantic_degraded", False),
+            "embedding_mode": getattr(getattr(h, "sem_drift", None), "mode", "unknown"),
         }
     return {
         "version": __version__,
