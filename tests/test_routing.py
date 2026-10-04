@@ -46,13 +46,18 @@ r3 = ModelRouter(provider="deepseek", model="fixed-x")
 assert r3._model_for("deepseek", "supervisor", [{"role": "user", "content": "x"}]) == "fixed-x"
 print("[4] 锁定模型不分档(向后兼容) OK")
 
-# [5] 全部 provider 失败 → 降 stub
+# [5] 全部 provider 失败 → 显式失败(不再降 stub 伪装成功)
 def _allfail(*a):
     raise RuntimeError("boom")
 r2._call_provider = _allfail
 out = r2.complete("sys", [{"role": "user", "content": "hi"}])
 assert "STUB" in out or "全部模型失败" in out, out
-print("[5] 全部失败 → 降 stub OK")
+# 失败语义(A 类修复):全部 provider 挂掉属**故障**,不是"未配置模型"的离线态。
+# 旧实现会拼接 stub 文案「已完成处理:…」—— 那是把故障伪装成成功,且该文本会
+# 经 base._store_memory 沉入长期记忆造成持续复读。此处锁死该行为不得回归。
+assert "已完成处理" not in out, f"故障被伪装成成功: {out}"
+assert r2.is_degraded() is True, "全部失败必须置 degraded 标志(上游据此禁写长期记忆)"
+print("[5] 全部失败 → 显式失败(无假成功文案) + degraded OK")
 
 # [6] switch 尊重显式模型(修回归:UI 切模型不能被 tiering 覆盖);只切 provider 清锁恢复分档
 r4 = ModelRouter()

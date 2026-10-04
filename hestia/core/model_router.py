@@ -82,6 +82,25 @@ def _chunk_text(text, size: int = 8):
         yield text[i:i + size]
 
 
+# ── 重试退避(M6)────────────────────────────────────────────────────
+# 病根:此前 fallback 链只有「换 provider」,无退避、无抖动 —— 循环内无任何 sleep,
+# 冷却固定 20s。多实例同时宕机时会同步解冻(惊群)并紧密重试,加剧上游压力。
+# 下面用指数退避 + **全抖动**(full jitter,sleep=random(0,min(cap,base*2^n))):
+# 上限保证不会无限等待,抖动保证多实例不会同步重试。
+import random as _rnd   # noqa: E402  (供下方 _backoff_delay 与冷却抖动使用)
+
+# 冷却基准秒(乘抖动系数后使用)。可经 HESTIA_LLM_COOLDOWN 覆盖,线上调参不必改代码。
+_COOLDOWN_BASE = float(os.environ.get("HESTIA_LLM_COOLDOWN", "20"))
+
+
+def _backoff_delay(attempt: int, base: float = 0.5, cap: float = 8.0) -> float:
+    """第 attempt 次失败后、换下一个 provider 前的等待秒数:指数退避 + 全抖动。
+
+    attempt 从 0 起计。返回 [0, min(cap, base*2^attempt)] 上的均匀随机值。
+    """
+    return _rnd.uniform(0.0, min(cap, base * (2 ** max(0, attempt))))
+
+
 class ModelRouter:
     """统一模型路由。Agent 只认 router.complete(),不关心背后是哪家模型。"""
 
@@ -98,6 +117,16 @@ class ModelRouter:
         self._cooldown = {}                              # provider -> 冷却截止 monotonic(断路器:跳过刚宕机的家)
         self.fallback_reason = ""
         self.meter = None        # 可选 TokenMeter,由 HestiaOS 注入
+        # ── 降级状态(A 类修复)────────────────────────────────────────
+        # 区分两种「拿不到可用回复」,二者对外文案与副作用不同:
+        #   · never_configured —— 从未配置任何模型 key(离线演示/自测),stub 是合理兜底;
+        #   · call_failed      —— 配了 key 但调用失败/返回空串 → **故障**,禁止伪装成功。
+        # 后者由 _mark_degraded 标记,上游据此**禁止写入长期记忆**(故障文本会污染召回),
+        # 并在文案中显式声明未完成(与 base.py §二「真相优先」对齐)。
+        self.degraded: bool = False
+        self.degraded_reason: str = ""
+        # per-call 降级标记(单次请求生命周期内消费,不跨调用泄漏)
+        self._call_degraded: bool = False
         self._init_client()
 
     @staticmethod
@@ -323,8 +352,16 @@ class ModelRouter:
                                                             system, messages, max_tokens)
             except Exception as e:
                 self._rec_llm(provider, False, (_t.perf_counter() - _t0) * 1000.0)
-                self._cooldown[provider] = _t.monotonic() + 20.0   # 宕机 → 冷却 20s
+                # 冷却时长加抖动(D 类修复):原为固定 20.0,多实例同时宕机会**同步解冻**
+                # (惊群)。抖动后各实例解冻时间分散,上游有喘息窗口。
+                self._cooldown[provider] = _t.monotonic() + (
+                    _COOLDOWN_BASE * (0.75 + 0.5 * _rnd.random()))
                 last_err = e
+                # 退避 + 全抖动(M6):换 provider 前让出时间,避免「快速遍历全部 provider
+                # 再快速重来」的紧密重试风暴。首次失败不等待(保 fallback 的快速感),
+                # 之后随尝试次数递增退避。
+                if i > 0:
+                    _t.sleep(_backoff_delay(i))
                 continue                                   # → 试下一个已配 provider(fallback 链)
             self._cooldown.pop(provider, None)             # 成功 → 解冻
             self._rec_llm(provider, True, (_t.perf_counter() - _t0) * 1000.0)
@@ -337,8 +374,27 @@ class ModelRouter:
                     pass
             if i > 0:
                 self.fallback_reason = f"主 provider 失败,已回退到 {provider}"
-            return output or self._stub(messages)
-        return f"[全部模型失败:{last_err},已降级]\n" + self._stub(messages)
+            # ── A 类修复:provider 返回空串 = 业务故障(内容过滤/截断/静默失败)──
+            # 旧代码 `output or self._stub()` 会短路到 stub,而 stub 文案声称「已完成处理」
+            # → 违反 base.py §二「真相优先」铁律,且该文本会经 base._store_memory 落入
+            # 长期记忆,造成「一次故障 → 长期污染」(后续召回持续复读)。
+            # 新代码:置 degraded 标志(上游据此禁写记忆),返回显式失败文本。
+            if not (output or "").strip():
+                self._mark_degraded(
+                    f"provider={provider} model={model} 返回空响应"
+                    f"(疑似内容过滤或 max_tokens 截断)")
+                return ("【模型返回为空】本次未获得有效回复,任务未完成。"
+                        "可能原因:内容被模型安全策略过滤,或 max_tokens 过小被截断。"
+                        "建议:调整提问方式或提高 max_tokens 后重试。")
+            return output
+        # 全部 provider 都失败:显式失败 + 降级标志,**不再拼接 stub 成功文案**。
+        # 保留「全部模型失败」这一精确措辞 —— 它是故障语义(而非"未配置模型"的降级),
+        # 运维与测试都靠它识别真实故障。
+        self._mark_degraded(f"全部 provider 调用失败: {last_err}")
+        return (f"【全部模型失败】已尝试 {len(self._fallback_order())} 个 provider 均失败,"
+                f"本次任务未完成。最后错误:"
+                f"{type(last_err).__name__ if last_err else '未知'}。"
+                f"请检查网络与 API Key 配置后重试。")
 
     @staticmethod
     def _rec_llm(provider, ok, ms):
@@ -429,7 +485,10 @@ class ModelRouter:
                 parts.append(out); yield out
         except Exception as e:
             _rec(False)
-            yield f"[模型流式失败:{e},已降级]\n"
+            # 脱敏(M1 A 类修复):不把原始异常对象吐给用户 —— 它可能含内部端点、
+            # 文件路径或请求细节。只给异常类型 + 降级语义,完整原因进 tracing。
+            self._mark_degraded(f"stream 失败: {type(e).__name__}")
+            yield f"【模型流式中断】{type(e).__name__},本次未获得完整回复。\n"
             for w in _chunk_text(self._stub(messages)):
                 yield w
             return
@@ -517,15 +576,62 @@ class ModelRouter:
                 "content": str(result)}
 
     def _stub(self, messages: list) -> str:
-        """无可用模型时的降级回复(贴合任务,避免 Harness 误拦)。"""
+        """无模型可用时的降级回复(never_configured 场景的合理兜底)。
+
+        诚实性契约(与 base.py §二「真相优先」对齐):
+          · 措辞**不得**包含「已完成」「已处理」「已给出方案」等完成态动词
+            —— 旧文案「已完成处理:检索相关记忆、分析要点…」把「什么都没做」
+            包装成了「做完」,是假成功;
+          · 必须显式告知未执行,并给出恢复动作;
+          · 仍保留原 task_line 提取(贴合任务,便于 Harness 观察与用户识别)。
+        注:故障降级(call_failed)路径**不再走本函数**,见 complete() 中 _mark_degraded 分支。
+        """
         user_text = str(messages[-1]["content"]) if messages else ""
         task_line = user_text
-        for marker in ["任务：", "财务任务：", "行程任务：", "学习任务：", "请协助处理以下任务：", "请处理"]:
+        for marker in ["任务：", "财务任务：", "行程任务：", "学习任务：",
+                       "请协助处理以下任务：", "请处理"]:
             if marker in user_text:
-                task_line = user_text.split(marker, 1)[1]; break
+                task_line = user_text.split(marker, 1)[1]
+                break
         task_line = task_line.strip().split("\n")[0][:80]
-        return (f"针对「{task_line}」已完成处理:检索相关记忆、分析要点、"
-                f"给出建议方案并记录决策。(STUB · 配置任一模型 Key 后为真实回复)")
+        return (f"【未执行】当前没有可用的模型服务,本次未进行推理,也没有执行任何工具。\n"
+                f"待处理任务:「{task_line}」\n"
+                f"恢复方式:配置任一模型 Key(见 .env.example)后重试。\n"
+                f"(STUB · 此为降级占位,非真实结果)")
+
+    # ── 降级状态(A 类修复)────────────────────────────────────────────
+    def _mark_degraded(self, reason: str) -> None:
+        """标记本次调用为「故障降级」(区别于 is_stub 的「从未配置」)。
+
+        上游读 is_degraded() / take_call_degraded() 决定:
+          · 是否禁止把本次回复写入长期记忆(故障文本会污染召回);
+          · 是否回传告警(便于前端/监控识别「这次不是真实结果」)。
+        观测手段(tracing)包在 try 里 —— 可观测性是增强项,不能因它失败影响主流程。
+        """
+        self.degraded = True
+        self._call_degraded = True
+        self.degraded_reason = ((self.degraded_reason + " | ")
+                                if self.degraded_reason else "") + str(reason)
+        try:
+            from .tracing import span as _span
+            with _span("llm.degraded", provider=self.provider, reason=str(reason)[:200]):
+                pass
+        except Exception:
+            pass
+
+    def is_degraded(self) -> bool:
+        """本次(或最近一次)调用是否因**故障**降级。区别于 is_stub(从未配置)。"""
+        return bool(self.degraded)
+
+    def take_call_degraded(self) -> bool:
+        """取出并清零 per-call 降级标记(供单次请求生命周期内消费)。
+
+        per-call 而非全局:并发多请求时,只有**本次**真正故障的那个请求才该
+        禁写记忆,不能因另一请求的故障误伤。
+        """
+        v = self._call_degraded
+        self._call_degraded = False
+        return v
 
     def switch(self, provider: str, model: str = None):
         """运行时切换 provider(多模型路由的核心能力)。
@@ -541,6 +647,15 @@ class ModelRouter:
             "provider": self.provider,
             "model": self.model,
             "active": not self.is_stub,
+            # ── 降级可见性(A 类修复)────────────────────────────────
+            # 原先只报 provider + active。当 provider=anthropic 但 SDK 缺失时,
+            # 运维看到的是「配置了但没激活」,真实原因(SDK 未安装)被吞掉。
+            # degraded / degraded_reason / fallback_reason / client_ready 四者一起,
+            # 才说得清「为什么没模型可用」。
+            "degraded": self.degraded,
+            "degraded_reason": self.degraded_reason[:200],
+            "fallback_reason": self.fallback_reason,
+            "client_ready": self._client is not None,
             "available_providers": self.available_providers(),
         }
 

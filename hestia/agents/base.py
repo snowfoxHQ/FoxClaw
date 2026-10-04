@@ -688,13 +688,35 @@ class CognitiveAgent(ABC):
         except Exception:
             pass
         # 写入记忆(与 /api/task 一致;MCP 场景由 _suppress_memory 兜住);断连中止/触发输出护栏则不写
-        if reply and not stopped and not guarded_out:
+        #
+        # A 类修复:故障降级回复**禁止写入长期记忆** —— 把「模型失败/未执行」当成
+        # 「对话结论」沉淀,会让 HMR 后续召回持续复读故障文案(一次故障 → 长期污染)。
+        # 判据用 take_call_degraded()(per-call)而非全局 is_stub:is_stub=True 是
+        # 「从未配置模型」的离线态,那个场景下记录任务/占位仍有诊断价值,不该一刀切。
+        _degraded = False
+        try:
+            _degraded = bool(self.router.take_call_degraded())
+        except Exception:
+            _degraded = False
+        if reply and not stopped and not guarded_out and not _degraded:
             try:
                 safe_reply = _ig.redact_secrets(reply)   # 落库同样脱敏,防密钥沉进长期记忆
                 self._store_memory(f"对话:{task} → {safe_reply}"[:800], mem_type="conversation")
             except Exception:
                 pass
             self._maybe_store_preference(task)   # 对话里的偏好表达 → 持久记(preference 类型)
+        elif _degraded and reply and not stopped:
+            # 降级:只留事件痕迹(可观测、可归因),不写记忆内容
+            try:
+                _spine = _caps.get("event_spine") if _caps is not None else None
+                if _spine is not None:
+                    _spine.publish("chat.degraded", {
+                        "agent_id": self.AGENT_ID,
+                        "task": (task or "")[:120],
+                        "reason": getattr(self.router, "degraded_reason", "")[:200],
+                    }, source=self.AGENT_ID)
+            except Exception:
+                pass
 
     @staticmethod
     def _match_ability(query: str, abilities: list):
