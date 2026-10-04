@@ -236,16 +236,29 @@ class SupervisorAgent(CognitiveAgent):
                 pm.mark_running(proc.process_id)
             # _no_emit:子 Agent 不自发 execution.completed,由下方主管统一发(带 schedule),避免双发
             # prior_steps 同时也放进 context,便于管线/Agent 按结构化方式取用
-            sub_result = await subagents[ag].run_task(
-                _with_prior(subtask, prior),
-                {**context, "_no_emit": True, "prior_steps": list(prior)})
+            # 补超时(D 类修复):与 _dispatch_single / _dispatch_parallel 三处标准一致,
+            # 子 Agent 卡死不再让整条多步链永久挂起。
+            _timeout = float(context.get("parallel_timeout", 120))
+            try:
+                sub_result = await asyncio.wait_for(
+                    subagents[ag].run_task(
+                        _with_prior(subtask, prior),
+                        {**context, "_no_emit": True, "prior_steps": list(prior)}),
+                    timeout=_timeout)
+            except asyncio.TimeoutError:
+                _note = f"第{idx}步子 Agent {ag} 执行超时({_timeout:g}s),该步未完成"
+                if proc:
+                    pm.mark_failed(proc.process_id, reason="subagent_timeout")
+                sub_result = {"result": _note, "error": "subagent_timeout", "agent": ag}
             sub_output = sub_result.get("result", "")
             if isinstance(sub_output, dict):
                 sub_output = json.dumps(sub_output, ensure_ascii=False)
-            blocked = sub_result.get("error") == "harness_blocked"
+            # 未完成(含超时)一律视为 blocked —— 不得让超时步骤被当成
+            # 成功结果进入 prior 链,否则后续步骤会基于"不存在的产出"继续推理。
+            blocked = sub_result.get("error") in ("harness_blocked", "subagent_timeout")
             any_blocked = any_blocked or blocked
             if proc:
-                (pm.mark_failed(proc.process_id, reason="harness_blocked")
+                (pm.mark_failed(proc.process_id, reason=sub_result.get("error") or "")
                  if blocked else pm.mark_completed(proc.process_id))
             # 展示用的 subtask 保留**原始**文本(不含前序上下文前言,免污染 UI)
             steps_out.append({"step": idx, "subtask": subtask, "agent": ag,
@@ -456,7 +469,23 @@ class SupervisorAgent(CognitiveAgent):
         if proc:
             pm.mark_running(proc.process_id)
         # _no_emit:子 Agent 不自发,主管任务级统一 emit(见 base._emit_execution),避免双发
-        sub_result = await subagents[target].run_task(task, {**context, "_no_emit": True})
+        #
+        # 补超时(D 类修复:同文件内标准一致性)。此前只有并行路径
+        # (_dispatch_parallel)有 asyncio.wait_for,单步/链式路径直接 await ——
+        # 子 Agent 卡死(LLM 挂起/工具阻塞)会让主管任务**永久挂起**,且无日志
+        # 无告警无释放。同一语义必须两套标准一致,超时值同样取 parallel_timeout。
+        _timeout = float(context.get("parallel_timeout", 120))
+        try:
+            sub_result = await asyncio.wait_for(
+                subagents[target].run_task(task, {**context, "_no_emit": True}),
+                timeout=_timeout)
+        except asyncio.TimeoutError:
+            # 诚实交代:不伪造子 Agent 的产出,明确回报"超时未完成"
+            _note = f"子 Agent {target} 执行超时({_timeout:g}s),已中止并如实回报未完成结果"
+            if proc:
+                pm.mark_failed(proc.process_id, reason="subagent_timeout")
+            self._think(content=_note, node_type="decision", conf=0.95)
+            sub_result = {"result": _note, "error": "subagent_timeout", "agent": target}
 
         # 汇聚子 Agent 结果
         sub_output = sub_result.get("result", "")

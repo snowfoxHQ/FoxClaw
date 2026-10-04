@@ -47,7 +47,8 @@ RECALL_MEMORY = _tool(
     "recall_memory",
     "从用户的个人记忆(HMR)里语义召回既往信息:过去的对话、偏好、事实、结论等。"
     "当回答依赖'用户之前说过/记录过什么'时调用;通用常识不需要调用。",
-    {"query": {"type": "string", "description": "召回用的语义查询"}},
+    {"query": {"type": "string", "description": "召回用的语义查询"},
+     "top_k": {"type": "integer", "description": "召回条数(1-20,默认 5)"}},
     ["query"],
 )
 
@@ -73,6 +74,58 @@ class ToolRegistry:
 
     def has(self, name: str) -> bool:
         return name in self._tools
+
+    def param_schema(self, name: str) -> dict:
+        """取某工具的 parameters JSON Schema(供执行侧校验)。
+
+        病根:此前 schema 只用于发给模型当 `tools=` 参数,**执行侧从不校验**,
+        于是声明的 `required` 形同虚设;更严重的是 base._dispatch_tool 构造
+        permission spec 时传 `params={}`(恒空)→ permission 管线 Stage 1 的
+        必填校验**永不触发**,只靠下游手工 `if not q` 兜住。新增工具时无保护。
+
+        本访问器让「发给模型的 schema」与「执行侧校验的 schema」共用同一份
+        真源,消除声明与执行的双份真相。
+        """
+        t = self._tools.get(name)
+        if not t:
+            return {}
+        return (t.get("function") or {}).get("parameters") or {}
+
+    def validate_args(self, name: str, args: dict) -> list:
+        """轻量校验工具入参,返回错误描述列表(空列表 = 通过)。
+
+        刻意只校验三件事,不引第三方依赖(与项目「减少自研」一致,且 pyproject
+        依赖表本就没有 jsonschema):
+          1. 必填参数是否齐全;
+          2. 参数类型是否符合 schema 声明的 basic type;
+          3. (不做)未声明的额外字段 —— 放过,避免过度约束模型。
+
+        返回非空时,调用方**必须**把错误回注给模型让其自修正,不得静默用空
+        参数继续 —— 那会让模型误以为工具已执行。
+        """
+        schema = self.param_schema(name)
+        if not schema:
+            return []
+        props = schema.get("properties") or {}
+        required = schema.get("required") or []
+        args = args if isinstance(args, dict) else {}
+        errs: list[str] = []
+        for k in required:
+            if k not in args or args[k] in (None, ""):
+                errs.append(f"缺少必填参数 {k}")
+        _tmap = {"string": str, "integer": int, "number": (int, float),
+                 "boolean": bool, "array": list, "object": dict}
+        for k, v in args.items():
+            spec = props.get(k)
+            if not isinstance(spec, dict):
+                continue
+            want = _tmap.get(spec.get("type"))
+            if not want or not isinstance(v, want):
+                # bool 是 int 的子类,须排除,否则 True 会被当成合法 integer
+                if not (want is not bool and isinstance(v, bool)):
+                    errs.append(f"参数 {k} 类型应为 {spec.get('type')},"
+                                f"实为 {type(v).__name__}")
+        return errs
 
 
 def _denied() -> set[str]:

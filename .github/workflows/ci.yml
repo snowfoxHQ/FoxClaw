@@ -35,8 +35,18 @@ jobs:
 
       - name: Warm embedding cache
         # 先联网下好默认 embedding,run_all 会以 HF_HUB_OFFLINE 离线读取(与本地一致)。
-        # 下载失败也不致命:Harness 会自动降级 n-gram 哈希嵌入,回归仍绿。
-        run: python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" || true
+        #
+        # 【纠正】原注释写「下载失败也不致命:Harness 会自动降级 n-gram 哈希嵌入,
+        # 回归仍绿」—— **这句是错的**,且很可能让 M2 缺陷长期潜伏。
+        # 实测(2026-10-05):哈希嵌入对中文几乎无区分度(同域相似度 -0.17、
+        # 跨域 +0.00,差异 <0.17)→ 语义漂移分恒为 1.0 → 所有正常请求一律 BLOCK,
+        # 6 项治理测试全红。降级**不是**安全兜底。
+        #
+        # 现在:预热失败即让 CI 失败(去掉 `|| true`),因为它直接决定治理能力可用性,
+        # 不该被静默吞掉。M2 修复后降级方向已改为 fail-open(停用语义维度、
+        # 保留 tool/scope 确定性判定),回归可绿,但**拦截能力是降级的**,
+        # 不可把降级当作正常路径。
+        run: python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
       - name: Full regression
         # run_all.py 内部注入 HF_HUB_OFFLINE / 强制 stub LLM / UTF-8,故 CI 无需 LLM key、

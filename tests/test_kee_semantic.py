@@ -36,6 +36,12 @@ class FakeStore:
 m = get_st_model(MODEL)
 if m is None:
     print("[skip] all-MiniLM 未缓存,跳过语义去重验证(生产靠 exact-only 降级兜底)")
+    # 两种运行方式都要正确退出(M7):pytest 收集 → pytest.skip;
+    # run_all.py 当脚本直跑 → pytest.skip 抛 Skipped 会变成非零退出(把跳过当失败)。
+    if __name__ != "__main__":
+        import pytest
+        pytest.skip("all-MiniLM 未缓存 → 语义去重验证跳过(exact-only 降级兜底)",
+                    allow_module_level=True)
     sys.exit(0)
 
 # 用真实余弦定阈值(取近/远的中点),避免硬编码模型分数导致脆弱

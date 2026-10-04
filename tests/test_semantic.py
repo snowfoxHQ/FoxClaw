@@ -24,6 +24,14 @@ print("[0] KEE 否定词词边界(badge/know 不误命中) OK")
 m = get_st_model(MODEL)
 if m is None:
     print("[skip] all-MiniLM 未缓存,跳过真语义验证(生产靠 auto/keyword 降级兜底)")
+    # 两种运行方式都要正确退出(M7):
+    #   · 被 pytest 收集 → pytest.skip(allow_module_level) 是标准做法
+    #   · 被 run_all.py 当脚本直跑 → pytest.skip 抛 Skipped 会让脚本非零退出,
+    #     反而把「跳过」变成「失败」。故按 __name__ 区分。
+    if __name__ != "__main__":
+        import pytest
+        pytest.skip("all-MiniLM 未缓存 → 真语义验证跳过(auto/keyword 降级兜底)",
+                    allow_module_level=True)
     sys.exit(0)
 
 # 1) 共享缓存单例:同名只加载一次

@@ -55,7 +55,18 @@ print(f"[4] 端到端:无幻影矛盾边,置信未被误扣({f.confidence(g):.2f
 if _semantic_sim("a", "a") is None:
     print("[skip] ST 模型未缓存 → 语义部分跳过(已回退字符级,不崩)")
     print("\n证据融合语义化验证通过(降级路径)")
-    raise SystemExit(0)
+    # 两种运行方式都要正确退出(M7):
+    #   · 被 pytest 收集 → pytest.skip(allow_module_level) 是标准做法;
+    #     模块级 SystemExit 会让 pytest **收集阶段**直接 INTERNALERROR,
+    #     导致整个 tests/ 目录无法用 pytest 跑(-k 选择性回归/IDE 跳转全失效)。
+    #   · 被 run_all.py 当脚本直跑 → pytest.skip 抛 Skipped 会让脚本非零退出,
+    #     反而把「跳过」变成「失败」。故按 __name__ 区分。
+    if __name__ != "__main__":
+        import pytest
+        pytest.skip("ST 模型未缓存 → 语义部分跳过(降级路径已由 [1]-[4] 覆盖)",
+                    allow_module_level=True)
+    import sys as _sys
+    _sys.exit(0)
 
 # [5] 语义相似:近义高、无关低(字符级做不到这点)
 close = f._similarity("the plan is good", "the plan is nice")

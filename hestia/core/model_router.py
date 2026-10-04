@@ -546,11 +546,29 @@ class ModelRouter:
         raw_tcs = []
         for tc in (getattr(m, "tool_calls", None) or []):
             import json as _json
+            raw_args = tc.function.arguments or "{}"
+            parse_failed = False
             try:
-                args = _json.loads(tc.function.arguments or "{}")
+                args = _json.loads(raw_args)
+                if not isinstance(args, dict):
+                    # 模型偶发返回数组/标量(JSON 合法但结构不符)→ 同样按解析失败处理
+                    args, parse_failed = {}, True
             except Exception:
-                args = {}
-            calls.append({"id": tc.id, "name": tc.function.name, "args": args})
+                args, parse_failed = {}, True
+            if parse_failed:
+                # 静默 {} 会让模型以为工具已执行(实际参数全丢)→ 错误必须可见。
+                # 此处**保留空 args 继续分发**:由 base._dispatch_tool 的参数校验闸
+                # 把错误回注给模型,下一轮即可自修正;这里额外记 span,便于事后归因
+                # (此前完全无痕迹,模型错了都不知道)。
+                try:
+                    from .tracing import span as _span
+                    with _span("llm.tool_args_unparsable",
+                               tool=tc.function.name, raw=str(raw_args)[:200]):
+                        pass
+                except Exception:
+                    pass
+            calls.append({"id": tc.id, "name": tc.function.name, "args": args,
+                          "args_parse_failed": parse_failed})
             raw_tcs.append({"id": tc.id, "type": "function",
                             "function": {"name": tc.function.name,
                                          "arguments": tc.function.arguments}})

@@ -78,6 +78,48 @@ class CompactionResult:
         }
 
 
+def group_tool_calls(messages: list) -> list:
+    """把 messages 切成**不可分割的原子组**列表。
+
+    function-calling 会话中,`assistant`(带 tool_calls)与其后续 `tool` 结果
+    必须**成对保留** —— 孤立引用会被 OpenAI/Anthropic 拒绝(400:
+    "tool_call_id not found" / "unexpected tool role")。
+
+    病根:原实现只按 `role == "system"` 分区、再按**条数**切 keep_recent,
+    边界若切在一轮中间就会切出「有 tool 结果、但其 assistant.tool_calls
+    已被摘要掉」的碎片。base._reply_with_tools 每轮追加 1 个 assistant
+    (带 N 个 tool_calls)+ N 个 tool 结果,故一轮内多工具时必现。
+    实测:一轮 2 个工具 + keep_recent=3 → 孤立 call_2 → 送回 provider 必 400。
+
+    本函数按「声明-结果」结构分组,调用方改为**按组**保留,保证配对完整。
+    """
+    groups: list[list[dict]] = []
+    buf: list[dict] = []
+    i = 0
+    n = len(messages)
+    while i < n:
+        m = messages[i]
+        buf.append(m)
+        if m.get("role") == "assistant" and (m.get("tool_calls") or []):
+            # 本 assistant 声明了工具调用 → 把紧随其后、id 匹配的 tool 结果
+            # 全部并入同一组,确保「声明与结果同进同出」。
+            ids = {tc.get("id") for tc in (m.get("tool_calls") or [])}
+            j = i + 1
+            while j < n:
+                nxt = messages[j]
+                if nxt.get("role") == "tool" and nxt.get("tool_call_id") in ids:
+                    buf.append(nxt)
+                    j += 1
+                else:
+                    break
+            i = j
+        else:
+            i += 1
+        groups.append(buf)
+        buf = []
+    return groups
+
+
 class Compactor:
     """上下文压缩器。超阈值时把早期历史摘要化,保留系统提示与近期消息。"""
 
@@ -108,8 +150,31 @@ class Compactor:
         system_msgs = [m for m in messages if m.get("role") == "system"]
         non_system = [m for m in messages if m.get("role") != "system"]
         keep = max(0, self.keep_recent)
-        recent = non_system[-keep:] if keep else []
-        to_compress = non_system[:-keep] if keep else non_system
+        # 按**原子组**保留(而非按条数),保证 assistant.tool_calls 与其 tool 结果
+        # 同进同出。按条数切会在「一轮多工具」时把 tool 结果与其声明切散 →
+        # provider 报 400。详见 group_tool_calls docstring。
+        _groups = group_tool_calls(non_system)
+        if keep and _groups:
+            recent = [m for g in _groups[-keep:] for m in g]
+            to_compress = [m for g in _groups[:-keep] for m in g]
+        elif keep:
+            recent, to_compress = [], non_system
+        else:
+            recent, to_compress = [], non_system
+        # 防御:若仍不配对(极端边界/上游已产生的畸形序列),宁可放弃压缩,
+        # 也不产出非法消息序列 —— 压缩不生效只是浪费 token,发出去 400 是整轮失败。
+        _declared = {tc.get("id") for m in (recent + to_compress)
+                     for tc in (m.get("tool_calls") or [])}
+        _orphans = [m for m in (recent + to_compress)
+                    if m.get("role") == "tool" and m.get("tool_call_id") not in _declared]
+        if _orphans:
+            res.messages = list(messages)
+            res.method = "skipped_unpaired_tool"
+            res.compacted_count = len(messages)
+            res.compacted_tokens = res.original_tokens
+            res.note = (f"压缩跳过:检测到 {len(_orphans)} 条孤立 tool 消息"
+                        f"(其 tool_calls 声明不在保留集内),压缩会触发 provider 400。")
+            return res
 
         if not to_compress:
             res.messages = list(messages)

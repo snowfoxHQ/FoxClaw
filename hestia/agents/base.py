@@ -528,9 +528,28 @@ class CognitiveAgent(ABC):
             return f"(工具 {name} 已被策略禁用,未执行)"
         if not _tools.default_registry().has(name):
             return f"(未知工具 {name},未执行)"
+        # ── 参数校验(用注册表里同一份 JSON Schema)────────────────────
+        # 修复前:schema 只发给模型,执行侧不校验 → 模型给错类型/漏参数会直接流到
+        # 下游。且下方 permission Stage 1 因 params={} 恒不触发,只靠手工 if-not 兜。
+        # 新增校验闸后,错误**回注模型**让其自修正,而不是静默用空参数继续
+        # (那会让模型误以为工具已执行,进而编造基于"工具结果"的结论)。
+        _reg = _tools.default_registry()
+        _errs = _reg.validate_args(name, args or {})
+        if _errs:
+            self._think(content=f"工具 {name} 入参校验失败: {'; '.join(_errs)[:120]}",
+                        node_type="tool_intent", conf=0.9)
+            return (f"(工具 {name} 入参不合法: {'; '.join(_errs)}。"
+                    f"请按工具声明修正参数后重试。)")
         # ── 权限管线:动作级闸门。构造 tool-spec 交四阶段裁决 ──
         cap = _tools.tool_capability(name)
-        spec = _types.SimpleNamespace(id=f"tool:{name}", params={}, **cap)
+        # 传入真实 params schema,使 permission Stage 1(必填校验)真正生效,
+        # 不再依赖下游手工检查兜底。兼容 permission 的两种 params 格式。
+        _schema = _reg.param_schema(name)
+        _req = set(_schema.get("required") or [])
+        _params = {k: {"required": k in _req, "type": v.get("type")}
+                   for k, v in (_schema.get("properties") or {}).items()
+                   if isinstance(v, dict)}
+        spec = _types.SimpleNamespace(id=f"tool:{name}", params=_params, **cap)
         decision = _perm.evaluate(spec, args or {}, confirmed=False)
         if decision.decision == "deny":
             return f"(工具 {name} 被权限策略拒绝:{decision.reason},未执行)"
@@ -557,11 +576,17 @@ class CognitiveAgent(ABC):
                 return _ws.format_for_prompt(q, payload)
             if name == "recall_memory":
                 q = str((args or {}).get("query", "")).strip()
-                res = self._recall_memory(q, top_k=5) if q else []
+                # top_k 此前硬编码 5,模型传值无效 → 加边界校验后尊重模型意图
+                # (schema 已声明 top_k,1-20;越界回落默认,防一次召回拉爆上下文)
+                try:
+                    top_k = max(1, min(20, int((args or {}).get("top_k", 5))))
+                except Exception:
+                    top_k = 5
+                res = self._recall_memory(q, top_k=top_k) if q else []
                 if not res:
                     return "(未召回到相关记忆)"
                 from ..core import injection_guard as _ig
-                lines = "\n".join(f"- {r.get('content', '')}" for r in res[:5])
+                lines = "\n".join(f"- {r.get('content', '')}" for r in res[:top_k])
                 # 记忆可能被投毒(此前注入固化) → 当作不可信数据回注,防记忆投毒二次生效
                 return "【召回的相关记忆】\n" + _ig.wrap_untrusted(lines, source="memory")
         except Exception as e:

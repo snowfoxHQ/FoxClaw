@@ -29,6 +29,10 @@ TESTS = [
     ("test_skills.py",       "助手 Skill 接入层"),
     ("test_kernel.py",       "内核新模块回归"),
     ("test_governance.py",   "运行时治理(幂等/恢复/队列/压缩/循环/钩子)"),
+    # —— M5 新增:压缩器工具消息配对(防孤立 tool_call 致 provider 400)——
+    ("test_compaction_toolpair.py", "M5·压缩器工具消息配对(原子组切分+畸形输入安全降级)"),
+    # —— M4 新增:工具入参校验 + permission Stage 1 真正生效 ——
+    ("test_tool_params.py",  "M4·工具入参校验(执行侧 schema/Stage1/解析失败可见)"),
     ("test_shared_write.py", "P0-3 · 共享层写入策略(audit/warn/enforce)"),
     ("test_audit_sink.py",   "P0-3 · 审计落盘 sink(环形缓冲外的持久样本)"),
     ("test_governance_audit.py", "批次3 · 治理审计链(P1-2/P1-3/P2-0/P3-4 decision_id)"),
@@ -99,6 +103,27 @@ PYTEST_TESTS = {"test_tool_use.py", "test_injection_guard.py",
 
 def main():
     here = Path(__file__).parent
+    # ── 命令行:支持 --list / --only <substr>(M7)──────────────────────
+    # 为什么需要:全量回归 6-7 分钟,改一行代码后只想验 1-2 个文件时成本过高。
+    # 此前只能整跑,拖慢了「改完立刻验」的内循环(这也是很多缺陷被放过的原因之一)。
+    # 注意:这是**最小可用化**——40 个脚本式测试全面转 pytest 属独立技术债,不在本次范围。
+    _argv = sys.argv[1:]
+    global TESTS
+    if "--list" in _argv:
+        print(f"共 {len(TESTS)} 项:")
+        for _f, _d in TESTS:
+            print(f"  {_f:<40} {_d}")
+        sys.exit(0)
+    _only = None
+    if "--only" in _argv:
+        _i = _argv.index("--only")
+        _only = _argv[_i + 1] if _i + 1 < len(_argv) else None
+        if not _only:
+            print("--only 需要一个子串参数,例:python tests/run_all.py --only governance")
+            sys.exit(2)
+        _before = len(TESTS)
+        TESTS = [(f, d) for f, d in TESTS if _only in f or _only in d]
+        print(f"[filter] '{_only}' 匹配 {len(TESTS)}/{_before} 项\n")
     # HF_HUB_OFFLINE:装了 sentence-transformers 时,每个 HestiaOS() 会载入 all-MiniLM
     # 模型 6 次(5 Harness + 1 HMR embedding),且每次都向 HF Hub 发未认证网络请求——
     # 即便模型已缓存。实测让单次 init 从 ~44s 降到 ~7s,并去除网络抖动(否则被 HF 限流时
