@@ -13,6 +13,9 @@
 """
 import sys, os, asyncio
 from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hestia.browser import BrowserService
@@ -83,6 +86,7 @@ def test_action_types():
     print("  ✓ 非法 type 抛错 + from_dict 透传 target/value/meta")
 
 
+@pytest.mark.anyio
 async def test_service_wrapper():
     print("\n【3】BrowserService async 包装(注入假 session,经专用工作线程)")
     svc = BrowserService()
@@ -115,6 +119,7 @@ async def test_service_wrapper():
     print("  ✓ close() 幂等 + 关停后调用被安全拒绝")
 
 
+@pytest.mark.anyio
 async def test_degradation():
     print("\n【4】可选依赖降级(available=False)")
     svc = BrowserService()

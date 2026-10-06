@@ -16,6 +16,9 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import hestia.core.web_search as ws
@@ -35,10 +38,16 @@ def _slow(system, messages, max_tokens=2048, agent_id=""):
     return "ok"
 
 
-def _build():
-    os_ = HestiaOS(data_dir=tempfile.mkdtemp())
+def _build(data_dir=None):
+    os_ = HestiaOS(data_dir=data_dir or tempfile.mkdtemp())
     os_.router.complete = _slow
     return os_
+
+
+@pytest.fixture(scope="module")
+def os_(tmp_path_factory):
+    """共享同一 HestiaOS 实例(等价脚本式 main() 里 `os_ = _build()` 一次传给 2 个测试)。"""
+    return _build(data_dir=str(tmp_path_factory.mktemp("toplevel_concurrency")))
 
 
 def test_same_instance_concurrent(os_):

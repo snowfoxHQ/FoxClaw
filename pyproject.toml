@@ -81,16 +81,44 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# S1:只收集 7 个 pytest 风格测试;脚本式测试仍由 run_all.py 兜底,S2 再全面迁移。
-# (若沿用默认 test_*.py,会把 70 个脚本式测试的顶层副作用当收集过程执行 → 15 收集错误 + 3 分钟耗时)
+# S2 迁移进度(白名单):已迁移为 pytest 的文件。7 个原有 pytest 风格 + 27 个类 b(有 test_ 函数、无顶层副作用)。
+# 剩余未迁移:19 个类 c(check+main) + 23 个类 a(顶层副作用,需消除 import 副作用)。
+# 若沿用默认 test_*.py,会把未迁移脚本式测试的顶层副作用当收集过程执行 → 收集错误 + 数分钟耗时。
 python_files = [
-    "test_tool_use.py",
-    "test_injection_guard.py",
-    "test_sessions.py",
-    "test_stats_and_events.py",
-    "test_llm_planner.py",
+    "test_agent_lifecycle.py",
+    "test_ahs_p2.py",
     "test_anthropic_tools.py",
+    "test_audit_sink.py",
+    "test_browser.py",
+    "test_capabilities.py",
+    "test_channels.py",
+    "test_domain_reasoners.py",
+    "test_embedding_singleton.py",
+    "test_event_spine.py",
+    "test_governance.py",
+    "test_governance_audit.py",
+    "test_governance_middleware.py",
+    "test_hkc.py",
+    "test_injection_guard.py",
+    "test_kernel.py",
+    "test_llm_planner.py",
+    "test_orchestration_decoupled.py",
+    "test_p3_p5_hardening.py",
+    "test_parallel_dispatch.py",
+    "test_pipeline.py",
+    "test_planner.py",
+    "test_policy_gate.py",
+    "test_reasoner.py",
+    "test_scheduler.py",
+    "test_search.py",
+    "test_sessions.py",
+    "test_shadow_learning.py",
+    "test_shared_write.py",
+    "test_stats_and_events.py",
     "test_taint.py",
+    "test_tool_use.py",
+    "test_toplevel_concurrency.py",
+    "test_truth_crystallizer.py",
 ]
 addopts = "-q"
 

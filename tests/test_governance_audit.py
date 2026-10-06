@@ -36,10 +36,10 @@ from hestia.core.governance_audit import (
 from hestia.kernel.spine import EventSpine
 
 
-def _fresh_auditor(tmpdir, with_spine=True):
+def _fresh_auditor(test_dir, with_spine=True):
     spine = EventSpine() if with_spine else None
     aud = GovernanceAuditor(spine=spine,
-                            sink_path=Path(tmpdir) / "audit" / "governance.jsonl")
+                            sink_path=Path(test_dir) / "audit" / "governance.jsonl")
     return aud, spine
 
 
@@ -49,13 +49,13 @@ def _gov_events(spine):
 
 # ── 1. 审计器单元层 ─────────────────────────────────────────
 
-def test_auditor_unit(tmpdir):
+def test_auditor_unit(test_dir):
     print("\n【1】审计器单元:decision_id / 事件 / 落盘 / fail-safe")
     d1, d2 = new_decision_id(), new_decision_id()
     check(d1.startswith("dec_") and len(d1) == 16, f"decision_id 格式 dec_xxxxxxxxxxxx: {d1}")
     check(d1 != d2, "两次生成不相同(唯一性)")
 
-    aud, spine = _fresh_auditor(tmpdir)
+    aud, spine = _fresh_auditor(test_dir)
     did = aud.record(layer="permission", actor="assistant", action="action:send_mail",
                      verdict="deny", reason="命中 deny 规则",
                      detail={"stage": 2}, correlation_id="corr_test_1")
@@ -91,18 +91,18 @@ def test_auditor_unit(tmpdir):
     # 开关
     os.environ[ENV_SWITCH] = "0"
     try:
-        check(attach(spine, tmpdir) is None, f"{ENV_SWITCH}=0 时 attach 返回 None")
+        check(attach(spine, test_dir) is None, f"{ENV_SWITCH}=0 时 attach 返回 None")
     finally:
         del os.environ[ENV_SWITCH]
-    check(attach(spine, tmpdir) is not None, "默认(未设开关)attach 正常返回")
+    check(attach(spine, test_dir) is not None, "默认(未设开关)attach 正常返回")
 
 
 # ── 2. PolicyGate(P1-2/P3-4)─────────────────────────────────
 
-def _make_gate(tmpdir, spine=None):
+def _make_gate(test_dir, spine=None):
     from hestia.kernel.policy_gate import PolicyGate
     from hestia.skills.permission import evaluate
-    aud, spine = _fresh_auditor(tmpdir, with_spine=True)
+    aud, spine = _fresh_auditor(test_dir, with_spine=True)
     gate = PolicyGate(spine=spine, action_evaluator=evaluate, auditor=aud)
     return gate, aud, spine
 
@@ -114,9 +114,9 @@ def _make_skill(sid="demo.skill", side_effect="read", destructive=False):
                      handler=lambda **k: {"ok": True})
 
 
-def test_policy_gate(tmpdir):
+def test_policy_gate(test_dir):
     print("\n【2】PolicyGate:decision_id(P3-4)+ 非 allow 审计(P1-2)")
-    gate, aud, spine = _make_gate(tmpdir)
+    gate, aud, spine = _make_gate(test_dir)
 
     # allow:有 decision_id,但**不**记审计(高频常态不淹没审计流)
     v_allow = gate.check_action(_make_skill(), {})
@@ -181,10 +181,10 @@ class _FakeAgent:
         req.status, req.verdict = st, verdict
 
 
-def test_orchestrator(tmpdir):
+def test_orchestrator(test_dir):
     print("\n【3】Orchestrator:裁决审计 + 协商链 correlation_id(P1-3)")
     from hestia.orchestration import Orchestrator, CrossAgentRequest
-    aud, spine = _fresh_auditor(tmpdir)
+    aud, spine = _fresh_auditor(test_dir)
 
     # 三种终态 + 目标不存在(P1-0 路径)
     agents = {"finance": _FakeAgent([("approved", "预算充足"),
@@ -239,11 +239,11 @@ def test_orchestrator(tmpdir):
 
 # ── 4. SkillAdapter(P2-0/P3-4 核心:裁决→执行 join)──────────
 
-def test_skill_adapter(tmpdir):
+def test_skill_adapter(test_dir):
     print("\n【4】SkillAdapter:执行终态审计 + 裁决↔执行 decision_id join(P2-0/P3-4)")
     from hestia.skills import SkillRegistry, SkillAdapter, SkillSpec
     from hestia.skills.permission import PermissionRules
-    gate, aud, spine = _make_gate(tmpdir)
+    gate, aud, spine = _make_gate(test_dir)
     reg = SkillRegistry()
     adapter = SkillAdapter(reg, policy_gate=gate)
 
@@ -302,7 +302,7 @@ def test_skill_adapter(tmpdir):
 
 # ── 5. WS 可见性 + 真实装配端到端 ───────────────────────────
 
-def test_ws_visibility_and_wiring(tmpdir):
+def test_ws_visibility_and_wiring(test_dir):
     print("\n【5】WS 可见性 + 真实装配端到端")
     # governance.decision 不能被 WS 静音逻辑吞掉(验收:governance.* 事件 WS 可见)。
     # _WS_MUTED 是 api 投影闭包的局部变量,无法 import —— 改为源码级断言:静音规则只有
@@ -319,7 +319,7 @@ def test_ws_visibility_and_wiring(tmpdir):
 
     # 真实装配:三处同一 auditor;一次真共享写入之外的治理动作落盘
     from hestia import HestiaOS
-    d = tempfile.mkdtemp(prefix="hestia_gov_e2e_", dir=tmpdir)
+    d = tempfile.mkdtemp(prefix="hestia_gov_e2e_", dir=test_dir)
     o = HestiaOS(data_dir=d, shadow_rounds=2)
     check(o.governance_auditor is not None, "装配:governance_auditor 存在")
     check(o.policy_gate.auditor is o.governance_auditor, "PolicyGate 持同一 auditor")
@@ -342,15 +342,15 @@ def main():
     print("=" * 60)
     print("批次 3 · 治理审计链(P1-2/P1-3/P2-0/P3-4)")
     print("=" * 60)
-    tmpdir = tempfile.mkdtemp(prefix="hestia_govtest_")
+    test_dir = tempfile.mkdtemp(prefix="hestia_govtest_")
     try:
-        test_auditor_unit(tmpdir)
-        test_policy_gate(tmpdir)
-        test_orchestrator(tmpdir)
-        test_skill_adapter(tmpdir)
-        test_ws_visibility_and_wiring(tmpdir)
+        test_auditor_unit(test_dir)
+        test_policy_gate(test_dir)
+        test_orchestrator(test_dir)
+        test_skill_adapter(test_dir)
+        test_ws_visibility_and_wiring(test_dir)
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        shutil.rmtree(test_dir, ignore_errors=True)
     print("\n" + "=" * 60)
     print(f"✓ 全部 {len(CHECKS)} 项断言通过")
     print("=" * 60)

@@ -14,6 +14,9 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import hestia.core.web_search as ws
@@ -38,10 +41,16 @@ def _slow(system, messages, max_tokens=2048, agent_id=""):
     return "已处理(慢 stub)"
 
 
-def _build():
-    os_ = HestiaOS(data_dir=tempfile.mkdtemp())
+def _build(data_dir=None):
+    os_ = HestiaOS(data_dir=data_dir or tempfile.mkdtemp())
     os_.router.complete = _slow      # 注入固定延迟,让并发/串行差异可测
     return os_
+
+
+@pytest.fixture(scope="module")
+def os_(tmp_path_factory):
+    """共享同一 HestiaOS 实例(等价脚本式 main() 里 `os_ = _build()` 一次传给 5 个测试)。"""
+    return _build(data_dir=str(tmp_path_factory.mktemp("parallel_dispatch")))
 
 
 def test_fork_join(os_):
