@@ -39,7 +39,7 @@ dependencies = [
 include = ["hestia*"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23.0", "ruff>=0.16", "mypy>=1.10", "coverage>=7.5"]
 # 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
 # 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
 browser = ["playwright>=1.44.0"]
@@ -48,3 +48,54 @@ browser = ["playwright>=1.44.0"]
 knowledge = ["networkx>=3.0", "rank-bm25>=0.2", "aiofiles>=23.0", "requests>=2.31"]
 # HKC 文件摄入(PDF/epub/mobi/docx/xlsx)。仅当要摄入电子书/PDF/Office 文档时需要。
 knowledge-files = ["pymupdf>=1.24", "ebooklib>=0.18", "beautifulsoup4>=4.12", "mobi>=0.3.3", "python-multipart>=0.0.9", "python-docx>=1.1", "openpyxl>=3.1"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 工程化工具链(S1):ruff / mypy / pytest / coverage
+# 策略:首次引入,存量告警显式豁免(只保留死代码/真 bug 硬门),S3 拆分后逐步收紧。
+# ─────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# 只 lint 主包 + 测试;vendor/ 是内嵌第三方,frontend/skills/tools/bench/evals/examples 非 Python 主包。
+extend-exclude = ["vendor/", "frontend/", "skills/", "tools/", "bench/", "evals/", "examples/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+# 存量告警显式豁免(风格/现代化类);F 系列(pyflakes 死代码/未定义名)已清零并作为硬门。
+# S3 拆分大文件后,逐条从 ignore 移除以收紧。
+ignore = [
+    "E501",                                              # line-too-long(862 存量)
+    "E701", "E702", "E731", "E741", "E401", "E402",      # pycodestyle 风格
+    "I001",                                              # import 排序(138 存量)
+    "B008", "B034", "B904", "B905",                      # bugbear 非致命(33 存量)
+    "UP006", "UP015", "UP017", "UP031", "UP035", "UP037", "UP041", "UP042", "UP045",  # pyupgrade(143 存量)
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+# 渐进式:首次引入,存量 425 个类型错误不在 S1 范围,CI 用 warning 级不阻塞。
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# S1:只收集 7 个 pytest 风格测试;脚本式测试仍由 run_all.py 兜底,S2 再全面迁移。
+# (若沿用默认 test_*.py,会把 70 个脚本式测试的顶层副作用当收集过程执行 → 15 收集错误 + 3 分钟耗时)
+python_files = [
+    "test_tool_use.py",
+    "test_injection_guard.py",
+    "test_sessions.py",
+    "test_stats_and_events.py",
+    "test_llm_planner.py",
+    "test_anthropic_tools.py",
+    "test_taint.py",
+]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["hestia"]
+
+[tool.coverage.report]
+show_missing = true

@@ -6,6 +6,39 @@ on:
   pull_request:
 
 jobs:
+  toolchain:
+    # S1:工程化安全网 —— ruff(硬门) + mypy(渐进式) + pytest + coverage。
+    # ruff 只保留 F 系列死代码/真 bug 作为硬门,存量风格告警已在 pyproject 显式豁免;
+    # mypy 渐进式,仅报告不阻塞(存量 425 个类型错误);
+    # pytest 只收集 7 个 pytest 风格测试,脚本式测试仍由下方 regression job 兜底。
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install toolchain
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff (hard gate)
+        run: ruff check hestia/
+
+      - name: Mypy (advisory, non-blocking)
+        continue-on-error: true
+        run: mypy hestia/ --ignore-missing-imports --check-untyped-defs
+
+      - name: Pytest (pytest-style tests, under coverage)
+        run: coverage run -m pytest
+
+      - name: Coverage report
+        run: coverage report
+
   regression:
     runs-on: ubuntu-latest
     timeout-minutes: 25

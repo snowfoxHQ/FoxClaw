@@ -24,6 +24,11 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# 工程化工具链缓存(S1)
+.mypy_cache/
+.ruff_cache/
+.coverage
+
 # Python 构建产物(pip install -e . 生成)
 *.egg-info/
 build/
