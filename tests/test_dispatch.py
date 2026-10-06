@@ -74,7 +74,7 @@ async def main():
     office_view = os_.hmr.recall(query="理财 偏好", agent_id="office", top_k=10)
     finance_private = [
         m for m in office_view
-        if (not m.get("shared")) and f"agent:finance" in m.get("tags", [])
+        if (not m.get("shared")) and "agent:finance" in m.get("tags", [])
     ]
     status = "✓" if len(finance_private) == 0 else "✗"
     print(f"  {status} office 拿到 finance 私有记忆: {len(finance_private)} 条(应为 0)")

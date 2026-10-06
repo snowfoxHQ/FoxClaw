@@ -30,7 +30,7 @@ def test_reasoner_base_order():
     rv = R().reason(42)
     assert order == ["observe", "hypothesize", "evidence", "arbitrate"], order
     assert rv.decision == "approve" and rv.hypotheses == ["h"] and len(rv.evidence) == 1
-    print(f"  ✓ observe→hypothesize→gather_evidence→arbitrate;证据链随裁决返回")
+    print("  ✓ observe→hypothesize→gather_evidence→arbitrate;证据链随裁决返回")
 
 
 def _policy():

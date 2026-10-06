@@ -11,7 +11,7 @@
   7. 断路器(连续失败开闸)+ 钩子
   8. AHS 执行链(router→planner→composition 端到端)
 """
-import sys, os
+import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -123,7 +123,7 @@ def test_cognitive_state():
 def test_permission():
     print("\n【6】权限管线")
     from hestia.skills import build_default_registry, SkillAdapter
-    from hestia.skills.permission import PermissionRules, evaluate
+    from hestia.skills.permission import PermissionRules
     reg = build_default_registry()
     ad = SkillAdapter(reg)
     calc = reg.get("calculator")

@@ -89,8 +89,6 @@ TESTS = [
     ("test_domain_evals.py", "领域推理评测(漏报/误报率+误报归因到规则+规则实例隔离)"),
     ("test_negotiation.py",  "智能体层·跨域协商闭环(被拒→让步→再裁决·有界·拒绝不降级)"),
     # —— 以下 4 项此前遗漏于本运行器（P4-4 修复）——
-    # 它们是 pytest 风格测试（`pytest.main([__file__])`），需装 pytest 才能运行；
-    # 未安装时会被**显式标记为「跳过」**而非静默消失。完整回归请先 pip install -e ".[dev]"。
     ("test_tool_use.py",        "P2·function-calling 工具化(多轮工具循环/注册表/降级)"),
     ("test_injection_guard.py", "提示词注入纵深防御(检出/wrap_untrusted/内核前缀/隔离)"),
     ("test_sessions.py",        "会话存储(增删改查/标题提炼/路径穿越/并发追加)"),
@@ -102,17 +100,15 @@ TESTS = [
     ("test_mcp_guardian_discovery.py", "MCP 发现进守门人(凭证不出主进程·代发现·序列化)"),
 ]
 
-# 以 pytest 风格编写、运行需 pytest 的测试（见 main() 中的可用性检测）。
-PYTEST_TESTS = {"test_tool_use.py", "test_injection_guard.py",
-                "test_sessions.py", "test_stats_and_events.py",
-                "test_llm_planner.py", "test_anthropic_tools.py", "test_taint.py"}
+# S2 迁移完成:全部测试均已迁移为 pytest(见 pyproject [tool.pytest.ini_options] 白名单)。
+# 故下面所有文件统一用 `python -m pytest <file> -q` 跑,且**每个文件独立子进程**:
+# 网关/内置MCP/流式限流等测试依赖模块级单例,同一进程内会被首个 import 定死、相互污染。
 
 def main():
     here = Path(__file__).parent
     # ── 命令行:支持 --list / --only <substr>(M7)──────────────────────
     # 为什么需要:全量回归 6-7 分钟,改一行代码后只想验 1-2 个文件时成本过高。
     # 此前只能整跑,拖慢了「改完立刻验」的内循环(这也是很多缺陷被放过的原因之一)。
-    # 注意:这是**最小可用化**——40 个脚本式测试全面转 pytest 属独立技术债,不在本次范围。
     _argv = sys.argv[1:]
     global TESTS
     if "--list" in _argv:
@@ -179,7 +175,7 @@ def main():
         print("⚠ 未安装 pytest —— 依赖它的测试将标记为「跳过」。"
               "完整回归请先 `pip install -e \".[dev]\"` 或 `pip install pytest`。\n")
     for fn, desc in TESTS:
-        if fn in PYTEST_TESTS and not have_pytest:
+        if not have_pytest:
             results.append((desc, "跳过", 0.0))
             print(f"  ○ {desc:<28} [跳过:需 pytest]")
             continue
@@ -188,12 +184,8 @@ def main():
             results.append((desc, "缺失", 0)); continue
         t0 = time.time()
         try:
-            # pytest 风格测试用 `python -m pytest` 跑,让失败退出码正确传播。
-            # 不能沿用 `python test_xxx.py`——其末尾 `pytest.main([__file__])` 不带
-            # sys.exit,失败时进程仍退出码 0 → returncode==0 漏报失败;且 pytest 失败
-            # 输出不含 "Traceback",字符串判定同样抓不到(实测 EXITCODE=0)。
-            _cmd = ([sys.executable, "-m", "pytest", str(path), "-q"]
-                    if fn in PYTEST_TESTS else [sys.executable, str(path)])
+            # 统一走 pytest(每文件独立子进程,隔离模块级单例)。
+            _cmd = [sys.executable, "-m", "pytest", str(path), "-q"]
             # 显式 utf-8 解码子进程输出:子进程已被 PYTHONUTF8=1 强制输出 utf-8,
             # 父进程若用 Windows 默认 GBK 解码会 UnicodeDecodeError(模型加载进度条等
             # 含非 GBK 字节)→ r.stdout 变 None → 后续拼接 TypeError。errors=replace 兜底。
@@ -225,6 +217,9 @@ def main():
                 tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
                 print(f"  ✗ {desc} 失败:")
                 for line in tail: print(f"      {line}")
+                # 失败时落盘完整输出,便于复现/定位偶发失败(尤其 teardown 期崩溃)。
+                (here / f"_fail_{fn}.txt").write_text(
+                    r.stdout + r.stderr, encoding="utf-8")
         except subprocess.TimeoutExpired:
             results.append((desc, "超时", 300))
         print(f"  {'✓' if results[-1][1]=='通过' else '✗'} {desc:<28} [{results[-1][1]}] {results[-1][2]:.0f}s")

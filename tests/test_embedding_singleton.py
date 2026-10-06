@@ -31,7 +31,7 @@ def test_same_name_loads_once():
     after = embedding_stats()["load_attempts"]
     assert after - before == 1, f"同名 3 次调用应只加载 1 次,实际 {after - before}"
     assert a is b is c, "同名应返回同一个缓存对象(此处均为 None,加载失败)"
-    print(f"  ✓ 同名调用 3 次 → 加载尝试仅 +1")
+    print("  ✓ 同名调用 3 次 → 加载尝试仅 +1")
 
 
 def test_five_harnesses_one_load():
@@ -42,7 +42,7 @@ def test_five_harnesses_one_load():
     after = embedding_stats()["load_attempts"]
     assert after - before == 1, f"5 个 SemanticDrift 同名应只加载 1 次,实际 {after - before}(修复前=5)"
     assert all(d._model is drifts[0]._model for d in drifts), "5 个应共享同一模型引用"
-    print(f"  ✓ 5 个 SemanticDrift(同名) → 加载尝试仅 +1(修复前为 5)")
+    print("  ✓ 5 个 SemanticDrift(同名) → 加载尝试仅 +1(修复前为 5)")
 
 
 def test_distinct_names_separate():

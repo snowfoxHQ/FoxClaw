@@ -65,7 +65,7 @@ def test_action_normalization_and_event():
                                     ("deny", "deny", "policy.decision.deny")]:
         spine = _CapSpine()
         pd = _PD(decision, reason=f"r-{decision}")
-        gate = PolicyGate(spine=spine, action_evaluator=lambda *a, **k: pd)
+        gate = PolicyGate(spine=spine, action_evaluator=lambda *a, _pd=pd, **k: _pd)
         v = gate.check_action(_Skill(), {})
         assert v.level == level and v.raw is pd, f"{decision}→{v.level}"
         assert v.allowed == (decision == "allow")

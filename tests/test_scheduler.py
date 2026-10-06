@@ -100,7 +100,7 @@ def test_pm_delegation_unified_lifecycle():
     # pm 里确有该进程(顶层任务也成了进程),调度器记账仍在
     assert pm.stats()["by_state"].get("completed") == 1
     assert sched.stats()["completed"] == 1
-    print(f"  ✓ pm 发 task.lifecycle.{{scheduled,running,completed}};顶层任务纳入进程;记账双在")
+    print("  ✓ pm 发 task.lifecycle.{scheduled,running,completed};顶层任务纳入进程;记账双在")
 
 
 def test_priority_admission():

@@ -142,7 +142,7 @@ def test_stage_events():
     # 无中枢时优雅跳过(不崩)
     a2 = FakeAgent()   # 无 _caps
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(PipelineContext(agent=a2, task="X")))
-    print(f"  ✓ 7 个 agent.cognition.* 事件按序 emit;无中枢时优雅跳过")
+    print("  ✓ 7 个 agent.cognition.* 事件按序 emit;无中枢时优雅跳过")
 
 
 def test_route_skill_optin_inert():

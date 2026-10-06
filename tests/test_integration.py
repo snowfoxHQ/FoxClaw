@@ -52,7 +52,7 @@ def main():
         import hestia.api as api_mod
         os_inst = api_mod._os_instance
         captured = []
-        for aid, agent in os_inst._agents.items():
+        for agent in os_inst._agents.values():
             for ev in ["harness_block", "harness_warn", "harness_pass",
                        "policy_updated", "shadow_calibrated"]:
                 agent.harness.bus.on(ev, lambda d, e=ev: captured.append({"event": e, "data": d}))
@@ -80,7 +80,7 @@ def main():
         #     硬要求 BLOCK 会让本测试在降级下恒红,掩盖真实信号。
         _emb_degraded = getattr(os_inst._agents["finance"].harness, "semantic_degraded", False)
         if _emb_degraded:
-            print(f"  [降级模式] 语义维度已停用 → 断言 fail-open 正确性而非 BLOCK")
+            print("  [降级模式] 语义维度已停用 → 断言 fail-open 正确性而非 BLOCK")
             check("harness_block" not in ev_types,
                   f"降级下正常任务不产生 BLOCK(实为 {sorted(ev_types)})")
             check("harness_pass" in ev_types,
@@ -94,7 +94,7 @@ def main():
         # 2b. WebSocket 握手
         print("\n【2b】WebSocket 连接握手")
         try:
-            with client.websocket_connect("/ws/harness") as ws:
+            with client.websocket_connect("/ws/harness"):
                 ws_ok, ws_err = True, ""
         except Exception as e:
             ws_ok, ws_err = False, str(e)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """批次 7 · P3 收尾 + P4/P5 小项测试
 
   [1] P3-1:_constant_time_eq 行为(等/不等/空/None 兜底)
@@ -13,11 +12,9 @@
 """
 import asyncio
 import inspect
-import json
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

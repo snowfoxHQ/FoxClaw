@@ -4,7 +4,6 @@
   1. 单元层:EventSpine + sink 直连 —— JSONL 格式、字段齐全、追加语义、开关、坏行容错
   2. 端到端层:真实 HestiaOS 装配 → 共享写入 → 文件里出现完整记录(接线正确性)
 """
-import json
 import os
 import shutil
 import sys

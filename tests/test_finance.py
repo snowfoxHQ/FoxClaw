@@ -3,7 +3,7 @@ B 阶段测试 — 财务 Agent 内核(资金行为操作系统)
 验证:CSV 导入 → 推理(预算/异常/订阅/烧钱) → Policy 守门人裁决
 不真实动钱:执行层只产出审批请求。
 """
-import sys, os, tempfile
+import sys, tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))

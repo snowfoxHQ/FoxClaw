@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """批次 3 · 治理审计链:P1-2 统一审计 / P1-3 编排审计 / P2-0 Skill 审计 / P3-4 decision_id。
 
 验收标准(执行计划):governance.* 事件 WS 可见 + decision_id 跨层关联。
@@ -194,7 +193,7 @@ def test_orchestrator(test_dir):
         from_agent="admin", to_agent="finance", request_type="budget_request",
         payload={"amount": 100}))
     check(r1.status == "approved", "approved 路由(行为不变)")
-    r2 = orch.route_request(CrossAgentRequest(
+    orch.route_request(CrossAgentRequest(
         from_agent="admin", to_agent="finance", request_type="budget_request",
         payload={"amount": 99999}))
     r3 = orch.route_request(CrossAgentRequest(

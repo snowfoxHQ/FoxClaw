@@ -4,7 +4,7 @@
 覆盖:建/列/读/追加/改名/删、标题自动提炼、按更新时间倒序、
 列表不含 messages(负载)、路径穿越防护、并发追加(对话跑在后台线程)。
 """
-import os, sys, tempfile, shutil, threading
+import sys, tempfile, shutil, threading
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

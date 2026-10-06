@@ -72,13 +72,13 @@ async def main():
     # 0.000),阈值保持默认。这不是"阈值写死",而是"没有信号"—— 两者必须区分,
     # 否则本断言在降级下恒红,会把「降级导致无可学」误读成「校准机制坏了」。
     if getattr(os_.finance.harness, "semantic_degraded", False):
-        print(f"  [降级模式] 语义维度停用 → on-goal 任务 Δ 恒 0,校准无可学信号")
+        print("  [降级模式] 语义维度停用 → on-goal 任务 Δ 恒 0,校准无可学信号")
         check(len(os_.finance.harness._delta_history) > 0,
               f"降级下校准仍真实执行并采集了 shadow 样本"
               f"({len(os_.finance.harness._delta_history)} 条)")
         check(os_.finance.harness.is_shadow_mode is False,
               "降级下 shadow 仍按期结束进入 active(校准流程本身未被跳过)")
-        print(f"  ✓ 降级下阈值不可学属预期(非硬编码问题);装回 ST 后此断言自动恢复原语义")
+        print("  ✓ 降级下阈值不可学属预期(非硬编码问题);装回 ST 后此断言自动恢复原语义")
     else:
         check(blocks[0] != blocks[-1],
               f"BLOCK 阈值由校准真实改变({blocks[0]:.3f} → {blocks[-1]:.3f},非硬编码默认值)")

@@ -10,7 +10,7 @@
 
 摄入(ingest)需真实 LLM,不在离线回归内跑;这里只验证融合层的装配/降级/资源契约。
 """
-import sys, os, tempfile, shutil, asyncio
+import sys, tempfile, shutil, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -207,7 +207,7 @@ def test_ability_as_skill_step4():
     res = SkillAdapter(reg).invoke(spec, {"query": "写作风格"})
     assert res.success and res.output.get("ability") == "writing_expert", res.to_dict()
     assert res.output["knowledge"] and res.output["knowledge"][0]["name"] == "修辞"
-    print(f"  ✓ 证据 gate:达标能力注册为 read skill、覆盖不足不注册;经 PolicyGate 放行返回知识")
+    print("  ✓ 证据 gate:达标能力注册为 read skill、覆盖不足不注册;经 PolicyGate 放行返回知识")
 
     # 降级:HKC 不可用 / registry 缺失 → 不注册、不崩
     assert register_abilities_as_skills(SkillRegistry(), None) == []

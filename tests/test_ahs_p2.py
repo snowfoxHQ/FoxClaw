@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """批次 6 · P2 层 + P3-2 测试
 
   [1] P2-2:compose 遇 needs_confirmation → 暂停不回滚(pending),blocked 仍回滚(对照)
@@ -274,7 +273,7 @@ def test_idem_persist_failure():
 
     def _bad_open(*a, **kw):
         if ".log" in str(a[0]):
-            raise IOError("disk full")
+            raise OSError("disk full")
         return orig_open(*a, **kw)
     builtins.open = _bad_open
     try:

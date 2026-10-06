@@ -85,7 +85,7 @@ hestia_os/
 │   ├── capability/ governance/   embedding 单例 / 治理中间件
 ├── vendor/hmr/ vendor/hkc/       HMR v2.0 记忆运行时 + HKC 知识核心(已内嵌)
 ├── examples/                     样例数据
-├── tests/                        62 个测试文件 + run_all.py
+├── tests/                        76 个测试文件(全部 pytest)+ run_all.py
 └── docs/                         RUN / CHANNELS / GOVERNANCE / 配置指南(公开)
 ```
 

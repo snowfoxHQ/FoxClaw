@@ -3,36 +3,41 @@
 import os, sys, tempfile, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-os.environ["HESTIA_SKIP_DOTENV"] = "1"      # 隔离开发机 .env,保证测试环境自洽
-os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
-os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试,直接用本地缓存
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
-os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_nomem_")
 
-from hestia import HestiaOS
+def test_mcp_no_memory():
+    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
+    os.environ["HESTIA_SKIP_DOTENV"] = "1"      # 隔离开发机 .env,保证测试环境自洽
+    os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
+    os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试,直接用本地缓存
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_nomem_")
 
-o = HestiaOS(data_dir=os.environ["HESTIA_DATA_DIR"])
-calls = []
-o.hmr.ingest = lambda *a, **k: calls.append(1)   # spy:数 HMR 写入次数
+    from hestia import HestiaOS
 
-
-async def dispatch_suppressed():
-    """完全复刻 ask_hestia 的派发路径:to_thread → set 抑制 → scheduler.run → asyncio.run。"""
-    def _work():
-        from hestia.agents.base import _suppress_memory
-        _suppress_memory.set(True)
-        async def _t():
-            o.assistant._store_memory("外部驱动任务的内容(应被抑制)")
-        return o.scheduler.run(lambda: asyncio.run(_t()), agent_id="assistant", task="t")
-    return await asyncio.to_thread(_work)
+    o = HestiaOS(data_dir=os.environ["HESTIA_DATA_DIR"])
+    calls = []
+    o.hmr.ingest = lambda *a, **k: calls.append(1)   # spy:数 HMR 写入次数
 
 
-asyncio.run(dispatch_suppressed())
-suppressed = len(calls)
-o.assistant._store_memory("正常任务内容(应写入)")
-normal = len(calls) - suppressed
+    async def dispatch_suppressed():
+        """完全复刻 ask_hestia 的派发路径:to_thread → set 抑制 → scheduler.run → asyncio.run。"""
+        def _work():
+            from hestia.agents.base import _suppress_memory
+            _suppress_memory.set(True)
+            async def _t():
+                o.assistant._store_memory("外部驱动任务的内容(应被抑制)")
+            return o.scheduler.run(lambda: asyncio.run(_t()), agent_id="assistant", task="t")
+        return await asyncio.to_thread(_work)
 
-assert suppressed == 0, f"污染!MCP 外部任务写了 {suppressed} 条记忆"
-assert normal > 0, "正常任务应正常写记忆"
-print(f"MCP ask_hestia 不污染记忆 OK(抑制路径写入={suppressed}, 正常路径写入={normal})")
+
+    asyncio.run(dispatch_suppressed())
+    suppressed = len(calls)
+    o.assistant._store_memory("正常任务内容(应写入)")
+    normal = len(calls) - suppressed
+
+    assert suppressed == 0, f"污染!MCP 外部任务写了 {suppressed} 条记忆"
+    assert normal > 0, "正常任务应正常写记忆"
+    print(f"MCP ask_hestia 不污染记忆 OK(抑制路径写入={suppressed}, 正常路径写入={normal})")
+
+if __name__ == "__main__":
+    test_mcp_no_memory()

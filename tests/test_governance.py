@@ -371,7 +371,7 @@ def test_orchestration_request_log_bounded():
     try:
         os_ = HestiaOS(data_dir=d, shadow_rounds=50)
         os_.finance_runtime.set_balance("default", 100000)
-        for i in range(1200):           # 远超 maxlen=1000
+        for _ in range(1200):           # 远超 maxlen=1000
             os_.orchestrator.route_request(CrossAgentRequest(
                 from_agent="admin", to_agent="finance", request_type="budget_request",
                 payload={"amount": 10, "category": "travel", "account": "default"},

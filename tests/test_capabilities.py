@@ -50,7 +50,7 @@ def test_cycles_broken_structural():
         assert "agents" not in os_.orchestrator.__dict__, "orchestrator 不应把 agents 存为实例字段"
         assert os_.orchestrator._caps is os_.capabilities
         assert os_.orchestrator.agents is os_._agents, "orchestrator.agents 经中枢解析"
-        print(f"  ✓ Agent→search / Orchestrator→agents 的直接互持已改为中枢解析")
+        print("  ✓ Agent→search / Orchestrator→agents 的直接互持已改为中枢解析")
         print(f"    capabilities.names() = {os_.capabilities.names()}")
         asyncio.run(os_.aclose())
     finally:
@@ -104,7 +104,7 @@ def test_lazy_build_once_concurrent():
     # 不同能力不互相阻塞(构造锁 per-name;此处只验证正确性:各自构造一次)
     reg.register_lazy("y", lambda: object())
     assert reg.get("y") is reg.get("y")
-    print(f"  ✓ 12 线程并发 get 同一惰性 → 只构造 1 次、同一实例;不同能力独立")
+    print("  ✓ 12 线程并发 get 同一惰性 → 只构造 1 次、同一实例;不同能力独立")
 
 
 def test_hkc_single_init_concurrent():
@@ -132,7 +132,7 @@ def test_hkc_single_init_concurrent():
             for t in ts: t.join()
             assert cnt["n"] == 1, f"并发首访 hkc 应只装配 1 次,实得 {cnt['n']}"
             assert len({id(o) for o in out}) == 1, "10 线程应拿到同一 HKCService"
-            print(f"  ✓ 10 线程并发首访 os_.hkc → init_hkc 只调 1 次")
+            print("  ✓ 10 线程并发首访 os_.hkc → init_hkc 只调 1 次")
         finally:
             K.init_hkc = orig
         asyncio.run(os_.aclose())

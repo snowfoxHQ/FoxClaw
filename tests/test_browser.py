@@ -11,7 +11,7 @@
 真实浏览器端到端(需 playwright install chromium)不在回归里跑,避免 CI 依赖内核二进制;
 本测试证明的是"融合层的线程/降级/契约"正确,浏览器操作正确性由 HIR 原生逻辑保证。
 """
-import sys, os, asyncio
+import sys, asyncio
 from pathlib import Path
 
 import pytest

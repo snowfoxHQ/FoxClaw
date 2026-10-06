@@ -10,7 +10,8 @@ jobs:
     # S1:工程化安全网 —— ruff(硬门) + mypy(渐进式) + pytest + coverage。
     # ruff 只保留 F 系列死代码/真 bug 作为硬门,存量风格告警已在 pyproject 显式豁免;
     # mypy 渐进式,仅报告不阻塞(存量 425 个类型错误);
-    # pytest 只收集 7 个 pytest 风格测试,脚本式测试仍由下方 regression job 兜底。
+    # pytest 只做快速收集检查(S2 已把全部 76 个测试迁为 pytest,无顶层副作用);
+    # 全量执行统一走下方 regression job 的 run_all.py(每文件独立子进程隔离模块级单例)。
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -33,11 +34,8 @@ jobs:
         continue-on-error: true
         run: mypy hestia/ --ignore-missing-imports --check-untyped-defs
 
-      - name: Pytest (pytest-style tests, under coverage)
-        run: coverage run -m pytest
-
-      - name: Coverage report
-        run: coverage report
+      - name: Pytest collect check (all tests migrated)
+        run: python -m pytest --collect-only -q
 
   regression:
     runs-on: ubuntu-latest

@@ -32,9 +32,8 @@ python tests/test_api.py       # API layer
 
 These run without an LLM key or real HMR — proving cognition is decoupled from the model.
 
-> **About pytest**: 4 of the 62 tests are pytest-style (`test_tool_use` / `test_injection_guard` /
-> `test_sessions` / `test_stats_and_events`, 121 assertions) and need `pip install pytest`
-> (or `pip install -e ".[dev]"`). When pytest is absent the runner **explicitly marks those 4 as
+> **About pytest**: all 76 tests are now pytest-style (S2 migration) and need `pip install pytest`
+> (or `pip install -e ".[dev]"`). When pytest is absent the runner **explicitly marks all 76 as
 > "skipped"** and excludes them from the denominator — they neither vanish silently nor fake a pass.
 
 ## 3. Start the service

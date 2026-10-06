@@ -81,27 +81,36 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# S2 迁移进度(白名单):已迁移为 pytest 的文件。7 个原有 pytest 风格 + 27 个类 b(有 test_ 函数、无顶层副作用)
-#  + 16 个类 c(check+main,已加 test_* 薄包装)。
-# 剩余未迁移:26 个类 a(纯顶层脚本,import 即执行副作用,需消除 import 副作用)。
-# 若沿用默认 test_*.py,会把未迁移脚本式测试的顶层副作用当收集过程执行 → 收集错误 + 数分钟耗时。
+# S2 迁移完成:全部 76 个测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
+# 注意:网关/内置MCP/流式限流等少数测试依赖模块级单例(HESTIA_GATEWAY、HESTIA_MCP_SERVER、
+# _STREAM_LIMITER 均在 import 时按 env 固化),单进程 `pytest tests/` 会让这些单例被首个
+# import 定死、相互污染。故全量执行统一走 tests/run_all.py(每个文件独立子进程
+# `python -m pytest <file> -q` 隔离)。本白名单确保任意单文件可被 pytest 收集/运行。
 python_files = [
     "test_agent_lifecycle.py",
     "test_ahs_p2.py",
     "test_anthropic_tools.py",
+    "test_api.py",
     "test_api_auth.py",
     "test_audit_sink.py",
     "test_browser.py",
     "test_capabilities.py",
     "test_channels.py",
     "test_compaction_toolpair.py",
+    "test_config_layering.py",
     "test_dispatch.py",
+    "test_domain_evals.py",
+    "test_domain_import.py",
     "test_domain_reasoners.py",
     "test_e2e.py",
+    "test_emb_cache.py",
     "test_embedding_singleton.py",
     "test_evals_smoke.py",
     "test_event_spine.py",
+    "test_evidence_semantic.py",
+    "test_file_ingest.py",
     "test_finance.py",
+    "test_gateway.py",
     "test_governance.py",
     "test_governance_audit.py",
     "test_governance_middleware.py",
@@ -109,10 +118,21 @@ python_files = [
     "test_injection_guard.py",
     "test_integration.py",
     "test_itinerary.py",
+    "test_kee_semantic.py",
     "test_kernel.py",
     "test_learning.py",
     "test_llm_planner.py",
+    "test_markdown_skills.py",
+    "test_markdown_skills_openclaw.py",
+    "test_mcp_connectors.py",
+    "test_mcp_guardian_discovery.py",
+    "test_mcp_no_memory.py",
+    "test_mcp_server.py",
     "test_memory_recall.py",
+    "test_metrics.py",
+    "test_multi_chain.py",
+    "test_multimodal.py",
+    "test_negotiation.py",
     "test_orchestration.py",
     "test_orchestration_decoupled.py",
     "test_p3_p5_hardening.py",
@@ -121,21 +141,28 @@ python_files = [
     "test_planner.py",
     "test_policy_gate.py",
     "test_reasoner.py",
+    "test_routing.py",
     "test_scheduler.py",
     "test_search.py",
+    "test_semantic.py",
     "test_sessions.py",
     "test_shadow_learning.py",
     "test_shared_write.py",
     "test_skills.py",
     "test_stats_and_events.py",
+    "test_streaming.py",
     "test_supervisor_pipeline.py",
     "test_supervisor_triage.py",
     "test_taint.py",
+    "test_task_stream.py",
+    "test_tool_center.py",
     "test_tool_params.py",
     "test_tool_use.py",
     "test_toplevel_concurrency.py",
+    "test_tracing.py",
     "test_truth_crystallizer.py",
     "test_truth_flow.py",
+    "test_web_trigger.py",
 ]
 addopts = "-q"
 
