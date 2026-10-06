@@ -8,6 +8,7 @@ import os
 import sqlite3
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 from typing import Literal, Optional
@@ -126,6 +127,7 @@ class ThoughtChain:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agent ON thought_nodes(agent_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_harness ON thought_nodes(harness_status)")
 
+    @contextmanager
     def _conn(self):
         """新建一条 SQLite 连接(每次调用即建即弃,不跨线程复用连接对象)。
 
@@ -135,13 +137,26 @@ class ThoughtChain:
           · timeout=5.0    —— 即 busy_timeout,写者遇锁最多等 5s 而非立刻报错;
           · journal_mode=WAL —— 单写多读、读写不互斥,大幅降低锁竞争(审计读多写多)。
         WAL 是数据库级持久设置,重复设置幂等无害。
+
+        生命周期语义:`with self._conn() as conn:` 退出时——正常则 commit,异常则
+        rollback,并**无论正常/异常都 close**。不能依赖 sqlite3.Connection 自带的
+        `with`(它退出只 commit/rollback 不 close,WAL 的 -wal/-shm 句柄会残留,
+        Windows 上删库会 WinError 32);也不能只用 closing()(它只 close 不 commit,
+        会把 INSERT/UPDATE 回滚导致并发写全丢)。
         """
         conn = sqlite3.connect(self.db_path, timeout=5.0)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError:
             pass  # 个别文件系统不支持 WAL(如网络盘)→ 退回默认日志模式,timeout 仍生效
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def add_node(self, node: ThoughtNode) -> ThoughtNode:
         """写入节点，返回写入后的节点（Harness 标注前状态）"""
