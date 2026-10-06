@@ -417,7 +417,7 @@ class CognitiveAgent(ABC):
             print(f"[联网搜索] 触发,查询: {query}")
             payload = _ws.search_answer(query)
             if not payload or (not payload.get("answer") and not payload.get("references")):
-                print(f"[联网搜索] ⚠ 无结果(未配 BAIDU_SEARCH_KEY 或网络不通)")
+                print("[联网搜索] ⚠ 无结果(未配 BAIDU_SEARCH_KEY 或网络不通)")
                 # 需要联网但没搜到(未配 key / 网络不通)→ 注入明确指令逼 LLM 如实说,绝不编造。
                 # 否则 LLM 被 system_prompt 告知"已接入联网"却拿不到结果,会凭训练数据瞎编版本号/
                 # 新闻/价格(用户实测踩到)。合并进最后一条 user 消息(与下方注入同法,不新增 user 消息)。

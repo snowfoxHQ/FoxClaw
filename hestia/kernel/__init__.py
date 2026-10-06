@@ -4,3 +4,10 @@ from .spine import EventSpine, Event
 from .capabilities import CapabilityRegistry
 from .scheduler import Scheduler
 from .policy_gate import PolicyGate, Verdict
+
+__all__ = [
+    "ProcessManager", "ProcessRecord",
+    "EventSpine", "Event",
+    "CapabilityRegistry", "Scheduler",
+    "PolicyGate", "Verdict",
+]

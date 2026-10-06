@@ -11,6 +11,7 @@ from pathlib import Path
 from .models import Transaction, Budget, FinancialEntity
 from .reasoning import FinanceReasoning
 from .policy import FinancePolicyEngine
+from .graph import FinancialDataGraph
 
 
 class FinanceRuntime:
@@ -177,7 +178,6 @@ class FinanceRuntime:
 
     def graph(self) -> "FinancialDataGraph":
         """构建财务数据图(交易/分类/商户/账户/预算关联)。"""
-        from .graph import FinancialDataGraph
         g = FinancialDataGraph()
         g.build(self.transactions, self.budgets)
         return g

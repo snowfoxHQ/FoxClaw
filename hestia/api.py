@@ -4,7 +4,6 @@ Hestia OS API — FastAPI 后端
 """
 
 import os
-import sys
 import asyncio
 import json
 import queue
@@ -28,7 +27,7 @@ try:
         print("[HestiaOS] ○ HESTIA_SKIP_DOTENV=1 —— 跳过 .env,仅用进程环境变量")
     elif _env_path.exists():
         load_dotenv(_env_path)
-        print(f"[HestiaOS] ✓ 已加载配置文件 .env")
+        print("[HestiaOS] ✓ 已加载配置文件 .env")
 except ImportError:
     pass  # 未装 python-dotenv 则用系统环境变量
 
