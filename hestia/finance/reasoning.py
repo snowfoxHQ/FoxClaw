@@ -6,10 +6,8 @@ Hestia 财务子系统 — 推理层(财务 Agent 的大脑)
 
 from collections import defaultdict
 from datetime import datetime, timedelta
-from statistics import mean, pstdev
-from typing import Optional
 
-from .models import Transaction, Budget
+from .models import Budget
 
 
 class FinanceReasoning:

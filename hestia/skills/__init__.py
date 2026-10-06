@@ -8,11 +8,8 @@ Hestia Skill 接入层 — 助手的"万能工具箱",同时是对外生态兼�
   只读类(read)直接调;有副作用类(write/send/pay)需确认后执行。
 """
 
-import os
-import json
 import threading
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
 from typing import Optional, Callable, Literal
 
 
@@ -45,6 +42,8 @@ class SkillSpec:
     endpoint: str = ""                                # web_api: URL
     http_method: str = "GET"                          # web_api: GET/POST/PUT/DELETE
     http_headers: dict = field(default_factory=dict)  # web_api: 请求头(如 auth)
+    secret_ref: str = ""                              # web_api: 凭证引用名(存守门人 vault);空=凭证仍在 http_headers(现状)
+    auth_scheme: str = "bearer"                       # web_api: 凭证注入方式 bearer / header:<name> / query:<name>
     param_location: str = "auto"                      # web_api: query/json/auto
     timeout: float = 10.0                             # web_api: 超时秒
     allow_local: bool = False                         # web_api: 是否信任本地/内网地址(默认拒,防SSRF)
@@ -151,10 +150,11 @@ class SkillAdapter:
     """统一调用器 + 守门人。"""
 
     def __init__(self, registry: SkillRegistry, mcp_clients: dict = None,
-                 rules=None, breaker=None, hooks=None, policy_gate=None):
+                 rules=None, breaker=None, hooks=None, policy_gate=None, sentinel=None):
         self.registry = registry
         self.mcp_clients = mcp_clients or {}   # server名 -> 客户端(本地配)
         self.policy_gate = policy_gate         # 【Step4】统一准入门(可空:standalone 直接 evaluate)
+        self.sentinel = sentinel               # 【P-Muse】守门人客户端(可空):非空且 skill.secret_ref 时,web_api 走代执行
         self.skill_policy = None               # 全局封杀策略(deny/allow kill-switch),宿主注入
         # 权限规则集(deny>ask>allow)。宿主可注入,默认空规则。
         from .permission import PermissionRules
@@ -278,12 +278,20 @@ class SkillAdapter:
             return SkillResult(skill.id, True, output=out if isinstance(out, dict)
                                else {"result": out}, message="本地 skill 执行完成")
         elif skill.kind == "mcp":
-            res = self._invoke_mcp(skill, args)
+            # 【P-Muse·第3步】挂了守门人 → 代执行:守门人持有 MCP 凭证并调用,主进程只发意图。
+            if self.sentinel is not None:
+                res = self._invoke_mcp_via_sentinel(skill, args)
+            else:
+                res = self._invoke_mcp(skill, args)
             if downgrade and res.success:
                 res.output = {"_untrusted": True, "data": res.output}
                 res.message += "(来源不可信,结果不可驱动后续危险操作)"
             return res
         elif skill.kind == "web_api":
+            # 【P-Muse】声明了凭证 ref 且挂了守门人 → 代执行:真凭证只在守门人 vault,
+            # 主进程不直发请求(拿不到真值),改走 IPC 由守门人注入凭证后执行。
+            if skill.secret_ref and self.sentinel is not None:
+                return self._invoke_web_via_sentinel(skill, args)
             return self._invoke_web(skill, args)
         else:
             return SkillResult(skill.id, False, status="blocked",
@@ -304,6 +312,17 @@ class SkillAdapter:
         except Exception as e:
             return SkillResult(skill.id, False, status="blocked",
                                message=f"MCP 调用失败: {e}")
+
+    def _invoke_mcp_via_sentinel(self, skill: SkillSpec, args: dict) -> SkillResult:
+        """mcp 代执行:主进程只传意图(server_id + tool + args),守门人持有 MCP 凭证并调用。
+        守门人返回的已是 SkillResult.to_dict()(同一状态语义),这里重建为 SkillResult。
+        fail-closed:守门人不可达时返回 blocked,绝不落到主进程直连外部 MCP。"""
+        d = self.sentinel.mcp_call(skill=skill, args=args)
+        try:
+            return SkillResult(**d)
+        except Exception:
+            return SkillResult(skill.id, False, status="blocked",
+                               message=f"守门人代执行返回异常: {d}")
 
     def _invoke_web(self, skill: SkillSpec, args: dict) -> SkillResult:
         """Web API 调用:按 endpoint/method 真实发请求,处理超时/错误/响应解析。
@@ -370,46 +389,63 @@ class SkillAdapter:
                            output={"status_code": resp.status_code, "data": data},
                            message=f"Web API 调用成功(HTTP {resp.status_code})")
 
+    def _invoke_web_via_sentinel(self, skill: SkillSpec, args: dict) -> SkillResult:
+        """web_api 代执行:主进程只传 endpoint/参数/凭证 ref,守门人进程注入真凭证后发请求。
+        守门人返回的已是 SkillResult.to_dict()(同一状态语义:done/blocked/timeout/not_connected),
+        这里重建为 SkillResult。fail-closed:守门人不可达时返回 blocked,绝不落到主进程直发。"""
+        d = self.sentinel.execute_web(skill=skill, args=args)
+        try:
+            return SkillResult(**d)
+        except Exception:
+            return SkillResult(skill.id, False, status="blocked",
+                               message=f"守门人代执行返回异常: {d}")
+
     @staticmethod
     def _ssrf_check(url: str, allow_local: bool = False) -> str:
-        """返回拦截原因(非空=拒绝),None=放行。拦截非 http(s)/内网/环回/元数据。
+        """返回拦截原因(非空=拒绝),None=放行。委托模块级 ssrf_check(单一真源)。"""
+        return ssrf_check(url, allow_local=allow_local)
 
-        allow_local=True 时放行本地/内网地址(仅用于对接本地服务,默认关闭)。
-        """
-        import ipaddress
-        from urllib.parse import urlparse
-        try:
-            u = urlparse(url)
-        except Exception:
-            return "URL 解析失败"
-        if u.scheme not in ("http", "https"):
-            return f"不允许的协议: {u.scheme}"
-        host = u.hostname or ""
-        if not host:
-            return "缺少 host"
-        if allow_local:
-            return None        # 显式信任本地/内网(对接本地服务时)
-        # 明确的危险主机名
-        if host.lower() in ("localhost", "metadata.google.internal"):
-            return f"内部主机: {host}"
-        # 显式的云元数据 IP(各云厂商,标准库可能漏判)
-        CLOUD_METADATA = {"169.254.169.254", "100.100.100.200",  # AWS/GCP/Azure, 阿里云
-                          "fd00:ec2::254"}                        # IPv6 云元数据
-        if host in CLOUD_METADATA:
-            return f"云元数据地址: {host}"
-        # IP 地址 → 拦截私网/环回/链路本地/元数据
-        try:
-            ip = ipaddress.ip_address(host)
-            if (ip.is_private or ip.is_loopback or ip.is_link_local
-                    or ip.is_reserved or ip.is_multicast):
-                return f"内网/保留地址: {host}"
-            # carrier-grade NAT 100.64.0.0/10(标准 is_private 不含,阿里云元数据在此段)
-            if isinstance(ip, ipaddress.IPv4Address) and \
-                    ip in ipaddress.ip_network("100.64.0.0/10"):
-                return f"运营商级 NAT 段: {host}"
-        except ValueError:
-            pass   # 不是 IP(是域名),放行(域名解析后的 IP 拦截需更复杂方案,此处够用)
-        return None
+
+def ssrf_check(url: str, allow_local: bool = False) -> str:
+    """SSRF 防护(单一真源):返回拦截原因(非空=拒绝),None=放行。拦截非 http(s)/内网/环回/元数据。
+
+    主进程 SkillAdapter 与守门人进程共用 —— 守门人代执行时,主进程可能被攻破传内网地址,
+    故守门人进程**也必须**用同一校验。allow_local=True 放行本地/内网(对接本地服务,默认关)。
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(url)
+    except Exception:
+        return "URL 解析失败"
+    if u.scheme not in ("http", "https"):
+        return f"不允许的协议: {u.scheme}"
+    host = u.hostname or ""
+    if not host:
+        return "缺少 host"
+    if allow_local:
+        return None        # 显式信任本地/内网(对接本地服务时)
+    # 明确的危险主机名
+    if host.lower() in ("localhost", "metadata.google.internal"):
+        return f"内部主机: {host}"
+    # 显式的云元数据 IP(各云厂商,标准库可能漏判)
+    CLOUD_METADATA = {"169.254.169.254", "100.100.100.200",  # AWS/GCP/Azure, 阿里云
+                      "fd00:ec2::254"}                        # IPv6 云元数据
+    if host in CLOUD_METADATA:
+        return f"云元数据地址: {host}"
+    # IP 地址 → 拦截私网/环回/链路本地/元数据
+    try:
+        ip = ipaddress.ip_address(host)
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast):
+            return f"内网/保留地址: {host}"
+        # carrier-grade NAT 100.64.0.0/10(标准 is_private 不含,阿里云元数据在此段)
+        if isinstance(ip, ipaddress.IPv4Address) and \
+                ip in ipaddress.ip_network("100.64.0.0/10"):
+            return f"运营商级 NAT 段: {host}"
+    except ValueError:
+        pass   # 不是 IP(是域名),放行(域名解析后的 IP 拦截需更复杂方案,此处够用)
+    return None
 
 
 # ── 内置示例 skill(演示用,真实 MCP/API 留接口)─────────────
@@ -464,4 +500,4 @@ def build_default_registry() -> SkillRegistry:
 
 
 __all__ = ["SkillSpec", "SkillResult", "SkillRegistry", "SkillAdapter",
-           "build_default_registry"]
+           "build_default_registry", "ssrf_check"]

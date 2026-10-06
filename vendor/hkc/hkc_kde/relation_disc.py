@@ -30,8 +30,6 @@ class RelationshipDiscovery:
         分析新写入的 KU，建立与已有 KU 和内部 KU 的关系。
         返回 Relation 列表（未写入 GraphStore，由 Packager 批量写入）。
         """
-        from hkc_core.models.ku import Relation
-        from hkc_core.models.enums import RelationType
 
         all_kus = existing_kus + new_kus
         rels: list[Relation] = []
@@ -70,8 +68,7 @@ class RelationshipDiscovery:
         all_kus:  list["KU"],
         id_gen,
     ) -> list["Relation"]:
-        from hkc_core.models.ku import Relation, EntityKU, ConceptKU
-        from hkc_core.models.enums import KUType
+        from hkc_core.models.ku import Relation
 
         entities = [ku for ku in new_kus if ku.ku_type.value == "Entity"]
         concepts = [ku for ku in all_kus  if ku.ku_type.value == "Concept"]
@@ -100,7 +97,7 @@ class RelationshipDiscovery:
         new_kus: list["KU"],
         id_gen,
     ) -> list["Relation"]:
-        from hkc_core.models.ku import Relation, EvidenceKU, ClaimKU
+        from hkc_core.models.ku import Relation
 
         evidences = [ku for ku in new_kus if ku.ku_type.value == "Evidence"]
         claims    = [ku for ku in new_kus if ku.ku_type.value == "Claim"]

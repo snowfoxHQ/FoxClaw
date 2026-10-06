@@ -22,7 +22,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-from ..models import ParsedDocument, Chapter, Section
+from ..models import ParsedDocument
 from .text_loader import MarkdownLoader
 
 

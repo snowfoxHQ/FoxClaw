@@ -16,7 +16,7 @@ CapabilityRegistry —— 能力注册中枢(P1-3:God Object → Composition Roo
 """
 from __future__ import annotations
 import threading
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 
 class CapabilityRegistry:

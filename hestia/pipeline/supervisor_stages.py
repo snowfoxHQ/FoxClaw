@@ -108,7 +108,9 @@ async def sv_plan(ctx: PipelineContext) -> None:
     if ctx.extra.get("_meta_answered") or ctx.extra.get("_self_answer"):
         return
     agent = ctx.agent
-    plan_obj, step_routes = agent._plan_task(ctx.task, ctx.sched)
+    # P0-1:LLM 规划含同步网络调用(call_tools),放线程池避免阻塞事件循环;
+    # 规则拆解路径是纯 CPU,放线程池开销可忽略、行为不变。
+    plan_obj, step_routes = await asyncio.to_thread(agent._plan_task, ctx.task, ctx.sched)
     if plan_obj is not None:
         routes_desc = " → ".join(f"{name}[{ag}]" for name, ag in step_routes)
         agent._think(
@@ -183,6 +185,25 @@ async def sv_dispatch(ctx: PipelineContext) -> None:
 sv_dispatch.stage_name = "dispatch"
 
 
+# ── Stage 6.5: replan —— 反思重规划(P0-1:失败步骤 → LLM 反思 → 修正计划 → 重执行)──
+async def sv_replan(ctx: PipelineContext) -> None:
+    if ctx.extra.get("_meta_answered") or ctx.extra.get("_self_answer"):
+        return
+    agent = ctx.agent
+    dr = ctx.dispatch_result or {}
+    from ..agents.agents import _dispatch_failed   # 局部 import,避免包间循环依赖
+    if not _dispatch_failed(dr):
+        return                      # 无失败/未完成步骤 → 无需重规划
+    if not agent._replan_enabled():
+        return                      # opt-in 关 / 不支持 tools → 保留原结果(fail-safe)
+    subagents = getattr(agent, "_subagents", {})
+    max_rounds = int((ctx.context or {}).get("replan_max_rounds", 2))
+    ctx.dispatch_result = await agent._replan_and_redo(
+        ctx.task, ctx.sched, ctx.session_id, subagents, ctx.context, ctx.memories,
+        dr, max_rounds=max_rounds)
+sv_replan.stage_name = "replan"
+
+
 # ── Stage 7: aggregate —— 结果组装(dispatch_result → ctx.result/extra)──
 async def sv_aggregate(ctx: PipelineContext) -> None:
     # 清除内部短路标记,不外泄到返回体(它们会经 **ctx.extra 透传进 resp)
@@ -207,4 +228,4 @@ sv_aggregate.stage_name = "aggregate"
 
 # 主管 pipeline 的 stage 序列(recall 复用默认实现:与旧 `self._recall_memory(task)` 逐字等价)
 SUPERVISOR_STAGES = [stage_recall, sv_meta_check, sv_schedule, sv_route,
-                     sv_plan, sv_dispatch, sv_aggregate]
+                     sv_plan, sv_dispatch, sv_replan, sv_aggregate]

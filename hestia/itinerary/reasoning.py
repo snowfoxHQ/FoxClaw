@@ -5,9 +5,8 @@ Hestia 行程子系统 — 推理引擎(行程 Agent 的大脑,纯算法)
 """
 
 import math
-from datetime import datetime, timedelta
+from datetime import timedelta
 from itertools import permutations
-from collections import defaultdict
 
 from .models import Waypoint, RouteLeg
 
@@ -138,7 +137,7 @@ class ItineraryReasoning:
         """把相近的行程点聚成簇,建议"顺路一起办"。"""
         pts = [w for w in waypoints if w.has_coord]
         clusters, used = [], set()
-        for i, w in enumerate(pts):
+        for w in pts:
             if w.id in used:
                 continue
             cluster = [w]

@@ -30,6 +30,7 @@ class HKCContainer:
         data_dir:        str = "./hkc_data",
         embedding_kind:  str = "stub",   # stub | local | tei
         embedding_url:   str = "http://localhost:8080",
+        embedding_model: Optional[str] = None,  # local/auto 后端的模型名(如 BAAI/bge-m3)
         llm_api_key:     Optional[str] = None,
         llm_model:       Optional[str] = None,
         llm_provider:    str = "anthropic",
@@ -40,6 +41,7 @@ class HKCContainer:
 
         self._embedding_kind = embedding_kind
         self._embedding_url  = embedding_url
+        self._embedding_model = embedding_model
         self._llm_api_key    = llm_api_key
         self._llm_model      = llm_model
         self._llm_provider   = llm_provider
@@ -105,6 +107,10 @@ class HKCContainer:
         backend_kwargs = {}
         if self._embedding_kind == "tei":
             backend_kwargs["base_url"] = self._embedding_url
+        # local/auto 后端可指定模型名(如 BAAI/bge-m3,1024 维,维度由模型自动校正);
+        # 不传则用 LocalSTBackend 默认模型,行为与此前一致。tei 不接受 model_name,不传。
+        if self._embedding_model and self._embedding_kind in ("local", "auto"):
+            backend_kwargs["model_name"] = self._embedding_model
         backend = make_backend(self._embedding_kind, **backend_kwargs)
         vector_index = VectorIndex(backend=backend)
         self.search  = HybridSearch(self.graph_store, vector_index=vector_index)

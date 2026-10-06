@@ -16,12 +16,11 @@ import threading
 import contextvars
 import numpy as np
 import yaml
-import json
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Callable, Optional
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..core.thought_chain import ThoughtChain, ThoughtNode, HarnessStatus

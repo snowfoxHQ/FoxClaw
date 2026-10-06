@@ -82,7 +82,9 @@ def main():
     print("\n【6】参数解析失败不再静默(args_parse_failed 标记存在)")
     import inspect
     from hestia.core.model_router import ModelRouter
-    src = inspect.getsource(ModelRouter.call_tools)
+    # 检查整个类:标记可能随重构从 call_tools 移到 _call_openai_tools 等子方法,
+    # 锁「类内存在该标记」而非锁某个方法名(避免重构后误报)。
+    src = inspect.getsource(ModelRouter)
     check("args_parse_failed" in src,
           "call_tools 标记解析失败(可观测)")
     check("llm.tool_args_unparsable" in src,

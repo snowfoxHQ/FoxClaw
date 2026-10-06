@@ -25,7 +25,7 @@ HMR v1.5 新增
 import re
 import os
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from ..core.models import MemoryObject
 
 
@@ -310,7 +310,6 @@ class MemoryStitcher:
         """
         返回：(拼接后的记忆列表, relevance_scores)
         """
-        seen_ids = set()
         scored: Dict[str, Tuple[MemoryObject, float]] = {}
 
         for step_result in steps:

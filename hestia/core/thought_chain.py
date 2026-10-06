@@ -9,7 +9,7 @@ import sqlite3
 import json
 import uuid
 from datetime import datetime, timezone
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from typing import Literal, Optional
 from pathlib import Path
 
@@ -260,6 +260,10 @@ class ThoughtChain:
                 "SELECT COUNT(*) FROM thought_nodes WHERE agent_id=? AND harness_status='BLOCK'",
                 (agent_id,)
             ).fetchone()[0]
+            warned = conn.execute(
+                "SELECT COUNT(*) FROM thought_nodes WHERE agent_id=? AND harness_status='WARN'",
+                (agent_id,)
+            ).fetchone()[0]
             avg_conf = conn.execute(
                 "SELECT AVG(conf) FROM thought_nodes WHERE agent_id=? AND harness_status='PASS'",
                 (agent_id,)
@@ -272,6 +276,7 @@ class ThoughtChain:
             "agent_id": agent_id,
             "total_nodes": total,
             "blocked_nodes": blocked,
+            "warned_nodes": warned,
             "block_rate": blocked / total if total > 0 else 0.0,
             "avg_confidence": round(avg_conf, 3),
             "avg_delta": round(avg_delta, 3),

@@ -4,8 +4,20 @@ HestiaOS — 系统入口
 """
 
 import os
+import sys
 import threading
 from pathlib import Path
+
+# 【跨平台启动修复·统一入口】Windows 控制台默认 GBK(cp936),无法编码 ✓/⚠/· 等诊断字符,
+# 打印会抛 UnicodeEncodeError 直接崩溃。典型踩中路径:不经过 api.py 而直接
+# `from hestia import HestiaOS` 时,memory_adapter 的 "✓ HMR 已接入" 就会崩(且崩在 except 里,
+# 连降级 MockHMR 都失败)。在包入口把 stdout/stderr 统一为 UTF-8(errors=replace 兜底),
+# 覆盖所有 import hestia 的路径。api.py 顶部另有一份同义历史修复,此处为统一入口;幂等无害。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # 版本号单一来源:与 pyproject.toml 保持一致,api.py 的 FastAPI app 版本与
 # /api/system/info 都引用这里,避免三处各写一个值再漂移(曾出现 system_info 硬编码
@@ -98,7 +110,17 @@ class HestiaOS:
         # 【P3-4】auditor 注入后,每次裁决带 decision_id 并记入治理审计流(非 allow)。
         from .kernel import PolicyGate
         from .skills.permission import evaluate as _perm_eval
-        self.policy_gate = PolicyGate(spine=self.event_spine, action_evaluator=_perm_eval,
+
+        # 【P-Muse·守门人进程化】HESTIA_GUARDIAN=1 时,把动作裁决从「进程内 evaluate」换成
+        # 「跨进程 Sentinel」:规则表与真实凭证只存在于守门人进程,主进程(Agent)被 RCE 也
+        # 改不了规则、读不到凭证。默认 0 = 原进程内路径(behavior-preserving)。
+        action_evaluator = _perm_eval
+        self.sentinel = None
+        if os.environ.get("HESTIA_GUARDIAN", "0").strip() in ("1", "true", "True", "yes", "on"):
+            from .kernel.sentinel_client import SentinelClient
+            self.sentinel = SentinelClient(data_dir=str(self.data_dir))
+            action_evaluator = self.sentinel.evaluate
+        self.policy_gate = PolicyGate(spine=self.event_spine, action_evaluator=action_evaluator,
                                       auditor=self.governance_auditor)
 
         # 【P1-3·能力注册中枢】Composition Root 的解析中枢:组件按名解析同伴,不再直接互持。
@@ -110,6 +132,8 @@ class HestiaOS:
         self.capabilities.register("memory", self.hmr)
         self.capabilities.register("thought_chain", self.thought_chain)
         self.capabilities.register("router", self.router)
+        if self.sentinel is not None:
+            self.capabilities.register("sentinel", self.sentinel)
 
         # 【P0-3·共享层写入策略】ingest(shared=True) 此前**零校验**:共享层是所有 Agent
         # 都能召回的区域,于是"任何 Agent 都能往里写"就等于一条绕开守门人的跨 Agent
@@ -208,7 +232,8 @@ class HestiaOS:
         self.skill_store = SkillStore(self.data_dir)
         self.skill_store.load(self.skill_registry)   # 恢复用户安装的技能 + 内置启停覆盖
         self.skill_adapter = SkillAdapter(
-            self.skill_registry, mcp_clients={}, policy_gate=self.policy_gate)
+            self.skill_registry, mcp_clients={}, policy_gate=self.policy_gate,
+            sentinel=self.sentinel)
         # MCP 连接器(第2期):把连上的 MCP 客户端接到 SkillAdapter.mcp_clients
         from .skills.mcp_client import McpManager
         from .skills.mcp_store import McpStore
@@ -216,7 +241,11 @@ class HestiaOS:
         self.mcp_store = McpStore(self.data_dir)
         for _cfg in self.mcp_store.load():
             self.mcp_manager.restore(_cfg)   # 懒恢复配置,不启动即连
+            # 注:磁盘配置里的 headers 只在回退路径(HESTIA_GUARDIAN=0)下才存在;
+            # 守门人模式落盘的是无 headers 的元数据,真凭证由守门人侧文件持有。
         self.skill_adapter.mcp_clients = self.mcp_manager
+        # 【P-Muse·第3步】MCP server 配置(含 headers 凭证)同步给守门人:代执行时守门人持有凭证。
+        self.sync_mcp_servers_to_sentinel()
         # 全局技能封杀策略(deny/allow kill-switch):唯一咽喉在 adapter.invoke + md match
         from .skills.policy import SkillPolicy
         self.skill_policy = SkillPolicy(self.data_dir)
@@ -341,6 +370,27 @@ class HestiaOS:
         from .knowledge import register_abilities_as_skills
         reg = getattr(self, "skill_registry", None)
         return register_abilities_as_skills(reg, self.hkc)
+
+    def sync_mcp_servers_to_sentinel(self) -> None:
+        """【P-Muse·第4步】把当前 MCP server 元数据同步给守门人(全量)。
+        主进程不再长期持有 headers,故这里只推元数据;守门人侧 headers 空则保留旧值,
+        add_server 那次由 mcp_add_server_guardian 临时带一次 headers 覆盖。"""
+        if getattr(self, "sentinel", None) is not None and getattr(self, "mcp_manager", None) is not None:
+            self.sentinel.mcp_register(self.mcp_manager.servers())
+
+    def mcp_add_server_guardian(self, cfg: dict) -> list:
+        """【P-Muse·第4步】守门人模式下接入 MCP server 的发现流程:
+        含 headers 的完整配置只在这一次调用里经手,推给守门人后主进程立即丢弃 headers,
+        只存非敏感元数据(id/name/url/transport)。发现(list_tools)由守门人代执行。"""
+        meta = {k: cfg[k] for k in ("id", "name", "url", "transport")}
+        full = [dict(s) for s in self.mcp_manager.servers()]
+        full = [s for s in full if s.get("id") != cfg["id"]]  # 去掉旧同 id,避免重复
+        full.append(cfg)                                      # 新 server 带 headers
+        self.sentinel.mcp_register(full)                      # 全量推给守门人(含这次 headers)
+        tools = self.sentinel.mcp_list_tools(cfg["id"])       # 守门人代发现(失败抛异常)
+        self.mcp_manager.restore(meta)                        # 主进程只存元数据
+        self.mcp_store.save(self.mcp_manager.servers())       # 落盘也无 headers
+        return tools
 
     @property
     def search_runtime(self):

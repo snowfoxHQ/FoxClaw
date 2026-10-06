@@ -7,7 +7,6 @@ PDF 解析器，使用 PyMuPDF（fitz）。
 - 检测标题（字体大小 > 阈值）作为章节边界
 - 表格识别（简单规则：连续短行 + 数字占比高）
 """
-import re
 import uuid
 from pathlib import Path
 

@@ -17,8 +17,8 @@ import threading
 from dataclasses import dataclass
 from typing import Literal
 
-from .bm25          import BM25Index, BM25Result
-from .vector_search import VectorIndex, VectorResult
+from .bm25          import BM25Index
+from .vector_search import VectorIndex
 from .graph_search  import GraphSearch, GraphResult
 
 logger = logging.getLogger(__name__)

@@ -5,7 +5,6 @@ hkc-core / utils / id_gen.py
 """
 import sqlite3
 import threading
-from pathlib import Path
 
 
 # 前缀映射

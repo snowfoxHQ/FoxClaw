@@ -12,7 +12,6 @@ Knowledge Evolution Engine
 
 import threading
 from datetime import datetime, timezone
-from dataclasses import dataclass
 
 from hkc_core.graph.base import GraphStore
 from hkc_core.models.ku import ClaimKU, ConflictCard

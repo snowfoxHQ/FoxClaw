@@ -4,7 +4,10 @@ import os, sys, tempfile, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
+os.environ["HESTIA_SKIP_DOTENV"] = "1"      # 隔离开发机 .env,保证测试环境自洽
 os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
+os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试,直接用本地缓存
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_nomem_")
 
 from hestia import HestiaOS

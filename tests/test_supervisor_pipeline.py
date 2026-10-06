@@ -1,7 +1,7 @@
 """P1-1 · 主管 pipeline 化回归。
 
-主管不再重写 run_task,路由分发拆成 7 个 pipeline stage
-(recall→meta_check→schedule→route→plan→dispatch→aggregate),走 base 统一模板
+主管不再重写 run_task,路由分发拆成 8 个 pipeline stage
+(recall→meta_check→schedule→route→plan→dispatch→replan→aggregate),走 base 统一模板
 `_run_task_core`。本文件锁定:
 
   [1] 结构:SupervisorAgent.run_task 即基类模板;主管 pipeline 是 SUPERVISOR_STAGES;
@@ -11,7 +11,7 @@
   [5] 统一 execution.completed:多步并行任务也只发**一条**任务级事件、
       agent_id=supervisor(文稿 Step 4:删手动 bus.publish);blocked 子任务 →
       顶层 status=blocked 且执行事件 blocked=True(未完成不沉淀真值);
-  [6] 流式:run_task_stream 逐 stage 出 7 个进度事件;子 Agent 的 act token 随
+  [6] 流式:run_task_stream 逐 stage 出 8 个进度事件;子 Agent 的 act token 随
       contextvar 传播流出(delta 非空);stop_event 预置 → interrupted;
   [7] 恢复记账:经 base 生命周期钩子,started/finished 配对、异常路径记 failed。
 
@@ -33,7 +33,7 @@ from hestia.agents.base import CognitiveAgent, HarnessBlockedError
 from hestia.agents.agents import SupervisorAgent
 from hestia.pipeline import SUPERVISOR_STAGES
 
-EXPECTED_STAGES = ["recall", "meta_check", "schedule", "route", "plan", "dispatch", "aggregate"]
+EXPECTED_STAGES = ["recall", "meta_check", "schedule", "route", "plan", "dispatch", "replan", "aggregate"]
 
 
 def check(cond, msg):
@@ -115,12 +115,12 @@ def main():
     # 还原 finance,别污染后续用例
     del os_.finance._execute
 
-    print("\n【6】流式:run_task_stream 七 stage + 子 Agent token 传播 + 中断")
+    print("\n【6】流式:run_task_stream 八 stage + 子 Agent token 传播 + 中断")
     events = list(sup.run_task_stream("帮我做个预算分析"))
     stages = [e["stage"] for e in events if "stage" in e]
     deltas = [e["delta"] for e in events if "delta" in e]
     results = [e["result"] for e in events if "result" in e]
-    check(stages == EXPECTED_STAGES, f"流式逐 stage 进度=主管七 stage(实为 {stages})")
+    check(stages == EXPECTED_STAGES, f"流式逐 stage 进度=主管八 stage(实为 {stages})")
     check(len(results) == 1 and results[0].get("agent") == "supervisor",
           "恰一个最终 result,agent=supervisor")
     check(results[0]["result"].get("dispatched_to") == "finance", "流式与非流式路由结论一致")

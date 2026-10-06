@@ -15,7 +15,6 @@ KnowledgeDeduplicator(订阅 knowledge.created)接管;KDE 只负责产出 KU 并
 from __future__ import annotations
 import logging
 import threading
-from datetime import datetime, timezone
 
 from .models import ExtractionResult
 from .relation_disc import RelationshipDiscovery
@@ -60,7 +59,7 @@ class KUPackager:
             EntityKU, ConceptKU, FactKU, ClaimKU, EvidenceKU, Relation
         )
         from hkc_core.models.enums import (
-            EntityType, ClaimStatus, SourceType, KUType
+            EntityType, ClaimStatus
         )
 
         new_kus = []

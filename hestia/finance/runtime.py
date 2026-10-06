@@ -7,9 +7,8 @@ Hestia 财务子系统 — Finance Runtime
 import csv
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from .models import Transaction, Budget, FinancialEntity, PolicyVerdict
+from .models import Transaction, Budget, FinancialEntity
 from .reasoning import FinanceReasoning
 from .policy import FinancePolicyEngine
 

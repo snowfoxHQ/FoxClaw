@@ -1,4 +1,4 @@
-# Hestia OS · 认知智能体操作系统
+cd# Hestia OS · 认知智能体操作系统
 
 **认知 Agent 操作系统** —— 以 HMR 记忆运行时为内核,五个智能体协同,Harness 跨层治理,记忆/认知层与 LLM 彻底解耦。
 
@@ -114,7 +114,76 @@ python -m uvicorn hestia.api:app --port 8000
 
 详见 [docs/RUN_CN.md](docs/RUN_CN.md)。
 
-## 八、双层记忆架构(私有隔离 + 共享协调)
+## 八、知识库(HKC)模型配置
+
+HKC 知识库用**两个不同类型的模型**各司其职,都在 `.env` 里配置,无需改代码:
+
+| 环节 | 模型类型 | 作用 | 配置项 |
+|------|---------|------|--------|
+| 写入(摄入书籍/文件时) | **生成式 LLM**(会"读懂"并输出 JSON) | 把每个分段抽成实体/概念/事实/观点 | `HKC_LLM_*` |
+| 检索(查询时) | **embedding**(文本 → 向量) | 把知识与查询向量化,算语义相似度召回 | `HKC_EMBEDDING_*` |
+
+两者不能互换:embedding 模型不会生成文本(抽不出 JSON),LLM 也不适合做向量检索。
+
+### 先确定你属于哪种情况
+
+| 你的环境 | 抽取模型怎么配 | `HKC_LLM_API_KEY` 填什么 |
+|---|---|---|
+| 有本地 Ollama | `openai-compatible` + `base_url` 指向 Ollama | **任意非空**即可(Ollama 不校验,填 `ollama` 只是占位) |
+| 无本地模型 | 用**云端公开模型**(DeepSeek / OpenAI / 通义等),见下表 | 填**对应平台的真实 API Key** |
+
+### 情况 A · 本地 Ollama
+
+```bash
+HKC_LLM_PROVIDER=openai-compatible
+HKC_LLM_API_KEY=ollama                       # 仅本地 Ollama 可这样占位;云端不能这么填
+HKC_LLM_MODEL=my-qwen-32k:latest             # 你 `ollama list` 里的模型名
+HKC_LLM_BASE_URL=http://localhost:11434/v1   # Ollama 的 OpenAI 兼容端点
+HKC_LLM_TIMEOUT=180                          # 本地模型慢,超时放宽(默认 60 秒)
+HKC_EXTRACT_CONCURRENCY=2                    # 本地单卡 1~2;云端 API 可 5
+HKC_EXTRACT_BATCH=8                          # 批量抽取(可选):一次调用抽 N 段,省 token、提速;默认 1=逐段
+HKC_MAX_CHUNKS_PER_DOC=0                     # 单文档 chunk 上限(可选):0=不限制(完整摄入整本书),默认 500
+```
+
+### 情况 B · 云端公开模型(无本地模型时)
+
+`HKC_LLM_MODEL` 填该平台的**公开模型号**(OpenAI 兼容接口透传任意字符串);`HKC_LLM_API_KEY` 填对应平台的**真实密钥**:
+
+| 平台 | `HKC_LLM_PROVIDER` | `HKC_LLM_API_KEY` | `HKC_LLM_MODEL` 示例 | `HKC_LLM_BASE_URL` |
+|---|---|---|---|---|
+| DeepSeek | `deepseek` | `sk-...`(DeepSeek 官方 key) | `deepseek-chat` / `deepseek-reasoner` | 留空(自动用官方地址) |
+| OpenAI | `openai` | `sk-...`(OpenAI key) | `gpt-4o-mini` / `gpt-4o` | 留空 |
+| 通义千问 | `openai-compatible` | 阿里云 DashScope key | `qwen-max` / `qwen-plus` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 智谱 / 月之暗面 / MiniMax 等 | `openai-compatible` | 该平台 key | 该平台公开模型号 | 该平台 OpenAI 兼容地址 |
+
+示例(DeepSeek):
+
+```bash
+HKC_LLM_PROVIDER=deepseek
+HKC_LLM_API_KEY=sk-你的DeepSeek密钥
+HKC_LLM_MODEL=deepseek-chat
+```
+
+### 检索模型(embedding)
+
+检索模型**不走 Ollama**,而是 sentence-transformers;本地没有权重时会自动从 HuggingFace 下载:
+
+```bash
+HKC_EMBEDDING=local
+HKC_EMBEDDING_MODEL=BAAI/bge-m3          # 首次自动下载(约 2.2GB);或填本地路径 C:\...\bge-m3
+```
+
+不追求语义精度时可不配(默认 `stub` 伪语义,开箱能跑)。
+
+### key 在哪填、优先级
+
+- **`.env` 是权威来源** —— 启动时读取,改完重启生效。
+- 星球页「连接设置」里的「知识抽取模型」段是**可选的运行时覆盖**(存浏览器 localStorage,刷新可能覆盖 .env);想始终以 .env 为准,那段留空即可。
+- 页面第一个「API Key」是访问后端的鉴权通行证(= `.env` 的 `HESTIA_API_KEY`),与模型 key 无关。
+
+> 提示:换 embedding 模型会改变向量维度(如 384→1024),需重建知识库索引(清空后重新摄入)。
+
+## 九、双层记忆架构(私有隔离 + 共享协调)
 
 ```
 私有层(各智能体隔离,agent:<id> 标签)
@@ -125,6 +194,6 @@ python -m uvicorn hestia.api:app --port 8000
 
 加了共享不等于打破隔离:其他智能体能召回主管的调度记录(协调),但拿不到财务的私有记忆(隔离)。
 
-## 九、架构哲学
+## 十、架构哲学
 
 记忆与认知层和大模型彻底解耦。大模型只是可替换的文本生成器,真正的护城河(推理链审计 + 线束漂移检测 + 策略自学 + 领域内核)独立于任何模型而存在。这是品类竞争,不是功能竞争。

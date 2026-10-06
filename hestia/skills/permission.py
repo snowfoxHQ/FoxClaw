@@ -24,6 +24,7 @@ DESTRUCTIVE_CONFIRM = "DESTRUCTIVE_CONFIRM"      # 不可逆操作,需确认
 SIDE_EFFECT_CONFIRM = "SIDE_EFFECT_CONFIRM"      # write/send/pay 副作用,需确认
 ASK_RULE = "ASK_RULE"                            # 命中宿主 ask 规则
 EXTERNAL_CONFIRM = "EXTERNAL_CONFIRM"            # 外部调用,需确认
+TAINT_CONFIRM = "TAINT_CONFIRM"                  # 会话已取回敏感数据,外发/副作用须二次确认
 # deny / allow 侧文稿未定义 code,保守留 "":deny 的铁律语义(deny 不可覆盖)已由
 # decision + stage 充分表达,不擅自扩大枚举面。
 
@@ -70,10 +71,16 @@ class PermissionDecision:
 
 
 def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
-             confirmed: bool = False, mode: str = "strict") -> PermissionDecision:
+             confirmed: bool = False, mode: str = "strict",
+             taint_level: int = 0, taint_threshold: int = 0) -> PermissionDecision:
     """四阶段权限管线。返回 allow / ask / deny。
 
     skill: SkillSpec(需有 id / side_effect / kind,及可选 destructive/external/read_only)
+
+    【P-Muse·污点门槛】taint_level = 本会话已取回数据的最高敏感度(见
+    core.injection_guard.taint_level);taint_threshold = 触发二次确认的阈值。
+    两者默认 0 = 关闭,既有调用方行为逐字不变。仅当「污点达标 且 动作为外发/副作用」时,
+    在 Stage 3 强制升级为 ask(TAINT_CONFIRM)——对齐 Muse「碰过敏感数据 → 动态提门槛」。
     """
     rules = rules or PermissionRules()
     sid = skill.id
@@ -134,6 +141,17 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
             reason="不可逆(destructive)操作,必须用户确认",
             trust_downgrade=downgrade, requires_confirmation=True,
             reason_code=DESTRUCTIVE_CONFIRM)
+
+    # Stage 3.5 污点门槛(Muse 式「碰过敏感数据 → 外发动作追加确认」):
+    # 会话已取回 ≥threshold 的用户数据,再外发/副作用 → 即使工具本身可信也强制确认,
+    # 防「模型把用户隐私塞进 send/write/external」外泄。置于 trusted 之前:
+    # 污点是结构性约束,trusted 只信任工具本身,不豁免「携带敏感数据外发」。
+    if taint_threshold and taint_level >= taint_threshold:
+        if side_effect in ("write", "send", "pay") or external:
+            return PermissionDecision("ask", 3,
+                reason="会话已取回用户敏感数据,外发/副作用动作需二次确认(污点防护)",
+                trust_downgrade=downgrade, requires_confirmation=True,
+                reason_code=TAINT_CONFIRM)
 
     # trusted 模式:跳过 ask,只保留 deny(上面已查)+ destructive(上面已查)
     if mode == "trusted":

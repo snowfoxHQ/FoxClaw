@@ -7,7 +7,7 @@ Hestia 学习子系统 — 数据模型
 """
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Literal
 import uuid
 

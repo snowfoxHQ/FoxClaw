@@ -45,7 +45,7 @@ TESTS = [
     ("test_toplevel_concurrency.py", "顶层任务并发隔离(contextvars)"),
     ("test_api_auth.py",     "API 可选鉴权(X-API-Key)"),
     ("test_supervisor_triage.py", "主管分诊与自答策略(关键词直路 / 自答 / stub 兜底)"),
-    ("test_supervisor_pipeline.py", "批次5 · P1-1 主管 pipeline 化(七 stage/统一 emit/流式/恢复记账)"),
+    ("test_supervisor_pipeline.py", "批次5 · P1-1 主管 pipeline 化(八 stage/统一 emit/流式/恢复记账)"),
     ("test_ahs_p2.py",       "批次6 · P2层(compose pending/run_async/idempotency日志/recovery计划)+P3-2"),
     ("test_p3_p5_hardening.py", "批次7 · P3收尾(isinstance/常量时间/exact/blocked短路/system归因)+P5-1/P5-3"),
     ("test_browser.py",      "浏览器子系统(HIR-Browser:核心逻辑/线程包装/降级)"),
@@ -95,11 +95,17 @@ TESTS = [
     ("test_injection_guard.py", "提示词注入纵深防御(检出/wrap_untrusted/内核前缀/隔离)"),
     ("test_sessions.py",        "会话存储(增删改查/标题提炼/路径穿越/并发追加)"),
     ("test_stats_and_events.py","记忆统计 + 活动事件(hmr.stats 计数修复/chat.completed)"),
+    # —— 以下 4 项为近期新功能测试，此前遗漏于本运行器（接线）——
+    ("test_llm_planner.py",            "P0-1·LLM 驱动规划器(llm_plan/replan·opt-in+fail-safe+sv_replan)"),
+    ("test_anthropic_tools.py",        "P0-2·Anthropic tool_use 原生接入(格式转换/解析/回灌/降级)"),
+    ("test_taint.py",                  "数据污点追踪+动态审批门槛(污点分级/传播/TAINT_CONFIRM)"),
+    ("test_mcp_guardian_discovery.py", "MCP 发现进守门人(凭证不出主进程·代发现·序列化)"),
 ]
 
 # 以 pytest 风格编写、运行需 pytest 的测试（见 main() 中的可用性检测）。
 PYTEST_TESTS = {"test_tool_use.py", "test_injection_guard.py",
-                "test_sessions.py", "test_stats_and_events.py"}
+                "test_sessions.py", "test_stats_and_events.py",
+                "test_llm_planner.py", "test_anthropic_tools.py", "test_taint.py"}
 
 def main():
     here = Path(__file__).parent
@@ -182,10 +188,16 @@ def main():
             results.append((desc, "缺失", 0)); continue
         t0 = time.time()
         try:
+            # pytest 风格测试用 `python -m pytest` 跑,让失败退出码正确传播。
+            # 不能沿用 `python test_xxx.py`——其末尾 `pytest.main([__file__])` 不带
+            # sys.exit,失败时进程仍退出码 0 → returncode==0 漏报失败;且 pytest 失败
+            # 输出不含 "Traceback",字符串判定同样抓不到(实测 EXITCODE=0)。
+            _cmd = ([sys.executable, "-m", "pytest", str(path), "-q"]
+                    if fn in PYTEST_TESTS else [sys.executable, str(path)])
             # 显式 utf-8 解码子进程输出:子进程已被 PYTHONUTF8=1 强制输出 utf-8,
             # 父进程若用 Windows 默认 GBK 解码会 UnicodeDecodeError(模型加载进度条等
             # 含非 GBK 字节)→ r.stdout 变 None → 后续拼接 TypeError。errors=replace 兜底。
-            r = subprocess.run([sys.executable, str(path)],
+            r = subprocess.run(_cmd,
                                capture_output=True, text=True, timeout=300, env=env,
                                encoding="utf-8", errors="replace")
             ok = r.returncode == 0
@@ -202,7 +214,7 @@ def main():
             _ACCESS_VIOLATION = (3221225477, -1073741819)
             if not ok and r.returncode in _ACCESS_VIOLATION and \
                     "Traceback" not in (r.stdout + r.stderr):
-                r = subprocess.run([sys.executable, str(path)],
+                r = subprocess.run(_cmd,
                                    capture_output=True, text=True, timeout=300, env=env,
                                    encoding="utf-8", errors="replace")
                 ok = r.returncode == 0 and "Traceback" not in (r.stdout + r.stderr)

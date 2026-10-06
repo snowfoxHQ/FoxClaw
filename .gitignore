@@ -47,6 +47,9 @@ dist/
 # 编辑器/IDE 本机配置(含本机路径,不跨机共享)
 .claude/launch.json
 
+# 本地工具缓存/数据(workbuddy 的记忆与临时文件,非源码,不入库)
+.workbuddy/
+
 # 备份文件(bak 冗余文件不入库;确需保留请移出仓库)
 *.bak
 *.bak-*

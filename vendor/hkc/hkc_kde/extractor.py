@@ -65,6 +65,31 @@ Claim（✓）: "价值投资长期跑赢市场" / "高脂饮食有益代谢健�
 """
 
 
+# 批量抽取提示词(opt-in,HKC_EXTRACT_BATCH>1 时用):一次调用处理多段,
+# 省掉逐段模式里每段重复一遍系统提示词的 token 开销。
+_BATCH_SYSTEM_PROMPT = """\
+你是知识提取专家。用户会提供 N 段文本,每段用 <chunk id="0">...</chunk> 这样的标签包裹,id 从 0 递增到 N-1。
+对**每一段分别**提取结构化知识,输出一个 JSON 对象:顶层 key 是段的 id(字符串),value 是该段的知识。
+
+{
+  "0": { "facts": [...], "claims": [...], "entities": [...], "concepts": [...] },
+  "1": { ... }
+}
+
+每段独立提取、互不混淆。每类最多提取 5 个最重要的条目;某段没有某类知识就返回空列表。
+
+## 严格规则
+- Fact vs Claim 必须区分:Fact 可客观验证(confidence 固定 1.0);Claim 依赖理论/有对立观点(给 0.0-1.0 置信度)。
+- 每个 value 的 Schema:
+  facts:    [{"statement": "陈述原文", "source_hint": "来源线索(可选)"}]
+  claims:   [{"statement": "观点陈述", "confidence": 0.0-1.0, "domain": "领域"}]
+  entities: [{"name": "实体名", "type": "Person|Organization|Product|Event|Place", "aliases": []}]
+  concepts: [{"name": "概念名", "domain": "领域", "definition": "简短定义"}]
+
+严格只输出 JSON,不要任何解释文字、不要 Markdown 代码块。\
+"""
+
+
 class Extractor:
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None,
@@ -159,6 +184,14 @@ class Extractor:
             llm_timeout = float(os.getenv("HKC_LLM_TIMEOUT", "60"))
         except ValueError:
             llm_timeout = 60.0
+        # 批量抽取(opt-in):一次 LLM 调用处理多段,省掉逐段模式里每段重复一遍系统提示词的 token。
+        # 默认 1 = 逐段抽取(行为不变);设 HKC_EXTRACT_BATCH=N 则 N 段一次调用。
+        try:
+            batch_size = max(1, int(os.getenv("HKC_EXTRACT_BATCH", "1")))
+        except ValueError:
+            batch_size = 1
+        if batch_size > 1:
+            return self._extract_batched(chunks, workers, llm_timeout, batch_size, progress_cb)
         workers = min(workers, total)
         done = 0
 
@@ -263,23 +296,116 @@ class Extractor:
             logger.error("Chunk 提取失败 (chunk_id=%s): %s", chunk.chunk_id, e)
             return None
 
-    def _parse_response(self, text: str, source_hint: str) -> Optional[RawExtraction]:
-        """
-        解析 LLM 返回的 JSON。
-        容错处理：去掉可能的 Markdown 代码块包裹。
-        """
-        # 去掉 ```json ... ``` 包裹（LLM 偶尔忽略指令）
+    def _extract_batched(self, chunks, workers, llm_timeout, batch_size, progress_cb):
+        """批量抽取:把 chunks 按 batch_size 分组,每组一次 LLM 调用。返回 ExtractionResult。"""
+        total = len(chunks)
+        groups = [chunks[i:i + batch_size] for i in range(0, total, batch_size)]
+        n_groups = len(groups)
+        results = [None] * n_groups   # 每组对齐结果 list[Optional[RawExtraction]]
+        done = 0
+
+        def _collect(gi, raws):
+            nonlocal done
+            results[gi] = raws
+            done += len(groups[gi])
+            if progress_cb is not None:
+                try:
+                    progress_cb(min(done, total), total)
+                except Exception:
+                    pass
+
+        if workers <= 1 or n_groups == 1:
+            for gi, g in enumerate(groups):
+                _collect(gi, self._extract_batch(g, llm_timeout))
+        else:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=min(workers, n_groups),
+                                    thread_name_prefix="extract") as pool:
+                futs = {pool.submit(self._extract_batch, g, llm_timeout): gi
+                        for gi, g in enumerate(groups)}
+                for fut in as_completed(futs):
+                    gi = futs[fut]
+                    try:
+                        raws = fut.result()
+                    except Exception as e:
+                        logger.error("批量抽取线程异常 (group=%d): %s", gi, e)
+                        raws = [None] * len(groups[gi])
+                    _collect(gi, raws)
+
+        items = []
+        fail_count = 0
+        for gi in range(n_groups):
+            for r in (results[gi] or []):
+                if r is None:
+                    fail_count += 1
+                else:
+                    items.append(r)
+
+        # 全部失败 → 大概率 LLM 配置问题(与逐段路径同一诊断口径)
+        if fail_count == total and total > 0:
+            logger.error(
+                "知识抽取全部失败 (%d/%d chunks)。请检查 LLM 配置:provider=%s, model=%s, "
+                "是否已正确填写 API Key。", fail_count, total, self.provider, self.model
+            )
+
+        doc_id = chunks[0].doc_id
+        return ExtractionResult(doc_id=doc_id, source=doc_id, items=items)
+
+    def _extract_batch(self, chunks, timeout):
+        """一次 LLM 调用抽取一组 chunks,返回与 chunks 对齐的 list[Optional[RawExtraction]]。"""
+        n = len(chunks)
+        parts = [f'<chunk id="{i}">\n{ch.content}\n</chunk>' for i, ch in enumerate(chunks)]
+        user = "\n\n".join(parts)
+        # 输出上限随段数放大(每段最多 5×4 条,批越大输出越多);至少 2048。
+        max_tokens = max(2048, 1024 * n)
+        try:
+            client = self._get_client()
+            if self.provider == "anthropic":
+                resp = client.messages.create(
+                    model      = self.model,
+                    max_tokens = max_tokens,
+                    timeout    = timeout,
+                    system     = _BATCH_SYSTEM_PROMPT,
+                    messages   = [{"role": "user", "content": user}],
+                )
+                raw_text = resp.content[0].text.strip()
+            else:
+                resp = client.chat.completions.create(
+                    model       = self.model,
+                    max_tokens  = max_tokens,
+                    timeout     = timeout,
+                    messages    = [
+                        {"role": "system", "content": _BATCH_SYSTEM_PROMPT},
+                        {"role": "user",   "content": user},
+                    ],
+                )
+                raw_text = resp.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error("批量提取失败 (首 chunk=%s): %s",
+                         chunks[0].chunk_id if chunks else "?", e)
+            return [None] * n
+
+        parsed = self._parse_batch_response(raw_text, n)
+        for i, raw in enumerate(parsed):
+            if raw is None:
+                continue
+            raw.source_hint = chunks[i].source_hint
+            src = chunks[i].content
+            for d in (raw.facts + raw.claims + raw.concepts + raw.entities):
+                d["_src"] = src
+        return parsed
+
+    @staticmethod
+    def _strip_fences(text: str) -> str:
+        """去掉 LLM 偶尔包裹的 Markdown 代码块围栏。"""
         text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
         text = re.sub(r'\s*```$',          '', text, flags=re.MULTILINE)
-        text = text.strip()
+        return text.strip()
 
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning("JSON 解析失败: %s\n原文: %.200s", e, text)
+    def _raw_from_dict(self, data, source_hint: str) -> Optional[RawExtraction]:
+        """把单个 chunk 的 JSON dict 校验并规范化为 RawExtraction(空则 None)。"""
+        if not isinstance(data, dict):
             return None
-
-        # 校验并规范化
         facts    = self._validate_facts(data.get("facts", []))
         claims   = self._validate_claims(data.get("claims", []))
         entities = self._validate_entities(data.get("entities", []))
@@ -295,6 +421,31 @@ class Extractor:
             concepts    = concepts,
             source_hint = source_hint,
         )
+
+    def _parse_response(self, text: str, source_hint: str) -> Optional[RawExtraction]:
+        """
+        解析单段 LLM 返回的 JSON。
+        容错处理：去掉可能的 Markdown 代码块包裹。
+        """
+        text = self._strip_fences(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.warning("JSON 解析失败: %s\n原文: %.200s", e, text)
+            return None
+        return self._raw_from_dict(data, source_hint)
+
+    def _parse_batch_response(self, text: str, n: int) -> list[Optional[RawExtraction]]:
+        """解析批量 LLM 返回的 JSON:顶层 key 为段 id(字符串 "0".."n-1")。"""
+        text = self._strip_fences(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.warning("批量 JSON 解析失败: %s\n原文: %.200s", e, text)
+            return [None] * n
+        if not isinstance(data, dict):
+            return [None] * n
+        return [self._raw_from_dict(data.get(str(i)), "") for i in range(n)]
 
     # ── 校验方法：确保字段存在且类型正确 ────────────────────
 

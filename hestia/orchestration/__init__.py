@@ -9,7 +9,7 @@ Hestia 主管编排子系统 — 全局态势 + 跨 Agent 编排
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Optional, Literal
+from typing import Literal
 import uuid
 
 
@@ -78,7 +78,7 @@ class Orchestrator:
         编排层不再直接读 finance/learning/itinerary 内核——领域知识已归属各领域 Agent。"""
         sit = GlobalSituation()
         alerts = []
-        for aid, agent in self.agents.items():
+        for agent in self.agents.values():
             try:
                 s = agent.situation()
             except Exception:

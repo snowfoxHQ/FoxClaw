@@ -614,6 +614,10 @@ body{
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
           摄入知识
         </button>
+        <button class="btn btn-ghost btn-block" id="btn-books" style="margin-top:8px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+          管理书籍
+        </button>
       </div>
 
       <!-- 能力编译(可折叠,默认折叠 —— 把知识编译成 Agent 可调用的能力包 .hkap) -->
@@ -736,8 +740,8 @@ body{
         <input id="api-url" placeholder="留空=当前站点(同源);或填 http://host:port" value="">
       </div>
       <div class="field">
-        <label>API Key<span style="color:var(--ink-3);font-weight:400">（可选，仅当后端设了 HKC_API_KEY 时需要）</span></label>
-        <input id="api-key" type="password" placeholder="留空即可（本地默认无鉴权）" autocomplete="off">
+        <label>API Key<span style="color:var(--ink-3);font-weight:400">（后端设了 HESTIA_API_KEY / HKC_API_KEY 时必填，填 .env 里那个鉴权 key）</span></label>
+        <input id="api-key" type="password" placeholder="后端无鉴权可留空；设了鉴权则必填" autocomplete="off">
       </div>
 
       <div class="field" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
@@ -770,6 +774,25 @@ body{
     <div class="modal-foot">
       <button class="btn btn-ghost" id="btn-use-demo">使用演示数据</button>
       <button class="btn btn-primary" id="btn-connect">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- 书籍管理模态 -->
+<div class="modal-bg" id="books-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>书籍管理</h3>
+      <button class="icon-btn" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:0 0 12px">
+        列出已摄入的书籍/来源。删除某本书会移除它及其独占知识；与其他书共享的知识只去掉该书的引用，不会被误删。
+      </p>
+      <div id="books-list"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close>关闭</button>
     </div>
   </div>
 </div>
@@ -860,9 +883,9 @@ class HKCClient{
   _h(extra){ const h=Object.assign({}, extra||{}); if(this.apiKey) h['X-API-Key']=this.apiKey; return h; }
   async _get(p){ const r=await fetch(this.base+p,{headers:this._h()}); if(!r.ok) throw new Error(r.status); return r.json(); }
   async _post(p,b){ const r=await fetch(this.base+p,{method:'POST',headers:this._h({'Content-Type':'application/json'}),body:JSON.stringify(b)});
-    if(!r.ok){ const e=await r.json().catch(()=>({})); throw {status:r.status,detail:e.detail}; } return r.json(); }
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw {status:r.status,detail:e.detail||e.error||e.message}; } return r.json(); }
   async _postForm(p,fd){ const r=await fetch(this.base+p,{method:'POST',headers:this._h(),body:fd});  // 不设 Content-Type，浏览器自动带 multipart boundary
-    if(!r.ok){ const e=await r.json().catch(()=>({})); throw {status:r.status,detail:e.detail}; } return r.json(); }
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw {status:r.status,detail:e.detail||e.error||e.message}; } return r.json(); }
 }
 const client=new HKCClient();
 
@@ -2214,6 +2237,46 @@ async function submitIngest(){
 function openModal(s){ $(s).classList.add('show'); }
 function closeModal(s){ $(s).classList.remove('show'); }
 
+// ── 书籍管理(按来源删除)──
+async function openBooks(){
+  if(client.demo){ toast('未连接后端,无法管理书籍','err'); openModal('#settings-modal'); return; }
+  openModal('#books-modal');
+  await loadBooks();
+}
+async function loadBooks(){
+  const box=$('#books-list');
+  box.innerHTML='<div style="font-size:13px;color:var(--ink-2);text-align:center;padding:16px">加载中…</div>';
+  try{
+    const r=await client._get('/knowledge/sources');
+    const list=(r&&r.sources)||[];
+    if(!list.length){ box.innerHTML='<div style="font-size:13px;color:var(--ink-2);text-align:center;padding:16px">暂无已摄入的书籍</div>'; return; }
+    box.innerHTML='';
+    for(const b of list){
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;';
+      const name=document.createElement('span');
+      name.style.cssText='font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+      name.textContent=(b.name||b.source)+(b.year?` (${b.year})`:'');
+      name.title=b.source;
+      const del=document.createElement('button');
+      del.className='btn btn-ghost btn-sm';
+      del.textContent='删除';
+      del.onclick=()=>deleteBook(b.source, name.textContent);
+      row.appendChild(name); row.appendChild(del);
+      box.appendChild(row);
+    }
+  }catch(e){ box.innerHTML='<div style="font-size:13px;color:var(--ink-2);text-align:center;padding:16px">加载失败：'+(e.status||e||'')+'</div>'; }
+}
+async function deleteBook(source, label){
+  if(!confirm(`确定删除「${label}」吗？\n\n将移除该书及其独占知识；与其他书共享的知识只去掉该书引用。此操作不可撤销。`)) return;
+  try{
+    const r=await client._post('/knowledge/sources/delete',{source});
+    toast(`已删除「${label}」：${r.deleted_kus} 个知识单元`,'ok');
+    await loadBooks();
+    await loadData();
+  }catch(e){ toast('删除失败：'+(e.detail||e.status||e||''),'err'); }
+}
+
 function setConn(){
   const p=$('#conn-pill'), t=$('#conn-text');
   if(client.demo){ p.className='conn-pill demo'; t.textContent='演示模式'; }
@@ -2266,7 +2329,7 @@ async function tryConnect(){
         });
         toast(`已连接，知识抽取模型：${provider}`,'ok');
       }catch(e){
-        toast('已连接，但模型配置失败：'+(e.message||e),'err');
+        toast('已连接，但模型配置失败：'+(e.detail||e.status||e),'err');
       }
     }else{
       toast('已连接到 HKC API','ok');
@@ -2285,10 +2348,15 @@ function _syncLLMFields(){
   const p=$('#llm-provider').value;
   const modelInput=$('#llm-model');
   const baseField=$('#llm-baseurl-field');
+  const baseInput=$('#llm-baseurl');
   const defaults={ deepseek:'deepseek-chat', anthropic:'claude-sonnet-4-6', openai:'gpt-4o-mini', 'openai-compatible':'(自定义模型名)' };
   modelInput.placeholder=defaults[p]||'';
   // 只有自定义/本地需要填 base_url
   baseField.style.display=(p==='openai-compatible')?'':'none';
+  // 本地模型默认填 Ollama 地址(后端要求 openai-compatible 必填 base_url,留空会 400);已有值不覆盖
+  if(p==='openai-compatible' && !baseInput.value.trim()){
+    baseInput.value='http://localhost:11434/v1';
+  }
 }
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
@@ -2308,6 +2376,7 @@ $('#search-input').addEventListener('input',e=>{
 $('#search-input').addEventListener('keydown',e=>{ if(e.key==='Enter') doSearch(e.target.value); });
 
 $('#btn-ingest').onclick=()=>openModal('#ingest-modal');
+$('#btn-books').onclick=openBooks;
 $('#btn-settings').onclick=()=>openModal('#settings-modal');
 // 文件/文件夹选择
 $('#btn-pick-files').onclick=()=>$('#ingest-files').click();
@@ -2320,7 +2389,7 @@ $('#llm-provider').addEventListener('change', _syncLLMFields);
 _syncLLMFields();  // 初始化字段状态
 $('#btn-use-demo').onclick=()=>{ client.useDemo(); setConn(); closeModal('#settings-modal'); loadData(); toast('已切换到演示数据'); };
 $('#btn-fit').onclick=()=>window._fitGraph&&window._fitGraph();
-$$('[data-close]').forEach(b=>b.onclick=()=>{ closeModal('#ingest-modal'); closeModal('#settings-modal'); });
+$$('[data-close]').forEach(b=>b.onclick=()=>{ closeModal('#ingest-modal'); closeModal('#settings-modal'); closeModal('#books-modal'); });
 $$('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('show'); }));
 // G6 的 autoResize:true 已处理窗口缩放，无需手动重建
 
@@ -2329,12 +2398,11 @@ async function startup(){
   const saved=loadConnSettings();
   if(saved && saved.url){
     fillConnFields(saved);
-    client.apiKey=saved.apiKey||saved.key||'';   // key 走 localStorage,不发后端
+    client.apiKey=saved.apiKey||'';   // 鉴权 key 只能取保存的 apiKey,绝不混用模型的 key
     const ok=await client.connect(saved.url);
     if(ok){
-      if(saved.key){
-        try{ await client._post('/config/llm',{provider:saved.provider,api_key:saved.key,model:saved.model||null,base_url:saved.baseUrl||null}); }catch(e){}
-      }
+      // 不再启动时自动 POST 保存的 LLM 配置:那会把 localStorage 里可能过期的配置
+      // 覆盖到后端、压掉 .env 的权威配置。模型配置只在用户点「连接」时显式应用。
       setConn(); await loadData(); return;
     }
     // 自动重连失败(后端没起/地址变了)→ 回退演示,字段已回填,用户可手动重连

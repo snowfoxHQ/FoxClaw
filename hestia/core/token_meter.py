@@ -21,7 +21,7 @@ import json
 import os
 import threading
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 
 
 def estimate_tokens(text: str, model: str = "") -> int:

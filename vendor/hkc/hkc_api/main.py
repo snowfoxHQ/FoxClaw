@@ -9,13 +9,13 @@ HKC REST API 主应用。
   HKC_DATA_DIR       数据目录（默认 ./hkc_data）
   HKC_EMBEDDING      stub | local | tei（默认 stub）
   HKC_EMBEDDING_URL  TEI 服务地址（embedding=tei 时用）
+  HKC_EMBEDDING_MODEL  local/auto 后端的模型名（如 BAAI/bge-m3；留空用内置默认）
   HKC_LLM_PROVIDER   anthropic | deepseek | openai | openai-compatible（默认 anthropic）
   HKC_LLM_API_KEY    通用 key；未设则按 provider 回退读 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
   HKC_LLM_MODEL / HKC_LLM_BASE_URL   模型名 / 自定义 API 地址（本地模型时）
   HKC_API_KEY        设了则请求需带 X-API-Key（可选鉴权）
 """
 # TODO: Replace with proper package install before v1 release
-import sys
 import os
 
 import logging
@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
         data_dir       = os.environ.get("HKC_DATA_DIR", "./hkc_data"),
         embedding_kind = os.environ.get("HKC_EMBEDDING", "stub"),
         embedding_url  = os.environ.get("HKC_EMBEDDING_URL", "http://localhost:8080"),
+        embedding_model = os.environ.get("HKC_EMBEDDING_MODEL") or None,  # 空串→None,用默认模型
         llm_api_key    = _llm_key,
         llm_model      = os.environ.get("HKC_LLM_MODEL"),     # None → 按 provider 默认
         llm_provider   = _provider,

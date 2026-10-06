@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from ..container import HKCContainer, get_container
 from ..schemas import (
-    AbilityCompileRequest, AbilityResponse, CoverageReportResponse,
+    AbilityResponse, CoverageReportResponse,
     ConflictResponse, ConflictResolveRequest,
 )
 

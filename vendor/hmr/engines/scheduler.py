@@ -21,9 +21,9 @@ Memory Scheduler 决定：
 import time
 import threading
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from ..core.models import MemoryObject, RuntimeState
+from ..core.models import MemoryObject
 
 
 # ============================================================================
@@ -243,7 +243,6 @@ class MemoryScheduler:
         self.hot_cache.invalidate(memory_id)
 
     def get_stats(self) -> Dict[str, Any]:
-        total = self._stats["total_scheduled"] or 1
         hit_rate = self._stats["cache_hits"] / max(
             self._stats["cache_hits"] + self._stats["cache_misses"], 1
         )

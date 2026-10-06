@@ -75,7 +75,6 @@ class PatternDetector:
         使用向量余弦相似度（有 VectorStore 时），
         降级到标题词重叠（无向量时）。
         """
-        clusters: List[List[Any]] = []
         assigned: Set[str] = set()
 
         if vector_store and len(vector_store.vectors) > 0:
@@ -121,7 +120,7 @@ class PatternDetector:
             by_type[m.type].append(m)
 
         clusters = []
-        for mtype, mems in by_type.items():
+        for mems in by_type.values():
             if len(mems) >= min_size:
                 # 按标题相似度进一步分组
                 groups: Dict[str, List[Any]] = defaultdict(list)

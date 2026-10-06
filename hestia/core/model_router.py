@@ -18,7 +18,6 @@ Hestia OS — 多模型路由(Model Router)
 import os
 import threading
 import re as _re
-from typing import Optional
 
 
 # 各 provider 的默认模型(可被环境变量覆盖)
@@ -506,12 +505,55 @@ class ModelRouter:
     # ── P2 function-calling(工具调用)──────────────────────────────────────────
     # 病根修复:让模型**自己决定**调哪个工具,取代"调 LLM 前用关键词表拍板"。
     # 模型无关:openai 家族(openai/deepseek/qwen/local,含 openai-compatible 万能通道)走
-    # OpenAI tools 格式;其它 provider(anthropic/google/stub)暂不支持 tools → supported=False,
-    # 由上层自动回退关键词增强链(fallback,不破坏)。anthropic tool_use 留作后续扩展点。
+    # OpenAI tools 格式;anthropic 走原生 tool_use block(P0-2);google/stub 不支持 →
+    # supported=False,由上层自动回退关键词增强链(fallback,不破坏)。
     _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local")
+    _TOOL_PROVIDERS = _OPENAI_FAMILY + ("anthropic",)
 
     def supports_tools(self) -> bool:
-        return (not self.is_stub) and self.provider in self._OPENAI_FAMILY
+        return (not self.is_stub) and self.provider in self._TOOL_PROVIDERS
+
+    @staticmethod
+    def _to_anthropic_tools(tools: list) -> list:
+        """OpenAI tools 格式 → Anthropic tools 格式。
+
+        OpenAI:  {type: "function", function: {name, description, parameters}}
+        Anthropic:{name, description, input_schema}
+        """
+        out = []
+        for t in tools or []:
+            if not isinstance(t, dict):
+                continue
+            fn = t.get("function") if t.get("type") == "function" else t
+            if not isinstance(fn, dict):
+                continue
+            name = fn.get("name")
+            if not name:
+                continue
+            out.append({
+                "name": name,
+                "description": fn.get("description", "") or "",
+                "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+            })
+        return out
+
+    @staticmethod
+    def _to_anthropic_tool_choice(tool_choice):
+        """OpenAI tool_choice → Anthropic tool_choice。
+        auto→{type:auto};none→{type:none};required→{type:any};
+        {type:function,function:{name}}→{type:tool,name}。"""
+        if tool_choice in (None, "auto"):
+            return {"type": "auto"}
+        if tool_choice == "none":
+            return {"type": "none"}
+        if tool_choice == "required":
+            return {"type": "any"}
+        if isinstance(tool_choice, dict):
+            fn = tool_choice.get("function") or {}
+            name = fn.get("name")
+            if name:
+                return {"type": "tool", "name": name}
+        return {"type": "auto"}
 
     def call_tools(self, system: str, messages: list, tools: list,
                    tool_choice: str = "auto", max_tokens: int = 1024,
@@ -526,21 +568,41 @@ class ModelRouter:
         if not self.supports_tools():
             return {"supported": False, "text": "", "tool_calls": [], "assistant_msg": None}
         model = self._model_for(self.provider, agent_id, messages)
-        msgs = [{"role": "system", "content": system}] + list(messages)
         import time as _t
         _t0 = _t.perf_counter()
         try:
             from .tracing import span as _span
             with _span("llm.tools", provider=self.provider, model=model):
-                resp = self._client.chat.completions.create(
-                    model=model, max_tokens=max_tokens, messages=msgs,
-                    tools=tools, tool_choice=tool_choice)
+                if self.provider == "anthropic":
+                    text, calls, assistant_msg = self._call_anthropic_tools(
+                        model, system, messages, tools, tool_choice, max_tokens)
+                else:
+                    text, calls, assistant_msg = self._call_openai_tools(
+                        model, system, messages, tools, tool_choice, max_tokens)
         except Exception as e:
             self._rec_llm(self.provider, False, (_t.perf_counter() - _t0) * 1000.0)
             # 工具调用失败(端点不支持 tools 等)→ 当作不支持,让上层降级
             return {"supported": False, "text": "", "tool_calls": [],
                     "assistant_msg": None, "error": str(e)}
         self._rec_llm(self.provider, True, (_t.perf_counter() - _t0) * 1000.0)
+        # 计量(工具决策轮也算调用)
+        if getattr(self, "meter", None) is not None:
+            try:
+                self.meter.measure_call(system=system, messages=messages,
+                                        output=text, provider=self.provider,
+                                        model=model, agent_id=agent_id, usage=None)
+            except Exception:
+                pass
+        return {"supported": True, "text": text,
+                "tool_calls": calls, "assistant_msg": assistant_msg}
+
+    def _call_openai_tools(self, model, system, messages, tools, tool_choice, max_tokens):
+        """openai 家族:chat.completions.create + tools,解析 tool_calls 为归一化结构。
+        返回 (text, calls, assistant_msg)。"""
+        msgs = [{"role": "system", "content": system}] + list(messages)
+        resp = self._client.chat.completions.create(
+            model=model, max_tokens=max_tokens, messages=msgs,
+            tools=tools, tool_choice=tool_choice)
         m = resp.choices[0].message
         calls = []
         raw_tcs = []
@@ -575,21 +637,50 @@ class ModelRouter:
         assistant_msg = {"role": "assistant", "content": m.content or ""}
         if raw_tcs:
             assistant_msg["tool_calls"] = raw_tcs
-        # 计量(工具决策轮也算调用)
-        if getattr(self, "meter", None) is not None:
-            try:
-                self.meter.measure_call(system=system, messages=messages,
-                                        output=(m.content or ""), provider=self.provider,
-                                        model=model, agent_id=agent_id, usage=None)
-            except Exception:
-                pass
-        return {"supported": True, "text": m.content or "",
-                "tool_calls": calls, "assistant_msg": assistant_msg}
+        return (m.content or ""), calls, assistant_msg
 
-    @staticmethod
-    def format_tool_result(tool_call: dict, result: str) -> dict:
+    def _call_anthropic_tools(self, model, system, messages, tools, tool_choice, max_tokens):
+        """anthropic 原生 tool_use:openai tools 格式 → anthropic 格式,调 messages.create,
+        解析 content block(tool_use 的 input 是原生结构化 dict,无需 JSON 解析)。
+        返回 (text, calls, assistant_msg)。
+        tool_choice=none → 映射 {type:none},但**仍传 tools**:anthropic 要求历史含 tool_use
+        block 时请求必须带 tools 定义,否则报错(收敛轮的历史里必有 tool_use)。"""
+        kwargs = {}
+        anthropic_tools = self._to_anthropic_tools(tools)
+        if anthropic_tools:
+            kwargs["tools"] = anthropic_tools
+        kwargs["tool_choice"] = self._to_anthropic_tool_choice(tool_choice)
+        resp = self._client.messages.create(
+            model=model, max_tokens=max_tokens, system=system,
+            messages=messages, **kwargs)
+        text_parts = []
+        calls = []
+        blocks = []
+        for b in (resp.content or []):
+            t = getattr(b, "type", "")
+            if t == "text":
+                txt = getattr(b, "text", "") or ""
+                text_parts.append(txt)
+                blocks.append({"type": "text", "text": txt})
+            elif t == "tool_use":
+                args = getattr(b, "input", None) or {}
+                calls.append({"id": getattr(b, "id", ""), "name": getattr(b, "name", ""),
+                              "args": args, "args_parse_failed": False})
+                blocks.append({"type": "tool_use", "id": getattr(b, "id", ""),
+                               "name": getattr(b, "name", ""), "input": args})
+        text = "".join(text_parts)
+        assistant_msg = {"role": "assistant", "content": blocks}
+        return text, calls, assistant_msg
+
+    def format_tool_result(self, tool_call: dict, result: str) -> dict:
         """把一次工具执行结果封装成 provider 原生消息,供追加进 messages 再喂回模型。
-        openai 家族:{role: tool, tool_call_id, content}。"""
+        openai 家族:{role: tool, tool_call_id, content};
+        anthropic:{role: user, content:[{type: tool_result, tool_use_id, content}]}。"""
+        if self.provider == "anthropic":
+            return {"role": "user", "content": [
+                {"type": "tool_result",
+                 "tool_use_id": tool_call.get("id", ""),
+                 "content": str(result)}]}
         return {"role": "tool", "tool_call_id": tool_call.get("id", ""),
                 "content": str(result)}
 

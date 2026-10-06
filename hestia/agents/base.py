@@ -10,11 +10,8 @@ CognitiveAgent — 认知增强 Agent 基类
 
 import os
 import uuid
-import asyncio
 import contextvars
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import AsyncIterator, Optional
 
 
 
@@ -60,6 +57,33 @@ def _agent_ctx_set(token: str, **updates):
     slot.update(updates)
     d[token] = slot
     _agent_ctx.set(d)
+
+
+def _taint_get(agent) -> int:
+    """读会话污点(已取回数据的最高敏感度)。真实 agent 走 contextvar 分槽(并发任务
+    互不覆盖);fake agent(测试 SimpleNamespace)无 _ctx_token 时退化为实例属性或 0。"""
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        return _agent_ctx_get(tok).get("taint_level", 0)
+    return getattr(agent, "_taint_level", 0)
+
+
+def _taint_raise(agent, level: int) -> None:
+    """把来源数据敏感度并入会话污点(取最大值,单调不减)。"""
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        _agent_ctx_set(tok, taint_level=max(_taint_get(agent), level))
+    else:
+        agent._taint_level = max(getattr(agent, "_taint_level", 0), level)
+
+
+def _taint_reset(agent) -> None:
+    """会话开始时清空污点(新任务从 TAINT_NONE 起算)。"""
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        _agent_ctx_set(tok, taint_level=0)
+    else:
+        agent._taint_level = 0
 
 
 class HarnessBlockedError(Exception):
@@ -240,6 +264,7 @@ class CognitiveAgent(ABC):
         """开始一个新任务会话，注册目标基线"""
         self._session_id = f"sess_{uuid.uuid4().hex[:10]}"
         self._parent_node_id = None
+        _taint_reset(self)   # 新会话从无污点起算(数据敏感度清零)
 
         # 注册 Harness 目标基线
         self.harness.register_goal(
@@ -470,6 +495,7 @@ class CognitiveAgent(ABC):
                    + _ig.wrap_untrusted(lines, source="knowledge"))
             self._think(content=f"能力增强「{best['ability_key']}」注入 {len(hits)} 条知识",
                         node_type="tool_use", conf=0.85)
+            _taint_raise(self, _ig.taint_level("knowledge"))   # 知识库(个人数据)→ 会话污点
             return [{"role": "user", "content": ctx}] + messages
         except Exception:
             return messages   # fail-safe:增强失败绝不影响主流程
@@ -523,6 +549,7 @@ class CognitiveAgent(ABC):
         任何异常不外泄、如实降级。"""
         import types as _types
         from ..core import tools as _tools
+        from ..core import injection_guard as _ig
         from ..skills import permission as _perm
         if _tools.is_tool_denied(name):
             return f"(工具 {name} 已被策略禁用,未执行)"
@@ -550,7 +577,9 @@ class CognitiveAgent(ABC):
                    for k, v in (_schema.get("properties") or {}).items()
                    if isinstance(v, dict)}
         spec = _types.SimpleNamespace(id=f"tool:{name}", params=_params, **cap)
-        decision = _perm.evaluate(spec, args or {}, confirmed=False)
+        decision = _perm.evaluate(spec, args or {}, confirmed=False,
+                                  taint_level=_taint_get(self),
+                                  taint_threshold=_ig.TAINT_PERSONAL)
         if decision.decision == "deny":
             return f"(工具 {name} 被权限策略拒绝:{decision.reason},未执行)"
         if decision.decision == "ask":
@@ -573,6 +602,7 @@ class CognitiveAgent(ABC):
                     return ("联网搜索未返回结果(可能未配置搜索服务或网络不可用);"
                             "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。")
                 self._think(content=f"工具 web_search「{q}」命中", node_type="tool_use", conf=0.9)
+                _taint_raise(self, _ig.taint_level("web_search"))   # 外部不可控数据 → 会话污点
                 return _ws.format_for_prompt(q, payload)
             if name == "recall_memory":
                 q = str((args or {}).get("query", "")).strip()
@@ -585,9 +615,9 @@ class CognitiveAgent(ABC):
                 res = self._recall_memory(q, top_k=top_k) if q else []
                 if not res:
                     return "(未召回到相关记忆)"
-                from ..core import injection_guard as _ig
                 lines = "\n".join(f"- {r.get('content', '')}" for r in res[:top_k])
                 # 记忆可能被投毒(此前注入固化) → 当作不可信数据回注,防记忆投毒二次生效
+                _taint_raise(self, _ig.taint_level("memory"))   # 个人记忆 → 会话污点(高敏感)
                 return "【召回的相关记忆】\n" + _ig.wrap_untrusted(lines, source="memory")
         except Exception as e:
             return f"(工具 {name} 执行异常:{type(e).__name__})"

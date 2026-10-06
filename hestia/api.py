@@ -8,18 +8,8 @@ import sys
 import asyncio
 import json
 import queue
-import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
-
-# 【跨平台启动修复】Windows 控制台默认 GBK(cp936),无法编码 ✓/⚠/· 等诊断字符 → 启动打印
-# 抛 UnicodeEncodeError 直接崩溃(服务器起不来,用户只能双击 .html 文件)。把 stdout/stderr
-# 重配置为 UTF-8(errors=replace 兜底),使所有平台/控制台的诊断打印都安全,不依赖 PYTHONUTF8。
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
 
 # 加载项目根目录的 .env(若存在),让所有 Key 从配置文件读取。
 #
@@ -679,8 +669,14 @@ async def mcp_add_server(p: McpServerPayload):
         raise HTTPException(409, detail={"needs_ack": True, "warnings": verdict["warnings"]})
     cfg = {"id": p.id, "name": p.name or p.id, "url": p.url,
            "headers": dict(p.headers), "transport": p.transport}
+    sentinel = getattr(_os_instance, "sentinel", None)
     try:
-        tools = await asyncio.to_thread(_os_instance.mcp_manager.add_server, cfg)  # 桥阻塞→线程池
+        if sentinel is not None:
+            # 守门人模式:headers 只在这次调用经手,发现由守门人代执行,主进程只存元数据。
+            tools = await asyncio.to_thread(_os_instance.mcp_add_server_guardian, cfg)
+        else:
+            tools = await asyncio.to_thread(_os_instance.mcp_manager.add_server, cfg)  # 桥阻塞→线程池
+            _os_instance.mcp_store.save(_os_instance.mcp_manager.servers())
     except Exception as e:
         raise HTTPException(502, f"连接 MCP server 失败: {e}")
     reg = _os_instance.skill_registry
@@ -688,7 +684,7 @@ async def mcp_add_server(p: McpServerPayload):
     for tool in tools:
         reg.register(tool_to_spec(p.id, tool)); n += 1
     _os_instance.skill_store.save(reg)
-    _os_instance.mcp_store.save(_os_instance.mcp_manager.servers())
+    _os_instance.sync_mcp_servers_to_sentinel()   # 元数据同步;守门人已持有 headers
     return {"ok": True, "server": {k: cfg[k] for k in ("id", "name", "url", "transport")},
             "tools_registered": n, "warnings": verdict["warnings"]}
 
@@ -719,6 +715,7 @@ async def mcp_remove_server(server_id: str):
         reg.unregister(sid)
     _os_instance.skill_store.save(reg)
     _os_instance.mcp_store.save(mgr.servers())
+    _os_instance.sync_mcp_servers_to_sentinel()   # 配置(含凭证)同步给守门人
     return {"ok": True, "removed_skills": len(removed)}
 
 
@@ -727,10 +724,14 @@ async def mcp_refresh_server(server_id: str):
     """重连拉工具:新增/更新技能,删除已消失的工具技能。"""
     from hestia.skills.mcp_client import tool_to_spec
     mgr = _os_instance.mcp_manager
-    try:
-        tools = await asyncio.to_thread(mgr.list_tools, server_id)  # 桥阻塞→线程池
-    except KeyError:
+    if not any(s["id"] == server_id for s in mgr.servers()):
         raise HTTPException(404, "server 不存在")
+    sentinel = getattr(_os_instance, "sentinel", None)
+    try:
+        if sentinel is not None:
+            tools = await asyncio.to_thread(sentinel.mcp_list_tools, server_id)  # 守门人代发现(失败抛异常)
+        else:
+            tools = await asyncio.to_thread(mgr.list_tools, server_id)  # 桥阻塞→线程池
     except Exception as e:
         raise HTTPException(502, f"刷新失败: {e}")
     reg = _os_instance.skill_registry

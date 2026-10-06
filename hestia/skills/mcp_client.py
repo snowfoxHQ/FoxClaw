@@ -99,23 +99,32 @@ def _norm(cfg: dict) -> dict:
 
 
 # ── 工具 → SkillSpec(fail-closed) ─────────────────────────────
+def _get(tool, key, default=None):
+    """兼容 dict(守门人序列化后) 与 mcp.types.Tool 对象(直连回退路径)。"""
+    return tool.get(key, default) if isinstance(tool, dict) else getattr(tool, key, default)
+
+
 def tool_to_spec(server_id: str, tool):
     from . import SkillSpec
-    ann = getattr(tool, "annotations", None)
-    ro = getattr(ann, "readOnlyHint", None) if ann else None
-    de = getattr(ann, "destructiveHint", None) if ann else None
+    ann = _get(tool, "annotations", None)
+    if isinstance(ann, dict):
+        ro = ann.get("readOnlyHint")
+        de = ann.get("destructiveHint")
+    else:
+        ro = getattr(ann, "readOnlyHint", None) if ann else None
+        de = getattr(ann, "destructiveHint", None) if ann else None
     if ro is True:
         se, destr = "read", False
     elif de is True:
         se, destr = "write", True
     else:
         se, destr = "write", False          # fail-closed:无注解按有副作用
-    tname = getattr(tool, "name", "")
+    tname = _get(tool, "name", "") or ""
     return SkillSpec(
         id=f"mcp__{server_id}__{tname}", name=tname,
-        description=getattr(tool, "description", "") or "", kind="mcp",
+        description=_get(tool, "description", "") or "", kind="mcp",
         mcp_server=server_id, mcp_tool=tname, side_effect=se, destructive=destr,
-        external=True, params=getattr(tool, "inputSchema", {}) or {},
+        external=True, params=_get(tool, "inputSchema", {}) or {},
         triggers=[tname], source="user",
     )
 

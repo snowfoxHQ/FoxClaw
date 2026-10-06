@@ -8,7 +8,7 @@ Ability Compiler Engine
 3. 达到门槛后编译输出 .hkap 能力包
 4. Agent 直接 load_ability() 调用
 """
-import sys, os
+import os
 
 import json
 from dataclasses import dataclass, field
@@ -18,7 +18,6 @@ from typing import Optional
 
 from hkc_core.graph.base import GraphStore
 from hkc_core.models.ku import AbilityKU, KU
-from hkc_core.models.enums import KUType
 from hkc_core.utils.id_gen import IDGenerator
 from hkc_kep.event_bus import EventBus, KEPEvents
 

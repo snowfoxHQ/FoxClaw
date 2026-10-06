@@ -12,6 +12,7 @@ Knowledge Digest Engine 主引擎。
 # TODO: Replace with proper package install before v1 release
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -19,13 +20,26 @@ from hkc_core.graph.base import GraphStore
 from hkc_core.utils.id_gen import IDGenerator
 from hkc_kep.event_bus import EventBus
 
-from .models import ParsedDocument, ExtractionResult
+from .models import ParsedDocument
 from .chunker import Chunker, MAX_CHARS
 
 # 单文档最多处理的 chunk 数(防止整本书切出上千 chunk 导致海量 LLM 调用)。
 # 500 个 chunk 约覆盖 ~90 万字符,可较完整摄入整本书;超大书仍会截断并警告。
+# 可经环境变量 HKC_MAX_CHUNKS_PER_DOC 覆盖:设 0 或负数 = 不限制(完整摄入整本书)。
 # 摄入已异步化(后台线程池),chunk 多只是后台跑得久,不卡 UI;主要代价是 LLM 调用费用。
-MAX_CHUNKS_PER_DOC = 500
+# 配合批量抽取(HKC_EXTRACT_BATCH>1)后,一次调用处理多段,可放心调大或设 0。
+DEFAULT_MAX_CHUNKS_PER_DOC = 500
+
+
+def _max_chunks_per_doc() -> int:
+    """运行时读取单文档 chunk 上限(可经 HKC_MAX_CHUNKS_PER_DOC 覆盖)。<=0 表示不限制。"""
+    raw = os.environ.get("HKC_MAX_CHUNKS_PER_DOC", "").strip()
+    if not raw:
+        return DEFAULT_MAX_CHUNKS_PER_DOC
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_MAX_CHUNKS_PER_DOC
 from .extractor import Extractor
 from .packager import KUPackager
 from .loaders.text_loader import MarkdownLoader, TxtLoader
@@ -172,15 +186,16 @@ class KnowledgeDigestEngine:
             return []
 
         # 保护:超大文档(如整本电子书)会切出成百上千 chunk,每个都调一次 LLM,
-        # 极慢且烧费用。超过上限时截断,只处理前 MAX_CHUNKS_PER_DOC 个,并警告。
-        if len(chunks) > MAX_CHUNKS_PER_DOC:
+        # 极慢且烧费用。超过上限时截断,只处理前 N 个,并警告。
+        # 上限可经 HKC_MAX_CHUNKS_PER_DOC 覆盖;设 0 = 不限制(完整摄入)。
+        _cap = _max_chunks_per_doc()
+        if _cap > 0 and len(chunks) > _cap:
             logger.warning(
                 "文档过大:切出 %d 个 chunk,超过单文档上限 %d。仅处理前 %d 个"
-                "(约 %d 字符)。如需完整摄入,请拆分文档。",
-                len(chunks), MAX_CHUNKS_PER_DOC, MAX_CHUNKS_PER_DOC,
-                MAX_CHUNKS_PER_DOC * MAX_CHARS,
+                "(约 %d 字符)。如需完整摄入,请设 HKC_MAX_CHUNKS_PER_DOC=0 或调大该值。",
+                len(chunks), _cap, _cap, _cap * MAX_CHARS,
             )
-            chunks = chunks[:MAX_CHUNKS_PER_DOC]
+            chunks = chunks[:_cap]
 
         # Stage 2b: LLM 提取（有进度回调则带上；无则按旧签名调用,兼容 MockExtractor）
         if progress_cb is not None:

@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import uuid
 import logging
-import tempfile
 import shutil
 from pathlib import Path
 

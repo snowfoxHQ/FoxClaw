@@ -17,7 +17,7 @@ import networkx as nx
 from .base import GraphStore
 from ..models.enums import KUType, ClaimStatus
 from ..models.ku import (
-    KU, BaseKU, Relation, ConflictCard,
+    KU, Relation, ConflictCard,
     EntityKU, ConceptKU, FactKU, ClaimKU,
     EvidenceKU, AbilityKU,
 )
@@ -462,7 +462,7 @@ class SQLiteGraphStore(GraphStore):
             self._db.execute("DELETE FROM relations WHERE rel_id=?", (rel_id,))
             self._db.commit()
             if row:
-                from_ku, to_ku, rel_type = row[0], row[1], row[2]
+                from_ku, to_ku, _ = row[0], row[1], row[2]
                 # 同步移除图中的边(若存在)
                 if self._graph.has_edge(from_ku, to_ku):
                     try:

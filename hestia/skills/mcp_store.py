@@ -1,6 +1,13 @@
-"""MCP server 配置持久化。文件 <data_dir>/mcp_servers.json。"""
+"""MCP server 配置持久化。文件 <data_dir>/mcp_servers.json。
+
+【P-Muse·第4步·安全边界】守门人模式(HESTIA_GUARDIAN=1)下,主进程只把
+非敏感元数据(id/name/url/transport)写进这里,headers 凭证只在守门人进程。
+回退路径(HESTIA_GUARDIAN=0,进程内直连)没有守门人保护,headers 会连同配置
+一起落盘——save 检测到 headers 非空时会打印告警,避免"静默落盘凭证"。
+"""
 from __future__ import annotations
 import json
+import sys
 import threading
 from pathlib import Path
 
@@ -21,6 +28,13 @@ class McpStore:
     def save(self, servers: list):
         with self._lock:
             try:
+                # 【P-Muse·第4步】守门人模式下主进程只存元数据(headers 为空),正常不触发。
+                # 一旦有 headers 非空,说明走的是回退路径(或误传凭证)——明文凭证即将落盘,
+                # 主动告警,消除"凭证静默落盘、重启后才暴露"的隐患。
+                if any(dict(s.get("headers") or {}) for s in servers):
+                    print("[McpStore] ⚠ 检测到 headers 凭证,将明文落盘到 "
+                          f"{self._path.name}(当前为回退路径/未启用守门人)。",
+                          file=sys.stderr, flush=True)
                 self._path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self._path.with_suffix(".tmp")
                 tmp.write_text(json.dumps({"servers": servers}, ensure_ascii=False, indent=1), encoding="utf-8")

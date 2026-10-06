@@ -21,7 +21,7 @@ import logging
 import threading
 from typing import Optional, Callable
 
-from .fingerprint import fingerprint_of_ku, canonical_fingerprint, normalize_name
+from .fingerprint import fingerprint_of_ku, normalize_name
 
 logger = logging.getLogger(__name__)
 

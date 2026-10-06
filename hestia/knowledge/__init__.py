@@ -28,8 +28,26 @@ def _ensure_hkc_importable() -> bool:
 
 
 def _detect_llm(api_key=None):
-    """模型无关地决定 HKC 抽取用的 provider/key:优先复用 HestiaOS 的 ModelRouter 探测,
-    HKC 目前只认 anthropic/deepseek/openai,探测到别的则按已配置的 key 回退。"""
+    """模型无关地决定 HKC 抽取用的 provider/key。
+
+    优先级:
+      1. 显式 HKC_LLM_PROVIDER(可选 HKC_LLM_API_KEY)——独立于主系统 HESTIA_PROVIDER,
+         用于「主对话用云端模型、知识抽取用本地/别的模型」的分离场景;非法值忽略回落。
+      2. 否则复用 HestiaOS 的 ModelRouter 探测。
+    HKC 底层(extractor)支持 anthropic / deepseek / openai / openai-compatible。"""
+    env_provider = (os.environ.get("HKC_LLM_PROVIDER") or "").strip().lower()
+    if env_provider in ("anthropic", "deepseek", "openai", "openai-compatible"):
+        key = os.environ.get("HKC_LLM_API_KEY") or ""
+        if not key:
+            # 未显式给 HKC key 时,按 provider 回退到对应的通用 key(与 hkc_api/main.py 一致)
+            key = {
+                "anthropic": os.environ.get("ANTHROPIC_API_KEY"),
+                "deepseek": os.environ.get("DEEPSEEK_API_KEY"),
+                "openai": os.environ.get("OPENAI_API_KEY"),
+                "openai-compatible": os.environ.get("HKC_LLM_API_KEY"),
+            }.get(env_provider, "") or ""
+        return env_provider, key or api_key
+
     provider_env = {}
     try:
         from ..core.model_router import ModelRouter, PROVIDER_ENV
@@ -93,7 +111,8 @@ class HKCService:
 def init_hkc(data_dir, api_key=None):
     """同进程装配 HKC,返回 HKCService(available=True) 或 None(降级)。
     embedding 默认 auto(本地 sentence-transformers 优先,无库/加载失败自动回退 stub;
-    可 HKC_EMBEDDING=stub 强制关闭真语义)。"""
+    可 HKC_EMBEDDING=stub 强制关闭真语义;HKC_EMBEDDING_MODEL 指定 local/auto 的模型名,
+    如 BAAI/bge-m3,留空用内置默认模型)。"""
     if not _ensure_hkc_importable():
         print("[HestiaOS] · HKC 未 vendor(可选):vendor/hkc 缺失,知识库降级")
         return None
@@ -109,6 +128,7 @@ def init_hkc(data_dir, api_key=None):
             data_dir=str(Path(data_dir) / "hkc"),
             embedding_kind=os.environ.get("HKC_EMBEDDING", "auto"),   # 默认真语义(本地优先,无 ST 回退 stub)
             embedding_url=os.environ.get("HKC_EMBEDDING_URL", "http://localhost:8080"),
+            embedding_model=os.environ.get("HKC_EMBEDDING_MODEL") or None,  # local/auto 模型名(如 BAAI/bge-m3)
             llm_api_key=llm_key or None,
             llm_provider=provider,
             llm_model=os.environ.get("HKC_LLM_MODEL"),

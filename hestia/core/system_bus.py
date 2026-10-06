@@ -8,9 +8,7 @@
 SystemBus 是系统级的,跨 Agent / 跨模块,且保留事件历史供审计回放。
 """
 from __future__ import annotations
-import threading
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable
 

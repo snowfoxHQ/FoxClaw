@@ -16,7 +16,7 @@ import hashlib
 import json
 import threading
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

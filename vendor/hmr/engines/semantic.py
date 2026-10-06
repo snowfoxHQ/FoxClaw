@@ -4,7 +4,6 @@ Handles embedding, indexing, and retrieval
 """
 
 from typing import List, Optional, Dict, Any
-import numpy as np
 from ..core.models import MemoryObject
 
 

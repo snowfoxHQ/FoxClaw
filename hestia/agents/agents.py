@@ -17,7 +17,7 @@ Agent 结构：
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from .base import CognitiveAgent
 from ..planning import planner as P   # 统一规划原语(P1-2:关键词命中单一真源)
 
@@ -41,6 +41,70 @@ def _with_prior(subtask: str, prior: list) -> str:
         for p in prior[-PRIOR_MAX_STEPS:]
     )
     return f"{subtask}\n\n[前序步骤结果 —— 若与本步相关,请据此作答]\n{lines}"
+
+
+def _fmt_mem(m: dict, max_chars: int | None = None) -> str:
+    """把一条召回记忆格式化为带结构信息的文本(标题/相关度/共享标记)。
+
+    替代此前各领域 Agent 只取 content 的注入——那会丢弃 title/score/shared 等
+    结构信息,让 LLM 无法区分"高相关共享决策"与"低相关私有闲聊"。字段可能缺失
+    (不同召回路径返回的 dict 字段不一),全部安全降级:title 空 / score 非数字 /
+    无 shared 时退化为纯 content,行为与改前一致。max_chars=None 不截断。
+    """
+    title = (m.get("title") or "").strip()
+    content = (m.get("content") or "").strip()
+    if max_chars is not None:
+        content = content[:max_chars]
+    parts = [title] if title else []
+    score = m.get("score")
+    if score is not None:
+        try:
+            parts.append(f"相关度{float(score):.2f}")
+        except (TypeError, ValueError):
+            pass
+    if m.get("shared"):
+        parts.append("[共享]")
+    head = " ".join(parts)
+    return f"{head}：{content}" if head else content
+
+
+# ── P0-1 反思重规划:执行结果判定 ────────────────────────────
+def _dispatch_failed(dr) -> bool:
+    """判断多步 dispatch 结果是否含失败/未完成步骤(触发反思重规划的前提)。"""
+    if not isinstance(dr, dict):
+        return False
+    result = dr.get("result") or {}
+    if not isinstance(result, dict):
+        return False
+    if result.get("dispatched_to") not in ("multi", "parallel"):
+        return False
+    if result.get("blocked"):
+        return True
+    steps = result.get("parallel_steps") or result.get("multi_steps") or []
+    return any((s.get("failed") or s.get("blocked"))
+               for s in steps if isinstance(s, dict))
+
+
+def _extract_step_results(dr) -> list:
+    """从 dispatch_result 提取各步结果(供 LLM 反思:含成功/失败状态与输出)。"""
+    if not isinstance(dr, dict):
+        return []
+    result = dr.get("result") or {}
+    if not isinstance(result, dict):
+        return []
+    steps = result.get("parallel_steps") or result.get("multi_steps") or []
+    out = []
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        out.append({
+            "subtask": s.get("subtask") or s.get("step"),
+            "agent": s.get("agent"),
+            "output": s.get("output", ""),
+            "blocked": bool(s.get("blocked")),
+            "failed": bool(s.get("failed")),
+        })
+    return out
 
 
 # ══════════════════════════════════════════════════════════
@@ -133,6 +197,14 @@ class SupervisorAgent(CognitiveAgent):
         "assistant": ["整理", "汇总", "邮件", "协助", "沟通", "联系"],
     }
 
+    # 子 Agent 职责描述(P0-1 LLM 规划用):喂给 submit_plan 工具做 agent 枚举约束
+    SUBAGENT_DESC = {
+        "finance": "财务 Agent：理财、收支、预算、风控、对账",
+        "admin": "行政 Agent：日程、行程、出差、地图规划",
+        "office": "办公 Agent：学习、知识管理、研究、写作",
+        "assistant": "助手 Agent：通用任务、整理、沟通协助",
+    }
+
     # 元问题关键词:这类"系统级/自我介绍"问题由主管自己回答,不分派
     META_KEYWORDS = ["你会做什么", "你能做什么", "你是谁", "你能干", "你会干",
                      "介绍一下", "介绍下", "自我介绍", "有什么功能", "能帮我做什么",
@@ -186,7 +258,13 @@ class SupervisorAgent(CognitiveAgent):
 
         返回 (plan, step_routes) 或 (None, None)。
         step_routes: [(子任务文本, 该去的子Agent)],让 planner 的拆解真正映射到 Agent。
+
+        【P0-1】HESTIA_LLM_PLAN=1 时优先 LLM 规划(function-calling 拆解+路由);
+        不可用/失败/单步 → 回退下方规则拆解(行为不变)。
         """
+        llm = self._llm_plan(task)
+        if llm is not None:
+            return llm
         try:
             from ..skills.pipeline import plan as ahs_plan
             reg = getattr(self, "skill_registry", None)
@@ -200,6 +278,101 @@ class SupervisorAgent(CognitiveAgent):
             return p, step_routes
         except Exception:
             return None, None
+
+    def _llm_plan(self, task: str):
+        """【P0-1】LLM 驱动规划：function-calling 拆解任务并路由到子 Agent。
+
+        返回 (plan, step_routes) 或 None(未开启/不支持 tools/失败/单步)。
+        单步返回 None 交回 _route 关键词路由，不改变单步行为。
+        """
+        from ..planning.llm_planner import llm_plan, llm_plan_enabled
+        if not llm_plan_enabled():
+            return None
+        if self.router.is_stub or not self.router.supports_tools():
+            return None
+        subagents = getattr(self, "_subagents", {}) or {}
+        if not subagents:
+            return None
+        catalog = {aid: self.SUBAGENT_DESC.get(aid, getattr(a, "AGENT_NAME", aid))
+                   for aid, a in subagents.items()}
+        try:
+            result = llm_plan(self.router, task, catalog)
+        except Exception:
+            return None
+        if not result or not result.get("steps"):
+            return None
+        steps = result["steps"]
+        if len(steps) <= 1:
+            return None            # 单步 → 交回 _route 关键词路由，不改变单步行为
+        from ..skills.pipeline import Plan, PlanTask
+        n = len(steps)
+        parallel = result.get("flow") == "parallel"
+        tasks = [
+            PlanTask(id=f"T{i+1}", name=s["name"], suggested_skill=None,
+                     dependencies=[] if parallel else ([f"T{i}"] if i > 0 else []))
+            for i, s in enumerate(steps)
+        ]
+        plan = Plan(intent=result.get("intent") or task, tasks=tasks,
+                    flow_type=result.get("flow") or "sequential",
+                    steps=[f"T{i+1}" for i in range(n)])
+        step_routes = [(s["name"], s["agent"]) for s in steps]
+        return plan, step_routes
+
+    def _replan_enabled(self) -> bool:
+        """【P0-1】反思重规划是否可用：opt-in + 模型支持 tools + 有子 Agent。"""
+        from ..planning.llm_planner import replan_enabled
+        return (replan_enabled()
+                and not self.router.is_stub
+                and self.router.supports_tools()
+                and bool(getattr(self, "_subagents", {})))
+
+    async def _replan_and_redo(self, task, sched, session_id, subagents,
+                               context, memories, dispatch_result, max_rounds: int = 2):
+        """【P0-1】反思重规划：多步执行含失败时，用 LLM 反思并产出修正计划，重新执行。
+
+        返回最终 dispatch_result（成功则为最后一次执行结果；失败/不可用则保留最后结果）。
+        循环最多 max_rounds 轮防死循环；每轮先反思再执行，成功即停。
+        """
+        from ..planning.llm_planner import llm_replan
+        catalog = {aid: self.SUBAGENT_DESC.get(aid, getattr(a, "AGENT_NAME", aid))
+                   for aid, a in subagents.items()}
+        current = dispatch_result
+        for rnd in range(1, max_rounds + 1):
+            prior = _extract_step_results(current)
+            self._think(
+                content=f"反思重规划 第{rnd}轮:检测到失败步骤,LLM 反思并产出修正计划",
+                node_type="reflection", conf=0.85,
+            )
+            try:
+                replan = await asyncio.to_thread(
+                    llm_replan, self.router, task, prior, catalog)
+            except Exception:
+                replan = None
+            if not replan or not replan.get("steps"):
+                self._think(
+                    content="反思判定:无法完成/无需重试,终止重规划",
+                    node_type="reflection", conf=0.8,
+                )
+                break
+            new_routes = [(s["name"], s["agent"]) for s in replan["steps"]]
+            self._think(
+                content=f"修正计划({len(new_routes)}步):"
+                       + " → ".join(n for n, _ in new_routes),
+                node_type="decision", conf=0.8,
+            )
+            if replan.get("flow") == "parallel":
+                current = await self._dispatch_parallel(
+                    task, new_routes, sched, session_id, subagents, context, memories)
+            else:
+                current = await self._dispatch_multi(
+                    task, new_routes, sched, session_id, subagents, context, memories)
+            if not _dispatch_failed(current):
+                self._think(
+                    content=f"重规划第{rnd}轮执行成功",
+                    node_type="reflection", conf=0.9,
+                )
+                break
+        return current
 
     def _schedule(self, task: str, subagents: dict):
         """认知调度:用 OS 式调度器算优先级/负载/抢占。返回 ScheduleDecision。"""
@@ -639,7 +812,7 @@ class AssistantAgent(CognitiveAgent):
         )
 
         mem_context = "\n".join([
-            m.get("content", "") for m in memories[:3]
+            _fmt_mem(m) for m in memories[:3]
         ]) if memories else "无相关记忆"
 
         response = await self._call_llm_web(task, [{
@@ -770,7 +943,7 @@ class FinanceAgent(CognitiveAgent):
             finance_context = ""
             if memories:
                 finance_context = "历史财务记录：\n" + "\n".join([
-                    m.get("content", "")[:100] for m in memories[:5]
+                    _fmt_mem(m, 100) for m in memories[:5]
                 ])
 
             # 接入财务内核:若已挂载且有交易数据,做真实结构化分析,作为 LLM 的依据
@@ -953,7 +1126,7 @@ class AdminAgent(CognitiveAgent):
             schedule_context = ""
             if memories:
                 schedule_context = "历史日程记录：\n" + "\n".join([
-                    m.get("content", "")[:100] for m in memories[:5]
+                    _fmt_mem(m, 100) for m in memories[:5]
                 ])
 
             # 接入行程内核:若已挂载且有路点,做真实规划(路线/冲突)作为 LLM 依据
@@ -1104,8 +1277,7 @@ Hermes 自学原则（像赫尔墨斯那样）：
             knowledge_context = ""
             if memories:
                 knowledge_context = "相关知识储备：\n" + "\n".join([
-                    f"- {m.get('title', '')}: {m.get('content', '')[:80]}"
-                    for m in memories[:6]
+                    f"- {_fmt_mem(m, 80)}" for m in memories[:6]
                 ])
 
             # 接入学习内核:若已挂载且有知识点,做真实分析(待复习/掌握度)作为依据

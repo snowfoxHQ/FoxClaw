@@ -2,7 +2,7 @@
 hkc-api / routes / knowledge.py
 知识摄入与 KU 查询路由。
 """
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Body
 
 from ..container import HKCContainer, get_container
 from ..schemas import (
@@ -260,6 +260,143 @@ def reset_knowledge(c: HKCContainer = Depends(get_container)):
     except Exception:
         pass
     return {"cleared_kus": n, "status": "ok"}
+
+
+def _delete_source_cascade(c: HKCContainer, source: str) -> dict:
+    """按来源(原始文件名)删除一本书及其独占知识。
+
+    语义(安全):
+      - 软删该来源的所有 EvidenceKU(书节点);
+      - 仅属于该书的知识 KU(Concept/Fact/Claim 的 sources/supports/contradicts
+        全部来自该书)一并软删;
+      - 共享知识(还引用了其它书)只移除该书引用,不删本体;
+      - 实体移除该书来的 MENTIONS 关系,若无其它来源则软删;
+      - 清理悬空关系 + 关闭涉及被删 claim 的 open 冲突卡;
+      - 重建检索/去重/冲突索引。
+    """
+    from hkc_core.models.enums import KUType, ConflictStatus
+
+    store = c.graph_store
+    BIG = 10_000_000
+
+    # 1. 找该来源的所有 EvidenceKU(活动)
+    evds = [ku for ku in store.query_by_type(KUType.EVIDENCE, status="active", limit=BIG)
+            if getattr(ku, "source", "") == source]
+    if not evds:
+        return {"deleted_kus": 0, "deleted_relations": 0,
+                "deleted_conflicts": 0, "found": False}
+    evd_ids = {e.ku_id for e in evds}
+
+    # 2. 全量活动 KU,清理引用 / 标记独占删除
+    all_kus: list = []
+    for t in KUType:
+        all_kus.extend(store.query_by_type(t, status="active", limit=BIG))
+
+    to_delete = set(evd_ids)
+    for ku in all_kus:
+        if ku.ku_id in evd_ids:
+            continue
+        dirty = False
+        if ku.ku_type in (KUType.CONCEPT, KUType.FACT):
+            new_src = [s for s in (ku.sources or []) if s not in evd_ids]
+            if new_src != (ku.sources or []):
+                ku.sources = new_src
+                dirty = True
+            if getattr(ku, "source_ref", "") in evd_ids:
+                ku.source_ref = ""
+                dirty = True
+        if ku.ku_type == KUType.CLAIM:
+            new_sup = [s for s in (ku.supports or []) if s not in evd_ids]
+            new_con = [s for s in (ku.contradicts or []) if s not in evd_ids]
+            if new_sup != (ku.supports or []) or new_con != (ku.contradicts or []):
+                ku.supports = new_sup
+                ku.contradicts = new_con
+                dirty = True
+        if dirty:
+            # 不再有任何来源/支持/矛盾引用 → 仅属本书,删除;否则去引用后写回
+            if not (ku.sources or []) and not (getattr(ku, "supports", []) or []) \
+               and not (getattr(ku, "contradicts", []) or []):
+                to_delete.add(ku.ku_id)
+            else:
+                store.put(ku)
+
+    # 3. 实体:删掉本书来的 MENTIONS 关系;无其它来源的实体软删
+    for evd in evds:
+        for r in store.get_relations(evd.ku_id, direction="out"):
+            if r.rel_type == "MENTIONS" and r.to_ku not in evd_ids:
+                store.delete_relation(r.rel_id)
+                ent = store.get(r.to_ku)
+                if ent is not None:
+                    remaining = [x for x in store.get_relations(ent.ku_id, direction="in")
+                                 if x.rel_type == "MENTIONS"]
+                    if not remaining:
+                        to_delete.add(ent.ku_id)
+
+    # 4. 软删除
+    for kid in to_delete:
+        store.delete(kid)
+
+    # 5. 清理悬空关系(任一端已删除)
+    del_rels = 0
+    for r in store.get_all_relations(limit=BIG):
+        if r.from_ku in to_delete or r.to_ku in to_delete:
+            store.delete_relation(r.rel_id)
+            del_rels += 1
+
+    # 6. 关闭涉及被删 claim 的 open 冲突卡
+    del_cf = 0
+    from datetime import datetime, timezone
+    for card in store.list_conflicts(status="open"):
+        if card.claim_a_id in to_delete or card.claim_b_id in to_delete:
+            card.status = ConflictStatus.RESOLVED
+            card.resolution_note = "来源已删除"
+            card.resolved_by = "system:source-delete"
+            card.resolved_at = datetime.now(timezone.utc).isoformat()
+            store.save_conflict(card)
+            del_cf += 1
+
+    # 7. 重建索引
+    try:
+        c.kee.dedup.rebuild_index()
+    except Exception:
+        pass
+    try:
+        c.kee.reset_conflict_index()
+    except Exception:
+        pass
+    try:
+        c.search.build_index()
+    except Exception:
+        pass
+
+    return {"deleted_kus": len(to_delete), "deleted_relations": del_rels,
+            "deleted_conflicts": del_cf, "found": True}
+
+
+@router.get("/sources")
+def list_sources(c: HKCContainer = Depends(get_container)):
+    """列出所有已摄入的书籍/来源(按 EvidenceKU.source 去重),供「删除书籍」面板。"""
+    from hkc_core.models.enums import KUType
+    evds = c.graph_store.query_by_type(KUType.EVIDENCE, status="active", limit=10_000_000)
+    seen: dict = {}
+    for e in evds:
+        key = getattr(e, "source", "") or getattr(e, "name", "")
+        if not key:
+            continue
+        if key not in seen:
+            seen[key] = {"source": key, "name": e.name,
+                         "year": getattr(e, "year", 0)}
+    books = sorted(seen.values(), key=lambda b: b["name"] or b["source"])
+    return {"sources": books, "count": len(books)}
+
+
+@router.post("/sources/delete")
+def delete_source(source: str = Body(..., embed=True), c: HKCContainer = Depends(get_container)):
+    """按来源(原始文件名)删除一本书及其独占知识;共享知识只去掉该书引用。"""
+    result = _delete_source_cascade(c, source)
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail=f"未找到来源: {source}")
+    return result
 
 
 # 全量图护栏：单次最多返回的 KU 数，防止超大库 OOM

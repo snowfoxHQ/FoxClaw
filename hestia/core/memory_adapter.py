@@ -17,7 +17,6 @@ import re
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
 
 from .shared_write import guard_shared_write
 

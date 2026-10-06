@@ -12,7 +12,7 @@ from .models import (
     KU, SearchHit, Ability, CoverageReport, Conflict, IngestResult,
 )
 from .exceptions import (
-    HKCError, HKCNotFoundError, HKCInsufficientCoverage,
+    HKCNotFoundError, HKCInsufficientCoverage,
     HKCBadRequest, HKCServerError,
 )
 

@@ -10,7 +10,6 @@ import threading
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from .models import KnowledgeItem, ReviewState, LearningVerdict
 from .spaced_repetition import SpacedRepetition

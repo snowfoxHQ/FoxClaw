@@ -50,8 +50,6 @@ class OpenClawBridgeAdapter(ChannelAdapter):
             return None       # 非文本事件忽略
         sender = raw.get("sender") or msg.get("sender") or {}
         conv = raw.get("conversation") or msg.get("conversation") or {}
-        # upstream_channel:OpenClaw 侧真实渠道(微信/WhatsApp…),回复时要用
-        upstream = raw.get("channel") or raw.get("source_channel") or "unknown"
         return InboundMessage(
             channel=self.CHANNEL,
             message_id=str(msg.get("id") or msg.get("message_id") or ""),

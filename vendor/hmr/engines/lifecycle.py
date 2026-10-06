@@ -15,7 +15,7 @@ HMR v1.5 新增
 import threading
 from typing import List, Dict, Optional, Callable, Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from ..core.models import MemoryObject
 
 
@@ -128,7 +128,7 @@ class MemoryLifecycleEngine:
         """执行生命周期检查（在后台线程中运行）"""
         try:
             # 1. Prune：删除低价值记忆
-            pruned = self._prune(memory_type, report)
+            self._prune(memory_type, report)
 
             # 2. Consolidate：压缩数量过多的记忆
             self._consolidate(memory_type, report)

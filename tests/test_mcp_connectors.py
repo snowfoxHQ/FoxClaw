@@ -3,6 +3,9 @@ import sys, os, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
+os.environ["HESTIA_SKIP_DOTENV"] = "1"      # 不加载开发机 .env(否则 HESTIA_API_KEY 会开启鉴权导致 401)
+os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试,直接用本地缓存
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 _DATA = tempfile.mkdtemp(prefix="hestia_mcp_")
 os.environ["HESTIA_DATA_DIR"] = _DATA
 

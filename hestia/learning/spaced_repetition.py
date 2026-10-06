@@ -80,7 +80,6 @@ class SpacedRepetition:
         """学习负荷(对应财务烧钱速度):未来 N 天的复习量。"""
         from collections import defaultdict
         by_day = defaultdict(int)
-        now = datetime.now()
         for s in states:
             d = s.days_until_due
             if 0 <= d <= days:

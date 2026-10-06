@@ -6,13 +6,15 @@ import os, sys, tempfile, threading, time, asyncio, urllib.request, urllib.error
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
+os.environ["HESTIA_SKIP_DOTENV"] = "1"      # 用进程环境变量自洽测试,不加载开发机 .env
 os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_mcpsrv_")
 os.environ["HESTIA_API_KEY"] = "mcp-test-key"              # ★ 开鉴权,测真实暴露
 os.environ["HESTIA_MCP_SERVER"] = "1"
 os.environ["HESTIA_MCP_AGENTS"] = "1"
 os.environ["HESTIA_MCP_RATE_AGENT"] = "1"                  # ask_hestia 限 1/桶,测限流
 os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
-
+os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试(否则模型加载拖 2 分钟,服务器赶不上就绪窗口)
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 import uvicorn
 import httpx
 from hestia.api import app, _hestia_mcp

@@ -8,7 +8,7 @@
 让主管从"关键词分诊"升级为"特征感知 + 负载感知的 OS 式调度器"。
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

@@ -5,7 +5,7 @@ Hestia 财务子系统 — 数据模型
 """
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional, Literal
 import uuid
 
