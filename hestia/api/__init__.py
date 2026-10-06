@@ -53,6 +53,8 @@ from .middleware import (
     install_middleware,
 )
 
+from .routes.ws import manager, harness_websocket
+
 
 # ── 全局 OS 实例 ───────────────────────────────────────────
 _os_instance: Optional[HestiaOS] = None
@@ -263,6 +265,10 @@ app.add_middleware(
 
 # ── 中间件注册(鉴权/网关限流/追踪/指标):实现已移至 middleware.py,这里按原顺序集中挂载 ──
 install_middleware(app)
+
+# ── WebSocket 路由:实现已移至 routes/ws.py ────────────────
+from .routes import ws as _ws
+_ws.register(app)
 
 
 # ── HKC 星球数据面:挂载 HKC 自带的 /knowledge REST 路由 ──────────────────
@@ -1608,57 +1614,6 @@ async def search_query(p: SearchQueryPayload):
         return result.to_dict()
     except Exception as e:
         raise HTTPException(500, f"搜索失败: {e}")
-
-
-# ── WebSocket：实时 Harness 事件流 ─────────────────────────
-
-class ConnectionManager:
-    def __init__(self):
-        self.connections: list[WebSocket] = []
-
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self.connections.append(ws)
-
-    def disconnect(self, ws: WebSocket):
-        self.connections.remove(ws)
-
-    async def broadcast(self, data: dict):
-        for ws in self.connections[:]:
-            try:
-                await ws.send_json(data)
-            except Exception:
-                self.connections.remove(ws)
-
-
-manager = ConnectionManager()
-
-
-@app.websocket("/ws/harness")
-async def harness_websocket(websocket: WebSocket):
-    """
-    实时 Harness 事件流。
-    事件转发器在启动时已注册到线程安全队列,这里只负责接受连接并保活。
-
-    鉴权:HTTP 中间件管不到 websocket scope,故 WS 的鉴权必须在端点内做。
-    浏览器无法给 WS 握手设请求头,因此接受 ?key= 查询参数(也兼容能设头的非浏览器
-    客户端的 X-API-Key 头)。未设 HESTIA_API_KEY 时开放。
-    """
-    api_key = os.environ.get("HESTIA_API_KEY", "").strip()
-    if api_key:
-        provided = (websocket.query_params.get("key")
-                    or websocket.headers.get("x-api-key"))
-        # 【P3-1】常量时间比较(与 HTTP 中间件同一辅助函数);None 由 or "" 兜底——
-        # api_key 非空时 not eq("", api_key) 必为 True,与原 None != api_key 行为一致
-        if not _constant_time_eq(provided or "", api_key):
-            await websocket.close(code=1008)   # policy violation
-            return
-    await manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()  # 保持连接
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
 
 
 # ── 健康探活 ───────────────────────────────────────────────
