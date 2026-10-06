@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 # 设 HESTIA_SKIP_DOTENV=1 后,进程环境变量成为唯一来源,测试环境完全自洽。
 try:
     from dotenv import load_dotenv
-    _env_path = Path(__file__).parent.parent / ".env"
+    _env_path = Path(__file__).parent.parent.parent / ".env"
     if os.environ.get("HESTIA_SKIP_DOTENV", "").strip() in ("1", "true", "True", "yes"):
         print("[HestiaOS] ○ HESTIA_SKIP_DOTENV=1 —— 跳过 .env,仅用进程环境变量")
     elif _env_path.exists():
@@ -141,7 +141,7 @@ async def lifespan(app: FastAPI):
     # trace 落库(与其它 SQLite 同放 data_dir):内存环只留最近若干条且重启即失,
     # 落库后才能"查昨天那次慢请求"。只留慢的/出错的 + 采样,见 tracing._should_persist。
     try:
-        from .core.tracing import TRACES
+        from ..core.tracing import TRACES
         TRACES.attach_db(Path(_os_instance.data_dir) / "traces.db")
     except Exception as e:
         print(f"[HestiaOS API] ⚠ trace 持久化未启用: {e}")
@@ -199,7 +199,7 @@ async def _drain_event_queue():
 _hestia_mcp = None
 _hestia_mcp_app = None
 if os.environ.get("HESTIA_MCP_SERVER", "0").strip() in ("1", "true", "True"):
-    from .mcp_server import build_hestia_mcp
+    from ..mcp_server import build_hestia_mcp
     _mcp_agents = os.environ.get("HESTIA_MCP_AGENTS", "0").strip() in ("1", "true", "True")
     _hestia_mcp = build_hestia_mcp(lambda: _os_instance, expose_agents=_mcp_agents)
     _hestia_mcp_app = _hestia_mcp.streamable_http_app()
@@ -297,7 +297,7 @@ async def _api_key_guard(request, call_next):
 
 
 # ── 统一 API 网关:per-client 限流 + 配额(把散落的单点限流收敛成一层)──────────
-from .core.gateway import Gateway
+from ..core.gateway import Gateway
 _GATEWAY = Gateway(
     rate_per_min=int(os.environ.get("HESTIA_GATEWAY_RATE", "600")),
     quota_per_hour=int(os.environ.get("HESTIA_GATEWAY_QUOTA", "20000")),
@@ -353,7 +353,7 @@ async def _gateway_mw(request, call_next):
 async def _trace_mw(request, call_next):
     """按请求开一条 trace(contextvars 会随 asyncio.to_thread 传到后台线程,故 Agent/LLM/
     skill 里的 span 仍归属本次请求)。响应带 X-Trace-Id 便于定位。只追数据面,不污染静态/探针。"""
-    from .core.tracing import start_trace, clear_trace, TRACES, parse_traceparent
+    from ..core.tracing import start_trace, clear_trace, TRACES, parse_traceparent
     path = request.url.path
     if not _is_guarded_path(path):
         return await call_next(request)
@@ -390,7 +390,7 @@ async def _metrics_mw(request, call_next):
         route = request.scope.get("route")
         ep = getattr(route, "path", None) or "unmatched"
         try:
-            from .core.metrics import METRICS
+            from ..core.metrics import METRICS
             METRICS.record_request(f"{request.method} {ep}", status, ms)
         except Exception:
             pass
@@ -1092,7 +1092,7 @@ async def run_task(req: TaskRequest):
 
 
 import threading as _threading
-from .mcp_server import _RateLimiter as _RL
+from ..mcp_server import _RateLimiter as _RL
 # 流式限流 + 并发上限(防刷爆/资源耗尽;env 可配)
 _STREAM_LIMITER = _RL(int(os.environ.get("HESTIA_STREAM_RATE", "60")))          # 次/分
 _STREAM_SEM = _threading.Semaphore(int(os.environ.get("HESTIA_STREAM_CONCURRENCY", "4")))
@@ -1827,7 +1827,7 @@ async def health_ready():
 @app.get("/api/metrics")
 async def metrics_json():
     """可观测:各端点/LLM 的计数、错误率、延迟分位(p50/p95/avg)+ uptime。"""
-    from .core.metrics import METRICS
+    from ..core.metrics import METRICS
     return METRICS.snapshot()
 
 
@@ -1836,7 +1836,7 @@ async def list_traces(limit: int = 30, persisted: bool = False,
                       slow_ms: float = None, errors_only: bool = False):
     """请求链路。默认看内存里最近若干条;persisted=1 查**已落库的历史**
     (可加 slow_ms / errors_only 过滤)——「找出昨天那次慢请求」走这里。"""
-    from .core.tracing import TRACES
+    from ..core.tracing import TRACES
     limit = max(1, min(limit, 200))
     if persisted or slow_ms is not None or errors_only:
         return {"traces": TRACES.query(limit=limit, slow_ms=slow_ms,
@@ -1848,14 +1848,14 @@ async def list_traces(limit: int = 30, persisted: bool = False,
 async def traces_stats():
     """OTLP 导出状态(未配 HESTIA_OTLP_ENDPOINT 则 enabled=false,完全不启用)。
     注意:本路由必须定义在 /api/traces/{trace_id} **之前**,否则 "stats" 会被当成 trace_id。"""
-    from .core.tracing import OTLP
+    from ..core.tracing import OTLP
     return {"otlp": OTLP.stats()}
 
 
 @app.get("/api/traces/{trace_id}")
 async def get_trace(trace_id: str):
     """单条链路详情:各 span 的耗时/成败(定位这次慢在哪)。内存未命中则回落到库。"""
-    from .core.tracing import TRACES
+    from ..core.tracing import TRACES
     d = TRACES.get_dict(trace_id)
     if d is None:
         raise HTTPException(404, "trace 不存在(内存环已滚出且未被采样落库)")
@@ -1871,13 +1871,13 @@ async def gateway_stats():
 @app.get("/metrics")
 async def metrics_prometheus():
     """Prometheus 文本格式(供 scrape)。"""
-    from .core.metrics import METRICS
+    from ..core.metrics import METRICS
     return PlainTextResponse(METRICS.prometheus_text())
 
 
 # ── 前端静态文件 ───────────────────────────────────────────
 # 前端就是 frontend/ 下的 deck.html + 两个 js,直接挂载该目录
-frontend_dir = Path(__file__).parent.parent / "frontend"
+frontend_dir = Path(__file__).parent.parent.parent / "frontend"
 if frontend_dir.exists():
     @app.get("/")
     async def serve_deck():
