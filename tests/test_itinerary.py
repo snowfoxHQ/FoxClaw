@@ -95,5 +95,9 @@ def main():
     print("=" * 60)
 
 
+def test_itinerary():
+    main()
+
+
 if __name__ == "__main__":
     main()

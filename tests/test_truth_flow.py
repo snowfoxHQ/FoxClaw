@@ -85,5 +85,9 @@ def main():
     print("=" * 60)
 
 
+def test_truth_flow():
+    main()
+
+
 if __name__ == "__main__":
     main()

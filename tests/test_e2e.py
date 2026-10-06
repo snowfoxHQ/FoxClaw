@@ -157,7 +157,7 @@ async def main():
     pf = Path(_data) / "policy_finance.yaml"
     check(pf.exists(), f"Policy 已落盘到磁盘({pf.name})")
     if pf.exists():
-        content = pf.read_text()
+        content = pf.read_text(encoding="utf-8")
         print(f"  文件: {pf} ({len(content)} 字节)")
         print("  ---")
         for line in content.splitlines()[:18]:
@@ -168,6 +168,10 @@ async def main():
     print("\n" + "="*64)
     print("✓ 认知运行时端到端验证完成")
     print("="*64)
+
+
+def test_e2e():
+    asyncio.run(main())
 
 
 if __name__ == "__main__":

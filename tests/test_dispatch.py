@@ -86,5 +86,9 @@ async def main():
     print("=" * 60)
 
 
+def test_dispatch():
+    asyncio.run(main())
+
+
 if __name__ == "__main__":
     asyncio.run(main())

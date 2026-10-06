@@ -106,5 +106,9 @@ def main():
     print("=" * 56)
 
 
+def test_evals_smoke():
+    main()
+
+
 if __name__ == "__main__":
     main()

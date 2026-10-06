@@ -87,5 +87,9 @@ def main():
     print("=" * 56)
 
 
+def test_memory_recall():
+    main()
+
+
 if __name__ == "__main__":
     main()

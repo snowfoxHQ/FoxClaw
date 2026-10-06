@@ -145,5 +145,9 @@ def main():
     print("=" * 60)
 
 
+def test_finance():
+    main()
+
+
 if __name__ == "__main__":
     main()

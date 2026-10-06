@@ -90,5 +90,9 @@ def main():
     print("=" * 56)
 
 
+def test_supervisor_triage():
+    main()
+
+
 if __name__ == "__main__":
     main()

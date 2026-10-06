@@ -75,5 +75,9 @@ def main():
     print("=" * 56)
 
 
+def test_api_auth():
+    main()
+
+
 if __name__ == "__main__":
     main()

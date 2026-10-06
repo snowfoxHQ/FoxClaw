@@ -169,5 +169,9 @@ def main():
     print("=" * 60)
 
 
+def test_supervisor_pipeline():
+    main()
+
+
 if __name__ == "__main__":
     main()

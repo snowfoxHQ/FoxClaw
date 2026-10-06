@@ -102,5 +102,9 @@ def main():
     print("=" * 60)
 
 
+def test_learning():
+    main()
+
+
 if __name__ == "__main__":
     main()

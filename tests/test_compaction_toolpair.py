@@ -111,5 +111,9 @@ def main():
     print("=" * 60)
 
 
+def test_compaction_toolpair():
+    main()
+
+
 if __name__ == "__main__":
     main()
