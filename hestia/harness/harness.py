@@ -865,7 +865,7 @@ class Harness:
 
     def _load_policy(self) -> dict:
         if self.policy_path.exists():
-            with open(self.policy_path) as f:
+            with open(self.policy_path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         # 默认 Policy 骨架（格式从第一天锁定）
         return {
@@ -879,7 +879,7 @@ class Harness:
         os.makedirs(self.policy_path.parent, exist_ok=True)
         self._policy["version"] = self._policy.get("version", 1) + 1
         self._policy["updated_at"] = datetime.now(timezone.utc).isoformat()
-        with open(self.policy_path, "w") as f:
+        with open(self.policy_path, "w", encoding="utf-8") as f:
             yaml.dump(self._policy, f, allow_unicode=True, sort_keys=False)
 
     # ── 默认事件处理 ───────────────────────────────────────
