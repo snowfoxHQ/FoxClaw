@@ -48,6 +48,9 @@ _os_instance: Optional[HestiaOS] = None
 # 由后台 async 任务统一广播到 WebSocket(解决跨线程 create_task 失败问题)
 _event_queue: "queue.Queue" = queue.Queue()
 _broadcast_task: Optional[asyncio.Task] = None
+# HKC 后台预热守护线程:关闭 lifespan 前必须 join,否则 aclose() 关闭 SQLite 连接时
+# 预热线程仍在 build_index() → use-after-free → Windows access violation(偶发崩溃)。
+_prewarm_thread = None
 
 
 def _ws_safe_payload(payload, _maxlen: int = 4000):
@@ -117,7 +120,9 @@ def _prewarm_hkc(osi):
         except Exception as e:
             print(f"[HestiaOS API] · HKC 预热未启用(可选): {e}")
 
-    threading.Thread(target=_run, name="hkc-prewarm", daemon=True).start()
+    global _prewarm_thread
+    _prewarm_thread = threading.Thread(target=_run, name="hkc-prewarm", daemon=True)
+    _prewarm_thread.start()
 
 
 @asynccontextmanager
@@ -159,7 +164,11 @@ async def lifespan(app: FastAPI):
             await _broadcast_task
         except asyncio.CancelledError:
             pass
-    # 释放持有原生资源的子系统(浏览器专用线程/会话),避免进程无法干净退出
+    # 释放持有原生资源的子系统(浏览器专用线程/会话),避免进程无法干净退出。
+    # 先 join HKC 预热线程:预热在后台线程对 SQLite 建索引,若不 join 就直接 aclose()
+    # 关闭 SQLite 连接,会与预热线程产生 use-after-free → Windows access violation。
+    if _prewarm_thread is not None and _prewarm_thread.is_alive():
+        _prewarm_thread.join(timeout=120.0)
     if _os_instance is not None:
         await _os_instance.aclose()
     print("[HestiaOS API] 关闭中...")
