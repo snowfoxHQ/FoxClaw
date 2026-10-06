@@ -5,7 +5,6 @@ Hestia OS API — FastAPI 后端
 
 import os
 import asyncio
-import json
 import queue
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -31,29 +30,33 @@ try:
 except ImportError:
     pass  # 未装 python-dotenv 则用系统环境变量
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse
-from pydantic import BaseModel
+from fastapi import FastAPI
 from typing import Optional
 
 from hestia import HestiaOS, __version__
 
+# 中间件实现已移至 middleware.py;此处保留符号作 re-export(测试/外部经 hestia.api 访问),
+# 冗余别名 `X as X` 让 ruff 识别为显式 re-export(F401 硬门)。install_middleware 在下方调用。
 from .middleware import (
-    _constant_time_eq,
-    _is_guarded_path,
-    _gateway_on,
-    _GATEWAY,
-    _MAX_BODY,
-    _api_key_guard,
-    _gateway_mw,
-    _trace_mw,
-    _metrics_mw,
     install_middleware,
+    _constant_time_eq as _constant_time_eq,
+    _is_guarded_path as _is_guarded_path,
+    _gateway_on as _gateway_on,
+    _GATEWAY as _GATEWAY,
+    _MAX_BODY as _MAX_BODY,
+    _api_key_guard as _api_key_guard,
+    _gateway_mw as _gateway_mw,
+    _trace_mw as _trace_mw,
+    _metrics_mw as _metrics_mw,
 )
 
-from .routes.ws import manager, harness_websocket
+from .routes.ws import manager, harness_websocket as harness_websocket
+
+# 事件脊柱辅助(WS 净化 / HKC 预热)已移至 spine.py;`_register_spine_projection` 因
+# `_WS_MUTED` 源码级断言约束仍留本文件(见 test_governance_audit)。
+from .spine import _ws_safe_payload, _prewarm_hkc
+# app 挂载/配置(CORS / HKC 星球数据面 / 前端静态)已移至 app.py,在下方按原顺序调用。
+from .app import _configure_cors, _mount_hkc, _mount_frontend
 
 
 # ── 全局 OS 实例 ───────────────────────────────────────────
@@ -66,22 +69,6 @@ _broadcast_task: Optional[asyncio.Task] = None
 # HKC 后台预热守护线程:关闭 lifespan 前必须 join,否则 aclose() 关闭 SQLite 连接时
 # 预热线程仍在 build_index() → use-after-free → Windows access violation(偶发崩溃)。
 _prewarm_thread = None
-
-
-def _ws_safe_payload(payload, _maxlen: int = 4000):
-    """把任意事件 payload 收敛成 **JSON 安全且有界** 的形式,供 WS 广播。
-    统一投影会把系统事件(execution.completed 等含原始 result/任意对象)也推给 WS,
-    必须防两类真实故障:
-      · 非 JSON 可序列化对象 → ws.send_json 抛异常 → broadcast 静默丢弃该连接;
-      · 超大 payload(整段 LLM 回复 / 大 result,且随真值链被广播多次)→ 向所有 WS 泛洪。
-    脊柱本身仍保留全保真事件(供 history / 审计 / 其它投影),净化只发生在 WS 出口。"""
-    try:
-        raw = json.dumps(payload, default=str, ensure_ascii=False)
-    except Exception:
-        return {"_repr": str(payload)[:_maxlen]}
-    if len(raw) > _maxlen:
-        return {"_truncated": True, "_preview": raw[:_maxlen]}
-    return json.loads(raw)
 
 
 def _register_spine_projection(os_instance: HestiaOS):
@@ -105,39 +92,6 @@ def _register_spine_projection(os_instance: HestiaOS):
         except Exception:
             pass
     os_instance.event_spine.project(project)
-
-
-def _prewarm_hkc(osi):
-    """后台预热 HKC:装配容器 + 建搜索索引(bm25+faiss over 全量 KU,顺带加载 HKC
-    多语言 embedding 模型)+ 载入 learning。把"首次知识查询"的一次性冷成本(~几十秒到
-    1 分钟)挪到开机后台完成,之后所有知识查询都不再冷。守护线程、失败静默,绝不影响主应用。
-    索引重建与查询共用 HybridSearch 锁 → 预热期间若有查询会短暂等待,预热完即快。"""
-    import threading, time as _t
-
-    def _run():
-        t0 = _t.time()
-        try:
-            svc = getattr(osi, "hkc", None)      # 访问即触发 HKC 惰性装配
-            if not svc or not getattr(svc, "available", False):
-                return
-            c = svc.container
-            try:
-                c.search.build_index()           # 全量 KU 建索引 → 加载 embedding 模型(冷成本大头)
-            except Exception as e:
-                print(f"[HestiaOS API] · HKC 预热(search)跳过: {e}")
-            try:
-                lr = getattr(osi, "learning_runtime", None)
-                if lr is not None:
-                    lr._ensure_hkc_loaded()
-            except Exception:
-                pass
-            print(f"[HestiaOS API] ✓ HKC 预热完成（{_t.time()-t0:.1f}s）: 首次知识查询不再冷装配")
-        except Exception as e:
-            print(f"[HestiaOS API] · HKC 预热未启用(可选): {e}")
-
-    global _prewarm_thread
-    _prewarm_thread = threading.Thread(target=_run, name="hkc-prewarm", daemon=True)
-    _prewarm_thread.start()
 
 
 @asynccontextmanager
@@ -235,32 +189,8 @@ app = FastAPI(
 if _hestia_mcp_app is not None:
     app.mount("/api/mcp", _hestia_mcp_app)   # 受 _api_key_guard 保护(startswith /api)
 
-# ── 可选鉴权 + CORS 收紧（部署安全）──────────────────────────
-# HESTIA_API_KEY 未设 → 开放(本地默认,保持现状,既有测试/前端不受影响)。
-# 设了 → 所有 /api/* 请求必须带正确的 X-API-Key,否则 401。
-# 注意:http 中间件**看不到 websocket scope**,故 /ws 的鉴权在 WS 端点内单独做
-# (见 harness_websocket,用 ?key= 查询参数)。前端(静态)与 /docs 始终开放。
-# 默认只放行回环来源(本地开发足够:前端与 API 是同源挂载,同源请求本就不经 CORS)。
-# 需要跨源时设 HESTIA_CORS_ORIGINS=来源1,来源2(逗号分隔);显式设 "*" 才会全开(不推荐,
-# 与未鉴权叠加等于把 API 交给任意网页)。收紧默认值属于「默认安全」:不再默认 allow_origins=["*"]。
-_cors_env = os.environ.get("HESTIA_CORS_ORIGINS", "").strip()
-if _cors_env == "*":
-    _CORS_ORIGINS: list[str] = ["*"]
-    _CORS_ORIGIN_REGEX: str | None = None
-elif _cors_env:
-    _CORS_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()]
-    _CORS_ORIGIN_REGEX = None
-else:
-    _CORS_ORIGINS = []
-    _CORS_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_CORS_ORIGINS,
-    allow_origin_regex=_CORS_ORIGIN_REGEX,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ── CORS 收紧:实现已移至 app.py ───────────────────────────
+_configure_cors(app)
 
 
 # ── 中间件注册(鉴权/网关限流/追踪/指标):实现已移至 middleware.py,这里按原顺序集中挂载 ──
@@ -276,766 +206,39 @@ from .routes import system  # noqa: F401
 # ── AHS 执行链路由:实现已移至 routes/ahs.py(import 即注册) ────────────────
 from .routes import ahs  # noqa: F401
 
+# ── 记忆/会话/偏好:routes/memory.py(import 即注册) ────────────────
+from .routes import memory  # noqa: F401
 
-# ── HKC 星球数据面:挂载 HKC 自带的 /knowledge REST 路由 ──────────────────
-# 星球 UI(frontend/planet)需要 /knowledge/graph、/ku/{id}、/ku/{id}/neighbors、
-# /ingest/*、/reset 等。HKC 在本进程装配,这里把它自带的 knowledge 路由挂上,并用
-# dependency_overrides 把 get_container 指向 **HestiaOS 已装配的同一个容器**(依赖倒置,
-# 不另开一套;保持惰性:首个 /knowledge 请求才触发 HKC 装配)。鉴权由上面中间件覆盖 /knowledge。
-# 缺 vendor/hkc 或导入失败 → 静默跳过(星球无数据但不影响主应用)。
-try:
-    from hestia.knowledge import _ensure_hkc_importable as _ensure_hkc
-    _ensure_hkc()
-    from hkc_api.routes.knowledge import router as _hkc_knowledge_router
-    from hkc_api.container import get_container as _hkc_get_container
+# ── 任务执行/流式直答/流式任务:routes/task.py(import 即注册) ────────────────
+from .routes import task  # noqa: F401
 
-    def _resolve_hkc_container():
-        svc = _os_instance.hkc if _os_instance is not None else None
-        if svc is None or not getattr(svc, "available", False):
-            raise HTTPException(503, "HKC 未启用(未 vendor 或缺依赖)")
-        return svc.container
+# ── 领域内核(财务/学习/行程):routes/domain.py(import 即注册) ────────────────
+from .routes import domain  # noqa: F401
 
-    app.dependency_overrides[_hkc_get_container] = _resolve_hkc_container
-    app.include_router(_hkc_knowledge_router)
-    # 连接设置(星球 UI 左下的「连接设置」面板)POST /config/llm 做运行时 LLM 配置,
-    # 覆盖 .env 的 HKC_LLM_*。独立 hkc-api 有这个路由,嵌入式 hestia 之前没挂 → 前端
-    # 报「模型配置失败:404」且改配置无效。这里补挂 config 路由(同一容器 override 已覆盖),
-    # 让「连接设置」的「知识抽取模型」段在 hestia 下真正生效。
-    from hkc_api.routes.config import router as _hkc_config_router
-    app.include_router(_hkc_config_router)   # /config/llm(GET 读配置 / POST 改配置)
-    # 星球副面板(冲突裁决/能力编译/最短路径)用的 HKC 路由。不挂的话 /conflicts、
-    # /abilities、/search/path 在 hestiaOS 下 404 → 星球「冲突裁决」面板拉不到数据、
-    # 永远显示 0(误导),能力/路径面板同样空。这里补挂(同一容器 override 已覆盖)。
-    try:
-        from hkc_api.routes.ability import router as _hkc_ability_router
-        from hkc_api.routes.search  import router as _hkc_search_router
-        app.include_router(_hkc_ability_router)   # /abilities, /conflicts
-        app.include_router(_hkc_search_router)     # /search/path 等
-        _sub = "/abilities, /conflicts, /search/*"
-    except Exception as _e2:
-        _sub = f"(能力/搜索路由未挂: {_e2})"
-    print(f"[HestiaOS API] ✓ HKC 星球数据面已挂载 (/knowledge/*, /config/*, {_sub})")
-except Exception as _e:
-    print(f"[HestiaOS API] · HKC 星球数据面未挂载(可选): {_e}")
+# ── 主管编排:routes/orchestration.py(import 即注册) ────────────────
+from .routes import orchestration  # noqa: F401
 
+# ── 浏览器子系统:routes/browser.py(import 即注册) ────────────────
+from .routes import browser  # noqa: F401
 
-# ── 请求模型 ───────────────────────────────────────────────
+# ── 知识核心(HKC):routes/knowledge.py(import 即注册) ────────────────
+from .routes import knowledge  # noqa: F401
 
-class TaskRequest(BaseModel):
-    task: str
-    agent_id: str = "supervisor"
-    context: dict = {}
-    images: list = []       # 多模态对话:[{media_type,data(base64)}];仅 /chat/stream 消费
-    history: list = []      # 多轮上下文:[{role:'user'/'assistant',content}];前端带最近几轮,
-                            # 后端拼进 LLM messages,让对话连贯(否则每轮无状态、记不住上一句)
-    session_id: str = ""    # 会话归属:非空则本轮问答落盘到该会话(供"会话历史"回看)
+# ── 认知搜索(HSR):routes/search.py(import 即注册) ────────────────
+from .routes import search  # noqa: F401
 
+# 搬移前这些是 api 模块级符号,测试/外部仍经 hestia.api 访问 → re-export
+from .routes.task import _sanitize_images, _MAX_IMAGES, _MAX_IMG_B64, _STREAM_LIMITER  # noqa: F401
+from .routes.domain import _parse_import_rows  # noqa: F401
+from .routes.knowledge import knowledge_ability as knowledge_ability, _HKCInsuffCov as _HKCInsuffCov  # noqa: F401
 
-class GoalRequest(BaseModel):
-    agent_id: str
-    goal: str
-    allowed_tools: list[str] = []
-    entities: list[str] = []
 
+# ── HKC 星球数据面:实现已移至 app.py ─────────────────────
+_mount_hkc(app)
 
 
-
-@app.get("/api/memory/stats")
-async def get_memory_stats():
-    """记忆中心统计:供前端 vecRecall 面板展示真实数字。"""
-    try:
-        return _os_instance.hmr.stats()
-    except Exception:
-        return {"backend": "?", "total_memories": 0, "relations": 0}
-
-
-# ── 会话历史 ───────────────────────────────────────────────
-class SessionCreate(BaseModel):
-    title: str = ""
-    agent_id: str = "supervisor"
-
-
-class SessionRename(BaseModel):
-    title: str
-
-
-@app.get("/api/sessions")
-async def list_sessions(limit: int = 50):
-    """会话列表(按更新时间倒序,轻字段不含 messages)。"""
-    try:
-        return {"sessions": _os_instance.sessions.list(limit)}
-    except Exception:
-        return {"sessions": []}
-
-
-@app.post("/api/sessions")
-async def create_session(req: SessionCreate):
-    """新建会话。"""
-    return _os_instance.sessions.create(req.title, req.agent_id)
-
-
-@app.get("/api/sessions/{sid}")
-async def get_session(sid: str):
-    """取单个会话(含完整 messages),供前端恢复对话。"""
-    d = _os_instance.sessions.get(sid)
-    if d is None:
-        raise HTTPException(404, "会话不存在")
-    return d
-
-
-@app.post("/api/sessions/{sid}/rename")
-async def rename_session(sid: str, req: SessionRename):
-    return {"ok": _os_instance.sessions.rename(sid, req.title)}
-
-
-@app.delete("/api/sessions/{sid}")
-async def delete_session(sid: str):
-    return {"ok": _os_instance.sessions.delete(sid)}
-
-
-@app.get("/api/memory/recent")
-async def get_recent_memories(limit: int = 20):
-    """最近的记忆条目(倒序),供前端右栏"记忆信息条"。轻字段,不含 embedding。"""
-    try:
-        fn = getattr(_os_instance.hmr, "recent", None)
-        return {"memories": fn(limit) if callable(fn) else []}
-    except Exception:
-        return {"memories": []}
-
-
-@app.get("/api/preferences")
-async def list_preferences():
-    """列出已记住的用户偏好(供查看/清理误存)。偏好是 shared,任一 Agent 视角一致,
-    这里用 assistant 取全量。返回 [{id, content, ...}]。"""
-    ag = _os_instance.assistant
-    return {"preferences": ag.list_preferences()}
-
-
-@app.delete("/api/preferences/{pref_id}")
-async def delete_preference(pref_id: str):
-    """删一条误存的用户偏好(F3:防误报偏好持久注入污染)。返回 {ok}。"""
-    ag = _os_instance.assistant
-    return {"ok": ag.delete_preference(pref_id)}
-
-
-# ── 任务执行 ───────────────────────────────────────────────
-
-@app.post("/api/task")
-async def run_task(req: TaskRequest):
-    """执行任务，返回结果 + ThoughtChain 摘要。
-
-    把认知处理 offload 到工作线程:每请求的 CPU 密集同步工作(harness 语义嵌入等)不再
-    阻塞事件循环,并发请求的嵌入计算可真正并行(torch/ST CPU 前向释放 GIL),吞吐随核数扩展。
-    · contextvars 随 to_thread 复制到工作线程 → 每请求会话状态仍隔离(见 base.py);
-    · 内层 LLM 的 to_thread 用各自 asyncio.run 的独立事件循环 executor,不与外层竞争
-      同一线程池,故无嵌套线程池死锁;
-    · harness 累积态已在 harness.py 用 RLock 保护(嵌入在锁外,故并行不受锁影响)。"""
-    def _work():
-        # 经微内核调度器准入(默认无上限=直通;设了 HESTIA_MAX_CONCURRENCY 才背压)+ 生命周期事件
-        return _os_instance.scheduler.run(
-            lambda: asyncio.run(_os_instance.run(req.task, req.agent_id)),
-            agent_id=req.agent_id, task=req.task)
-    return await asyncio.to_thread(_work)
-
-
-import threading as _threading
-from ..mcp_server import _RateLimiter as _RL
-# 流式限流 + 并发上限(防刷爆/资源耗尽;env 可配)
-_STREAM_LIMITER = _RL(int(os.environ.get("HESTIA_STREAM_RATE", "60")))          # 次/分
-_STREAM_SEM = _threading.Semaphore(int(os.environ.get("HESTIA_STREAM_CONCURRENCY", "4")))
-
-
-_MAX_IMAGES = 6
-_MAX_IMG_B64 = 10 * 1024 * 1024        # 单图 base64 上限 ~10MB(≈7.5MB 原图)
-_MAX_IMG_TOTAL = 20 * 1024 * 1024      # 所有图 base64 累计上限(防 6×10MB=60MB 聚合 payload)
-_ALLOWED_IMG_MT = {"image/png", "image/jpeg", "image/webp", "image/gif"}
-
-
-def _sanitize_images(images):
-    """校验/裁剪前端传来的多模态图片:限数量、限单图大小、限累计总量、白名单类型。
-    防超大 payload/OOM(前端已缩放,这是对直连/恶意客户端的后端自保)。"""
-    out = []
-    total = 0
-    if not isinstance(images, list):
-        return out
-    for im in images[:_MAX_IMAGES]:
-        if not isinstance(im, dict):
-            continue
-        mt = str(im.get("media_type", "")).lower()
-        d = im.get("data", "")
-        if mt not in _ALLOWED_IMG_MT:
-            continue
-        if not isinstance(d, str) or not d or len(d) > _MAX_IMG_B64:
-            continue
-        if total + len(d) > _MAX_IMG_TOTAL:    # 累计超总上限 → 停(丢弃其余)
-            break
-        total += len(d)
-        out.append({"media_type": mt, "data": d})
-    return out
-
-
-@app.post("/api/chat/stream")
-async def chat_stream(req: TaskRequest, request: Request):
-    """流式直答(方案A):SSE 逐字返回 Agent LLM 输出。用于对话/问答;走完整认知管线的任务执行
-    用 /api/task(阻塞)或 /api/task/stream(流式,D1);此端点不跑 recall/verify/reflect 等 stage。
-    背压:令牌桶限流 + 并发信号量;客户端断连 → stop_event 终止 LLM 流(省 token)。
-    images:多模态对话,随问题发给视觉模型(非视觉模型 router 层报错→降级)。"""
-    if not _STREAM_LIMITER.allow():
-        async def _rl():
-            yield "data: " + json.dumps({"error": "rate limited"}) + "\n\n"
-        return StreamingResponse(_rl(), media_type="text/event-stream")
-
-    agent = _os_instance._agents.get(req.agent_id) or _os_instance.assistant
-    imgs = _sanitize_images(req.images)
-
-    async def async_sse():
-        if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)
-            yield "data: " + json.dumps({"error": "busy, try again later"}) + "\n\n"
-            return
-        q: asyncio.Queue = asyncio.Queue()
-        stop = _threading.Event()
-        loop = asyncio.get_running_loop()
-
-        def _producer():
-            _parts = []
-            try:
-                for chunk in agent.stream_reply(req.task, stop_event=stop, images=imgs, history=req.history):
-                    _parts.append(chunk)
-                    loop.call_soon_threadsafe(q.put_nowait, {"delta": chunk})
-                loop.call_soon_threadsafe(q.put_nowait, {"done": True})
-            except Exception as e:
-                loop.call_soon_threadsafe(q.put_nowait, {"error": str(e)})
-            finally:
-                # 落盘会话历史(问 + 答),供"会话/所有会话"回看。断连中止也保留已生成部分。
-                if req.session_id:
-                    try:
-                        _os_instance.sessions.append(req.session_id, "user", req.task)
-                        _reply = "".join(_parts)
-                        if _reply:
-                            _os_instance.sessions.append(req.session_id, "assistant", _reply)
-                    except Exception:
-                        pass
-                loop.call_soon_threadsafe(q.put_nowait, None)   # 结束哨兵
-
-        _threading.Thread(target=_producer, daemon=True, name="chat-stream").start()
-        try:
-            while True:
-                if await request.is_disconnected():
-                    stop.set(); break                 # 断连 → 终止 LLM 流
-                try:
-                    item = await asyncio.wait_for(q.get(), timeout=0.5)
-                except asyncio.TimeoutError:
-                    continue
-                if item is None:
-                    break
-                yield "data: " + json.dumps(item, ensure_ascii=False) + "\n\n"
-        finally:
-            stop.set()
-            _STREAM_SEM.release()
-
-    return StreamingResponse(async_sse(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-@app.post("/api/task/stream")
-async def task_stream(req: TaskRequest, request: Request):
-    """流式任务执行(D1):SSE 逐 stage 进度 + act 逐 token + 最终结果。用于任务/分析等走**完整
-    认知管线**的场景(对话直答走 /api/chat/stream)。事件:`{stage}`/`{delta}`/`{result}`/`{error}`。
-    【P3-3】主管(P1-1 pipeline 化后)同样可走本端点:stage 事件为主管管线的
-    recall/meta_check/schedule/route/plan/dispatch/aggregate;分发场景下子 Agent 的 act
-    token 随 contextvar 传播一并流出。
-    背压与断连处理与 chat_stream 一致:断连 → stop_event 同时停管线 stage(P3)+ 停 act LLM 生成。"""
-    if not _STREAM_LIMITER.allow():
-        async def _rl():
-            yield "data: " + json.dumps({"error": "rate limited"}) + "\n\n"
-        return StreamingResponse(_rl(), media_type="text/event-stream")
-
-    agent = _os_instance._agents.get(req.agent_id)
-    # 【P3-3】P1-1 落地后主管走统一 pipeline(supervisor_stages),支持 run_task_stream,
-    # 不再回落 assistant。未知 agent_id 仍回落 assistant 兼容旧客户端,但打 warning 不静默。
-    if agent is None:
-        print(f"[HestiaOS API] ⚠ /api/task/stream 收到未知 agent_id={req.agent_id},回落 assistant")
-        agent = _os_instance.assistant
-
-    async def async_sse():
-        if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)
-            yield "data: " + json.dumps({"error": "busy, try again later"}) + "\n\n"
-            return
-        q: asyncio.Queue = asyncio.Queue()
-        stop = _threading.Event()
-        loop = asyncio.get_running_loop()
-
-        def _producer():
-            try:
-                for evt in agent.run_task_stream(req.task, stop_event=stop):
-                    loop.call_soon_threadsafe(q.put_nowait, evt)
-            except Exception as e:
-                loop.call_soon_threadsafe(q.put_nowait, {"error": str(e)})
-            finally:
-                loop.call_soon_threadsafe(q.put_nowait, None)   # 结束哨兵
-
-        _threading.Thread(target=_producer, daemon=True, name="task-stream-sse").start()
-        try:
-            while True:
-                if await request.is_disconnected():
-                    stop.set(); break                 # 断连 → 停管线 + 停 act LLM
-                try:
-                    item = await asyncio.wait_for(q.get(), timeout=0.5)
-                except asyncio.TimeoutError:
-                    continue
-                if item is None:
-                    break
-                yield "data: " + json.dumps(item, ensure_ascii=False) + "\n\n"
-        finally:
-            stop.set()
-            _STREAM_SEM.release()
-
-    return StreamingResponse(async_sse(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-# ── 领域内核端点（B 阶段三内核）─────────────────────────────
-
-class ImportPayload(BaseModel):
-    csv_path: Optional[str] = None
-    rows: Optional[list] = None     # 也可直接传记录数组
-
-
-@app.get("/api/finance/analysis")
-async def finance_analysis(period: Optional[str] = None,
-                           current_balance: Optional[float] = None):
-    """财务内核综合分析:预算/异常/订阅/烧钱/守门人裁决。"""
-    try:
-        return _os_instance.finance.analyze_finances(
-            period=period, current_balance=current_balance)
-    except Exception as e:
-        raise HTTPException(500, f"财务分析失败: {e}")
-
-
-@app.post("/api/finance/import")
-async def finance_import(p: ImportPayload):
-    """导入交易数据(CSV 路径或记录数组)。"""
-    rt = _os_instance.finance_runtime
-    try:
-        if p.csv_path:
-            n = rt.import_csv(p.csv_path)
-        elif p.rows:
-            from hestia.finance import Transaction
-            n = 0
-            for row in p.rows:
-                rt.add_transaction(Transaction(**row), run_gatekeeper=False)
-                n += 1
-        else:
-            return {"imported": 0, "note": "未提供数据"}
-        return {"imported": n, "status": rt.status()}
-    except Exception as e:
-        raise HTTPException(400, f"导入失败: {e}")
-
-
-@app.get("/api/learning/analysis")
-async def learning_analysis():
-    """学习内核综合分析:掌握度/遗忘风险/知识图谱/学习策略。"""
-    try:
-        return _os_instance.office.analyze_learning()
-    except Exception as e:
-        raise HTTPException(500, f"学习分析失败: {e}")
-
-
-@app.post("/api/learning/import")
-async def learning_import(p: ImportPayload):
-    """导入知识点(办公学习内核)。learn() 内部已把内容存进 HKC(连续 ConceptKU,知识真源),
-    不再另做桥接。"""
-    rt = _os_instance.learning_runtime
-    try:
-        if p.csv_path:
-            n = rt.import_csv(p.csv_path)
-        elif p.rows:
-            n = 0
-            for row in p.rows:
-                rt.learn(**row); n += 1
-        else:
-            return {"imported": 0, "note": "未提供数据"}
-        rt.build_connections()
-        return {"imported": n, "status": rt.status()}
-    except Exception as e:
-        raise HTTPException(400, f"导入失败: {e}")
-
-
-@app.delete("/api/learning/item/{item_id}")
-async def learning_delete(item_id: str):
-    """删除一个学习知识点(内存+复习状态+图谱,并落盘)。"""
-    rt = _os_instance.learning_runtime
-    ok = rt.delete(item_id)
-    return {"deleted": ok, "status": rt.status()}
-
-
-class NotePayload(BaseModel):
-    item_id: str
-    note: str
-
-
-@app.post("/api/learning/note")
-async def learning_note(p: NotePayload):
-    """给一个学习知识点追加一条笔记(有内容才存;没新增不写盘)。"""
-    rt = _os_instance.learning_runtime
-    r = rt.add_note(p.item_id, p.note)
-    if "error" in r:
-        raise HTTPException(400, r["error"])
-    return r
-
-
-@app.get("/api/itinerary/plan")
-async def itinerary_plan(mode: str = "driving"):
-    """行程内核规划:路线优化/可达性/冲突/守门人 + 高德可视化数据。"""
-    try:
-        return _os_instance.admin.plan_itinerary(mode=mode)
-    except Exception as e:
-        raise HTTPException(500, f"行程规划失败: {e}")
-
-
-@app.post("/api/itinerary/import")
-async def itinerary_import(p: ImportPayload):
-    """导入行程点。"""
-    rt = _os_instance.itinerary_runtime
-    try:
-        if p.csv_path:
-            n = rt.import_csv(p.csv_path)
-        elif p.rows:
-            n = 0
-            for row in p.rows:
-                rt.add_waypoint(**row); n += 1
-        else:
-            return {"imported": 0, "note": "未提供数据"}
-        return {"imported": n, "status": rt.status()}
-    except Exception as e:
-        raise HTTPException(400, f"导入失败: {e}")
-
-
-# ── 领域导入:超越 csv_path，支持上传 csv / xlsx / json ─────────────────────
-# 三领域运行时的 import_csv 是"列→类型转换"的唯一权威。多格式文件在此统一解析成 rows,
-# 再桥接成运行时认识的临时 CSV → 复用 import_csv 的转换逻辑(不碰运行时,单一真源)。
-_IMPORT_MAX_BYTES = 10 * 1024 * 1024
-_IMPORT_COLUMNS = {
-    "finance":   ["amount", "category", "entity", "account", "timestamp", "tags"],
-    "learning":  ["content", "topic", "source", "tags"],
-    "itinerary": ["name", "address", "lng", "lat", "start_time", "duration_min", "city"],
-}
-
-
-def _parse_import_rows(filename: str, data: bytes) -> list:
-    """把上传的 csv / xlsx / json 统一解析成 [dict]。"""
-    ext = os.path.splitext(filename or "")[1].lower()
-    if ext == ".json":
-        obj = json.loads(data.decode("utf-8"))
-        rows = obj.get("rows") if isinstance(obj, dict) else obj
-        if not isinstance(rows, list):
-            raise ValueError("JSON 应为对象数组或 {rows:[...]}")
-        return [dict(r) for r in rows if isinstance(r, dict)]
-    if ext in (".csv", ".txt", ""):
-        import csv as _csv
-        import io as _io
-        text = data.decode("utf-8-sig", errors="replace")
-        return list(_csv.DictReader(_io.StringIO(text)))
-    if ext == ".xlsx":
-        import openpyxl as _openpyxl
-        import io as _io
-        wb = _openpyxl.load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
-        try:
-            grid = list(wb.active.iter_rows(values_only=True))
-        finally:
-            wb.close()
-        if not grid:
-            return []
-        headers = [str(h).strip() if h is not None else "" for h in grid[0]]
-        out = []
-        for r in grid[1:]:
-            d = {headers[i]: ("" if v is None else v)
-                 for i, v in enumerate(r) if i < len(headers) and headers[i]}
-            if any(str(x).strip() for x in d.values()):
-                out.append(d)
-        return out
-    raise ValueError(f"不支持的格式 {ext};支持 .csv .xlsx .json")
-
-
-def _rows_to_temp_csv(rows: list, columns: list) -> str:
-    """把任意来源 rows 写成运行时 import_csv 认识的 CSV(tags 列表 → | 连接),返回临时路径。"""
-    import csv as _csv
-    import tempfile
-    fd, path = tempfile.mkstemp(suffix=".csv")
-    with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            rr = dict(r)
-            if isinstance(rr.get("tags"), (list, tuple)):
-                rr["tags"] = "|".join(str(t) for t in rr["tags"])
-            w.writerow({c: ("" if rr.get(c) is None else rr.get(c)) for c in columns})
-    return path
-
-
-async def _domain_import_file(domain: str, runtime, file: UploadFile):
-    """统一领域文件导入:解析 → 桥接 CSV → 运行时 import_csv(线程池,含阻塞 I/O)。"""
-    data = await file.read()
-    if len(data) > _IMPORT_MAX_BYTES:
-        raise HTTPException(413, f"文件过大(上限 {_IMPORT_MAX_BYTES // 1048576}MB)")
-    try:
-        rows = _parse_import_rows(file.filename or "", data)
-    except Exception as e:
-        raise HTTPException(400, f"解析失败: {e}")
-    if not rows:
-        return {"imported": 0, "note": "文件无有效数据行"}
-    tmp = _rows_to_temp_csv(rows, _IMPORT_COLUMNS[domain])
-    try:
-        n = await asyncio.to_thread(runtime.import_csv, tmp)
-    except Exception as e:
-        raise HTTPException(400, f"导入失败(检查列名是否匹配): {e}")
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-    return {"imported": n, "status": runtime.status()}
-
-
-@app.post("/api/finance/import/file")
-async def finance_import_file(file: UploadFile = File(...)):
-    """上传 csv/xlsx/json 导入交易。列:amount,category,entity,account,timestamp,tags。"""
-    rt = _os_instance.finance_runtime
-    return await _domain_import_file("finance", rt, file)
-
-
-@app.post("/api/learning/import/file")
-async def learning_import_file(file: UploadFile = File(...)):
-    """上传 csv/xlsx/json 导入知识点。列:content,topic,source,tags。"""
-    rt = _os_instance.learning_runtime
-    res = await _domain_import_file("learning", rt, file)
-    try:
-        rt.build_connections()
-    except Exception:
-        pass
-    return res
-
-
-@app.post("/api/itinerary/import/file")
-async def itinerary_import_file(file: UploadFile = File(...)):
-    """上传 csv/xlsx/json 导入行程点。列:name,address,lng,lat,start_time,duration_min,city。"""
-    rt = _os_instance.itinerary_runtime
-    return await _domain_import_file("itinerary", rt, file)
-
-
-# ── 主管编排端点（全局态势 + 跨 Agent)──────────────────────
-
-@app.get("/api/orchestration/situation")
-async def global_situation():
-    """主管全局态势:三内核状态汇总 + 跨域告警(驾驶舱视图)。"""
-    try:
-        return _os_instance.supervisor.global_situation()
-    except Exception as e:
-        raise HTTPException(500, f"态势汇总失败: {e}")
-
-
-class CrossReqPayload(BaseModel):
-    from_agent: str
-    to_agent: str
-    request_type: str
-    payload: dict
-    reason: str = ""
-
-
-@app.post("/api/orchestration/request")
-async def cross_request(p: CrossReqPayload):
-    """跨 Agent 请求:目标 Agent 用守门人裁决(如行程申请差旅预算)。"""
-    try:
-        return _os_instance.supervisor.cross_request(
-            from_agent=p.from_agent, to_agent=p.to_agent,
-            request_type=p.request_type, payload=p.payload, reason=p.reason)
-    except Exception as e:
-        raise HTTPException(500, f"跨 Agent 请求失败: {e}")
-
-
-# ── 浏览器子系统(HIR-Browser)：AI 用的浏览器 ─────────────────
-# 感知网页→压缩语义结构→执行动作→校验结果。async 安全(专用工作线程),
-# playwright 缺失时结构化降级(available=False),不崩溃。受 /api 鉴权保护。
-
-class BrowserActPayload(BaseModel):
-    type: str                         # navigate|click|type|scroll|extract|wait
-    target: str | None = None         # 元素编号;navigate 时为 URL
-    value: object | None = None       # type 的文本;scroll 的方向
-    meta: dict = {}
-
-
-@app.get("/api/browser/status")
-async def browser_status():
-    """浏览器子系统能力/会话状态(available/session_active/launch_error)。"""
-    return _os_instance.browser_service.status()
-
-
-@app.get("/api/browser/perceive")
-async def browser_perceive():
-    """只感知当前页面语义结构(带编号的可交互元素 + 摘要),不改变页面。"""
-    return await _os_instance.browser_service.perceive()
-
-
-@app.post("/api/browser/act")
-async def browser_act(p: BrowserActPayload):
-    """执行一个 Web 动作,返回校验后最新语义结构。"""
-    return await _os_instance.browser_service.act(p.model_dump())
-
-
-# ── 知识核心(HKC)：同进程 DirectClient,惰性装配,缺依赖降级 ─────────
-# HKC = Hestia Knowledge Core:KDE 抽取 → KEE 演化 → 混合检索(BM25+向量+图)。
-# 首次命中任一路由时才装配(见 HestiaOS.hkc 惰性属性);未 vendor/缺依赖时 available=False。
-
-class KnowledgeSearchPayload(BaseModel):
-    query: str
-    mode: str = "hybrid"          # bm25 | vector | graph | hybrid
-    top_k: int = 10
-    domain: str = ""
-
-
-class KnowledgeIngestPayload(BaseModel):
-    text: str
-    source_title: str = ""
-    domain: str = ""
-
-
-def _hkc_or_none():
-    """惰性取 HKCService;None 表示降级(未 vendor/缺依赖/装配失败)。"""
-    try:
-        return _os_instance.hkc
-    except Exception:
-        return None
-
-
-# 【P3-7】异常分类用 isinstance 优先:hasattr(e, "missing_skills") 是鸭子判断,
-# 任何恰好带了同名属性的无关异常都会被误吞成「覆盖不足」证据 gate(真实错误被掩盖)。
-# 真实类型在 vendor 的 hkc_sdk.exceptions(test_hkc.py 同源引用);缺 vendor/hkc 时
-# import 失败降级 None,运行时回退 hasattr 判断,行为与旧版一致。
-try:
-    from hkc_sdk.exceptions import HKCInsufficientCoverage as _HKCInsuffCov
-except Exception:
-    _HKCInsuffCov = None
-
-
-@app.post("/api/knowledge/search")
-async def knowledge_search(p: KnowledgeSearchPayload):
-    """混合检索知识库。HKC 未启用或检索失败时返回空 hits(与整体降级哲学一致)。"""
-    hkc = _hkc_or_none()
-    if hkc is None or not hkc.available:
-        return {"available": False, "hits": []}
-    try:
-        hits = await asyncio.to_thread(
-            hkc.client.search, p.query, p.mode, p.top_k, p.domain)
-    except Exception as e:
-        return {"available": True, "hits": [], "error": str(e)}
-    return {"available": True, "hits": [
-        {"ku_id": h.ku_id, "score": h.score, "name": h.name,
-         "summary": h.summary, "mode": h.mode, "ku_type": getattr(h, "ku_type", "")}
-        for h in hits]}
-
-
-@app.post("/api/knowledge/ingest")
-async def knowledge_ingest(p: KnowledgeIngestPayload):
-    """摄入文本 → KDE 抽取 KU → KEE 演化(守 Principle 07)。需配置 LLM;未配则抽取降级。"""
-    hkc = _hkc_or_none()
-    if hkc is None or not hkc.available:
-        raise HTTPException(503, "HKC 未启用(未 vendor 或缺依赖)")
-    try:
-        res = await asyncio.to_thread(
-            hkc.client.ingest_text, p.text, p.source_title, p.domain)
-        return {"ku_count": res.ku_count, "ku_ids": res.ku_ids, "counts": res.counts}
-    except Exception as e:
-        raise HTTPException(500, f"摄入失败(通常因未配置 LLM): {e}")
-
-
-# ── HKC 融合第 2 档 Step1:ACE 能力(只读查询面,无 LLM、零成本)─────────
-@app.get("/api/knowledge/abilities")
-async def knowledge_abilities():
-    """列出可编译的能力 key(来自 ACE skill_taxonomy)。只读、确定性、无 LLM。"""
-    hkc = _hkc_or_none()
-    if hkc is None or not hkc.available:
-        return {"available": False, "abilities": []}
-    try:
-        keys = await asyncio.to_thread(hkc.client.list_abilities)
-    except Exception as e:
-        return {"available": True, "abilities": [], "error": str(e)}
-    return {"available": True, "abilities": list(keys)}
-
-
-@app.get("/api/knowledge/ability/{ability_key}")
-async def knowledge_ability(ability_key: str):
-    """编译一个能力,返回 coverage/skills/workflows。**证据驱动 gate**:知识覆盖不足时
-    返回 `sufficient=False` + coverage/missing_skills——这不是错误,是"知识还不足以具备该能力"
-    (HestiaOS 证据驱动哲学:没根据的能力不予授予)。只读、无 LLM。"""
-    hkc = _hkc_or_none()
-    if hkc is None or not hkc.available:
-        return {"available": False}
-    try:
-        ab = await asyncio.to_thread(hkc.client.compile_ability, ability_key)
-    except Exception as e:
-        # 覆盖不足(HKCInsufficientCoverage 带 coverage/missing_skills)→ 证据 gate,非错误。
-        # 【P3-7】isinstance 可用时**只**用 isinstance(精确判断:带 missing_skills 属性的
-        # 无关异常不再被误吞成「覆盖不足」);import 失败(缺 vendor)才回退 hasattr 鸭子判断。
-        # 文稿骨架写的是 isinstance OR hasattr 叠加,与其自身设计决策(「失败才回退」=二选一)
-        # 不一致——OR 下鸭子判断永远生效,精确化形同虚设,故按设计决策实现。
-        if _HKCInsuffCov is not None:
-            is_insufficient = isinstance(e, _HKCInsuffCov)
-        else:
-            is_insufficient = hasattr(e, "missing_skills")
-        if is_insufficient:
-            return {"available": True, "sufficient": False,
-                    "coverage": getattr(e, "coverage", {}),
-                    "missing_skills": getattr(e, "missing_skills", []),
-                    "reason": str(e)}
-        raise HTTPException(404, f"能力编译失败(未知 key 或图错误): {e}")
-    return {"available": True, "sufficient": True, "ability": {
-        "ability_key": ab.ability_key, "display_name": ab.display_name,
-        "domain": ab.domain, "coverage": ab.coverage, "version": ab.version,
-        "skills": [{"skill_key": s.skill_key, "display_name": s.display_name,
-                    "coverage": s.coverage, "concept_hits": s.concept_hits}
-                   for s in ab.skills],
-        "workflows": ab.workflows}}
-
-
-# ── 认知搜索(HSR)：内部记忆 + 内部知识 + 联网,统一证据融合 ─────────
-# 一次 search() 统一"查 HMR 记忆 / 查 HKC 知识 / 联网(百度)",走 planner→retriever→
-# fusion→strategy 迭代循环(有上限),只产出证据图,不写任何持久化(边界:不代 Agent 决策)。
-
-class SearchQueryPayload(BaseModel):
-    query: str
-    agent_id: str = "supervisor"
-    context: dict = {}
-    internal_only: bool = False   # True=只查内部(HMR+HKC+Agent态势),跳过联网
-
-
-@app.post("/api/search/query")
-async def search_query(p: SearchQueryPayload):
-    """认知搜索(面向 AI/Agent 的证据管线):返回证据图 + 置信度 + 迭代轨迹。
-    internal_only=True 时只查内部三源(记忆/知识/Agent),不联网。搜索内核惰性构造。"""
-    try:
-        rt = _os_instance.search_runtime
-        result = await asyncio.to_thread(
-            rt.search, p.query, p.agent_id, p.context, p.internal_only)
-        return result.to_dict()
-    except Exception as e:
-        raise HTTPException(500, f"搜索失败: {e}")
-
-
-# ── 前端静态文件 ───────────────────────────────────────────
-# 前端就是 frontend/ 下的 deck.html + 两个 js,直接挂载该目录
-frontend_dir = Path(__file__).parent.parent.parent / "frontend"
-if frontend_dir.exists():
-    @app.get("/")
-    async def serve_deck():
-        # 新版 Hestia Deck(deck_v2);旧版仍可通过 /old 访问
-        v2 = frontend_dir / "deck_v2.html"
-        return FileResponse(str(v2 if v2.exists() else frontend_dir / "deck.html"))
-
-    @app.get("/old")
-    async def serve_deck_old():
-        return FileResponse(str(frontend_dir / "deck.html"))
-
-    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+# ── 前端静态文件:实现已移至 app.py ─────────────────────────
+_mount_frontend(app)
 
 
 if __name__ == "__main__":
