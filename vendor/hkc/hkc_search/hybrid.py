@@ -118,7 +118,8 @@ class HybridSearch:
         kus 为 None 时从 store 加载。
         """
         if kus is None:
-            kus = self.store.query_all(limit=10000)
+            # 不截断:SQLite LIMIT 巨大值 = 全量；早期 limit=10000 在 KU>1 万时会丢索引
+            kus = self.store.query_all(limit=99999999)
 
         if not kus:
             logger.warning("GraphStore 为空，索引未构建")

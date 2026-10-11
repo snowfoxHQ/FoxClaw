@@ -64,6 +64,12 @@ def _mount_hkc(app):
 
         app.dependency_overrides[_hkc_get_container] = _resolve_hkc_container
         app.include_router(_hkc_knowledge_router)
+        # /stats 系统统计:独立 hkc-api 在 main.py 顶层 @app.get("/stats") 定义,不在任何
+        # router 里,嵌入式挂载时会漏掉 → 星球 UI 的 updateDataInfo 调 /stats 404,
+        # 「数据目录 / 全库知识总数」提示失效。这里补挂,复用同一容器 override(惰性装配)。
+        @app.get("/stats", tags=["system"])
+        def _hkc_stats():
+            return _resolve_hkc_container().stats()
         # 连接设置(星球 UI 左下的「连接设置」面板)POST /config/llm 做运行时 LLM 配置,
         # 覆盖 .env 的 HKC_LLM_*。独立 hkc-api 有这个路由,嵌入式 hestia 之前没挂 → 前端
         # 报「模型配置失败:404」且改配置无效。这里补挂 config 路由(同一容器 override 已覆盖),

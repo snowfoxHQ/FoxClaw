@@ -55,11 +55,19 @@ class Harness(PolicyMixin):
         spine=None,                       # 【P0】全局 EventSpine(可空:standalone/governance 场景)
         promote_min_obs: int = None,      # 【P0-1】影子规则升迁所需观察次数(None→env/默认 50)
     ):
-        # embedding 可经 HESTIA_EMBEDDING_MODEL 环境变量切换(体现"模型无关"):
-        # 中文部署设成 paraphrase-multilingual-MiniLM-L12-v2,语义漂移对中文的硬拦率
-        # 从 0 升到 1.0(见 evals/governance/compare_embeddings.py)。显式传参优先于环境变量。
-        embedding_model = embedding_model or os.environ.get(
-            "HESTIA_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        # embedding 模型解析 —— 【P2·单 embedding 入口】优先级:
+        #   1. 显式传参(测试/单 Agent 切模型用)
+        #   2. EMBEDDING_MODEL(系统唯一本地 embedding 入口,.env 一处配 bge-m3 全局生效)
+        #   3. HKC_EMBEDDING_MODEL(向后兼容,EMBEDDING_MODEL 未设时回退)
+        #   4. HESTIA_EMBEDDING_MODEL(向后兼容)
+        #   5. all-MiniLM-L6-v2(传统兜底)
+        # 中文部署设 paraphrase-multilingual-MiniLM-L12-v2 时,语义漂移对中文硬拦率
+        # 从 0 升到 1.0(见 evals/governance/compare_embeddings.py)。
+        embedding_model = (embedding_model
+                           or os.environ.get("EMBEDDING_MODEL")
+                           or os.environ.get("HKC_EMBEDDING_MODEL")
+                           or os.environ.get("HESTIA_EMBEDDING_MODEL")
+                           or "all-MiniLM-L6-v2")
         self.agent_id = agent_id
         self.thought_chain = thought_chain
         self.policy_path = Path(policy_path).resolve()

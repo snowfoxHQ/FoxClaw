@@ -3,9 +3,15 @@ hkc-kee / dedup.py
 知识级去重器 (KnowledgeDeduplicator)
 
 KEE 作为知识身份的唯一权威,在此实现"知识级去重":
-  新 KU 进入时,用 canonical fingerprint 判断库中是否已存在同一知识。
+  新 KU 进入时,用 canonical identity 判断库中是否已存在同一知识。
     命中 → 合并 Evidence 到已有 KU(不新建重复 KU)
-    未命中 → 登记指纹,放行
+    未命中 → 登记身份键,放行
+
+身份判定(确定性,无向量依赖):
+  - 主身份 = type + 规范化 name(statement) + domain
+  - 别名 = LLM 抽取的 aliases(如「北平」的别名「北京」),与主名等价
+  用「别名确定性匹配」取代「向量语义近重」:零模型依赖、零余弦误合并。
+  LLM 未填别名时自然退化为纯 exact 去重,行为不变。
 
 与 Crystallizer 的 light fingerprint 分工:
   Crystallizer: event 级去重(避免重复消费同一事件)
@@ -13,46 +19,27 @@ KEE 作为知识身份的唯一权威,在此实现"知识级去重":
 
 架构铁律的落点:
   "KEE is the sole authority for knowledge deduplication and evolution."
-  指纹索引由 KEE 维护(不污染 GraphStore schema),冷启动时可从全量 KU 重建。
+  身份索引由 KEE 维护(不污染 GraphStore schema),冷启动时可从全量 KU 重建。
 """
 from __future__ import annotations
-import os
 import logging
 import threading
 from typing import Optional, Callable
 
-from .fingerprint import fingerprint_of_ku, normalize_name
+from .fingerprint import identity_keys, _identity_name
 
 logger = logging.getLogger(__name__)
 
-# ── 语义近重(向量)配置 ──────────────────────────────────────
-# 规则指纹只并"规范化后同名"的 KU;语义层再并"不同表达同一身份"的 KU
-# (AI/人工智能、价值投资/价值投资法)。**仅身份型 Entity/Concept**:它们的 name 是身份标签;
-# Fact/Claim 是陈述,语义归并会误并矛盾陈述("X有效"vs"X无效"余弦高但对立),故守 exact。
-# 默认**关**(opt-in、behavior-preserving):归并是破坏性操作(重定向关系+软删),守 Principle 07
-# 保守放量;HKC_KEE_SEMANTIC=1 开启。无 ST/模型未缓存 → 自动退回 exact-only。
-_SEM_TYPES = {"entity", "concept"}
 
-
-def _sem_enabled() -> bool:
-    return os.environ.get("HKC_KEE_SEMANTIC", "").strip() == "1"
-
-
-def _sem_model_name() -> str:
-    # 与 KEE 冲突检测默认同名 → 共享同一份模型;可经环境变量换任意 ST 模型(模型无关)
-    return os.environ.get("HKC_KEE_SEMANTIC_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
-
-
-def _sem_threshold() -> float:
-    try:
-        return float(os.environ.get("HKC_KEE_SEMANTIC_THRESHOLD", "0.90"))
-    except ValueError:
-        return 0.90
+def _clip(s: str, n: int = 40) -> str:
+    """截断长名,避免 Fact/Claim 的 statement 刷屏日志。"""
+    s = s or ""
+    return s if len(s) <= n else s[:n] + "…"
 
 
 class KnowledgeDeduplicator:
     """
-    维护 canonical_fingerprint → ku_id 索引,提供查重 + Evidence 合并。
+    维护 canonical identity fingerprint → ku_id 索引,提供查重 + Evidence 合并。
 
     参数:
       graph_store: 用于查 KU、写回合并后的 KU。
@@ -63,112 +50,38 @@ class KnowledgeDeduplicator:
 
     def __init__(self, graph_store, merge_evidence_fn: Optional[Callable] = None):
         self.store = graph_store
-        self._index: dict[str, str] = {}          # fingerprint → ku_id
+        self._index: dict[str, str] = {}          # identity fingerprint → ku_id
         self._merge_fn = merge_evidence_fn or self._default_merge
         self._rebuilt = False
         # 去重在 knowledge.created 处理器里跑(摄入线程)。两个并发摄入任务会同时
         # check_and_merge → 竞态漏去重/半重建索引。RLock 序列化,保证"查重+登记"原子。
         self._lock = threading.RLock()
-        # 语义近重索引(opt-in):(type, 规范domain) → [(ku_id, 向量)];全在 _lock 内维护
-        self._sem_index: dict = {}
-        self._sem_model = None
-        self._sem_model_tried = False
 
     # ── 索引维护 ──────────────────────────────────────────────
 
     def rebuild_index(self) -> int:
-        """从 GraphStore 全量 KU 重建指纹索引(冷启动/恢复用)。返回索引条目数。"""
+        """从 GraphStore 全量 KU 重建身份索引(冷启动/恢复用)。返回索引条目数。"""
         with self._lock:
             self._index.clear()
-            self._sem_index.clear()
             try:
                 all_kus = self.store.query_all(limit=100000)
             except Exception as e:
                 logger.warning("重建指纹索引失败,查询全量 KU 出错: %s", e)
                 return 0
-            sem_on = _sem_enabled()
             for ku in all_kus:
                 if self._is_structural_source(ku):
                     continue   # 来源层级节点(合集/文件)不进按名去重索引
-                fp = fingerprint_of_ku(ku)
-                # 已存在则保留最早的(先到先得),避免后来者覆盖
-                self._index.setdefault(fp, ku.ku_id)
-                # 语义桶(仅身份型;开启时才 embed,避免冷启动对全量 KU 编码)
-                if sem_on and self._sem_type(ku) in _SEM_TYPES:
-                    self._sem_register(ku)
+                for k in identity_keys(ku):
+                    # 已存在则保留最早的(先到先得),避免后来者覆盖
+                    self._index.setdefault(k, ku.ku_id)
             self._rebuilt = True
-            logger.info("指纹索引重建完成,共 %d 条", len(self._index))
+            logger.info("身份索引重建完成,共 %d 个身份键", len(self._index))
             return len(self._index)
 
     def _ensure_index(self):
         with self._lock:
             if not self._rebuilt:
                 self.rebuild_index()
-
-    # ── 语义近重(向量)──────────────────────────────────────
-    @staticmethod
-    def _sem_type(ku) -> str:
-        t = getattr(getattr(ku, "ku_type", None), "value", "") or str(getattr(ku, "ku_type", ""))
-        return t.lower()
-
-    def _sem_model_get(self):
-        """惰性取共享 ST 模型(get_st_model 内部单例);取不到(无 ST/未缓存)则永久 None。"""
-        if self._sem_model_tried:
-            return self._sem_model
-        self._sem_model_tried = True
-        try:
-            from hkc_search.embedding_backends import get_st_model
-            self._sem_model = get_st_model(_sem_model_name())
-        except Exception:
-            self._sem_model = None
-        return self._sem_model
-
-    def _embed(self, text: str):
-        """走 HKC **共享向量缓存**(与检索/KEE 冲突检测同一份)。此前这里有 per-instance
-        的 _sem_cache,与其它层各缓存各的;现收敛到编码咽喉,同名文本全局只编一次。"""
-        if not text:
-            return None
-        model = self._sem_model_get()
-        if model is None:
-            return None
-        try:
-            from hkc_search.embedding_backends import encode_cached
-            return encode_cached(model, _sem_model_name(), [text])[0]
-        except Exception:
-            return None
-
-    def _sem_bucket_key(self, ku):
-        return (self._sem_type(ku), normalize_name(getattr(ku, "domain", "") or ""))
-
-    def _sem_name(self, ku) -> str:
-        return getattr(ku, "name", "") or getattr(ku, "title", "") or ""
-
-    def _sem_find(self, new_ku) -> Optional[str]:
-        """同 type+domain 桶内找与新 KU 名字余弦≥阈值的最相近已有 KU。返回 ku_id 或 None。仅锁内调用。"""
-        v = self._embed(self._sem_name(new_ku))
-        if v is None:
-            return None
-        bucket = self._sem_index.get(self._sem_bucket_key(new_ku))
-        if not bucket:
-            return None
-        import numpy as np
-        new_id = getattr(new_ku, "ku_id", None)
-        thr = _sem_threshold()
-        best_id, best = None, thr
-        for kid, kv in bucket:
-            if kid == new_id:
-                continue
-            cos = float(np.dot(v, kv))
-            if cos >= best:
-                best, best_id = cos, kid
-        return best_id
-
-    def _sem_register(self, ku):
-        """把 KU 名字向量加入语义桶(仅身份型)。仅锁内调用;取不到向量则跳过(降级 exact-only)。"""
-        v = self._embed(self._sem_name(ku))
-        if v is None:
-            return
-        self._sem_index.setdefault(self._sem_bucket_key(ku), []).append((getattr(ku, "ku_id", None), v))
 
     # ── 核心:查重 + 合并 ─────────────────────────────────────
 
@@ -190,7 +103,7 @@ class KnowledgeDeduplicator:
         对新建的 KU 做知识级查重。
 
         返回:
-          None        → 未命中(是新知识),已登记指纹,调用方应正常处理该 KU
+          None        → 未命中(是新知识),已登记身份键,调用方应正常处理该 KU
           existing_id → 命中已有知识,已把新 KU 的 Evidence 合并进去;
                         调用方应放弃 new_ku(不再作为独立 KU 处理)
         """
@@ -199,30 +112,31 @@ class KnowledgeDeduplicator:
             return None
         with self._lock:      # 整个"查重 + 登记/合并"必须原子,防并发漏去重
             self._ensure_index()
-            fp = fingerprint_of_ku(new_ku)
+            keys = identity_keys(new_ku)
             new_id = getattr(new_ku, "ku_id", None)
 
-            existing_id = self._index.get(fp)
+            # 任一身份键(主名或别名)命中已有 KU → 判为重复
+            existing_id = None
+            hit_kind = "主名"        # 命中的身份键类型(主名 / 别名),供日志诊断
+            for i, k in enumerate(keys):
+                eid = self._index.get(k)
+                if eid and eid != new_id:
+                    existing_id = eid
+                    hit_kind = "主名" if i == 0 else "别名"
+                    break
 
-            # exact 未命中(或命中的就是自己)→ 语义近重兜底(opt-in,仅身份型)
-            if existing_id is None or existing_id == new_id:
-                sem_on = _sem_enabled() and self._sem_type(new_ku) in _SEM_TYPES
-                sem_id = self._sem_find(new_ku) if sem_on else None
-                if not sem_id or sem_id == new_id:
-                    # 确无近重 → 登记指纹(+语义桶)并放行
-                    self._index[fp] = new_id
-                    if sem_on:
-                        self._sem_register(new_ku)
-                    return None
-                # 语义命中 → 该新名字学成 canonical 的别名(以后走 exact 快路径),落入下面的合并
-                existing_id = sem_id
-                self._index[fp] = existing_id
+            if existing_id is None:
+                # 确无重复 → 登记所有身份键(先到先得)并放行
+                for k in keys:
+                    self._index.setdefault(k, new_id)
+                return None
 
             # 命中已有 KU → 合并 Evidence
             existing_ku = self.store.get(existing_id)
             if existing_ku is None:
                 # 索引指向的 KU 已不存在(被删),用新 KU 顶替
-                self._index[fp] = new_id
+                for k in keys:
+                    self._index[k] = new_id
                 return None
 
             try:
@@ -241,17 +155,19 @@ class KnowledgeDeduplicator:
                         logger.warning("关系重定向失败 (%s → %s): %s", new_id, existing_id, e)
 
             logger.info("知识级去重命中: new=%s 合并入 existing=%s "
-                        "(有新证据=%s, 重定向关系=%d)",
-                        new_id, existing_id, merged, redirected)
+                        "(键=%s, 有新证据=%s, 重定向关系=%d) new名=%r existing名=%r",
+                        new_id, existing_id, hit_kind, merged, redirected,
+                        _clip(_identity_name(new_ku)),
+                        _clip(_identity_name(existing_ku)))
             return existing_id
 
     def register(self, ku) -> None:
-        """显式登记一个 KU 的指纹(用于已知是新知识、跳过查重的场景)。"""
+        """显式登记一个 KU 的身份键(用于已知是新知识、跳过查重的场景)。"""
         with self._lock:
             self._ensure_index()
-            self._index[fingerprint_of_ku(ku)] = getattr(ku, "ku_id", None)
-            if _sem_enabled() and self._sem_type(ku) in _SEM_TYPES:
-                self._sem_register(ku)
+            kid = getattr(ku, "ku_id", None)
+            for k in identity_keys(ku):
+                self._index.setdefault(k, kid)
 
     # ── 默认 Evidence 合并 ────────────────────────────────────
 

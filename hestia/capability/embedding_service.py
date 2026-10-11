@@ -10,6 +10,12 @@ EmbeddingService —— 进程内共享的文本向量能力(P0 性能修复)。
        是安全的(标准的"一个模型服务多请求"模式),故共享比每 Agent 各持一份更优:
        内存 5×→1×,加载 5×→1×。
      · 缺库/加载失败 → 返回 None,调用方(SemanticDrift)自动降级 n-gram 哈希嵌入。
+
+【P2·单 embedding 入口·share-bge-m3】
+  ★ 改用 HKC 进程缓存(hkc_search.embedding_backends.get_st_model)取模型 instance,
+    与 HKC 检索 / HMR VectorStore / Harness SemanticDrift 全部走同一份 instance,
+    全 Hestia 真正只 load bge-m3 **1 次**。之前这里自己 `SentenceTransformer(name)`,
+    导致 Harness 启动期独立 Loading 第 2 次(浪费 ~1GB 内存)。
 """
 from __future__ import annotations
 import os
@@ -22,19 +28,31 @@ _load_attempts = 0                  # 实际发起过多少次"加载尝试"(缓
 
 def get_text_embedder(model_name: str | None = None):
     """返回按 model_name 缓存的共享文本向量模型(sentence-transformers)。
-    同名只加载一次;缺库/失败返回 None(调用方降级哈希嵌入)。线程安全。"""
+    走 HKC 进程缓存(hkc_search.embedding_backends.get_st_model),同名只加载一次,
+    与 HKC / HMR 共用同一 instance(share-bge-m3)。缺库/失败返回 None。线程安全。
+
+    model_name 解析链(【P2·单 embedding 入口】)——
+      显式传参 > EMBEDDING_MODEL(系统唯一本地入口) > HKC_EMBEDDING_MODEL > HESTIA_EMBEDDING_MODEL
+      > all-MiniLM-L6-v2(兜底)。与 HKC init / HMR VectorStore / harness.py 完全一致,
+      保证 get_st_model 缓存 key 命中同一份 instance。"""
     global _load_attempts
-    name = (model_name or os.environ.get("HESTIA_EMBEDDING_MODEL", "all-MiniLM-L6-v2")).strip()
+    name = (model_name
+            or os.environ.get("EMBEDDING_MODEL")
+            or os.environ.get("HKC_EMBEDDING_MODEL")
+            or os.environ.get("HESTIA_EMBEDDING_MODEL")
+            or "all-MiniLM-L6-v2").strip()
     with _lock:
-        if name in _cache:                 # 缓存命中:绝不重复加载
+        if name in _cache:                 # 本服务缓存命中(不重复走 HKC):绝不重复加载
             return _cache[name]
         _load_attempts += 1
         model = None
         try:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer(name)
+            # 【P2·share-bge-m3】走 HKC 共享进程缓存 —— 同名 model 全 Hestia 只 load 1 次
+            # (HKC 检索 / HMR VectorStore / Harness SemanticDrift 共用同一份 instance)
+            from hkc_search.embedding_backends import get_st_model as _hk_get
+            model = _hk_get(name)
         except Exception:
-            model = None                   # 缺库 / 模型权重不在本地 / 离线拉取失败 → 降级
+            model = None                   # HKC 不可用 / 缺库 / 离线 → 降级哈希嵌入
         _cache[name] = model
         return model
 

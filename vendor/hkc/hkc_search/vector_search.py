@@ -82,6 +82,21 @@ class VectorIndex:
         self._names.append(ku.name)
         self._summaries.append(ku.summary[:100])
 
+    def append_bulk(self, kus: list) -> None:
+        """批量追加 KU（一次 encode 调用，比循环 append_ku 快 ~10x）。
+        用于启动时把磁盘索引中缺失的 KU 增量补齐：N=几百到几千时秒级返回。
+        空列表直接返回。无内部锁——调用方（hybrid._lock）持有锁。"""
+        if not kus:
+            return
+        texts      = [self._ku_text(ku) for ku in kus]
+        embeddings = self._backend.encode(texts)
+        if self._index is None:
+            self._init_index()
+        self._index.add(embeddings)
+        self._ku_ids    .extend([ku.ku_id         for ku in kus])
+        self._names     .extend([ku.name          for ku in kus])
+        self._summaries .extend([ku.summary[:100] for ku in kus])
+
     # ── 检索 ──────────────────────────────────────────────────
 
     def search(self, query: str, top_k: int = 10) -> list[VectorResult]:

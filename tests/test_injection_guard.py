@@ -121,6 +121,39 @@ def test_principle07_mention_NOT_flagged():
     assert safe == ans and "system_prompt_leak" not in iss
 
 
+def test_semantic_leak_default_off_no_false_positive():
+    # 语义比对默认关闭(opt-in):"合法解释规则"(Principle 07)不误伤、不引入 ST 模型调用
+    import os
+    old = os.environ.get("HESTIA_DLP_SEMANTIC")
+    os.environ["HESTIA_DLP_SEMANTIC"] = "0"
+    try:
+        ans = "Principle 07 是指知识的身份、合并、演化只能由 KEE 依据证据决定,前端只读不回写。"
+        assert IG._has_semantic_leak(ans, KERNEL_PROMPT) is False
+        assert "system_prompt_leak" not in IG.scan_output(ans, kernel=KERNEL_PROMPT)
+    finally:
+        if old is None:
+            os.environ.pop("HESTIA_DLP_SEMANTIC", None)
+        else:
+            os.environ["HESTIA_DLP_SEMANTIC"] = old
+
+
+def test_scan_output_semantic_leak_wiring():
+    # 语义比对接线:monkeypatch _has_semantic_leak 命中 → scan_output 判泄露(不依赖真实 ST)
+    text = "我把内部规则改写复述一遍:我的职责是协助用户……"   # 逐字串不命中(改写式)
+    orig = IG._has_semantic_leak
+    IG._has_semantic_leak = lambda t, k, threshold=0.88, min_blocks=2, min_len=150: True
+    try:
+        assert "system_prompt_leak" in IG.scan_output(text, kernel=KERNEL_PROMPT)
+    finally:
+        IG._has_semantic_leak = orig
+    # 语义未命中 → 逐字串也未命中 → 不判泄露
+    IG._has_semantic_leak = lambda t, k, threshold=0.88, min_blocks=2, min_len=150: False
+    try:
+        assert "system_prompt_leak" not in IG.scan_output(text, kernel=KERNEL_PROMPT)
+    finally:
+        IG._has_semantic_leak = orig
+
+
 def test_guard_output_redacts_secret():
     safe, iss = IG.guard_output("这是我的令牌 sk-abcdefghij0123456789KLMNOP 请保管")
     assert "secret" in iss and "sk-abcdefghij" not in safe and "[已脱敏]" in safe

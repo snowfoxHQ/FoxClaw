@@ -61,7 +61,7 @@ jobs:
           python -m pip install --upgrade pip
           # 单源安装:依赖以 pyproject.toml 为唯一来源,避免手写清单与它双份漂移。
           # HMR/HKC 是 vendor 内嵌、走 sys.path 加载,不是 PyPI 依赖(已在 pyproject 注明)。
-          # dev extra 提供 pytest(当前回归仍走 run_all.py,保留以备迁移)。
+          # dev extra 提供 pytest + openpyxl/python-docx(默认回归 test_file_ingest/test_domain_import 硬依赖)。
           pip install -e ".[dev]"
 
       - name: Warm embedding cache
@@ -79,7 +79,11 @@ jobs:
         # 不可把降级当作正常路径。
         run: python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
-      - name: Full regression
+      - name: Full regression (with coverage)
         # run_all.py 内部注入 HF_HUB_OFFLINE / 强制 stub LLM / UTF-8,故 CI 无需 LLM key、
-        # 不联网调模型,确定性绿。
-        run: python tests/run_all.py
+        # 不联网调模型,确定性绿。coverage 用 parallel 模式测所有子进程,最后 combine 出基线数字。
+        run: |
+          coverage run tests/run_all.py
+          coverage combine
+          coverage report
+          coverage xml

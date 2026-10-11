@@ -259,11 +259,35 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 out.append({"role": role, "content": content})
         return out
 
-    def stream_reply(self, task: str, stop_event=None, images: list = None, history: list = None):
+    @staticmethod
+    def _attachments_context(attachments) -> str:
+        """把聊天附件拼成一段给 LLM 的上下文:文本类贴正文、其它降级为「文件名 + 元数据」提示。
+        附件正文已在路由层 _sanitize_attachments 清洗(限长/限量),这里只做可读性排版。"""
+        if not attachments:
+            return ""
+        parts = []
+        for a in attachments:
+            if not isinstance(a, dict):
+                continue
+            name = a.get("name") or "文件"
+            text = (a.get("text") or "").strip()
+            if text:
+                parts.append(f"【附件「{name}」内容如下】\n{text}\n【附件「{name}」结束】")
+            else:
+                mime = a.get("mime") or "未知类型"
+                size = a.get("size") or 0
+                parts.append(f"【附件「{name}」({mime}, {size} 字节)】用户上传了此文件,"
+                             f"但无法提取为可读文本;若需要其内容,请说明并提示用户改用文本/PDF 等可读格式。")
+        return "\n\n" + "\n\n".join(parts) if parts else ""
+
+    def stream_reply(self, task: str, stop_event=None, images: list = None, history: list = None,
+                     attachments: list = None):
         """流式直答路径(方案A):对话/问答/分析,不做多步编排(那走 run_task)。同步生成器,
         由端点在线程池迭代成 SSE。stop_event 置位(客户端断连)则提前终止,省 token。
         images(可选)= 多模态图片,随问题发给视觉模型(模型无关,非视觉模型 router 层降级)。
         history(可选)= 前端带来的最近几轮对话 → 拼在当前问题前,让多轮连贯。
+        attachments(可选)= 聊天附件 [{name,size,mime,url,text}]:text 为提取正文,拼进问题末尾
+          供 LLM 阅读;text 为空的(二进制/图片)降级为「文件名 + 元数据」提示。
 
         两条路径(单一决策源之争,见 TOOL_USE_PLAN.md):
           ① HESTIA_TOOL_USE=1 且 provider 支持 tools 且无图 → **LLM 自主工具循环**(_reply_with_tools),
@@ -272,6 +296,11 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         from ..core import tools as _tools
         from ..core import injection_guard as _ig
         from ..core.model_router import _chunk_text
+        task = str(task or "")
+        if attachments:
+            ctx = self._attachments_context(attachments)
+            if ctx:
+                task = task + ctx
         hist = self._sanitize_history(history)
         messages = hist + [{"role": "user", "content": task}]
         parts = []
@@ -308,27 +337,30 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 messages = self._pref_augment(messages)
             except Exception:
                 messages = hist + [{"role": "user", "content": task}]
-            _buf = ""
+            _tail = ""   # 滑窗尾缓冲:跨 chunk 边界的泄露检测只扫最近 _WIN 字,不再整段重扫(消 O(n²))
+            _WIN = 256   # 覆盖最长敏感串(密钥)跨 chunk 边界的情况
             for chunk in self.router.stream(self.system_prompt, messages,
                                             agent_id=self.AGENT_ID, stop_event=stop_event,
                                             images=images):
-                parts.append(chunk)
-                _buf += chunk
-                yield chunk
-                # 流式无法回收已发出的内容,但一旦缓冲区出现密钥/系统提示泄露特征,
-                # 立即中断,阻止把整段 dump 继续吐完(尽力防护,并禁止污染回复落库)。
-                if _ig.scan_output(_buf):
+                # 流出前检测(而非"yield 后才检测"):密钥/泄露所在 chunk 不再已发给用户才中断。
+                # 只扫"尾缓冲 + 新 chunk"(增量滑窗),命中则本 chunk 不发、整段 dump 止于此。
+                _probe = _tail + chunk
+                if _ig.scan_output(_probe):
                     guarded_out = True
                     break
+                _tail = _probe[-_WIN:]
+                parts.append(chunk)
+                yield chunk
             if guarded_out:
                 _notice = "\n\n(⚠ 已触发输出安全护栏,中断后续内容。)"
                 parts.append(_notice)
                 yield _notice
         reply = "".join(parts)
         stopped = stop_event is not None and stop_event.is_set()
-        # 落库前最终兜底:fallback 增量检查(无 kernel、只抓明显 dump)可能漏过逐字复现的系统提示,
-        # 这里用 kernel 逐字串比对再判一次,命中则不落库(防污染回流),不影响已流给用户的内容。
-        if reply and not guarded_out and _ig.scan_output(reply, kernel=KERNEL_PROMPT):
+        # 落库前最终兜底(仅 fallback 路径需要):fallback 增量检查(无 kernel、只抓明显 dump)可能漏过
+        # 逐字复现的系统提示,这里用 kernel 逐字串比对再判一次,命中则不落库(防污染回流),不影响已流给
+        # 用户的内容。工具路径在流出前已 guard_output(kernel) 完整防护,无需重复扫(消冗余)。
+        if reply and not guarded_out and not used_tools and _ig.scan_output(reply, kernel=KERNEL_PROMPT):
             guarded_out = True
         try:
             self._think(content=("流式直答:" + reply)[:500], node_type="reflection", conf=0.8)

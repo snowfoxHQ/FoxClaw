@@ -47,7 +47,7 @@ class HMR:
     def __init__(
         self,
         storage_path: str = "./hmr_data",
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = None,    # 【P1】默认 None → VectorStore 内部按 env 链解析
         llm_api_key: Optional[str] = None,
         lifecycle_config: Optional[LifecycleConfig] = None,
     ):

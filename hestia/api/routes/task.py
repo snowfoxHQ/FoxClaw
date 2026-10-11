@@ -29,6 +29,8 @@ class TaskRequest(BaseModel):
     history: list = []      # 多轮上下文:[{role:'user'/'assistant',content}];前端带最近几轮,
                             # 后端拼进 LLM messages,让对话连贯(否则每轮无状态、记不住上一句)
     session_id: str = ""    # 会话归属:非空则本轮问答落盘到该会话(供"会话历史"回看)
+    attachments: list = []  # 聊天附件:[{name,size,mime,url,text}];text 为提取正文(可为空),
+                            # 仅 /chat/stream 消费;随问题注入 LLM + 落盘会话供回看
 
 
 class GoalRequest(BaseModel):
@@ -68,6 +70,10 @@ _MAX_IMG_B64 = 10 * 1024 * 1024        # 单图 base64 上限 ~10MB(≈7.5MB 原
 _MAX_IMG_TOTAL = 20 * 1024 * 1024      # 所有图 base64 累计上限(防 6×10MB=60MB 聚合 payload)
 _ALLOWED_IMG_MT = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
+_MAX_ATTACHMENTS = 6                   # 单次问答最多附件数
+_ATTACH_TEXT_MAX = 20000               # 单附件提取正文上限
+_ATTACH_TEXT_TOTAL = 60000             # 全部附件正文累计上限(≈1.5 万 token,防撑爆上下文)
+
 
 def _sanitize_images(images):
     """校验/裁剪前端传来的多模态图片:限数量、限单图大小、限累计总量、白名单类型。
@@ -92,6 +98,38 @@ def _sanitize_images(images):
     return out
 
 
+def _sanitize_attachments(attachments):
+    """校验/裁剪前端传来的聊天附件:限数量、字段清洗、正文长度上限 + 累计上限。
+    附件是前端经 /api/upload 上传后带回的引用({name,size,mime,url,text});这里只做
+    直连/恶意客户端的自保,不信任 text 之外任何字段用于文件系统操作(下载按 url 里的 id 白名单)。"""
+    out = []
+    total = 0
+    if not isinstance(attachments, list):
+        return out
+    for a in attachments[:_MAX_ATTACHMENTS]:
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("name") or "")[:200]
+        text = str(a.get("text") or "")[:_ATTACH_TEXT_MAX]
+        if not name and not text:
+            continue
+        if total + len(text) > _ATTACH_TEXT_TOTAL:   # 累计正文超总上限 → 截断(丢弃后续正文)
+            text = text[:_ATTACH_TEXT_TOTAL - total]
+        total += len(text)
+        try:                                        # size 可能是脏值("big"/None),护栏绝不因此抛异常
+            size = int(a.get("size")) if a.get("size") else 0
+        except (TypeError, ValueError):
+            size = 0
+        out.append({
+            "name": name,
+            "size": size,
+            "mime": str(a.get("mime") or "")[:100],
+            "url": str(a.get("url") or "")[:500],
+            "text": text,
+        })
+    return out
+
+
 @app.post("/api/chat/stream")
 async def chat_stream(req: TaskRequest, request: Request):
     """流式直答(方案A):SSE 逐字返回 Agent LLM 输出。用于对话/问答;走完整认知管线的任务执行
@@ -105,6 +143,7 @@ async def chat_stream(req: TaskRequest, request: Request):
 
     agent = _api._os_instance._agents.get(req.agent_id) or _api._os_instance.assistant
     imgs = _sanitize_images(req.images)
+    atts = _sanitize_attachments(req.attachments)
 
     async def async_sse():
         if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)
@@ -117,7 +156,8 @@ async def chat_stream(req: TaskRequest, request: Request):
         def _producer():
             _parts = []
             try:
-                for chunk in agent.stream_reply(req.task, stop_event=stop, images=imgs, history=req.history):
+                for chunk in agent.stream_reply(req.task, stop_event=stop, images=imgs,
+                                                history=req.history, attachments=atts):
                     _parts.append(chunk)
                     loop.call_soon_threadsafe(q.put_nowait, {"delta": chunk})
                 loop.call_soon_threadsafe(q.put_nowait, {"done": True})
@@ -127,7 +167,7 @@ async def chat_stream(req: TaskRequest, request: Request):
                 # 落盘会话历史(问 + 答),供"会话/所有会话"回看。断连中止也保留已生成部分。
                 if req.session_id:
                     try:
-                        _api._os_instance.sessions.append(req.session_id, "user", req.task)
+                        _api._os_instance.sessions.append(req.session_id, "user", req.task, attachments=atts)
                         _reply = "".join(_parts)
                         if _reply:
                             _api._os_instance.sessions.append(req.session_id, "assistant", _reply)

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hestia Deck · AI 指挥中枢</title>
-<link rel="stylesheet" href="./deck.css?v=5.30">
+<link rel="stylesheet" href="./deck.css?v=5.32">
 </head>
 <body>
 <div class="app">
@@ -13,14 +13,14 @@
   <div class="topbar">
     <div class="brand">
       <div class="logo">H</div>
-      <h1>Hestia OS</h1><span class="ver">v5.30</span>
+      <h1>Hestia OS</h1><span class="ver">v5.32</span>
     </div>
     <!-- Agent 卡片已精简:对话统一走输入框(主管自动分诊);保留「财务/地图/学习」三个有二级面板的入口,移到右侧 -->
     <div class="topright">
       <div class="abtn" data-agent="finance" title="打开财务仪表盘">💰 财务</div>
       <div class="abtn" data-agent="admin" title="打开行程地图">🗺 地图</div>
       <div class="abtn" data-agent="office" title="打开学习面板 · 录入知识点">📚 学习</div>
-      <div class="sysstat">系统状态 <div class="bar"><i></i></div> <b id="upStat">···</b></div>
+      <div class="sysstat">系统状态 <div class="bar"><i></i></div> <b id="upStat">···</b> <span id="diagTag" style="font-size:10px;color:var(--amber);margin-left:4px;font-family:ui-monospace,monospace">[DIAG?v5.37]</span></div>
       <div class="model-sel" id="modelSel">
         <div class="pill" id="modelPill">◈ <span id="modelName">AI 中枢</span> <span style="font-size:9px;opacity:.7">▾</span></div>
         <div class="model-menu" id="modelMenu"></div>
@@ -96,10 +96,20 @@
           <div class="slash-menu" id="atMenu"></div>
           <div class="conn-panel" id="connPanel"></div>
           <div class="img-strip" id="imgStrip"></div>
+          <div class="file-strip" id="fileStrip"></div>
           <div class="tool-menu" id="toolMenu"></div>
           <div class="cmdbar">
             <div class="cmdbar-inner">
               <div class="mic" id="cmdMore" title="工具:模式/上传/文件夹/图片/连接器">＋</div>
+              <!-- 模型选择器(下拉式,图1 风格):点击展开 / "+" 弹添加对话框 / 切完即时生效 -->
+              <div class="model-pick" id="chatModelPick" title="选择对话模型(切完即时生效,无需重启)">
+                <div class="mp-pill" id="chatModelPill">
+                  <span class="mp-dot" id="chatModelDot"></span>
+                  <span class="mp-name" id="chatModelName">Auto</span>
+                  <span class="mp-caret">▾</span>
+                </div>
+                <div class="mp-menu" id="chatModelMenu"></div>
+              </div>
               <input id="cmd" placeholder="告诉我你想做什么…  主管 Agent 将自动调度">
               <div class="send">➤</div>
               <!-- 工具按钮收进上方弹窗菜单;这些隐藏保留,菜单项点击它们以复用原有逻辑 -->
@@ -111,6 +121,8 @@
                 <input type="file" id="cmdFolderInput" webkitdirectory directory multiple>
                 <div class="mic" id="cmdImg" title="附加图片(多模态)">🖼</div>
                 <input type="file" id="cmdImgFile" accept="image/*" multiple>
+                <div class="mic" id="cmdAttachFile" title="附件文件(随问题发给 AI)">📄</div>
+                <input type="file" id="cmdFileUpload" multiple>
                 <div class="mic" id="cmdConn" title="连接器/插件">🔌</div>
               </div>
             </div>
@@ -188,6 +200,57 @@
   </div>
 </div>
 
+<!-- 「添加自定义模型」对话框(图2 风格:需兼容 OpenAI Chat Completion API) -->
+<div class="cm-mask" id="cmAddMask">
+  <div class="cm-modal">
+    <div class="cm-head">
+      <h3 id="cmAddTitle">添加自定义模型</h3>
+      <span class="cm-close" id="cmAddClose" title="关闭 (Esc)">✕</span>
+    </div>
+    <div class="cm-sub">需兼容 OpenAI Chat Completion 接口;BASE URL 通常以 <code>/v1</code> 结尾</div>
+    <div class="cm-body">
+      <div class="cm-row">
+        <label>模型名称 <em>*</em></label>
+        <input id="cm_name" placeholder="例:我的 MiniMax-M3" maxlength="40">
+      </div>
+      <div class="cm-row">
+        <label>BASE URL <em>*</em></label>
+        <input id="cm_base_url" placeholder="https://api.example.com/v1">
+      </div>
+      <div class="cm-row cm-pwd">
+        <label>API KEY <em>*</em></label>
+        <input id="cm_api_key" type="password" placeholder="请输入 API Key">
+        <span class="cm-eye" id="cm_eye" title="显示/隐藏">👁</span>
+      </div>
+      <div class="cm-row">
+        <label>模型 ID <em>*</em></label>
+        <input id="cm_model" placeholder="例:MiniMax-Text-01">
+      </div>
+      <details class="cm-extra">
+        <summary>高级设置(双 header 鉴权,如 MiniMax Group ID)</summary>
+        <div class="cm-row">
+          <label>Group ID(可选)</label>
+          <input id="cm_group_id" placeholder="例:1234567890">
+        </div>
+        <div class="cm-row">
+          <label>额外 header(JSON object,可选)</label>
+          <input id="cm_extra_headers" placeholder='例:{"X-Custom": "value"}'>
+        </div>
+        <div class="cm-row">
+          <label>备注(可选)</label>
+          <input id="cm_note" placeholder="例:生产环境 / 备用">
+        </div>
+      </details>
+      <div class="cm-msg" id="cm_msg"></div>
+    </div>
+    <div class="cm-btns">
+      <button class="cm-cancel" id="cm_cancel">取消</button>
+      <button class="cm-test" id="cm_test">测试连通性</button>
+      <button class="cm-save" id="cm_save">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 全屏 overlay 浮层 -->
 <div class="ov-mask" id="ovMask">
   <div class="ov-box">
@@ -202,7 +265,47 @@
   </div>
 </div>
 
-<script type="module" src="./deck/main.js?v=5.30"></script>
+<!-- 兜底错误捕获:任何 JS 错误 / Promise reject 都打到 #upStat,便于一眼定位卡死点 -->
+<script>
+(function(){
+  function show(msg, color){
+    var el = document.getElementById('upStat');
+    if(!el) return;
+    el.textContent = msg.length>40 ? msg.slice(0,40)+'…' : msg;
+    el.style.color = color || 'var(--amber)';
+  }
+  // 启动超时:3 秒后 loadStatus 还没把 upStat 改成 100%/离线 → 报"启动卡死"
+  setTimeout(function(){
+    var el = document.getElementById('upStat');
+    if(el && el.textContent === '···'){
+      show('启动卡死(>3s)', 'var(--amber)');
+    }
+  }, 3000);
+  // 全局同步错误
+  window.addEventListener('error', function(e){
+    show('JS:' + (e.message||'error').slice(0,32), 'var(--pink)');
+  });
+  // 未捕获的 Promise 拒绝
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e.reason && (e.reason.message || String(e.reason)) || 'reject';
+    show('PR:' + String(r).slice(0,32), 'var(--pink)');
+  });
+  // 暴露手动诊断:控制台跑 statusDiag() 看 main.js / loadStatus / API 实际状态
+  window.statusDiag = function(){
+    return {
+      upStat: document.getElementById('upStat')?.textContent,
+      mainLoaded: typeof loadStatus === 'function',
+      pickerLoaded: typeof window._chatPickerInited !== 'undefined' || !!document.getElementById('chatModelPill'),
+      wsReadyState: (function(){try{return (window._ws||{}).readyState}catch(e){return 'n/a'}})(),
+    };
+  };
+  // DIAG 标记(肉眼可见,确认硬刷是否真生效):注入时间戳。
+  // 看不到这行被替换 → 浏览器/hestia 缓存了旧 HTML。
+  var dt = document.getElementById('diagTag');
+  if(dt) dt.textContent = 'DIAG v5.37 @ ' + new Date().toTimeString().slice(0,8);
+})();
+</script>
+<script type="module" src="./deck/main.js?v=5.37"></script>
 
 <!-- HKC 知识星球:点右上角「🌐 知识星球」→ 全屏弹出 HKC 原版整页(iframe /planet/)。首开懒加载,首页保持清爽。 -->
 <div class="planet-ov" id="planetOv" aria-hidden="true">

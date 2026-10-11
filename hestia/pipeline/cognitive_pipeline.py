@@ -319,8 +319,10 @@ async def _act_via_skill(ctx: "PipelineContext"):
     if skill is None:
         return None
     from ..skills.pipeline import _build_args
+    from ..skills import set_loop_session, reset_loop_session
     args = _build_args(skill, ctx.task, {})
     confirmed = _confirmed_for(ctx.context, sid)
+    token = set_loop_session(getattr(ctx, "session_id", None))   # 循环检测按会话分槽
     try:
         res = await asyncio.to_thread(adp.invoke, skill, args, confirmed)
     except Exception as e:
@@ -328,6 +330,8 @@ async def _act_via_skill(ctx: "PipelineContext"):
         # 结构化 error 回传,**绝不回落 LLM**(路由到发邮件却让 LLM 代答=幻觉/危险),也不崩整个任务。
         return ({"skill": sid, "status": "error", "message": f"skill dispatch 异常: {e}",
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})
+    finally:
+        reset_loop_session(token)
     extra = {"via": "skill", "skill_id": sid, "skill_status": res.status}
     if res.success:
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)

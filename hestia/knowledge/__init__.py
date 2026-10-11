@@ -28,44 +28,43 @@ def _ensure_hkc_importable() -> bool:
 
 
 def _detect_llm(api_key=None):
-    """模型无关地决定 HKC 抽取用的 provider/key。
+    """【P2·单 LLM 入口】模型无关地决定 HKC 抽取用的 provider/key/base_url。
 
-    优先级:
-      1. 显式 HKC_LLM_PROVIDER(可选 HKC_LLM_API_KEY)——独立于主系统 HESTIA_PROVIDER,
-         用于「主对话用云端模型、知识抽取用本地/别的模型」的分离场景;非法值忽略回落。
-      2. 否则复用 HestiaOS 的 ModelRouter 探测。
-    HKC 底层(extractor)支持 anthropic / deepseek / openai / openai-compatible。"""
+    默认从 LLM_PROVIDER / LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 单入口读,
+    与主对话 100% 同源(同 token 同 base_url);HKC 底层只认 4 个 provider 协议名
+    (anthropic / deepseek / openai / openai-compatible),做一次协议名映射:
+        generic / minimax / qwen / local / openai → openai-compatible
+    (它们都是 OpenAI 协议兼容,语义同 HKC 底层认的 'openai-compatible')。
+
+    向后兼容:用户若仍想 HKC 独立配(主对话走云、HKC 走本地),可显式设 HKC_LLM_*
+    4 个 env,优先级仍最高。
+    """
+    # 1. 显式 HKC_LLM_PROVIDER 覆盖(向后兼容「HKC 独立配」场景)
     env_provider = (os.environ.get("HKC_LLM_PROVIDER") or "").strip().lower()
     if env_provider in ("anthropic", "deepseek", "openai", "openai-compatible"):
-        key = os.environ.get("HKC_LLM_API_KEY") or ""
-        if not key:
-            # 未显式给 HKC key 时,按 provider 回退到对应的通用 key(与 hkc_api/main.py 一致)
-            key = {
-                "anthropic": os.environ.get("ANTHROPIC_API_KEY"),
-                "deepseek": os.environ.get("DEEPSEEK_API_KEY"),
-                "openai": os.environ.get("OPENAI_API_KEY"),
-                "openai-compatible": os.environ.get("HKC_LLM_API_KEY"),
-            }.get(env_provider, "") or ""
-        return env_provider, key or api_key
+        key = (os.environ.get("HKC_LLM_API_KEY")
+               or os.environ.get("LLM_API_KEY")
+               or "")
+        base = (os.environ.get("HKC_LLM_BASE_URL")
+                or os.environ.get("LLM_BASE_URL")
+                or "")
+        return env_provider, key or api_key, base
 
-    provider_env = {}
-    try:
-        from ..core.model_router import ModelRouter, PROVIDER_ENV
-        provider = ModelRouter._auto_detect()
-        provider_env = PROVIDER_ENV
-    except Exception:
-        provider = "anthropic"
-    if provider not in ("anthropic", "deepseek", "openai"):
-        if os.environ.get("DEEPSEEK_API_KEY"):
-            provider = "deepseek"
-        elif os.environ.get("ANTHROPIC_API_KEY"):
-            provider = "anthropic"
-        elif os.environ.get("OPENAI_API_KEY"):
-            provider = "openai"
-        else:
-            provider = "anthropic"
-    llm_key = os.environ.get(provider_env.get(provider, ""), "") or api_key
-    return provider, llm_key
+    # 2. 默认单入口:从 LLM_* 读
+    provider = (os.environ.get("LLM_PROVIDER") or "generic").strip().lower()
+    key = (os.environ.get("LLM_API_KEY") or api_key or "").strip()
+    base = os.environ.get("LLM_BASE_URL", "").strip()
+
+    # 3. 协议名映射 → HKC 底层 4 个合法值
+    if provider in ("generic", "minimax", "qwen", "local", "openai"):
+        hkc_provider = "openai-compatible"
+    elif provider == "deepseek":
+        hkc_provider = "deepseek"
+    elif provider == "anthropic":
+        hkc_provider = "anthropic"
+    else:
+        hkc_provider = "openai-compatible"   # 未知 provider 兜底
+    return hkc_provider, key, base
 
 
 class HKCService:
@@ -123,22 +122,27 @@ def init_hkc(data_dir, api_key=None):
         print(f"[HestiaOS] · HKC 依赖缺失(可选,pip install 'hestia-os[knowledge]'): {e}")
         return None
     try:
-        provider, llm_key = _detect_llm(api_key)
+        provider, llm_key, llm_base_url = _detect_llm(api_key)
+        # 【P2·单 LLM 入口】embedding 模型名优先 EMBEDDING_MODEL(系统唯一本地入口),
+        # 再 HKC_EMBEDDING_MODEL(向后兼容);其他 HKC 行为开关不变。
+        _emb_model = (os.environ.get("EMBEDDING_MODEL")
+                      or os.environ.get("HKC_EMBEDDING_MODEL")) or None
         container = HKCContainer(
             data_dir=str(Path(data_dir) / "hkc"),
             embedding_kind=os.environ.get("HKC_EMBEDDING", "auto"),   # 默认真语义(本地优先,无 ST 回退 stub)
             embedding_url=os.environ.get("HKC_EMBEDDING_URL", "http://localhost:8080"),
-            embedding_model=os.environ.get("HKC_EMBEDDING_MODEL") or None,  # local/auto 模型名(如 BAAI/bge-m3)
+            embedding_model=_emb_model,                                # local/auto 模型名(如 bge-m3)
             llm_api_key=llm_key or None,
             llm_provider=provider,
-            llm_model=os.environ.get("HKC_LLM_MODEL"),
-            llm_base_url=os.environ.get("HKC_LLM_BASE_URL"),
+            llm_model=os.environ.get("LLM_MODEL") or os.environ.get("HKC_LLM_MODEL"),
+            llm_base_url=llm_base_url or None,
         ).assemble()
         # 注册为 hkc_api 全局单例:若将来挂 HKC 自身 /hkc REST 路由,
         # 其 Depends(get_container) 能取到这同一个容器,而非"未初始化"。
         from hkc_api import container as _cm
         _cm._container = container
         print(f"[HestiaOS] ✓ HKC 知识核心已进程内融合 (provider={provider}, "
+              f"base={'已配置' if llm_base_url else 'provider默认'}, "
               f"key={'已配置' if llm_key else '未配置(抽取将降级)'})")
         return HKCService(container, connect(container=container))
     except Exception as e:

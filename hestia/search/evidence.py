@@ -37,10 +37,14 @@ def _has_neg(text: str) -> bool:
 
 
 def _sem_model_name() -> str:
+    # 【P2·单 embedding 入口】解析链:与 harness.py 一致 ——
+    # 显式传参 > EMBEDDING_MODEL(单入口) > HKC_EMBEDDING_MODEL > HESTIA_EVIDENCE_MODEL > HKC_KEE_SEMANTIC_MODEL > MiniLM 兜底。
     # 与 KEE 默认同名 → get_st_model 共享同一实例;可经环境变量换任意 ST 模型(模型无关)
-    return os.environ.get("HESTIA_EVIDENCE_MODEL",
-                          os.environ.get("HKC_KEE_SEMANTIC_MODEL",
-                                         "paraphrase-multilingual-MiniLM-L12-v2"))
+    return (os.environ.get("HESTIA_EVIDENCE_MODEL")
+            or os.environ.get("EMBEDDING_MODEL")
+            or os.environ.get("HKC_EMBEDDING_MODEL")
+            or os.environ.get("HKC_KEE_SEMANTIC_MODEL")
+            or "paraphrase-multilingual-MiniLM-L12-v2")
 
 
 def _semantic_sim(a: str, b: str):

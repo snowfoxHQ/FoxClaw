@@ -28,6 +28,9 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Python 构建产物(pip install -e . 生成)
 *.egg-info/
@@ -51,6 +54,7 @@ dist/
 
 # 编辑器/IDE 本机配置(含本机路径,不跨机共享)
 .claude/launch.json
+.vscode/settings.json
 
 # 本地工具缓存/数据(workbuddy 的记忆与临时文件,非源码,不入库)
 .workbuddy/

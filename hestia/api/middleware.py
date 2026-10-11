@@ -22,6 +22,46 @@ def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest((a or "").encode("utf-8"), (b or "").encode("utf-8"))
 
 
+def _is_loopback_client(host: str) -> bool:
+    """【P3-loopback】本机回环判定:127.0.0.0/8(RFC 3330) + ::1(RFC 4291)。
+
+    FastAPI/Starlette 的 `request.client.host` 已是 TCP 层解析后的远端 IP,
+    不识别 'localhost' 字符串(那是浏览器层主机名,握手时已解析为 IP)。
+    空值 / 解析失败 → False(默认走鉴权,偏安全)。
+    """
+    if not host:
+        return False
+    h = host.strip()
+    if h == "::1":
+        return True
+    if h.startswith("127."):
+        parts = h.split(".")
+        if len(parts) == 4:
+            try:
+                if all(0 <= int(p) <= 255 for p in parts):
+                    return True
+            except ValueError:
+                return False
+    return False
+
+
+def _loopback_bypass_on() -> bool:
+    """【P3-loopback】本机免密开关。默认开(本机开发体验优先);
+    HESTIA_LOOPBACK_BYPASS=0 显式关(强迫症/特殊场景)。
+    与 _gateway_on 同模式:每请求读 env(运行时可配 + 便于测试)。
+
+    设计依据:RUN_CN.md:113「不设 HESTIA_API_KEY = 无鉴权,仅回环地址安全」。
+    → 回环本身就安全,鉴权的目的是挡非回环访问,本机不该被一刀切。
+    → 真正对外场景(0.0.0.0 监听)非 127.0.0.1 客户端仍要 key,锁门能力不变。
+    """
+    v = os.environ.get("HESTIA_LOOPBACK_BYPASS", "").strip()
+    if v == "0":
+        return False
+    if v == "1":
+        return True
+    return True  # 默认开
+
+
 def _is_guarded_path(path: str) -> bool:
     """【P3-8】需要鉴权/限流/追踪的数据面路径:/api/*、/knowledge/*、/config/*。
 
@@ -37,7 +77,10 @@ def _is_guarded_path(path: str) -> bool:
 
 async def _api_key_guard(request, call_next):
     """设了 HESTIA_API_KEY 时,保护 /api/* 与 /ws/*。未设则放行(本地默认)。
-    每请求读环境变量:可运行时配置,也便于测试。"""
+    每请求读环境变量:可运行时配置,也便于测试。
+
+    【P3-loopback】本机客户端(127.0.0.1 / ::1)自动免密:仅对非 loopback 客户端
+    校验 X-API-Key。详见 _loopback_bypass_on。"""
     api_key = os.environ.get("HESTIA_API_KEY", "").strip()
     if api_key:
         path = request.url.path
@@ -49,6 +92,12 @@ async def _api_key_guard(request, call_next):
             # 跨源请求会在预检阶段被 401 拦死(且响应无 CORS 头,浏览器只报 CORS 错误,极难定位)。
             if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
                 return await call_next(request)
+            # 【P3-loopback】本机回环自动放行:与 docs 哲学「回环地址安全」对齐,
+            # 避免本地开发时浏览器填 key 的体验摩擦。设 HESTIA_LOOPBACK_BYPASS=0 可关。
+            if _loopback_bypass_on():
+                client_host = request.client.host if request.client else ""
+                if _is_loopback_client(client_host):
+                    return await call_next(request)
             # 【P3-1】常量时间比对,防对 API Key 的计时攻击(MCP 暴露后更重要)
             if not _constant_time_eq(request.headers.get("X-API-Key", "") or "", api_key):
                 from fastapi.responses import JSONResponse
@@ -159,6 +208,15 @@ def install_middleware(app):
     顺序即执行顺序(Starlette 中间件后加先执行),必须与搬移前完全一致:
     _api_key_guard → _gateway_mw → _trace_mw → _metrics_mw。
     """
+    # 【P3-loopback】启动审计日志:鉴权开启 + loopback bypass 默认开 → 打一行告知
+    # 运维者。设了 HESTIA_API_KEY 但又不想本机免密,显式 HESTIA_LOOPBACK_BYPASS=0。
+    if os.environ.get("HESTIA_API_KEY", "").strip() and _loopback_bypass_on():
+        import logging
+        logging.getLogger("hestia").info(
+            "[LoopbackBypass] 已启用:本机(127.0.0.1 / ::1)请求自动免密,"
+            "鉴权仅作用于非 loopback 客户端。"
+            "设 HESTIA_LOOPBACK_BYPASS=0 可关闭。"
+        )
     app.middleware("http")(_api_key_guard)
     app.middleware("http")(_gateway_mw)
     app.middleware("http")(_trace_mw)

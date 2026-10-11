@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import uuid
 from typing import Optional
 
 from fastapi import HTTPException
@@ -370,6 +371,10 @@ async def ahs_run(payload: AHSRunPayload):
     【P3-2】用 run_async 把同步 compose 放到线程池,避免阻塞事件循环。
     【P2-2】暴露 pending_confirmation/is_pending,供前端识别"待确认"并断点续跑
     (确认后带 confirmed=True + resume_state 重发本接口)。"""
+    from hestia.skills import set_loop_session, reset_loop_session
+    # 循环检测按执行链分槽:断点续跑复用同一 task_id,否则每次请求独立(消除跨请求污染)
+    sid = (payload.resume_state or {}).get("task_id") or f"ahs_{uuid.uuid4().hex[:8]}"
+    token = set_loop_session(sid)
     try:
         res = await _api._os_instance.ahs_pipeline.run_async(
             payload.task, confirmed=payload.confirmed,
@@ -383,6 +388,8 @@ async def ahs_run(payload: AHSRunPayload):
         }
     except Exception as e:
         return {"success": False, "summary": f"执行链异常: {e}"}
+    finally:
+        reset_loop_session(token)
 
 
 @app.get("/api/ahs/breaker")

@@ -50,7 +50,9 @@ def _encode_one(model, model_name, text):
 
 class _SimpleEmbedder:
     """语义方向分数 score() ∈ [-1, 1]:
-      > 0.3  → 同向(互相支持)   -0.3~0.3 → 无关   < -0.3 → 反向(矛盾)
+      > thr  → 同向(互相支持)   -thr~thr → 无关   < -thr → 反向(矛盾)
+    阈值 thr 由 KnowledgeEvolutionEngine.similarity_threshold 判定(默认 0.30);
+    本类只负责给分,不内嵌阈值。
     v2:优先 sentence-transformers 余弦(真语义,经 HKC 共享缓存);
     无 ST/加载失败 → 回退 v1 关键词重叠 + 否定词。接口不变。
     """
@@ -157,7 +159,7 @@ class KnowledgeEvolutionEngine:
         graph_store: GraphStore,
         event_bus:   EventBus,
         id_gen:      IDGenerator,
-        similarity_threshold: float = 0.75,
+        similarity_threshold: float = 0.30,
         auto_resolve_gap:     float = 0.20,
     ):
         self.store   = graph_store
@@ -165,6 +167,8 @@ class KnowledgeEvolutionEngine:
         self.id_gen  = id_gen
         self.embedder = _SimpleEmbedder()
         self.state_machine = ClaimStateMachine()
+        # 语义方向阈值(score∈[-1,1]):|score|>threshold 判同向(合并)/反向(冲突)。
+        # 默认 0.30 与既有硬编码一致(behavior-preserving);可经构造参数调严/调宽。
         self.similarity_threshold = similarity_threshold
         self.auto_resolve_gap     = auto_resolve_gap
 
@@ -266,12 +270,12 @@ class KnowledgeEvolutionEngine:
                 old_claim.statement,
             )
 
-            if score < -0.3:
+            if score < -self.similarity_threshold:
                 # 语义方向相反 → 冲突
                 conflict_found = True
                 self._handle_conflict(new_claim, old_claim)
 
-            elif score > 0.3:
+            elif score > self.similarity_threshold:
                 # 同向 → 融合 Evidence，强化置信度
                 self._merge_evidence(new_claim, old_claim)
 
@@ -423,7 +427,7 @@ class KnowledgeEvolutionEngine:
         gaps = []
         for other in others:
             score = self.embedder.score(claim.statement, other.statement)
-            if score < -0.3:
+            if score < -self.similarity_threshold:
                 gaps.append(abs(claim.confidence - other.confidence))
         return min(gaps) if gaps else 1.0
 

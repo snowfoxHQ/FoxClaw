@@ -128,6 +128,17 @@ def test_reply_with_tools_unsupported_returns_none():
     assert out is None, "不支持 tools 必须返回 None 让上层 fallback"
 
 
+def test_reply_with_tools_empty_answer_returns_none():
+    # 阶段五·步骤15:模型无工具调用且文本为空 → 返回 None 让上层 fallback(不再"空回复且不回退")
+    router = _FakeRouter([
+        {"supported": True, "text": "", "tool_calls": [],
+         "assistant_msg": {"role": "assistant", "content": ""}},
+    ])
+    agent = _fake_agent(router)
+    out = CognitiveAgent._reply_with_tools(agent, "你好", [{"role": "user", "content": "你好"}])
+    assert out is None, "空答必须返回 None 让上层 fallback"
+
+
 # ── 5. 工具分派 ────────────────────────────────────────────────────────────────
 def test_dispatch_web_search_ok(monkeypatch):
     from hestia.core import web_search as ws

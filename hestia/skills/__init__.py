@@ -8,6 +8,7 @@ Hestia Skill 接入层 — 助手的"万能工具箱",同时是对外生态兼�
   只读类(read)直接调;有副作用类(write/send/pay)需确认后执行。
 """
 
+import contextvars
 import threading
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Callable, Literal
@@ -15,6 +16,24 @@ from typing import Optional, Callable, Literal
 
 SkillKind = Literal["local", "mcp", "web_api"]
 SideEffect = Literal["read", "write", "send", "pay"]
+
+
+# ── 循环检测的会话分槽 key(阶段四·步骤13:loop_detector per-session 化)────────────────
+# SkillAdapter 是全局单例(HestiaOS 装配一个,所有 Agent/会话共享),其循环检测历史若共享,
+# A 会话的工具调用会污染 B 会话的"重复/横跳/无进展"判定。故用 contextvar 承载"当前会话
+# 标识",随 asyncio Task / asyncio.to_thread 自动传播;循环检测按它分槽,消除跨会话污染。
+# 调用方在会话/执行入口 set_loop_session(session_id),退出时 reset_loop_session(token)。
+_loop_session: contextvars.ContextVar = contextvars.ContextVar(
+    "hestia_skill_loop_session", default=None)
+
+
+def set_loop_session(session_id: Optional[str]):
+    """进入一次会话/执行前设置循环检测分槽 key;返回 reset token。None 表示无会话(用默认槽)。"""
+    return _loop_session.set(session_id)
+
+
+def reset_loop_session(token) -> None:
+    _loop_session.reset(token)
 
 
 @dataclass
@@ -164,8 +183,28 @@ class SkillAdapter:
         self.breaker = breaker if breaker is not None else CircuitBreaker()
         self.hooks = hooks if hooks is not None else HookManager()
         # 工具循环检测(防无进展死循环,与断路器互补:断路器管失败,它管卡死)
-        from ..harness.loop_detection import ToolLoopDetector
-        self.loop_detector = ToolLoopDetector()
+        # 【阶段四·步骤13】按会话 keyed 的检测器池:全局单例 adapter 被所有 Agent/会话共享,
+        # 循环检测历史必须按 session 分槽(见 _detector_for),否则跨会话交叉污染。
+        self._loop_detectors: dict = {}          # session_key -> ToolLoopDetector
+        self._loop_lock = threading.RLock()
+        self._loop_detectors_max = 256           # 会话槽上限:淘汰最久未用的槽,防无限增长
+
+    def _detector_for(self, session_key: Optional[str]):
+        """取当前会话的循环检测器(按 session 分槽);无会话用共享默认槽(向后兼容)。"""
+        key = session_key or "__default__"
+        with self._loop_lock:
+            d = self._loop_detectors.get(key)
+            if d is None:
+                if len(self._loop_detectors) >= self._loop_detectors_max:
+                    # 淘汰最久未用(插入序最前)的非默认槽,防 session 无限增长
+                    for k in list(self._loop_detectors):
+                        if k != "__default__":
+                            del self._loop_detectors[k]
+                            break
+                from ..harness.loop_detection import ToolLoopDetector
+                d = ToolLoopDetector()
+                self._loop_detectors[key] = d
+            return d
 
     def invoke(self, skill: SkillSpec, args: dict,
                confirmed: bool = False, mode: str = "strict") -> SkillResult:
@@ -257,8 +296,8 @@ class SkillAdapter:
                 skill, verdict, "success" if res.success else "failed",
                 res.message, {"kind": skill.kind,
                               "trust_downgrade": _downgrade})
-            # 循环检测:记录本次调用,若检测到死循环,在结果上附警告
-            loop = self.loop_detector.record(skill.id, args, res.output)
+            # 循环检测:记录本次调用(按会话 keyed,消除跨会话污染),若检测到死循环附警告
+            loop = self._detector_for(_loop_session.get()).record(skill.id, args, res.output)
             if loop.stuck:
                 res.loop_warning = loop.to_dict()
                 self.hooks.fire("on_loop", skill.id, {"loop": loop.to_dict()})

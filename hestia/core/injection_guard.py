@@ -14,6 +14,7 @@
 SKILL.md 是**可信指令**(本就是给模型执行的),不在此列、不要包裹。
 """
 from __future__ import annotations
+import os
 import re
 import secrets
 
@@ -74,14 +75,57 @@ def _has_kernel_dump(text: str, kernel: str, size: int = 40, step: int = 20) -> 
     return False
 
 
+def _has_semantic_leak(text: str, kernel: str, threshold: float = 0.88,
+                       min_blocks: int = 2, min_len: int = 150) -> bool:
+    """改写式泄露:模型把 KERNEL 同义改写后吐出(逐字串抓不到)。
+    ST 语义比对:输出块 vs 内核块的余弦相似度,多块命中判泄露。
+      · opt-in:默认关闭(HESTIA_DLP_SEMANTIC=1 才启用)——语义比对分不清「合法解释规则」与
+        「恶意改写泄露」(如用户问 Principle 07 是什么、助手解释),误伤会破坏正常对话;
+      · 防误伤:仅当输出足够长(≥min_len)且 ≥min_blocks 块命中才判泄露——恶意 dump 是整段
+        多块复述,合法解释是短单块摘要;
+      · 降级:无 ST/加载失败/缺依赖 → False(不阻断)。"""
+    if os.environ.get("HESTIA_DLP_SEMANTIC", "0") != "1":
+        return False
+    if not kernel or not text or len(text) < min_len:
+        return False
+    try:
+        import sys
+        from pathlib import Path
+        _v = Path(__file__).resolve().parents[2] / "vendor" / "hkc"
+        if _v.exists() and str(_v) not in sys.path:
+            sys.path.insert(0, str(_v))
+        from hkc_search.embedding_backends import get_st_model, encode_cached
+        name = os.environ.get("HKC_KEE_SEMANTIC_MODEL",
+                              "paraphrase-multilingual-MiniLM-L12-v2")
+        model = get_st_model(name)
+        if model is None:
+            return False
+        import numpy as np
+        # 固定 ~200 字块;向量已 normalize → 余弦 = 点积。内核块进共享缓存(只编码一次)。
+        kblocks = [kernel[i:i + 200] for i in range(0, len(kernel), 200)]
+        tblocks = [text[i:i + 200] for i in range(0, len(text), 200)]
+        kv = encode_cached(model, name, kblocks)
+        tv = encode_cached(model, name, tblocks)
+        hits = 0
+        for tvec in tv:
+            if float(np.dot(kv, tvec).max()) >= threshold:
+                hits += 1
+                if hits >= min_blocks:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def scan_output(text: str, kernel: str = "") -> list:
     """扫描模型输出的风险。返回标签:'secret'(含敏感串)/'system_prompt_leak'(疑似吐系统提示)。
-    传入 kernel(内核提示词原文)→ 用逐字串比对(更准);不传 → 退回"≥2 章节标记"兜底。"""
+    传入 kernel(内核提示词原文)→ 逐字串比对 + 改写式语义比对(更准);不传 → 退回"≥2 章节标记"兜底。"""
     text = str(text or "")
     issues = []
     if _SECRET_RE.search(text):
         issues.append("secret")
     leak = _has_kernel_dump(text, kernel) or \
+        _has_semantic_leak(text, kernel) or \
         sum(1 for m in _SECTION_MARKS if m in text) >= 2
     if leak:
         issues.append("system_prompt_leak")

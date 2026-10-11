@@ -16,8 +16,84 @@ Hestia OS — 多模型路由(Model Router)
 """
 
 import os
+import json
 import threading
 import re as _re
+from pathlib import Path
+
+
+# ── 推理块剥离:openai-compatible 协议(DeepSeek-R1 / MiniMax-Text-01 等)把内部
+# reasoning 嵌进 content 字段,标签是 OPEN_TAG ... CLOSE_TAG(也兼容 reasoning / reflection
+# 变体)。流式一个字一个字 yield 时如果不在 LLM 咽喉处清理,会渗到前端 textContent /
+# SSE 流量 / 落库记忆。统一在 complete() / stream() 输出端 strip 是最稳的 single source。
+# ────────────────────────────────────────────────────────────────────
+# 用字符串拼接定义正则:避免 think 标签在源码里裸出现时被 markdown / 编辑器误处理。
+_THINK_RE = _re.compile("<" + "think" + ">.*?</" + "think" + ">", _re.DOTALL)
+# 部分模型(DeepSeek-R1 早期 / minimax 变体)用 <reasoning> / <reflection> 标签
+# 一并兼容,展示给用户时统一清掉。
+_EXTRA_THINK_RE = _re.compile(r"<(reasoning|reflection|reflexion)>.*?</\1>", _re.DOTALL)
+
+
+def _strip_think(s: str) -> str:
+    """One-shot:整段(非流式)剥离 think 块 / reasoning 块等。"""
+    if not s:
+        return s
+    s = _THINK_RE.sub("", s)
+    s = _EXTRA_THINK_RE.sub("", s)
+    return s.lstrip()
+
+
+class _ThinkStripper:
+    """Stateful:逐 chunk 喂入,返回**可以 yield 给用户**的部分;跨 chunk 状态保留,
+    直到 think 块完整闭合,中间内容丢弃。
+
+    为什么 stateful:模型流式可能在 chunk 边界切碎 think 标签(比如把 OPEN_TAG
+    切到下个 chunk),若不在 LLM 咽喉处做跨 chunk 跟踪,部分 think 内容会泄露到
+    前端 / 落库记忆 / SSE 流量。"""
+
+    _OPEN_TAG = "<think>"
+    _CLOSE_TAG = "</think>"
+
+    def __init__(self):
+        self._in_think = False
+        self._buf = ""
+
+    def feed(self, chunk: str) -> str:
+        """输入新 chunk,返回可 yield 部分(已剥离 think 块)。"""
+        if not chunk:
+            return ""
+        out: list[str] = []
+        text = self._buf + chunk
+        self._buf = ""
+        i = 0
+        n = len(text)
+        while i < n:
+            if self._in_think:
+                end = text.find(self._CLOSE_TAG, i)
+                if end == -1:
+                    # 没遇到结束标签,剩余暂存,等下个 chunk 续上
+                    self._buf = text[i:]
+                    return "".join(out)
+                i = end + len(self._CLOSE_TAG)
+                self._in_think = False
+            else:
+                start = text.find(self._OPEN_TAG, i)
+                if start == -1:
+                    # 当前 chunk 没有 <think> 开始标签。
+                    # 但末尾可能正好切成 "<" / "<th" / "<thi" ... —— 不能直接
+                    # 整段 yield,否则下个 chunk 拼成 "<think>..." 时已经晚一步。
+                    # 策略:把最后一个 '<' 之前的安全段 yield,'<' 及其后暂存到 buf。
+                    last_lt = text.rfind("<", i)
+                    if last_lt == -1:
+                        out.append(text[i:])
+                        return "".join(out)
+                    out.append(text[i:last_lt])
+                    self._buf = text[last_lt:]
+                    return "".join(out)
+                out.append(text[i:start])
+                i = start + len(self._OPEN_TAG)
+                self._in_think = True
+        return "".join(out)
 
 
 # 各 provider 的默认模型(可被环境变量覆盖)
@@ -28,6 +104,8 @@ DEFAULT_MODELS = {
     "google":    "gemini-1.5-pro",
     "qwen":      "qwen-plus",
     "local":     "llama3",
+    "minimax":   "MiniMax-Text-01",
+    "generic":   "",   # 通用 openai-compatible:必须显式给 model(.env: HESTIA_MODEL 或 GENERIC_LLM_MODEL)
 }
 
 # 分层模型:fast(便宜快,分诊/简单)/ smart(强,复杂/分析)。未列的 provider fast=smart=默认。
@@ -71,6 +149,8 @@ PROVIDER_ENV = {
     "google":    "GOOGLE_API_KEY",
     "qwen":      "DASHSCOPE_API_KEY",
     "local":     "LOCAL_LLM_BASE",   # 本地用 base_url 而非 key
+    "minimax":   "MINIMAX_API_KEY",  # MiniMax 官方 API;鉴权还需 MINIMAX_GROUP_ID
+    "generic":   "LLM_API_KEY",           # 【P2·单 LLM 入口】通用 openai-compatible;鉴权见 LLM_EXTRA_HEADERS
 }
 
 
@@ -106,8 +186,8 @@ class ModelRouter:
     def __init__(self, provider: str = None, model: str = None):
         # 默认 provider:按环境变量自动探测第一个可用的
         self.provider = provider or self._auto_detect()
-        # HESTIA_MODEL 可能在 .env 里存在但为空字符串,空值时回退默认模型
-        _env_model = os.environ.get("HESTIA_MODEL", "").strip()
+        # 【P2·单 LLM 入口】HESTIA_MODEL 已弃用,改读 LLM_MODEL(空值时回退默认模型)
+        _env_model = os.environ.get("LLM_MODEL", "").strip()
         self._locked_model = model or _env_model or ""   # 显式锁定 → 不分档(向后兼容)
         self.model = self._locked_model or DEFAULT_MODELS.get(self.provider, "")
         self._client = None
@@ -126,17 +206,20 @@ class ModelRouter:
         self.degraded_reason: str = ""
         # per-call 降级标记(单次请求生命周期内消费,不跨调用泄漏)
         self._call_degraded: bool = False
+        # 前端 LLM 管理选模型(写 .current_model → mtime 缓存 lazy reload,无需重启)
+        self._selection_mtime: float = 0.0
         self._init_client()
 
     @staticmethod
     def _auto_detect() -> str:
-        """选择 provider:优先 HESTIA_PROVIDER 显式指定,否则按优先级探测已配 key 的。"""
-        # 1. 显式指定(HESTIA_PROVIDER=deepseek 即可强制用 DeepSeek)
-        forced = os.environ.get("HESTIA_PROVIDER", "").strip().lower()
+        """选择 provider:优先 LLM_PROVIDER 显式指定,否则按优先级探测已配 key 的。"""
+        # 1. 显式指定(LLM_PROVIDER=deepseek 即可强制用 DeepSeek;兼容旧名 HESTIA_PROVIDER)
+        forced = (os.environ.get("LLM_PROVIDER", "")
+                  or os.environ.get("HESTIA_PROVIDER", "")).strip().lower()
         if forced and forced in PROVIDER_ENV:
             return forced
         # 2. 自动探测:按优先级找第一个配了 key 的
-        for p in ["anthropic", "openai", "deepseek", "google", "qwen", "local"]:
+        for p in ["anthropic", "openai", "deepseek", "google", "qwen", "local", "minimax", "generic"]:
             if os.environ.get(PROVIDER_ENV[p]):
                 return p
         return "stub"
@@ -158,11 +241,16 @@ class ModelRouter:
                 key = os.environ.get("ANTHROPIC_API_KEY")
                 return (anthropic.Anthropic(api_key=key, timeout=30.0) if key else None,
                         "" if key else "未配置 ANTHROPIC_API_KEY")
-            elif p in ("openai", "deepseek", "qwen", "local"):
+            elif p in ("openai", "deepseek", "qwen", "local", "minimax", "generic"):
+                # ── OpenAI-compatible 家族 ───────────────────────────
+                # 适配所有 OpenAI Chat Completion 协议兼容厂商。
+                # 鉴权默认 Bearer(api_key);特殊厂商(双 header / 自定义鉴权)通过
+                # default_headers 注入。generic 走完全 .env 驱动,任意厂商即插即用。
                 try:
                     from openai import OpenAI
                 except ImportError:
                     return None, "需安装 openai 库(pip install openai)"
+                extra = {}     # default_headers(双 header 鉴权用,例 MiniMax-Group-Id)
                 if p == "openai":
                     key = os.environ.get("OPENAI_API_KEY"); base = None
                 elif p == "deepseek":
@@ -170,12 +258,39 @@ class ModelRouter:
                 elif p == "qwen":
                     key = os.environ.get("DASHSCOPE_API_KEY")
                     base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                else:
+                elif p == "local":
                     key = os.environ.get("LOCAL_LLM_KEY", "local")
                     base = os.environ.get("LOCAL_LLM_BASE", "http://localhost:11434/v1")
-                return (OpenAI(api_key=key, base_url=base, timeout=30.0, max_retries=2)
-                        if (key or base) else None,
-                        "" if (key or base) else f"未配置 {p} 的 Key")
+                elif p == "minimax":
+                    # 官方域名,可用 MINIMAX_BASE_URL 自定义代理;group_id 可选(无则不传 header)
+                    key = os.environ.get("MINIMAX_API_KEY")
+                    base = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1")
+                    group_id = os.environ.get("MINIMAX_GROUP_ID", "").strip()
+                    if group_id:
+                        extra = {"MiniMax-Group-Id": group_id}
+                else:  # generic
+                    # 【P2·单 LLM 入口】通用 openai-compatible:适配任意兼容厂商(MiniMax/GLM/Kimi/自建网关/三方代理)
+                    # 必填:LLM_API_KEY + LLM_BASE_URL
+                    # 可选:LLM_EXTRA_HEADERS(JSON object,适配双 header 鉴权)
+                    key = os.environ.get("LLM_API_KEY") or os.environ.get("GENERIC_LLM_API_KEY")
+                    base = os.environ.get("LLM_BASE_URL") or os.environ.get("GENERIC_LLM_BASE_URL")
+                    raw = os.environ.get("LLM_EXTRA_HEADERS", "").strip() \
+                          or os.environ.get("GENERIC_LLM_EXTRA_HEADERS", "").strip()
+                    if raw:
+                        import json as _json
+                        try:
+                            parsed = _json.loads(raw)
+                        except Exception as e:
+                            return None, f"GENERIC_LLM_EXTRA_HEADERS 不是合法 JSON: {e}"
+                        if not isinstance(parsed, dict):
+                            return None, "GENERIC_LLM_EXTRA_HEADERS 必须是 JSON object(例: {\"X-Foo\": \"bar\"})"
+                        extra = {str(k): str(v) for k, v in parsed.items()}
+                if not (key and base):
+                    return None, f"未配置 {p} 的 API Key 或 BASE_URL(检查 .env)"
+                return (OpenAI(api_key=key, base_url=base, timeout=30.0, max_retries=2,
+                               default_headers=extra) if extra else
+                        OpenAI(api_key=key, base_url=base, timeout=30.0, max_retries=2),
+                        "")
             elif p == "google":
                 import google.generativeai as genai
                 key = os.environ.get("GOOGLE_API_KEY")
@@ -207,18 +322,141 @@ class ModelRouter:
     def _fallback_order(self) -> list:
         """调用顺序:active 优先,再按优先级补上其它已配 key 的 provider。"""
         order = [self.provider]
-        for p in ["anthropic", "openai", "deepseek", "google", "qwen", "local"]:
+        for p in ["anthropic", "openai", "deepseek", "google", "qwen", "local", "minimax", "generic"]:
             if p != self.provider and os.environ.get(PROVIDER_ENV.get(p, ""), ""):
                 order.append(p)
         return order
 
+    # ── 前端 LLM 管理(写 .current_model → mtime 缓存 lazy reload)────────────────
+    # 配套文件 HESTIA_DATA_DIR/.current_model(由 hestia/api/routes/llm_admin.py 写)。
+    # 改动走 mtime 比对,正常 chat 路径上每请求 < 1ms;切完模型不用重启 hestia。
+
+    def _selection_path(self) -> "Path":
+        return Path(os.environ.get("HESTIA_DATA_DIR", "./hestia_data")) / ".current_model"
+
+    def _custom_models_path(self) -> "Path":
+        return Path(os.environ.get("HESTIA_DATA_DIR", "./hestia_data")) / "custom_models.json"
+
+    def _build_custom_client(self, name: str):
+        """从 ``custom_models.json`` 读 + 构造 OpenAI client。
+        返回 ``(client_or_None, model, error_str)``。"""
+        import base64 as _b64
+        p = self._custom_models_path()
+        if not p.exists():
+            return None, "", "custom_models.json 不存在"
+        try:
+            models = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as e:
+            return None, "", f"读 custom_models.json 失败: {e}"
+        match = next((m for m in models if m.get("name") == name), None)
+        if not match:
+            return None, "", f"未找到自定义模型: {name}"
+        # key 反混淆(base64);兼容旧的明文字段
+        key_obf = match.get("api_key_obf", "") or ""
+        key = ""
+        if key_obf:
+            try:
+                key = _b64.b64decode(key_obf.encode()).decode()
+            except Exception:
+                key = ""
+        if not key:
+            key = match.get("api_key", "") or ""
+        if not key:
+            return None, "", "API key 为空"
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=key,
+                base_url=match.get("base_url", ""),
+                timeout=30.0,
+                max_retries=2,
+                default_headers=match.get("extra_headers") or {},
+            )
+        except Exception as e:
+            return None, "", f"构造 client 失败: {e}"
+        return client, match.get("model", ""), ""
+
+    def _maybe_reload_selection(self):
+        """检查 ``.current_model`` 文件;mtime 变更即重建 active client。
+
+        副作用:
+          - 文件不存在 → 退回 ``_auto_detect()`` 探测的 provider(与 .env 一致)。
+          - ``source=preset`` → 切到对应 provider(``_init_client`` 重建)。
+          - ``source=custom`` → 构造 custom OpenAI client,挂到 ``self._clients["custom"]``,
+            同步 ``self.provider = "custom"`` / ``self.model``。"""
+        p = self._selection_path()
+        try:
+            mtime = p.stat().st_mtime if p.exists() else 0.0
+        except Exception:
+            mtime = 0.0
+        if mtime == self._selection_mtime:
+            return                                  # 没变 → 零开销
+        self._selection_mtime = mtime
+        if not p.exists():
+            # 删了 .current_model → 退回 .env 探测
+            env_prov = self._auto_detect()
+            if env_prov != self.provider:
+                self.provider = env_prov
+                self._reset_locked_for_provider()
+                self._init_client()
+            return
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(d, dict):
+            return
+        src = d.get("source")
+        if src == "preset" and d.get("provider"):
+            new_prov = d["provider"]
+            if new_prov != self.provider:
+                self.provider = new_prov
+                self._reset_locked_for_provider()    # 切 provider:HESTIA_MODEL 仅 generic-like 适用
+                self._init_client()                 # 重建 _client
+        elif src == "custom":
+            name = d.get("name", "")
+            client, model, err = self._build_custom_client(name)
+            if client is not None:
+                self.provider = "custom"
+                with self._client_lock:
+                    self._clients["custom"] = client
+                self._client = client              # 同步 active
+                self.model = model
+                self._locked_model = model
+                self.fallback_reason = ""
+            else:
+                # 构造失败:log + 保持旧 provider(不静默吞)
+                import sys as _sys
+                print(f"[model_router] 自定义模型构造失败: {err}", file=_sys.stderr)
+
+    def _reset_locked_for_provider(self):
+        """切换 provider 时重置 ``_locked_model`` / ``self.model``。
+
+        ``HESTIA_MODEL`` 是在配 generic/minimax/custom 时显式设的,不应污染切到
+        anthropic/openai/local 等有固定默认的 provider(否则拿 MiniMax-Text-01 去
+        ollama 调 → 404)。"""
+        _env = os.environ.get("HESTIA_MODEL", "").strip()
+        if self.provider in ("generic", "minimax", "custom"):
+            # 这些 provider 没固定默认,HESTIA_MODEL 适用
+            self._locked_model = _env or None
+        else:
+            # 其他 provider 用自己默认,忽略 HESTIA_MODEL 干扰
+            self._locked_model = None
+        self.model = self._locked_model or DEFAULT_MODELS.get(self.provider, "")
+
     def _model_for(self, provider: str, agent_id: str, messages: list) -> str:
         """按任务/Agent 选该 provider 的模型:锁定则用锁定值;否则按档。active provider 支持
-        HESTIA_MODEL_FAST/SMART env 覆盖。"""
+        HESTIA_MODEL_FAST/SMART env 覆盖。generic 必须显式给 model(.env 任意一个都行)。"""
         if self._locked_model and provider == self.provider:
             return self._locked_model
         tier = _route_tier(agent_id, messages)
         if provider == self.provider:
+            if provider == "generic":
+                # generic 没默认 model → 必须 .env 显式给;优先级 HESTIA_MODEL > GENERIC_LLM_MODEL
+                m = (os.environ.get("HESTIA_MODEL", "").strip() or
+                     os.environ.get("GENERIC_LLM_MODEL", "").strip())
+                if m:
+                    return m
             env = os.environ.get("HESTIA_MODEL_FAST" if tier == "fast" else "HESTIA_MODEL_SMART", "").strip()
             if env:
                 return env
@@ -247,7 +485,7 @@ class ModelRouter:
                     "type": "base64",
                     "media_type": im.get("media_type", "image/png"),
                     "data": im.get("data", "")}})
-        elif provider in ("openai", "deepseek", "qwen", "local"):
+        elif provider in ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom"):
             blocks = [{"type": "text", "text": text}]
             for im in images:
                 mt = im.get("media_type", "image/png"); d = im.get("data", "")
@@ -269,13 +507,15 @@ class ModelRouter:
             usage = ({"input_tokens": getattr(u, "input_tokens", None),
                       "output_tokens": getattr(u, "output_tokens", None)} if u else None)
             return resp.content[0].text, usage
-        elif provider in ("openai", "deepseek", "qwen", "local"):
+        elif provider in ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom"):
             msgs = [{"role": "system", "content": system}] + messages
             resp = client.chat.completions.create(model=model, max_tokens=max_tokens, messages=msgs)
             u = getattr(resp, "usage", None)
             usage = ({"input_tokens": getattr(u, "prompt_tokens", None),
                       "output_tokens": getattr(u, "completion_tokens", None)} if u else None)
-            return resp.choices[0].message.content, usage
+            # 剥离内部推理块(DeepSeek-R1 / MiniMax-Text-01 / minimax-reasoner 等
+            # 把 <think>...</think> 嵌进 content,直接落库/转发会污染用户界面与记忆)
+            return _strip_think(resp.choices[0].message.content or ""), usage
         elif provider == "google":
             prompt = system + "\n\n" + "\n".join(m["content"] for m in messages)
             return client.generate_content(prompt).text, None
@@ -318,6 +558,7 @@ class ModelRouter:
         所有 LLM 调用的唯一咽喉——token 计量在此进行(若挂了 meter)。
         优先用 API 返回的真实 usage,拿不到则由 meter 离线估算。
         """
+        self._maybe_reload_selection()           # 前端切模型(.current_model)→ mtime 缓存 lazy reload
         system = self._inject_runtime(system)   # 规则化:运行时事实基准统一在咽喉注入
         if self.is_stub:
             # stub 不消耗 token,但计入 LLM 调用量(可观测);链路里也要看得见"这次走了 stub"
@@ -461,17 +702,28 @@ class ModelRouter:
                             return
                         if t:
                             parts.append(t); yield t
-            elif self.provider in ("openai", "deepseek", "qwen", "local"):
+            elif self.provider in self._OPENAI_FAMILY:
+                # P1 阶段的回归修复:此处原本只列了 openai/deepseek/qwen/local,
+                # generic/minimax 走 else 分支退化为 complete() 一次性 yield
+                # —— 既不是真"流式",也把
+                # 这里使用 _OPENAI_FAMILY 与 supports_tools / tools 同步,保证
+                # 任何 openai-compatible 厂商(minimax / generic / custom 等)都走
+                # 真正的逐 token 流 + 在 LLM 咽喉处统一剥离 think 块。
                 msgs = [{"role": "system", "content": system}] + mm
                 st = self._client.chat.completions.create(
                     model=model, max_tokens=max_tokens, messages=msgs, stream=True)
+                stripper = _ThinkStripper()
                 for c in st:
                     if _stopped():
                         st.close() if hasattr(st, "close") else None
                         return
                     d = c.choices[0].delta.content if c.choices else None
-                    if d:
-                        parts.append(d); yield d
+                    if not d:
+                        continue
+                    parts.append(d)
+                    cleaned = stripper.feed(d)
+                    if cleaned:
+                        yield cleaned
             elif self.provider == "google":
                 prompt = system + "\n\n" + "\n".join(m["content"] for m in messages)
                 for c in self._client.generate_content(prompt, stream=True):
@@ -507,7 +759,7 @@ class ModelRouter:
     # 模型无关:openai 家族(openai/deepseek/qwen/local,含 openai-compatible 万能通道)走
     # OpenAI tools 格式;anthropic 走原生 tool_use block(P0-2);google/stub 不支持 →
     # supported=False,由上层自动回退关键词增强链(fallback,不破坏)。
-    _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local")
+    _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local", "generic", "minimax")
     _TOOL_PROVIDERS = _OPENAI_FAMILY + ("anthropic",)
 
     def supports_tools(self) -> bool:

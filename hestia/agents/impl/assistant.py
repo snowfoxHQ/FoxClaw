@@ -2,6 +2,7 @@
 
 from ..base import CognitiveAgent
 from ._helpers import _fmt_mem
+from ...skills import set_loop_session, reset_loop_session
 
 class AssistantAgent(CognitiveAgent):
     AGENT_ID = "assistant"
@@ -37,7 +38,11 @@ class AssistantAgent(CognitiveAgent):
             content=f"匹配 skill:「{skill.name}」({skill.kind}/{skill.side_effect}) 处理:{task[:30]}",
             node_type="tool_intent", tool_name=skill.id, conf=0.9,
         )
-        result = adp.invoke(skill, args or {}, confirmed=confirmed)
+        token = set_loop_session(self._session_id)
+        try:
+            result = adp.invoke(skill, args or {}, confirmed=confirmed)
+        finally:
+            reset_loop_session(token)
         self._think(
             content=f"skill 结果:{skill.name} → {result.status} · {result.message[:50]}",
             node_type="reflection", conf=0.88,

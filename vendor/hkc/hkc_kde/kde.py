@@ -11,6 +11,7 @@ Knowledge Digest Engine 主引擎。
 """
 # TODO: Replace with proper package install before v1 release
 
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -29,6 +30,16 @@ from .chunker import Chunker, MAX_CHARS
 # 摄入已异步化(后台线程池),chunk 多只是后台跑得久,不卡 UI;主要代价是 LLM 调用费用。
 # 配合批量抽取(HKC_EXTRACT_BATCH>1)后,一次调用处理多段,可放心调大或设 0。
 DEFAULT_MAX_CHUNKS_PER_DOC = 500
+
+
+class DuplicateDocumentError(Exception):
+    """同一内容已摄入（内容 SHA-256 命中），拒绝重复摄入。"""
+    pass
+
+
+def content_hash_of(data: bytes) -> str:
+    """计算内容 SHA-256 指纹，作为文档精确去重身份。"""
+    return hashlib.sha256(data).hexdigest()
 
 
 def _max_chunks_per_doc() -> int:
@@ -92,6 +103,14 @@ class KnowledgeDigestEngine:
         path   = Path(path)
         suffix = path.suffix.lower()
 
+        # 方向一：入口精确哈希查重。同一文件（内容 SHA-256 相同）重复上传直接拒绝，
+        # 不让它流到知识级去重（否则会重复建 Evidence 再靠 KEE 合并，触发大量关系重定向）。
+        content_hash = content_hash_of(path.read_bytes())
+        if self.find_evidence_by_content_hash(content_hash):
+            raise DuplicateDocumentError(
+                f"文件内容已摄入过（指纹 {content_hash[:12]}），请勿重复上传"
+            )
+
         if suffix == ".pdf":
             doc = self._load_pdf(str(path))
         elif suffix in (".md", ".markdown"):
@@ -121,6 +140,7 @@ class KnowledgeDigestEngine:
             source_year  = source_year,
             domain       = domain,
             collection   = collection,
+            content_hash = content_hash,
             progress_cb  = progress_cb,
         )
 
@@ -169,6 +189,7 @@ class KnowledgeDigestEngine:
         source_year:  int,
         domain:       str,
         collection:   str = "",
+        content_hash: str = "",
         progress_cb=None,
     ) -> list:
         logger.info(
@@ -221,10 +242,31 @@ class KnowledgeDigestEngine:
             source_year  = source_year,
             source_id    = doc.source,   # 精确来源标识(如 memory:agent:finance:mem_001)
             collection   = collection,
+            content_hash = content_hash,
         )
 
         logger.info("KDE pipeline 完成: 写入 %d KU", len(new_kus))
         return new_kus
+
+    def find_evidence_by_content_hash(self, content_hash: str):
+        """按内容 SHA-256 指纹查找已摄入的文件 Evidence。命中返回 KU，否则 None。
+
+        哈希存在 Evidence.extra["content_hash"]。单机少用户（几十本书）场景下
+        全量遍历 Evidence 即可，简单可靠，无需引入额外索引存储。
+        """
+        if not content_hash:
+            return None
+        from hkc_core.models.enums import KUType
+        for ku in self.store.query_by_type(
+            KUType.EVIDENCE, status="active", limit=10_000_000
+        ):
+            if (getattr(ku, "extra", None) or {}).get("content_hash") == content_hash:
+                return ku
+        return None
+
+    def is_duplicate_content(self, data: bytes) -> bool:
+        """供 API 层在提交/创建 job 前提前拦截重复上传（避免起后台任务）。"""
+        return self.find_evidence_by_content_hash(content_hash_of(data)) is not None
 
     def _load_pdf(self, path: str) -> ParsedDocument:
         try:

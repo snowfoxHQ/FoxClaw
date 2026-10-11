@@ -24,6 +24,10 @@ dependencies = [
     "uvicorn>=0.29.0",
     "websockets>=12.0",
     "pydantic>=2.0.0",
+    # 内置 MCP 服务器(/api/mcp/)+ Skill MCP 客户端(mcp_server.py / skills/mcp_client.py 顶层硬依赖)
+    # 锁 <2.0：mcp 2.x 是大重构(拆出 mcp_types、改 fastmcp/streamable_http/sse 客户端 API、
+    # 换 httpx2)，与本仓库基于 1.x 的调用不兼容；1.27.x 已在 CI 与本地全量回归验证。
+    "mcp>=1.27.0,<2.0",
     # HTTP 客户端(渠道适配器 + Web 工具)。沿用既有 <0.28 约束
     "httpx>=0.24,<0.28",
     # 飞书加密事件解密
@@ -39,7 +43,19 @@ dependencies = [
 include = ["hestia*"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23.0", "ruff>=0.16", "mypy>=1.10", "coverage>=7.5"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.16",
+    "mypy>=1.10",
+    "coverage>=7.5",
+    # 默认回归硬依赖:test_file_ingest / test_domain_import 顶层 import docx/openpyxl,
+    # 缺失即 ModuleNotFoundError。与下方 knowledge-files 重复声明是刻意的——
+    # 此处是"测试视角"(回归必需),下方是"功能视角"(文件摄入)。放 dev 而非 knowledge-files,
+    # 避免为了两个 docx/xlsx 测试连带拖入 pymupdf/ebooklib/mobi 等 PDF/epub 重依赖。
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+]
 # 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
 # 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
 browser = ["playwright>=1.44.0"]
@@ -168,6 +184,12 @@ addopts = "-q"
 
 [tool.coverage.run]
 source = ["hestia"]
+# 全量回归走 run_all.py(每文件独立子进程),coverage 需 parallel 模式:每个子进程各写一份
+# .coverage,最后 `coverage combine` 合并成基线。patch=["subprocess"] 让 coverage run 设置
+# COVERAGE_PROCESS_CONFIG 环境变量,子进程经 coverage 的 sitecustomize(.pth)自动测量,
+# 无需逐个子进程手动包 coverage run(run_all.py 的 subprocess 用 dict(os.environ,...) 继承,链路完整)。
+parallel = true
+patch = ["subprocess"]
 
 [tool.coverage.report]
 show_missing = true

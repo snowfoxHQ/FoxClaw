@@ -9,6 +9,7 @@ from ..schemas import (
     IngestTextRequest, IngestURLRequest, IngestResponse, KUResponse,
     GraphResponse, CrystallizeRequest,
 )
+from hkc_kde.kde import DuplicateDocumentError
 import os
 import tempfile
 
@@ -155,6 +156,10 @@ async def ingest_file(
             detail=f"文件过大（{len(data)} 字节），上限 {MAX_UPLOAD_BYTES}",
         )
 
+    # 方向一：内容哈希查重，重复上传直接 409（写临时文件前拦截）
+    if c.kde.is_duplicate_content(data):
+        raise HTTPException(status_code=409, detail="该文件内容已摄入过，请勿重复上传")
+
     # 存到临时文件供 KDE 按路径加载,完后清理
     tmp_path = None
     try:
@@ -170,6 +175,8 @@ async def ingest_file(
         return _ingest_response(kus)
     except HTTPException:
         raise
+    except DuplicateDocumentError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件摄入失败: {e}")
     finally:
@@ -205,6 +212,10 @@ async def ingest_file_async(
             status_code=413,
             detail=f"文件过大（{len(data)} 字节），上限 {MAX_UPLOAD_BYTES}",
         )
+
+    # 方向一：内容哈希查重，重复上传直接 409（创建 job 前拦截，避免后台空跑）
+    if c.kde.is_duplicate_content(data):
+        raise HTTPException(status_code=409, detail="该文件内容已摄入过，请勿重复上传")
 
     # 存临时文件供后台线程按路径加载(完成/失败后由 work() 清理)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tf:

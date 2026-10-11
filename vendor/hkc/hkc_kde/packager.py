@@ -45,6 +45,7 @@ class KUPackager:
         source_year:  int = 0,
         source_id:    str = "",
         collection:   str = "",
+        content_hash: str = "",
     ) -> list:
         """
         主入口：把 ExtractionResult 转成 KU 列表并写入系统。
@@ -123,20 +124,30 @@ class KUPackager:
         # 之前"每个 chunk 一个 Evidence"会让一本书切出成百上千个同名 Evidence,
         # 依赖 KEE 去重兜底,一旦漏兜(跨摄入/并发/重启)就爆:满屏同名标签 + 线条爆炸。
         # 改为整份文档只建一个 Evidence 作为该书的来源锚点,所有 KU 都连它。
+        # 方向二：按内容哈希 find-or-create —— 相同内容复用已有 Evidence，
+        # 作为入口哈希查重(KDE.ingest_file)在写入层的兜底(如 ingest_text 等未拦截路径)。
         evd_kus = []
+        evd_reused = False
         if any(any([raw.facts, raw.claims, raw.entities, raw.concepts]) for raw in result.items):
             src = source_id or source_title or result.source
-            ku = EvidenceKU(
-                ku_id       = self.id_gen.next("Evidence"),
-                name        = source_title or source_id or result.source,
-                source      = src,                       # 精确来源标识(原始文件名等)
-                source_type = self._guess_source_type(src),
-                year        = source_year,
-                summary     = f"来自 {source_title or source_id or result.source}",
-                domain      = "",
-            )
+            ku = self._find_evidence_by_hash(content_hash) if content_hash else None
+            if ku is not None:
+                evd_reused = True
+            else:
+                ku = EvidenceKU(
+                    ku_id       = self.id_gen.next("Evidence"),
+                    name        = source_title or source_id or result.source,
+                    source      = src,                       # 精确来源标识(原始文件名等)
+                    source_type = self._guess_source_type(src),
+                    year        = source_year,
+                    summary     = f"来自 {source_title or source_id or result.source}",
+                    domain      = "",
+                )
+                if content_hash:
+                    ku.extra["content_hash"] = content_hash
             evd_kus.append(ku)
-            new_kus.append(ku)
+            if not evd_reused:
+                new_kus.append(ku)
 
         # 合集(文件夹)归属:确保合集节点存在,给文件 Evidence 打 _incol tag(须在写入前)
         collection_ku = None
@@ -271,6 +282,18 @@ class KUPackager:
     def _query_all_kus(self, limit: int = 1000) -> list:
         """全量查询所有非删除 KU，供关系发现使用。"""
         return self.store.query_all(limit=limit)
+
+    def _find_evidence_by_hash(self, content_hash: str):
+        """按内容 SHA-256 指纹查找已入库的文件 Evidence（find-or-create 的「find」）。"""
+        if not content_hash:
+            return None
+        from hkc_core.models.enums import KUType
+        for ku in self.store.query_by_type(
+            KUType.EVIDENCE, status="active", limit=10_000_000
+        ):
+            if (getattr(ku, "extra", None) or {}).get("content_hash") == content_hash:
+                return ku
+        return None
 
     def _ensure_collection_evidence(self, collection: str):
         """找到或新建"合集 Evidence"(文件夹一级节点,name=文件夹名)。按名去重、

@@ -109,8 +109,8 @@ async def knowledge_ability(ability_key: str):
         # 无关异常不再被误吞成「覆盖不足」);import 失败(缺 vendor)才回退 hasattr 鸭子判断。
         # 文稿骨架写的是 isinstance OR hasattr 叠加,与其自身设计决策(「失败才回退」=二选一)
         # 不一致——OR 下鸭子判断永远生效,精确化形同虚设,故按设计决策实现。
-        if _api._HKCInsuffCov is not None:
-            is_insufficient = isinstance(e, _api._HKCInsuffCov)
+        if _HKCInsuffCov is not None:
+            is_insufficient = isinstance(e, _HKCInsuffCov)
         else:
             is_insufficient = hasattr(e, "missing_skills")
         if is_insufficient:

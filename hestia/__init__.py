@@ -60,11 +60,29 @@ class HestiaOS:
             self.client = None
 
         # HMR 认知运行时(通过适配层接入真实 HMR v2.0,失败降级 Mock)
+        # 【P1·share-bge-m3】HKC 优先装配,确保 bge-m3 已入 HKC 共享缓存,
+        # 然后 HMR 创建时复用同一 SentenceTransformer 实例,启动期不再重复加载。
+        # HKC 装配失败(MODEL 缺失/网络问题) → HMR 仍按 env 链回退到 bge-m3 或 MiniLM,
+        # 不影响 HMR 可用性。
+        try:
+            from .knowledge import init_hkc as _init_hkc_early
+            _early_hkc = _init_hkc_early(self.data_dir, api_key)
+        except Exception as _e:
+            _early_hkc = None
+            print(f"[HestiaOS] ⚠ 启动期 HKC 预装配失败(继续,降级): {_e}")
+
         from .core.memory_adapter import create_memory_backend
+        # 【P2-fix】create_memory_backend / HMRAdapter 都从 EMBEDDING_MODEL env 读模型名,
+        # 加载时调 get_st_model() 走 HKC 进程缓存,bge-m3 instance 共享(只 load 1 次)
+        # —— 所以这里**不再**显式传 embedding_model 参数
         self.hmr = create_memory_backend(
             storage_path=str(self.data_dir / "hmr"),
             llm_api_key=api_key,
         )
+
+        # 把预装配的 HKC 缓存到 lazy 句柄(后续 self.hkc 直接返回,不再二次 init)
+        self._hkc_service = _early_hkc
+        self._hkc_inited = _early_hkc is not None
 
         # ThoughtChain（共享存储，各 Agent 通过 agent_id 隔离）
         self.thought_chain = ThoughtChain(

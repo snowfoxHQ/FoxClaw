@@ -105,8 +105,10 @@ class SessionStore:
         with self._lock:
             return self._read(sid)
 
-    def append(self, sid: str, role: str, content: str) -> bool:
-        """追加一条消息;会话不存在则忽略。首条用户消息会顺带定标题。"""
+    def append(self, sid: str, role: str, content: str, attachments: list = None) -> bool:
+        """追加一条消息;会话不存在则忽略。首条用户消息会顺带定标题。
+        attachments(可选)= 聊天附件元数据 [{name,size,mime,url}];只落盘轻字段(不存 text,
+        避免会话文件随附件正文膨胀),供「会话历史」回看时渲染附件卡片。"""
         if role not in ("user", "assistant") or not content:
             return False
         with self._lock:
@@ -114,7 +116,18 @@ class SessionStore:
             if d is None:
                 return False
             msgs = d.setdefault("messages", [])
-            msgs.append({"role": role, "content": str(content), "ts": _now()})
+            msg = {"role": role, "content": str(content), "ts": _now()}
+            if attachments:
+                atts = [
+                    {"name": str(a.get("name", ""))[:200],
+                     "size": int(a.get("size") or 0),
+                     "mime": str(a.get("mime", ""))[:100],
+                     "url": str(a.get("url", ""))[:500]}
+                    for a in attachments if isinstance(a, dict)
+                ]
+                if atts:
+                    msg["attachments"] = atts
+            msgs.append(msg)
             # 标题仍是默认值时,用首条用户消息提炼
             if role == "user" and (not d.get("title") or d["title"] == "新会话"):
                 d["title"] = derive_title(content)

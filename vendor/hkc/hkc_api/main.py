@@ -37,22 +37,34 @@ logger = logging.getLogger("hkc_api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """启动时装配容器，关闭时清理。"""
-    # LLM provider:anthropic(默认)| deepseek | openai
-    _provider = os.environ.get("HKC_LLM_PROVIDER", "anthropic").lower()
-    # API key:优先 HKC_LLM_API_KEY,其次按 provider 读对应的 key
+    # 【P2·单 LLM 入口】默认从 LLM_* 读,保留 HKC_LLM_* 显式覆盖向后兼容
+    _provider = (os.environ.get("HKC_LLM_PROVIDER")
+                 or os.environ.get("LLM_PROVIDER")
+                 or "anthropic").strip().lower()
+    # API key:优先 HKC_LLM_API_KEY,再 LLM_API_KEY,再各 provider 旧 env 兜底
     _llm_key = (os.environ.get("HKC_LLM_API_KEY")
+                or os.environ.get("LLM_API_KEY")
                 or os.environ.get("DEEPSEEK_API_KEY")
                 or os.environ.get("OPENAI_API_KEY")
                 or os.environ.get("ANTHROPIC_API_KEY"))
+    # base_url 同源(单入口)
+    _llm_base = (os.environ.get("HKC_LLM_BASE_URL")
+                 or os.environ.get("LLM_BASE_URL")) or None
+    # 模型名同源
+    _llm_model = (os.environ.get("HKC_LLM_MODEL")
+                  or os.environ.get("LLM_MODEL")) or None
+    # embedding 模型:优先 EMBEDDING_MODEL(系统唯一本地入口),再 HKC_EMBEDDING_MODEL
+    _emb_model = (os.environ.get("EMBEDDING_MODEL")
+                  or os.environ.get("HKC_EMBEDDING_MODEL")) or None
     init_container(
         data_dir       = os.environ.get("HKC_DATA_DIR", "./hkc_data"),
         embedding_kind = os.environ.get("HKC_EMBEDDING", "stub"),
         embedding_url  = os.environ.get("HKC_EMBEDDING_URL", "http://localhost:8080"),
-        embedding_model = os.environ.get("HKC_EMBEDDING_MODEL") or None,  # 空串→None,用默认模型
+        embedding_model = _emb_model,  # 空串→None,用默认模型
         llm_api_key    = _llm_key,
-        llm_model      = os.environ.get("HKC_LLM_MODEL"),     # None → 按 provider 默认
+        llm_model      = _llm_model,   # None → 按 provider 默认
         llm_provider   = _provider,
-        llm_base_url   = os.environ.get("HKC_LLM_BASE_URL"),  # None → provider 默认
+        llm_base_url   = _llm_base,    # None → provider 默认
     )
     logger.info("HKC API 启动完成")
     yield

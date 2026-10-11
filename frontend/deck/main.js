@@ -1,228 +1,16 @@
 // 缓存刷新:改动子模块时,连同顶栏版本号一起把 ?v= 递增(零构建下的显式 cache-bust)
+import './auth.js?v=5.37';
 import { escapeHtml } from './util.js?v=2.9';
 import { renderMarkdown, renderReply } from './markdown.js?v=2.9';
-/* ====== 中央全息核心 ====== */
-(function(){
-  const c=document.getElementById('coreCanvas'), x=c.getContext('2d');
-  function size(){const r=c.parentElement.getBoundingClientRect();c.width=r.width;c.height=r.height;}
-  size(); window.addEventListener('resize',size);
-  const N=520, pts=[];
-  for(let i=0;i<N;i++){const t=Math.acos(2*Math.random()-1),p=Math.random()*Math.PI*2;
-    pts.push({t,p});}
-  let rot=0;
-  function loop(){
-    x.clearRect(0,0,c.width,c.height);
-    const cx=c.width/2, cy=c.height/2, R=Math.min(cx,cy)*0.62;
-    rot+=0.0024;
-    // 光环底座
-    for(let k=0;k<3;k++){
-      x.beginPath();
-      x.ellipse(cx,cy+R*0.92,R*(1.05+k*0.18),R*(0.26+k*0.05),0,0,Math.PI*2);
-      x.strokeStyle=`rgba(0,217,255,${0.18-k*0.04})`; x.lineWidth=2; x.stroke();
-    }
-    // 球面点
-    for(const pt of pts){
-      const t=pt.t, p=pt.p+rot;
-      const xx=Math.sin(t)*Math.cos(p), yy=Math.cos(t), zz=Math.sin(t)*Math.sin(p);
-      const sx=cx+xx*R, sy=cy+yy*R;
-      const depth=(zz+1)/2;
-      x.beginPath(); x.arc(sx,sy,depth*1.6+0.3,0,Math.PI*2);
-      const hue=depth>0.5?'0,217,255':'255,194,75';
-      x.fillStyle=`rgba(${hue},${depth*0.85+0.1})`; x.fill();
-    }
-    // 经纬弧
-    x.strokeStyle='rgba(41,243,255,.12)';x.lineWidth=1;
-    for(let m=0;m<6;m++){
-      x.beginPath();
-      for(let a=0;a<=64;a++){const t=a/64*Math.PI, p=m/6*Math.PI*2+rot;
-        const xx=Math.sin(t)*Math.cos(p),yy=Math.cos(t),zz=Math.sin(t)*Math.sin(p);
-        const sx=cx+xx*R,sy=cy+yy*R; a?x.lineTo(sx,sy):x.moveTo(sx,sy);}
-      x.stroke();
-    }
-    // 中央辉光
-    const g=x.createRadialGradient(cx,cy,0,cx,cy,R*0.5);
-    g.addColorStop(0,'rgba(0,217,255,.28)');g.addColorStop(1,'transparent');
-    x.fillStyle=g;x.beginPath();x.arc(cx,cy,R*0.5,0,Math.PI*2);x.fill();
-    requestAnimationFrame(loop);
-  }
-  loop();
-})();
-
-/* ====== 记忆向量空间 ====== */
-(function(){
-  const c=document.getElementById('memCanvas'); if(!c) return;   // 右栏改版后无此装饰画布 → 静默跳过
-  const x=c.getContext('2d');
-  function size(){const r=c.parentElement.getBoundingClientRect();c.width=r.width;c.height=r.height;}
-  size();window.addEventListener('resize',size);
-  const nodes=[];for(let i=0;i<46;i++)nodes.push({x:Math.random(),y:Math.random(),z:Math.random(),s:Math.random()*2+1});
-  let rot=0;
-  function loop(){
-    x.clearRect(0,0,c.width,c.height);rot+=0.005;
-    const cx=c.width/2,cy=c.height/2;
-    nodes.forEach(n=>{
-      const a=n.x*Math.PI*2+rot, rad=(n.y*0.4+0.15)*Math.min(cx,cy);
-      const px=cx+Math.cos(a)*rad, py=cy+Math.sin(a)*rad*0.6+(n.z-0.5)*40;
-      n._x=px;n._y=py;
-      x.beginPath();x.arc(px,py,n.s,0,Math.PI*2);
-      x.fillStyle=n.z>0.5?'rgba(255,194,75,.9)':'rgba(0,217,255,.85)';x.fill();
-    });
-    x.strokeStyle='rgba(255,194,75,.12)';x.lineWidth=.5;
-    for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){
-      const dx=nodes[i]._x-nodes[j]._x,dy=nodes[i]._y-nodes[j]._y,d=Math.hypot(dx,dy);
-      if(d<46){x.beginPath();x.moveTo(nodes[i]._x,nodes[i]._y);x.lineTo(nodes[j]._x,nodes[j]._y);x.stroke();}
-    }
-    requestAnimationFrame(loop);
-  }
-  loop();
-})();
-
-/* ====== 中枢数据流:核心球↔Agent 信息流动 ====== */
-(function(){
-  const cv=document.getElementById('streamCanvas'); if(!cv)return;
-  const ctx=cv.getContext('2d');
-  const center=document.querySelector('.center');
-  function resize(){ const r=center.getBoundingClientRect(); cv.width=r.width; cv.height=r.height; }
-  resize(); window.addEventListener('resize',resize);
-  function pts(){
-    const cr=center.getBoundingClientRect();
-    const core=document.querySelector('.corewrap');
-    const coreC=core?core.getBoundingClientRect():cr;
-    const origin={x:coreC.left-cr.left+coreC.width/2, y:coreC.top-cr.top+coreC.height/2};
-    const targets=[...document.querySelectorAll('.acard')].map(a=>{
-      const b=a.getBoundingClientRect();
-      return {x:b.left-cr.left+b.width/2, y:b.top-cr.top+b.height/2,
-        color:getComputedStyle(a).getPropertyValue('--ac').trim()||'#00d9ff'};
-    });
-    return {origin,targets};
-  }
-  let particles=[];
-  function emit(targetAgent){
-    const {origin,targets}=pts();
-    if(!targets.length)return;
-    let t;
-    if(targetAgent){
-      // 定向:射向指定 Agent(发任务时用)
-      const cards=[...document.querySelectorAll('.acard')];
-      const idx=cards.findIndex(c=>c.dataset.agent===targetAgent);
-      t=idx>=0?targets[idx]:targets[Math.floor(Math.random()*targets.length)];
-    }else{
-      t=targets[Math.floor(Math.random()*targets.length)];
-    }
-    const reverse=targetAgent?false:Math.random()<0.4;  // 发任务恒为 核心→Agent
-    particles.push({
-      sx:reverse?t.x:origin.x, sy:reverse?t.y:origin.y,
-      ex:reverse?origin.x:t.x, ey:reverse?origin.y:t.y,
-      x:reverse?t.x:origin.x, y:reverse?t.y:origin.y,
-      p:0, speed:0.012+Math.random()*0.01, color:t.color, trail:[]
-    });
-  }
-  window._emitStream=emit;  // 暴露给发任务联动
-  function ease(t){ return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2; }
-  function hexA(c,a){
-    c=c||'#00d9ff';
-    if(c.startsWith('rgb'))return c.replace(/rgba?\(([^)]+)\)/,(m,p)=>{const v=p.split(',').slice(0,3).join(','); return `rgba(${v},${a})`;});
-    let h=c.replace('#',''); if(h.length===3)h=h.split('').map(x=>x+x).join('');
-    const n=parseInt(h,16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
-  }
-  function loop(){
-    ctx.clearRect(0,0,cv.width,cv.height);
-    particles.forEach(pt=>{
-      pt.p+=pt.speed;
-      pt.x=pt.sx+(pt.ex-pt.sx)*ease(pt.p);
-      pt.y=pt.sy+(pt.ey-pt.sy)*ease(pt.p);
-      pt.trail.push({x:pt.x,y:pt.y}); if(pt.trail.length>14)pt.trail.shift();
-      pt.trail.forEach((tp,i)=>{
-        const a=(i/pt.trail.length)*(1-pt.p)*0.7;
-        ctx.beginPath(); ctx.arc(tp.x,tp.y,1.6,0,7);
-        ctx.fillStyle=hexA(pt.color,a); ctx.fill();
-      });
-      ctx.beginPath(); ctx.arc(pt.x,pt.y,2.4,0,7);
-      ctx.fillStyle=hexA(pt.color,(1-pt.p)*0.9); ctx.shadowBlur=8; ctx.shadowColor=pt.color; ctx.fill(); ctx.shadowBlur=0;
-    });
-    particles=particles.filter(pt=>pt.p<1);
-    requestAnimationFrame(loop);
-  }
-  loop();
-  setInterval(emit, 2200);
-  setTimeout(emit, 800);
-})();
-
-/* ====== 系统活动波形(已移除,保留空值保护)====== */
-(function(){
-  const c=document.getElementById('actCanvas'); if(!c)return;
-  const x=c.getContext('2d');
-  function size(){const r=c.parentElement.getBoundingClientRect();c.width=r.width;c.height=90;}
-  size();window.addEventListener('resize',size);
-  let t=0;
-  function loop(){
-    x.clearRect(0,0,c.width,c.height);t+=0.03;
-    if(window.actPulse>0)window.actPulse*=0.96;
-    const boost=1+(window.actPulse||0);
-    [[ '0,217,255',0],['255,194,75',1.5]].forEach(([col,ph])=>{
-      x.beginPath();
-      for(let i=0;i<=c.width;i+=4){
-        const y=c.height/2+Math.sin(i*0.025+t+ph)*18*boost*Math.sin(i*0.006+t*0.5)+
-          Math.sin(i*0.05+t*1.3+ph)*8*boost;
-        i?x.lineTo(i,y):x.moveTo(i,y);
-      }
-      x.strokeStyle=`rgba(${col},.7)`;x.lineWidth=2;x.shadowBlur=8;x.shadowColor=`rgba(${col},.6)`;x.stroke();x.shadowBlur=0;
-    });
-    requestAnimationFrame(loop);
-  }
-  loop();
-})();
+import './visuals.js?v=5.36';   // 球体特效默认关 + hestiaVisual.on/off/toggle API
+import { _origin, API, WS, _lastKernelData } from './state.js?v=5.31';
+import { fetchAMapConfig, kpSet, renderFinance, renderLearning, renderItinerary, itinSideHTML, renderSituation, drawAMapInto, initMapSearch } from './domain.js?v=5.31';
+import { openSetMenu, switchProvider, uiPref, openAuthSetting } from './settings.js?v=5.36';   // uiPref.ballAnim 默认 false
+import './chat_model_picker.js?v=1.3';   // chat 输入框旁的下拉式模型选择器(图1 风格);v1.3 当前选中的 custom 也常驻 ✎ ✕(v1.2 误隐藏)
 
 /* ════════════ 后端数据层:接真实 Hestia OS ════════════ */
-const _origin=(location.protocol==='http:'||location.protocol==='https:')?location.origin:'http://localhost:8000';
-const API=_origin+'/api';
-const WS=_origin.replace(/^http/,'ws')+'/ws/harness';
 
-/* 鉴权:后端若设了 HESTIA_API_KEY,则同源 /api 请求需带 X-API-Key。
-   前端从 localStorage.hestiaApiKey 读取,包一层 fetch 自动注入,无需改各调用点。
-   设置方法(浏览器控制台):localStorage.hestiaApiKey='你的key' */
-(function(){
-  const _fetch=window.fetch.bind(window);
-  window.fetch=function(url,opts){
-    try{
-      const key=localStorage.getItem('hestiaApiKey');
-      const u=String(url||'');
-      // /knowledge/* 与 /api/* 一样受后端可选鉴权守护,两者都要注入 key
-      if(key && (u.indexOf('/api')>=0 || u.indexOf('/knowledge')>=0)){
-        opts=opts||{}; opts.headers=Object.assign({}, opts.headers, {'X-API-Key':key});
-      }
-    }catch(e){}
-    return _fetch(url,opts);
-  };
-})();
 
-/* ===== 高德地图 JSAPI 配置 =====
-   Key 不再硬编码:由后端从 .env 读取后,经 /api/config/amap 接口下发。
-   用户只需在项目根目录 .env 里填 AMAP_JS_KEY / AMAP_JS_SCODE 即可。
-   未配置则地图降级为 SVG 坐标示意图。 */
-let AMAP_JS_KEY    = "";   // 运行时从后端注入,勿硬编码
-let AMAP_JS_SCODE  = "";   // 运行时从后端注入,勿硬编码
-async function fetchAMapConfig(){
-  try{
-    const c=await(await fetch(`${API}/config/amap`)).json();
-    AMAP_JS_KEY=c.js_key||""; AMAP_JS_SCODE=c.js_scode||"";
-  }catch(e){}
-}
-let _amapLoaded=false, _amapLoading=false, _amapMap=null;
-function loadAMap(){
-  return new Promise((resolve,reject)=>{
-    if(_amapLoaded)return resolve(window.AMap);
-    if(!AMAP_JS_KEY)return reject('no-key');
-    if(_amapLoading){const t=setInterval(()=>{if(_amapLoaded){clearInterval(t);resolve(window.AMap);}},200);return;}
-    _amapLoading=true;
-    // 安全密钥配置必须在加载脚本之前设置
-    if(AMAP_JS_SCODE){ window._AMapSecurityConfig={securityJsCode:AMAP_JS_SCODE}; }
-    const s=document.createElement('script');
-    s.src=`https://webapi.amap.com/maps?v=2.0&key=${AMAP_JS_KEY}`;
-    s.onload=()=>{_amapLoaded=true;resolve(window.AMap);};
-    s.onerror=()=>reject('load-fail');
-    document.head.appendChild(s);
-  });
-}
 
 let activeAgent='supervisor';
 const AGENT_CN={supervisor:'主管',assistant:'助手',finance:'财务',admin:'行政',office:'办公'};
@@ -233,6 +21,20 @@ function setUplink(on){
   if(el){el.textContent=on?'100%':'离线'; el.style.color=on?'var(--green)':'var(--amber)';}
   // 副标题固定为品牌语,不再被状态文字覆盖(状态已在右上角显示)
 }
+
+/* 鉴权提示条:后端 401 → 顶部弹一条,引导去「访问密钥」配置(只弹一次) */
+function showAuthHint(){
+  if(document.getElementById('authHint')) return;
+  const bar=document.createElement('div');
+  bar.id='authHint';
+  bar.innerHTML='<span class="ah-ico">⚠</span><span class="ah-txt">后端已开启鉴权,本机浏览器尚未配置访问密钥,数据无法加载</span>'
+    +'<button class="ah-btn" id="ah-go">配置密钥</button><button class="ah-x" id="ah-x">✕</button>';
+  document.body.appendChild(bar);
+  document.getElementById('ah-go').onclick=()=>{ bar.remove(); openAuthSetting(); };
+  document.getElementById('ah-x').onclick=()=>bar.remove();
+}
+// 鉴权注入模块(auth.js)检测到 401 时回调此函数弹提示条
+window.__hestiaAuthHint=showAuthHint;
 
 /* 1. 加载五 Agent 状态 */
 async function loadStatus(){
@@ -321,6 +123,7 @@ function refreshAgentStatus(){
 }
 refreshAgentStatus();
 
+
 /* ===== 中央焦点空间:激活 Agent 显示其当前内容,空闲回到全息球 ===== */
 /* ═══ 中间栏输出中枢(Center)═══════════════════════════════════════════════
    中间栏有两个叠放的输出层 —— 对话浮层 coreChat(z5)/ 面板层 coreStage(z3),外加背后的 3D 核心。
@@ -399,12 +202,7 @@ const KP_META={
   admin:{title:'行程规划',tag:'Ops'},
   office:{title:'知识与学习',tag:'Knowledge'},
 };
-function kpSet(title,tag,html){
-  // 右栏改版为「记忆 + 知识」后不再有 kernelPanel;这些元素可能不存在 → 逐个保护,静默跳过。
-  const t=document.getElementById('kpTitle'); if(t)t.textContent=title;
-  const g=document.getElementById('kpTag');   if(g)g.textContent=tag;
-  const b=document.getElementById('kpBody');  if(b)b.innerHTML=html;
-}
+
 async function loadKernel(agent){
   const m=KP_META[agent]||KP_META.assistant;
   try{
@@ -450,147 +248,6 @@ function importDomainFile(agent){
   };
   inp.click();
 }
-function renderFinance(d){
-  let h='<div class="kp-add" onclick="openEntry(\'finance\')">＋ 录入交易</div>'
-       +'<div class="kp-add" onclick="importDomainFile(\'finance\')">📁 导入文件</div>';
-  const bs=d.budget_status||[];
-  if(bs.length){h+='<div class="kp-sec"><div class="h">预算状态</div>';
-    bs.forEach(b=>{const pct=Math.min(b.usage_ratio*100,120);
-      const col=b.is_over?'var(--amber)':'var(--green)';
-      h+=`<div class="kp-bud"><div class="top"><b>${escapeHtml(b.category)}</b><span class="${b.is_over?'over':''}">${b.spent.toFixed(0)}/${b.monthly_limit.toFixed(0)}</span></div>
-      <div class="bar"><i style="width:${pct}%;background:${col}"></i></div></div>`;});
-    h+='</div>';}
-  const an=d.anomalies||[];
-  if(an.length){h+='<div class="kp-sec"><div class="h">异常消费</div>';
-    an.forEach(a=>{h+=`<div class="kp-chip"><span class="ico">⚠</span><div class="tx"><b>${escapeHtml(a.entity)} ${escapeHtml(a.amount)}</b><span>${escapeHtml(a.reason)}</span></div></div>`;});
-    h+='</div>';}
-  const sc=d.subscription_creep||{};
-  if(sc.subscription_count){h+=`<div class="kp-sec"><div class="h">订阅</div><div class="kp-metric"><span class="lab">订阅数量</span><span class="val">${sc.subscription_count}</span></div><div class="kp-metric"><span class="lab">月度总额</span><span class="val">${sc.monthly_total}</span></div></div>`;}
-  const gv=d.gatekeeper_verdicts||[];
-  if(gv.length){h+='<div class="kp-sec"><div class="h">守门人裁决</div>';
-    gv.forEach(v=>{const cls=v.severity==='critical'?'crit':v.severity==='warn'?'warn':'info';
-      h+=`<div class="kp-chip ${cls}"><span class="ico">⬢</span><div class="tx"><b>${v.action}</b><span>${v.message}</span></div></div>`;});
-    h+='</div>';}
-  return h||'<div class="kp-empty">暂无财务数据 · 先导入交易</div>';
-}
-
-function renderLearning(d){
-  let h='<div class="kp-add" onclick="openEntry(\'office\')">＋ 写入知识点</div>'
-       +'<div class="kp-add" onclick="document.getElementById(\'cmdAttach\')?.click()">📄 导入文件</div>'
-       +'<div class="kp-add" onclick="document.getElementById(\'cmdFolder\')?.click()">📁 导入文件夹</div>';
-  h+='<div class="kp-tiprow">导入的文档去哪了?<span class="infotip" tabindex="0">i<span class="infotip-pop">📡「导入文件/文件夹」的文档存入<b>知识星球(HKC)</b>并抽取成知识;本页显示的是<b>学习知识点/掌握度</b>。<span class="infotip-link" onclick="document.getElementById(\'planetLaunch\')?.click()">→ 去星球查看已摄入的知识</span></span></span></div>';
-  h+=`<div class="kp-sec"><div class="h">学习概况</div>
-    <div class="kp-metric"><span class="lab">知识点</span><span class="val">${d.total_items||0}</span></div>
-    <div class="kp-metric"><span class="lab">平均掌握度</span><span class="val">${((d.avg_mastery||0)*100).toFixed(0)}%</span></div>
-    <div class="kp-metric"><span class="lab">今日待复习</span><span class="val">${d.due_today||0}</span></div>
-    <div class="kp-metric"><span class="lab">知识簇</span><span class="val">${d.graph?.clusters||0}</span></div></div>`;
-  const tm=d.topic_mastery||{};
-  if(Object.keys(tm).length){h+='<div class="kp-sec"><div class="h">主题掌握度</div>';
-    Object.entries(tm).forEach(([t,m])=>{h+=`<div class="kp-row" style="gap:10px"><span style="width:64px;color:var(--ink-dim)">${t}</span><div class="mastery-bar"><i style="width:${m*100}%"></i></div><span style="font-family:Orbitron;font-size:10px;width:32px;text-align:right">${(m*100).toFixed(0)}%</span></div>`;});
-    h+='</div>';}
-  const fr=d.forgetting_risk||[];
-  if(fr.length){h+=`<div class="kp-sec"><div class="h">遗忘风险</div><div class="kp-chip warn"><span class="ico">◷</span><div class="tx"><b>${fr.length} 个知识点高风险</b><span>建议优先复习</span></div></div></div>`;}
-  return h;
-}
-
-function renderItinerary(d){
-  let h='<div class="kp-add" onclick="openEntry(\'admin\')">＋ 录入行程</div>'
-       +'<div class="kp-add" onclick="importDomainFile(\'admin\')">📁 导入文件</div>';
-  // 地图容器(高德 JSAPI 可用时画真地图,否则显示文字路线)
-  h+=`<div class="kp-sec"><div class="h">行程地图</div>
-    <div id="amapBox" style="height:160px;border-radius:10px;overflow:hidden;border:1px solid var(--glass-brd);position:relative;background:radial-gradient(circle at 50% 50%,rgba(255,157,0,.08),rgba(8,12,28,.5))">
-      <div id="amapHint" style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;font-size:11px;color:var(--ink-faint);padding:10px">加载地图中…</div>
-    </div></div>`;
-  h+=itinRouteHTML(d);
-  // 异步画地图(DOM 插入后)
-  setTimeout(()=>drawAMap(d.map_data||[]),60);
-  return h||'<div class="kp-empty">暂无行程 · 先导入行程点</div>';
-}
-
-/* 行程的路线/冲突部分(不含地图,供全屏侧栏复用)*/
-function itinRouteHTML(d){
-  let h='';
-  const opt=d.optimized_route||{};
-  if(opt.order_names){h+=`<div class="kp-sec"><div class="h">最优路线 (${opt.method})</div>`;
-    opt.order_names.forEach((n,i)=>{h+=`<div class="kp-route"><span class="seq">${i+1}</span><span>${n}</span></div>`;});
-    h+=`<div class="kp-metric" style="margin-top:8px"><span class="lab">总距离</span><span class="val">${opt.total_km} km</span></div><div class="kp-metric"><span class="lab">总通勤</span><span class="val">${opt.total_min} 分</span></div></div>`;}
-  const cf=d.conflicts||[];
-  if(cf.length){h+='<div class="kp-sec"><div class="h">冲突 / 可达性</div>';
-    cf.forEach(c=>{h+=`<div class="kp-chip crit"><span class="ico">✕</span><div class="tx"><b>${c.type==='unreachable'?'赶不及':'时间冲突'}</b><span>${c.reason}</span></div></div>`;});
-    h+='</div>';}
-  return h;
-}
-
-/* 全屏侧栏:只放录入 + 路线信息(不重复地图、不显示无用状态行)*/
-function itinSideHTML(d){
-  let h='<div class="kp-add" onclick="openEntry(\'admin\')">＋ 录入行程</div>'
-       +'<div class="kp-add" onclick="importDomainFile(\'admin\')">📁 导入文件</div>';
-  const body=itinRouteHTML(d);
-  return h + (body || '<div style="text-align:left;color:var(--ink-faint);font-size:11px;padding:8px 0;line-height:1.8">搜索地点<br>加入行程</div>');
-}
-
-function drawAMap(mapData){
-  const box=document.getElementById('amapBox'), hint=document.getElementById('amapHint');
-  if(!box)return;
-  const pois=mapData.filter(x=>x.type==='poi');
-  const routes=mapData.filter(x=>x.type==='route');
-  if(!AMAP_JS_KEY){
-    // 无 Key:画一个简版坐标示意(SVG),不依赖外部
-    box.innerHTML=simpleMapSVG(pois,routes);
-    return;
-  }
-  loadAMap().then(AMap=>{
-    box.innerHTML='';
-    const center=pois.length?pois[0].lnglat:[116.40,39.90];
-    _amapMap=new AMap.Map(box,{zoom:11,center,viewMode:'2D'});
-    const pts=[];
-    pois.forEach((p,i)=>{
-      const mk=new AMap.Marker({position:p.lnglat,map:_amapMap,
-        label:{content:`${i+1}.${p.text}`,direction:'top'}});
-      pts.push(p.lnglat);
-    });
-    routes.forEach(r=>{
-      new AMap.Polyline({path:[r.start,r.end],map:_amapMap,
-        strokeColor:'#ff9d00',strokeWeight:4,strokeOpacity:.85});
-    });
-    if(pts.length)_amapMap.setFitView();
-  }).catch(()=>{ box.innerHTML=simpleMapSVG(pois,routes); });
-}
-
-/* 无 Key 时的简版坐标示意图(SVG,纯本地)*/
-function simpleMapSVG(pois,routes){
-  if(!pois.length)return '<div style="display:grid;place-items:center;height:100%;font-size:11px;color:var(--ink-faint)">暂无坐标 · 配置高德 JSAPI Key 后显示真地图</div>';
-  const lngs=pois.map(p=>p.lnglat[0]),lats=pois.map(p=>p.lnglat[1]);
-  const minx=Math.min(...lngs),maxx=Math.max(...lngs),miny=Math.min(...lats),maxy=Math.max(...lats);
-  const W=240,H=150,pad=24;
-  const sx=v=>pad+((v-minx)/((maxx-minx)||1))*(W-2*pad);
-  const sy=v=>H-pad-((v-miny)/((maxy-miny)||1))*(H-2*pad);
-  let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%">`;
-  routes.forEach(r=>{s+=`<line x1="${sx(r.start[0])}" y1="${sy(r.start[1])}" x2="${sx(r.end[0])}" y2="${sy(r.end[1])}" stroke="#ff9d00" stroke-width="2" stroke-opacity=".6" stroke-dasharray="4 3"/>`;});
-  pois.forEach((p,i)=>{const x=sx(p.lnglat[0]),y=sy(p.lnglat[1]);
-    s+=`<circle cx="${x}" cy="${y}" r="6" fill="#ff9d00" fill-opacity=".25" stroke="#ff9d00" stroke-width="1.5"/>`;
-    s+=`<text x="${x}" y="${y+3}" font-size="8" fill="#fff" text-anchor="middle" font-family="Orbitron">${i+1}</text>`;
-    s+=`<text x="${x}" y="${y-9}" font-size="7" fill="#7e93b8" text-anchor="middle">${p.text}</text>`;});
-  s+='</svg>';
-  return s+`<div style="position:absolute;bottom:4px;right:6px;font-size:8px;color:var(--ink-faint)">坐标示意 · 配 JSAPI Key 看真地图</div>`;
-}
-
-function renderSituation(d){
-  let h='';
-  const f=d.finance||{},l=d.learning||{},i=d.itinerary||{};
-  h+=`<div class="kp-sec"><div class="h">驾驶舱视图</div>
-    <div class="kp-metric"><span class="lab">💰 财务交易</span><span class="val">${f.transactions||0}</span></div>
-    <div class="kp-metric"><span class="lab">📚 待复习</span><span class="val">${l.due_today||0}</span></div>
-    <div class="kp-metric"><span class="lab">📍 行程冲突</span><span class="val">${i.conflicts||0}</span></div></div>`;
-  const al=d.alerts||[];
-  if(al.length){h+='<div class="kp-sec"><div class="h">跨域告警</div>';
-    al.forEach(a=>{const cls=a.severity==='critical'?'crit':a.severity==='warn'?'warn':'info';
-      h+=`<div class="kp-chip ${cls}"><span class="ico">▲</span><div class="tx"><b>${escapeHtml(a.domain)}</b><span>${escapeHtml(a.msg)}</span></div></div>`;});
-    h+='</div>';}
-  else h+='<div class="kp-empty">暂无跨域告警 · 系统平稳</div>';
-  return h;
-}
-
 
 /* 4. 发任务到后端 */
 /* Agent 忙碌态:有任务时卡片亮主题色 + 显示任务标题 */
@@ -616,12 +273,12 @@ function clearAgentBusy(agent){
 
 async function transmit(){
   const inp=document.getElementById('cmd'); let task=(inp.value||'').trim();
-  const hasImgs=_pendingImages.length>0;
-  if(!task && !hasImgs)return;
+  const hasImgs=_pendingImages.length>0, hasFiles=_pendingFiles.length>0;
+  if(!task && !hasImgs && !hasFiles)return;
   // 斜杠指令:以 / 开头交给命令处理器,不发给后端(如 /搜索 记忆架构、/工具、/清库 确认)
   if(task[0]==='/'){ inp.value=''; hideSlashMenu(); runSlash(task); return; }
   inp.value='';
-  if(hasImgs && !task) task='请描述并分析这张图片';
+  if((hasImgs||hasFiles) && !task) task=hasImgs?'请描述并分析这张图片':'请阅读并总结这个文件';
   prependTask(task,activeAgent,'pending');
   // 标记当前 Agent 忙碌 + 显示任务标题
   setAgentBusy(activeAgent, task);
@@ -629,13 +286,15 @@ async function transmit(){
   if(window._emitStream){ for(let i=0;i<3;i++) setTimeout(()=>window._emitStream(activeAgent), i*180); }
   // 弹出回复浮窗(加载态);带图则把用户图片缩略图渲染进提问区
   const qThumbs=hasImgs?_pendingImages.map(x=>x.url):null;
-  showReplyPop(task, activeAgent, false, qThumbs);
-  // 多模态:带图必走流式(/chat/stream 消费 images);发送后清空附件条
-  if(hasImgs){
-    const imgs=_pendingImages.map(x=>({media_type:x.media_type, data:x.data}));
-    clearPendingImages();
+  const qFiles=hasFiles?_pendingFiles.map(x=>({name:x.name,size:x.size,url:x.url})):null;
+  showReplyPop(task, activeAgent, false, qThumbs, qFiles);
+  // 多模态/附件:带图或带文件必走流式(/chat/stream 消费 images/attachments);发送后清空附件条
+  if(hasImgs || hasFiles){
+    const imgs=hasImgs?_pendingImages.map(x=>({media_type:x.media_type, data:x.data})):null;
+    const atts=hasFiles?_pendingFiles.map(x=>({name:x.name,size:x.size,mime:x.mime,url:x.url,text:x.text})):null;
+    clearPendingImages(); clearPendingFiles();
     _refTriggers={};   // 流式/多模态无技能路由,清掉 @引用残留(仅任务模式经 applyRefs 生效)
-    return transmitStream(task, activeAgent, imgs);
+    return transmitStream(task, activeAgent, imgs, atts);
   }
   if(chatModeStream){ _refTriggers={}; return transmitStream(task, activeAgent); }
   // 任务模式:@引用把技能触发词带入后端 task(用户可见输入保留 @名称)
@@ -687,7 +346,7 @@ async function transmit(){
   }
 }
 /* 回复显示在中央对话层(最上层)*/
-function showReplyPop(task, agent, force, qImages){
+function showReplyPop(task, agent, force, qImages, qFiles){
   // 偏好关闭则不弹被动回复;但 force=true(如用户主动发起的文件摄入)必须可见,
   // 否则点了 📎 却因偏好静默 → 屏幕零反应,以为坏了。
   if(!force && typeof uiPref!=='undefined' && !uiPref.autoChat) return;
@@ -699,6 +358,9 @@ function showReplyPop(task, agent, force, qImages){
   let qh='你:'+escapeHtml(task);
   if(qImages && qImages.length){   // 用户随问题发的图片 → 提问区渲染缩略图(本地 dataURL,可信)
     qh+='<div class="cc-qimgs">'+qImages.map(u=>`<img class="cc-qimg" src="${u}" alt="">`).join('')+'</div>';
+  }
+  if(qFiles && qFiles.length){     // 用户随问题发的附件 → 提问区渲染文件卡片(可下载)
+    qh+=_attachmentsHtml(qFiles);
   }
   document.getElementById('ccQ').innerHTML=qh;
   document.getElementById('ccReply').innerHTML='<div class="cc-loading">◌ 思考中…(真实模型回复需几秒)</div>';
@@ -714,9 +376,9 @@ function fillReplyPop(reply, status, kind, isHtml){
   else if(kind==='err'){ st.style.color='var(--pink)'; }
   else { st.style.color='var(--ink-dim)'; rp.style.color='var(--ink)'; }
 }
-document.getElementById('ccClose').addEventListener('click',()=>document.getElementById('coreChat').classList.remove('show'));
-document.querySelector('.cmdbar .send').addEventListener('click',transmit);
-document.getElementById('cmd').addEventListener('keydown',e=>{if(e.key==='Enter')transmit();});
+document.getElementById('ccClose')?.addEventListener('click',()=>document.getElementById('coreChat')?.classList.remove('show'));
+document.querySelector('.cmdbar .send')?.addEventListener('click',transmit);
+document.getElementById('cmd')?.addEventListener('keydown',e=>{if(e.key==='Enter')transmit();});
 
 
 /* ── 附件摄入:chat 栏 📎 → 文件进 HKC 知识库(异步 + 进度轮询)──────────────
@@ -867,6 +529,7 @@ function _toolRows(){
     {ic:'📎', b:'上传文件',   s:'摄入知识库',      act:()=>{ hideToolMenu(); hit('cmdAttach'); }},
     {ic:'📁', b:'导入文件夹', s:'逐个摄入',        act:()=>{ hideToolMenu(); hit('cmdFolder'); }},
     {ic:'🖼', b:'附加图片',   s:'发给视觉模型',    act:()=>{ hideToolMenu(); hit('cmdImg'); }},
+    {ic:'📄', b:'附件文件',   s:'随问题发给 AI',   act:()=>{ hideToolMenu(); hit('cmdAttachFile'); }},
     {ic:'🔌', b:'连接器/插件', s:'MCP · 技能',     act:()=>{ hideToolMenu(); hit('cmdConn'); }},
   ];
 }
@@ -1212,6 +875,55 @@ async function visionAdvisory(){
   }
 })();
 
+/* ===== 文件附件 → 聊天附件:上传落盘 + 随问题发给 LLM(文本类提取正文,其它降级元数据) ===== */
+let _pendingFiles=[];   // [{id,name,size,mime,url,text}]
+const _FILE_MAX=6, _FILE_MAXB=20*1024*1024;
+function _fileSize(sz){
+  if(!sz)return '';
+  return sz>=1048576?(sz/1048576).toFixed(1)+'MB':(sz/1024).toFixed(1)+'KB';
+}
+function _attachmentsHtml(atts){
+  if(!atts || !atts.length) return '';
+  return '<div class="cc-files">'+atts.map(a=>{
+    const nm=escapeHtml(a.name||'文件'), sz=_fileSize(a.size);
+    const url=a.url?escapeHtml(a.url):'';
+    if(url) return `<a class="cc-file" href="${url}" target="_blank" rel="noopener noreferrer">📄 <span>${nm}</span><span class="cc-file-size">${sz}</span></a>`;
+    return `<span class="cc-file">📄 <span>${nm}</span><span class="cc-file-size">${sz}</span></span>`;
+  }).join('')+'</div>';
+}
+async function attachFiles(files){
+  for(const f of [...files]){
+    if(_pendingFiles.length>=_FILE_MAX) break;
+    if(f.size>_FILE_MAXB){ console.warn(`[attach] 跳过超限文件: ${f.name} (${f.size}B > 20MB)`); continue; }
+    try{
+      const fd=new FormData(); fd.append('file', f);
+      const r=await fetch(`${API}/upload`,{method:'POST',body:fd});
+      if(!r.ok) throw new Error('http '+r.status);
+      const a=await r.json();
+      _pendingFiles.push({id:a.id,name:a.name||f.name,size:a.size,mime:a.mime,url:a.url,text:a.text||''});
+    }catch(e){ console.warn(`[attach] 上传失败: ${f.name}`, e); }
+  }
+  renderFileStrip();
+}
+function renderFileStrip(){
+  const s=document.getElementById('fileStrip'); if(!s)return;
+  if(!_pendingFiles.length){ s.classList.remove('show'); s.innerHTML=''; return; }
+  s.innerHTML=_pendingFiles.map((f,i)=>
+    `<div class="file-card" title="${escapeHtml(f.name)}"><span>📄</span><span class="fc-name">${escapeHtml(f.name)}</span>`
+    +`<span class="fc-size" style="color:var(--dim);font-size:11px">${_fileSize(f.size)}</span>`
+    +`<span class="fc-x" data-i="${i}">✕</span></div>`).join('');
+  s.classList.add('show');
+  s.querySelectorAll('.fc-x').forEach(el=>el.addEventListener('click',()=>{ _pendingFiles.splice(+el.dataset.i,1); renderFileStrip(); }));
+}
+function clearPendingFiles(){ _pendingFiles=[]; renderFileStrip(); }
+(function(){
+  const btn=document.getElementById('cmdAttachFile'), inp=document.getElementById('cmdFileUpload');
+  if(btn&&inp){
+    btn.addEventListener('click',()=>inp.click());
+    inp.addEventListener('change',()=>{ const fs=[...inp.files]; inp.value=''; if(fs.length) attachFiles(fs); });
+  }
+})();
+
 /* 流式直答:SSE 逐字追加进回复浮窗 */
 let _chatHistory=[];   // 多轮对话历史 [{role,content}];随请求带给后端 + 界面渲染成对话线程
 function clearChatHistory(){ _chatHistory=[]; }   // 新话题/清屏可调
@@ -1240,7 +952,7 @@ async function openSession(id){
   try{
     const d=await fetch(`${API}/sessions/${id}`).then(r=>r.json());
     _sessionId=d.id; localStorage.setItem('hestiaSessionId',_sessionId);
-    _chatHistory=(d.messages||[]).map(m=>({role:m.role,content:m.content,ts:(m.ts||0)*1000}));
+    _chatHistory=(d.messages||[]).map(m=>({role:m.role,content:m.content,ts:(m.ts||0)*1000,attachments:m.attachments||undefined}));
     renderSessionThread(d.agent_id||'supervisor');
     await loadSessions();
   }catch(e){}
@@ -1251,7 +963,8 @@ function renderSessionThread(agent){
   const a=document.getElementById('ccAgent'); if(a)a.textContent=`${AGENT_CN[agent]||agent} Agent`;
   let h='';
   for(const m of _chatHistory){
-    h+=_chatRow(m.role, m.role==='user'?escapeHtml(m.content):renderMarkdown(m.content), agent, m.ts, false);
+    const inner=m.role==='user'?escapeHtml(m.content)+_attachmentsHtml(m.attachments):renderMarkdown(m.content);
+    h+=_chatRow(m.role, inner, agent, m.ts, false);
   }
   body.innerHTML=h||'<div class="kp-empty" style="padding:30px">这个会话还没有消息</div>';
   Center.chat();
@@ -1310,22 +1023,23 @@ function _chatRow(role, inner, agent, ts, isSlot){
     +`<div class="chat-meta"><span class="chat-name">${escapeHtml(nm)}</span>${isSlot?'':`<span class="chat-time">${t}</span>`}</div>`
     +bubble+`</div></div>`;
 }
-function renderChatThread(currentQ, agent){
+function renderChatThread(currentQ, agent, attachments){
   document.getElementById('ccAgent').textContent=`${AGENT_CN[agent]||agent} Agent`;
   const body=document.querySelector('#coreChat .cc-body'); if(!body) return;
   let h='';
   for(const m of _chatHistory){
-    h += _chatRow(m.role, m.role==='user'?escapeHtml(m.content):renderMarkdown(m.content), agent, m.ts, false);
+    const inner=m.role==='user'?escapeHtml(m.content)+_attachmentsHtml(m.attachments):renderMarkdown(m.content);
+    h += _chatRow(m.role, inner, agent, m.ts, false);
   }
-  h += _chatRow('user', escapeHtml(currentQ||''), agent, Date.now(), false);
+  h += _chatRow('user', escapeHtml(currentQ||'')+_attachmentsHtml(attachments), agent, Date.now(), false);
   h += _chatRow('ai', '', agent, Date.now(), true);   // 空答槽:#ccReply 供流式写入
   h += `<div class="cc-status" id="ccStatus"></div>`;
   body.innerHTML=h;
   Center.chat();
   body.scrollTop=body.scrollHeight;
 }
-async function transmitStream(task, agent, images){
-  renderChatThread(task, agent);   // 先把历史+当前问渲染成对话线程(保留上下文),再流式写入答案槽
+async function transmitStream(task, agent, images, attachments){
+  renderChatThread(task, agent, attachments);   // 先把历史+当前问(含附件卡片)渲染成对话线程,再流式写入答案槽
   const _ccBody=document.querySelector('#coreChat .cc-body');   // 注意:下方请求体也叫 body,故这里另起名避免遮蔽
   const rp=document.getElementById('ccReply'), st=document.getElementById('ccStatus');
   rp.textContent=''; rp.style.color='var(--ink)'; st.style.color='var(--ink-dim)'; st.textContent='◌ 流式生成中…';
@@ -1334,6 +1048,7 @@ async function transmitStream(task, agent, images){
     if(!_sessionId) await ensureSession();          // 保证本轮问答有会话归属(否则落不了盘)
     const body={task, agent_id:agent, history:_chatHistory.slice(-12), session_id:_sessionId};
     if(images && images.length) body.images=images;   // 多模态:图片随问题发给视觉模型
+    if(attachments && attachments.length) body.attachments=attachments;   // 聊天附件:随问题发给 LLM
     const r=await fetch(`${API}/chat/stream`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!r.ok||!r.body){ st.textContent='⚠ 流式请求失败: '+r.status; st.style.color='var(--pink)'; return; }
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
@@ -1353,7 +1068,7 @@ async function transmitStream(task, agent, images){
     if(acc){
       renderReply(acc);                    // 流式结束 → 富文本渲染(markdown + 内嵌图/音/视频)
       const _now=Date.now();
-      _chatHistory.push({role:'user',content:task,ts:_now},{role:'assistant',content:acc,ts:_now});
+      _chatHistory.push({role:'user',content:task,ts:_now,attachments:attachments||undefined},{role:'assistant',content:acc,ts:_now});
       if(_chatHistory.length>24) _chatHistory=_chatHistory.slice(-24);   // 只留最近 ~12 轮
       loadSessions();                        // 会话标题/条数会变 → 刷新左栏列表
     }
@@ -1448,7 +1163,6 @@ function flashCmd(c){
 }
 
 /* ===== 全屏 overlay 浮层 ===== */
-let _lastKernelData={};   // 缓存各 Agent 最近一次内核数据,供全屏复用
 function openOverlay(agent){
   const m=KP_META[agent]||KP_META.assistant;
   document.getElementById('ovTitle').textContent=m.title;
@@ -1483,130 +1197,13 @@ function openOverlay(agent){
 }
 function closeOverlay(){document.getElementById('ovMask').classList.remove('show');}
 document.getElementById('kpFull')?.addEventListener('click',()=>openOverlay(activeAgent));
-document.getElementById('ovClose').addEventListener('click',closeOverlay);
-document.getElementById('ovMask').addEventListener('click',e=>{if(e.target.id==='ovMask')closeOverlay();});
+document.getElementById('ovClose')?.addEventListener('click',closeOverlay);
+document.getElementById('ovMask')?.addEventListener('click',e=>{if(e.target.id==='ovMask')closeOverlay();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlay();});
 
 /* 地图自动全屏开关(持久化到内存) */
 let autoMap=false;
-document.getElementById('ovAutoMap').addEventListener('change',e=>{autoMap=e.target.checked;});
-
-/* 把地图画进指定容器(全屏复用 drawAMap 逻辑) */
-let _ovMapRef=null;   // 全屏地图引用,供搜索使用
-function amapPlaceUrl(name,lng,lat){
-  // 跳转高德官网查看完整详情(评价/照片/营业时间)
-  return `https://www.amap.com/search?query=${encodeURIComponent(name)}&center=${lng},${lat}&zoom=16`;
-}
-function drawAMapInto(boxId,mapData){
-  const box=document.getElementById(boxId); if(!box)return;
-  const pois=mapData.filter(x=>x.type==='poi');
-  const routes=mapData.filter(x=>x.type==='route');
-  if(!AMAP_JS_KEY){ box.innerHTML=simpleMapSVG(pois,routes); return; }
-  loadAMap().then(AMap=>{
-    box.innerHTML='';
-    const center=pois.length?pois[0].lnglat:[116.40,39.90];
-    // 官网风格:默认亮色底图(normal)
-    const map=new AMap.Map(box,{zoom:12,center,viewMode:'2D'});
-    _ovMapRef=map;
-    // 图层控件:缩放工具条 / 比例尺 / 卫星·路况切换(官网都有)
-    AMap.plugin(['AMap.ToolBar','AMap.Scale','AMap.MapType'],()=>{
-      map.addControl(new AMap.ToolBar({position:{top:'90px',right:'20px'}}));
-      map.addControl(new AMap.Scale());
-      map.addControl(new AMap.MapType({
-        defaultType:0,        // 0=标准 1=卫星
-        showTraffic:false,    // 路况开关
-        showRoad:false,       // 卫星图上叠加路网
-      }));
-    });
-    const pts=[];
-    pois.forEach((p,i)=>{
-      const mk=new AMap.Marker({position:p.lnglat,map,label:{content:`${i+1}.${p.text}`,direction:'top'}});
-      mk.on('click',()=>{
-        const info=new AMap.InfoWindow({
-          content:`<div style="padding:8px 6px;font-size:13px;min-width:160px">
-            <b style="font-size:14px">${p.text}</b><br>
-            <span style="color:#666;font-size:11px">${p.remark||''}</span><br>
-            <a href="${amapPlaceUrl(p.text,p.lnglat[0],p.lnglat[1])}" target="_blank"
-               style="display:inline-block;margin-top:8px;padding:5px 12px;background:#3478f6;color:#fff;border-radius:6px;font-size:12px;text-decoration:none">
-               在高德查看详情 ↗</a></div>`,
-          offset:new AMap.Pixel(0,-30)});
-        info.open(map,p.lnglat);
-      });
-      pts.push(p.lnglat);
-    });
-    routes.forEach(r=>{new AMap.Polyline({path:[r.start,r.end],map,strokeColor:'#ff9d00',strokeWeight:5,strokeOpacity:.85,showDir:true});});
-    if(pts.length)map.setFitView();
-  }).catch(()=>{box.innerHTML=simpleMapSVG(pois,routes);});
-}
-
-/* 地图地点搜索(高德 AutoComplete 联想)+ 加入行程 */
-let _searchMarker=null;
-function initMapSearch(){
-  const inp=document.getElementById('mapSearchInput');
-  const resBox=document.getElementById('mapSearchResults');
-  if(!inp||!AMAP_JS_KEY)return;
-  loadAMap().then(AMap=>{
-    AMap.plugin(['AMap.AutoComplete'],()=>{
-      const auto=new AMap.AutoComplete({city:'全国'});
-      let timer=null;
-      inp.addEventListener('input',()=>{
-        clearTimeout(timer);
-        const kw=inp.value.trim();
-        if(!kw){resBox.innerHTML='';return;}
-        timer=setTimeout(()=>{
-          auto.search(kw,(status,result)=>{
-            if(status==='complete'&&result.tips){
-              resBox.innerHTML=result.tips.filter(t=>t.location).slice(0,8).map(t=>
-                `<div class="msr-item" data-lng="${escapeHtml(t.location.lng)}" data-lat="${escapeHtml(t.location.lat)}" data-name="${escapeHtml(t.name)}" data-addr="${escapeHtml((t.district||'')+(t.address||''))}">
-                  <b>${escapeHtml(t.name)}</b><span>${escapeHtml(t.district||'')} ${escapeHtml(t.address||'')}</span></div>`).join('');
-              bindSearchResults();
-            }
-          });
-        },300);
-      });
-    });
-  });
-}
-function bindSearchResults(){
-  document.querySelectorAll('.msr-item').forEach(it=>{
-    it.addEventListener('click',()=>{
-      const lng=parseFloat(it.dataset.lng),lat=parseFloat(it.dataset.lat),name=it.dataset.name,addr=it.dataset.addr;
-      if(_ovMapRef&&window.AMap){
-        _ovMapRef.setZoomAndCenter(15,[lng,lat]);
-        if(_searchMarker)_ovMapRef.remove(_searchMarker);
-        _searchMarker=new AMap.Marker({position:[lng,lat],map:_ovMapRef,
-          label:{content:name,direction:'top'}});
-        // 弹出加入行程
-        const info=new AMap.InfoWindow({
-          content:`<div style="padding:6px 4px;font-size:13px;min-width:170px"><b>${name}</b><br><span style="color:#666;font-size:11px">${addr}</span><br>
-            <div style="display:flex;gap:6px;margin-top:8px">
-            <button id="addWpBtn" style="padding:6px 12px;background:#ff9d00;border:0;border-radius:6px;color:#fff;cursor:pointer;font-size:12px">＋ 加入行程</button>
-            <a href="${amapPlaceUrl(name,lng,lat)}" target="_blank" style="padding:6px 12px;background:#3478f6;border-radius:6px;color:#fff;font-size:12px;text-decoration:none">详情 ↗</a>
-            </div></div>`,
-          offset:new AMap.Pixel(0,-30)});
-        info.open(_ovMapRef,[lng,lat]);
-        setTimeout(()=>{const b=document.getElementById('addWpBtn');
-          if(b)b.onclick=()=>addWaypointFromSearch(name,addr,lng,lat);},100);
-      }
-      document.getElementById('mapSearchResults').innerHTML='';
-      document.getElementById('mapSearchInput').value=name;
-    });
-  });
-}
-async function addWaypointFromSearch(name,addr,lng,lat){
-  try{
-    await fetch(`${API}/itinerary/import`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({rows:[{name,address:addr,lng,lat,start_time:null,duration_min:0,city:''}]})});
-    // 重新拉行程数据并重绘地图
-    const d=await(await fetch(`${API}/itinerary/plan`)).json();
-    _lastKernelData.admin=d;
-    drawAMapInto('ovMap',d.map_data||[]);
-    // 侧栏路线信息也刷新
-    const side=document.querySelector('.ov-side');
-    if(side)side.innerHTML=itinSideHTML(d);
-    kpSet('行程规划','Ops',renderItinerary(d));  // 同步主面板
-  }catch(e){}
-}
+document.getElementById('ovAutoMap')?.addEventListener('change',e=>{autoMap=e.target.checked;});
 
 /* 全屏知识图谱(Canvas 节点连线) */
 function drawKnowledgeGraph(canvasId,d){
@@ -1641,249 +1238,6 @@ function drawKnowledgeGraph(canvasId,d){
   loop();
 }
 
-/* ===== 设置面板 ===== */
-const SETTINGS_TITLE={
-  model:'模型路由',runtime:'运行参数',ui:'界面偏好',data:'数据管理',about:'关于',
-  'ag-supervisor':'主管 Agent','ag-finance':'财务 Agent','ag-admin':'行政 Agent',
-  'ag-office':'办公 Agent','ag-assistant':'助手 Agent',
-  'mem-backend':'记忆后端','mem-layer':'双层记忆','mem-recall':'召回参数','mem-manage':'记忆管理',
-};
-// 界面偏好(纯前端,存内存)
-const uiPref={ autoChat:true, ballAnim:true, mapStyle:'light' };
-let _sysInfo=null;
-async function fetchSysInfo(){ try{ _sysInfo=await(await fetch(`${API}/system/info`)).json(); }catch(e){ _sysInfo=null; } return _sysInfo; }
-
-async function renderSettingDetail(key){
-  const body=document.getElementById('sdBody');
-  body.innerHTML='<div class="sd-ph">加载中…</div>';
-  // ── Hestia OS 主系统 ──
-  if(key==='model'){
-    const d=await fetchSysInfo(); const m=d?.model||{};
-    let h=`<div class="sd-card"><div class="sd-k">当前模型</div>
-      <div class="sd-big">${(m.provider||'—')} <span>${m.active?m.model:'(降级 stub)'}</span></div></div>`;
-    h+='<div class="sd-sec">可用 Provider · 点击切换<span class="badge edit">可调</span></div>';
-    (m.available_providers||[]).forEach(p=>{
-      const cur=p.provider===m.provider, dis=!p.configured;
-      h+=`<div class="sd-row ${cur?'cur':''} ${dis?'dis':''}" ${dis||cur?'':`onclick="switchProvider('${p.provider}')"`}>
-        <span>${PROVIDER_LABEL[p.provider]?.n||p.provider}<small>${p.default_model}</small></span>
-        <span class="tag">${cur?'当前':dis?'未配置':'可用'}</span></div>`;
-    });
-    h+='<div class="sd-note">模型 Key 在项目根目录 <code>.env</code> 配置,改后重启生效。</div>';
-    body.innerHTML=h;
-  }else if(key==='runtime'){
-    const d=await fetchSysInfo();
-    body.innerHTML=`
-      <div class="sd-sec">运行参数<span class="badge ro">只读</span></div>
-      <div class="sd-ro">
-      <div class="sd-kv"><span>数据目录</span><b>${d?.data_dir||'—'}</b></div>
-      <div class="sd-kv"><span>Harness 影子轮数</span><b>${d?.shadow_rounds??'—'}</b></div>
-      </div>
-      <div class="sd-note">运行参数在 <code>.env</code> 配置(HESTIA_DATA_DIR / HESTIA_SHADOW_ROUNDS),改后重启生效。影子轮数越小,Harness 越快进入漂移拦截模式。</div>`;
-  }else if(key==='ui'){
-    body.innerHTML=`
-      <div class="sd-sec">界面偏好<span class="badge edit">可调</span></div>
-      <div class="sd-toggle"><span>发任务自动弹中央对话层</span><label class="sw"><input type="checkbox" id="pf-autoChat" ${uiPref.autoChat?'checked':''}><i></i></label></div>
-      <div class="sd-toggle"><span>背景全息球动画</span><label class="sw"><input type="checkbox" id="pf-ballAnim" ${uiPref.ballAnim?'checked':''}><i></i></label></div>
-      <div class="sd-kv2"><span>地图默认样式</span>
-        <select id="pf-mapStyle"><option value="light" ${uiPref.mapStyle==='light'?'selected':''}>亮色(官网风格)</option><option value="dark" ${uiPref.mapStyle==='dark'?'selected':''}>暗色</option></select></div>
-      <div class="sd-note">界面偏好实时生效,保存在当前会话。</div>`;
-    document.getElementById('pf-autoChat').onchange=e=>uiPref.autoChat=e.target.checked;
-    document.getElementById('pf-ballAnim').onchange=e=>{uiPref.ballAnim=e.target.checked; toggleBallAnim(e.target.checked);};
-    document.getElementById('pf-mapStyle').onchange=e=>uiPref.mapStyle=e.target.value;
-  }else if(key==='data'){
-    const s=await(await fetch(`${API}/memory/stats`)).json().catch(()=>({}));
-    body.innerHTML=`
-      <div class="sd-kv"><span>记忆后端</span><b>${s.backend||'—'}</b></div>
-      <div class="sd-kv"><span>记忆总条数</span><b>${s.total_memories??0}</b></div>
-      <div class="sd-kv"><span>知识关系数</span><b>${s.relations??0}</b></div>
-      <div class="sd-note">运行数据存于本地 <code>hestia_data/</code> 目录。清空数据请在本地删除该目录后重启(网页端不直接删除,避免误操作)。</div>`;
-  }else if(key==='about'){
-    const d=await fetchSysInfo();
-    body.innerHTML=`
-      <div class="sd-card"><div class="sd-big">Hestia OS <span>v${d?.version||'1.0.0'}</span></div>
-        <div class="sd-desc">认知 Agent 操作系统 · 记忆/认知层与 LLM 解耦</div></div>
-      <div class="sd-sec">五个 Agent</div>
-      <div class="sd-kv"><span>主管 Supervisor</span><b>分诊调度 · 全局态势</b></div>
-      <div class="sd-kv"><span>财务 Finance</span><b>理财 · 风控 · 守门人</b></div>
-      <div class="sd-kv"><span>行政 Admin</span><b>行程 · 路线 · 高德地图</b></div>
-      <div class="sd-kv"><span>办公 Office</span><b>学习 · 知识图谱</b></div>
-      <div class="sd-kv"><span>助手 Assistant</span><b>通用 · Skill 接入</b></div>
-      <div class="sd-sec">三大模块</div>
-      <div class="sd-desc">Hestia OS(主系统) · Agents(五智能体) · HMR(记忆系统)</div>
-      <div class="sd-note">配置说明见项目 <code>docs/配置指南.md</code></div>`;
-  }else if(key && key.startsWith('mem-')){
-    const s=await(await fetch(`${API}/memory/stats`)).json().catch(()=>({}));
-    if(key==='mem-backend'){
-      body.innerHTML=`
-        <div class="sd-card"><div class="sd-big">${s.backend||'HMR'} <span>v${s.version||'—'}</span></div>
-          <div class="sd-desc">分层记忆系统 · 记忆/认知层与 LLM 解耦</div></div>
-        <div class="sd-sec">后端信息<span class="badge ro">只读</span></div>
-        <div class="sd-kv"><span>记忆后端</span><b>${s.backend||'—'}</b></div>
-        <div class="sd-kv"><span>版本</span><b>v${s.version||'—'}</b></div>
-        <div class="sd-kv"><span>Embedding 模型</span><b>${s.embedding||'—'}</b></div>
-        <div class="sd-kv"><span>知识图谱关系数</span><b>${s.relations??0}</b></div>
-        <div class="sd-note">安装 <code>openai</code> 或 <code>sentence-transformers</code> 可启用更精确的语义向量(当前默认 TF-IDF n-gram 降级)。</div>`;
-    }else if(key==='mem-layer'){
-      const ba=s.by_agent||{}; const entries=Object.entries(ba).sort((a,b)=>b[1]-a[1]);
-      let rows=entries.length?entries.map(([a,n])=>`<div class="sd-kv"><span>${AGENT_META[a]?.cn||a}</span><b>${n} 条</b></div>`).join(''):'<div class="sd-desc">暂无分层记忆数据。</div>';
-      body.innerHTML=`
-        <div class="sd-sec">双层记忆架构<span class="badge ro">只读</span></div>
-        <div class="sd-kv"><span>私有层(各 Agent 独立)</span><b>${s.private??0} 条</b></div>
-        <div class="sd-kv"><span>共享层(跨 Agent 可召回)</span><b>${s.shared??0} 条</b></div>
-        <div class="sd-sec">按 Agent 分布<span class="badge ro">只读</span></div>
-        ${rows}
-        <div class="sd-note">私有层:每个 Agent 只能召回自己的记忆;共享层:标记 shared 的记忆所有 Agent 都可召回(如主管的全局决策)。</div>`;
-    }else if(key==='mem-recall'){
-      body.innerHTML=`
-        <div class="sd-sec">召回参数<span class="badge ro">只读</span></div>
-        <div class="sd-kv"><span>默认召回数量 (top-k)</span><b>5</b></div>
-        <div class="sd-kv"><span>相似度阈值</span><b>自适应</b></div>
-        <div class="sd-kv"><span>召回范围</span><b>本 Agent 私有 + 共享层</b></div>
-        <div class="sd-note">召回采用语义向量相似度排序,默认返回最相关的 top-k 条记忆 + 共享层记忆。参数在记忆适配器中定义,随召回质量自调。</div>`;
-    }else if(key==='mem-manage'){
-      body.innerHTML=`
-        <div class="sd-card"><div class="sd-big">${s.total_memories??0} <span>条记忆</span></div>
-          <div class="sd-desc">私有 ${s.private??0} · 共享 ${s.shared??0} · 关系 ${s.relations??0}</div></div>
-        <div class="sd-sec">记忆管理<span class="badge ro">只读</span></div>
-        <div class="sd-kv"><span>记忆总条数</span><b>${s.total_memories??0}</b></div>
-        <div class="sd-kv"><span>知识关系数</span><b>${s.relations??0}</b></div>
-        <div class="sd-note">运行数据存于本地 <code>hestia_data/</code> 目录。清空记忆请在本地删除该目录后重启(网页端不直接删除,避免误操作)。导出功能可通过 HMR 后端 API 实现。</div>`;
-    }
-  }else if(key && key.startsWith('ag-')){
-    await renderAgentDetail(key.slice(3), body);
-  }else{
-    body.innerHTML=`<div class="sd-ph">该模块设置开发中</div>`;
-  }
-}
-
-/* 单个 Agent 设置详情(5 个共用 + 领域特定块)*/
-const AGENT_META={
-  supervisor:{cn:'主管',en:'Supervisor',ac:'#ffc24b',role:'分诊调度 · 全局态势编排'},
-  finance:{cn:'财务',en:'Finance',ac:'#00ffb2',role:'理财 · 预算 · 风控守门'},
-  admin:{cn:'行政',en:'Admin',ac:'#ff9d00',role:'行程 · 日程 · 高德地图'},
-  office:{cn:'办公',en:'Office',ac:'#d99a3c',role:'学习 · 知识 · 间隔重复'},
-  assistant:{cn:'助手',en:'Assistant',ac:'#38bdf8',role:'通用任务 · Skill 接入'},
-};
-async function renderAgentDetail(aid, body){
-  const meta=AGENT_META[aid]||{cn:aid,en:aid,ac:'#00d9ff',role:''};
-  let hs=null, sys=null;
-  try{ hs=await(await fetch(`${API}/harness/${aid}/status`)).json(); }catch(e){}
-  try{ sys=await fetchSysInfo(); }catch(e){}
-  const ag=sys?.agents?.[aid]||{};
-  const shadow=ag.shadow_mode, rounds=ag.shadow_rounds??'—', run=ag.run_count??0;
-  const th=hs?.thresholds||{}, w=hs?.weights||{}, pol=hs?.policy||{};
-
-  let h=`<div class="sd-card" style="border-color:${meta.ac}55">
-    <div class="sd-big" style="color:${meta.ac}">${meta.cn} <span>${meta.en}</span></div>
-    <div class="sd-desc">${meta.role}</div></div>`;
-
-  // Harness 漂移检测
-  h+='<div class="sd-sec">Harness 漂移检测<span class="badge ro">只读</span></div>';
-  h+=`<div class="sd-kv"><span>运行模式</span><b style="color:${shadow?'var(--amber)':'var(--green)'}">${shadow?'影子校准中':'已激活拦截'}</b></div>`;
-  h+=`<div class="sd-kv"><span>校准进度</span><b>${run} / ${rounds} 轮</b></div>`;
-  if(th.warn!=null||th.block!=null){
-    h+=`<div class="sd-kv"><span>预警阈值 (WARN)</span><b>${fmt(th.warn)}</b></div>`;
-    h+=`<div class="sd-kv"><span>拦截阈值 (BLOCK)</span><b>${fmt(th.block)}</b></div>`;
-  }
-  if(w.semantic!=null){
-    h+=`<div class="sd-kv"><span>三维权重</span><b>语义 ${fmt(w.semantic)} · 工具 ${fmt(w.tool)} · 范围 ${fmt(w.scope)}</b></div>`;
-  }
-
-  // 守门人 Policy
-  h+='<div class="sd-sec">守门人 Policy<span class="badge ro">只读</span></div>';
-  if(pol.version!=null||pol.total_rules!=null){
-    h+=`<div class="sd-kv"><span>Policy 版本</span><b>v${pol.version??'—'}</b></div>`;
-    h+=`<div class="sd-kv"><span>规则总数</span><b>${pol.total_rules??0}</b></div>`;
-    h+=`<div class="sd-kv"><span>手工规则 / 自学习</span><b>${pol.manual_rules??0} / ${pol.learned_rules??0}</b></div>`;
-  }else{
-    h+='<div class="sd-desc">策略随运行自学习更新,当前无自定义规则覆盖。</div>';
-  }
-
-  // 领域特定块
-  if(aid==='admin'){
-    h+='<div class="sd-sec">高德地图(行政专属)<span class="badge ro">只读</span></div>';
-    const a=sys?.amap||{};
-    h+=`<div class="sd-kv"><span>Web服务 Key(路线/POI)</span><b style="color:${a.web_key?'var(--green)':'var(--ink-faint)'}">${a.web_key?'已配置':'未配置'}</b></div>`;
-    h+=`<div class="sd-kv"><span>JSAPI Key(前端地图)</span><b style="color:${a.js_key?'var(--green)':'var(--ink-faint)'}">${a.js_key?'已配置':'未配置'}</b></div>`;
-    h+=`<div class="sd-kv"><span>JSAPI 安全密钥</span><b style="color:${a.js_scode?'var(--green)':'var(--ink-faint)'}">${a.js_scode?'已配置':'未配置'}</b></div>`;
-    h+=`<div class="sd-toggle"><span>地图默认样式(暗色)</span><label class="sw"><input type="checkbox" id="pf-mapDark2" ${uiPref.mapStyle==='dark'?'checked':''}><i></i></label></div>`;
-    h+='<div class="sd-note">高德三个 Key 在 <code>.env</code> 配置(AMAP_MAPS_API_KEY / AMAP_JS_KEY / AMAP_JS_SCODE)。</div>';
-  }else if(aid==='finance'){
-    h+='<div class="sd-sec">财务领域参数<span class="badge ro">只读</span></div>';
-    h+='<div class="sd-desc">预算阈值、MAD 异常灵敏度、风控规则在财务内核 policy 中定义,随交易数据自学习。守门人对大额/越权操作执行确认或冻结。</div>';
-  }else if(aid==='office'){
-    h+='<div class="sd-sec">学习领域参数<span class="badge ro">只读</span></div>';
-    h+='<div class="sd-desc">采用 SM-2 间隔重复算法管理知识复习节奏;知识图谱关系自动抽取,守门人防止知识污染。</div>';
-  }else if(aid==='supervisor'){
-    h+='<div class="sd-sec">路由编排<span class="badge ro">只读</span></div>';
-    h+='<div class="sd-desc">元问题(介绍/系统级)由主管自答;业务任务按关键词分诊到财务/行政/办公/助手。可在 agents.py 的 ROUTING_KEYWORDS / META_KEYWORDS 调整。</div>';
-  }else if(aid==='assistant'){
-    h+='<div class="sd-sec">Skill 接入<span class="badge ro">只读</span></div>';
-    h+='<div class="sd-desc">通用任务兜底处理,可接入外部 Skill 工具扩展能力。主管无法明确归类的任务默认派给助手。</div>';
-  }
-
-  h+='<div class="sd-note">Agent 行为参数大多在后端 policy 与代码中定义,此处为只读状态展示。漂移阈值由影子校准期自动学习得出。</div>';
-  body.innerHTML=h;
-
-  // 行政地图暗色开关联动
-  const md=document.getElementById('pf-mapDark2');
-  if(md) md.onchange=e=>{ uiPref.mapStyle=e.target.checked?'dark':'light'; };
-}
-function fmt(v){ return (v==null||isNaN(v))?'—':(typeof v==='number'?v.toFixed(3):v); }
-async function switchProvider(prov){
-  try{ await fetch(`${API}/model/switch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:prov})});
-    _sysInfo=null; renderSettingDetail('model'); loadModel(); }catch(e){}
-}
-function toggleBallAnim(on){ const c=document.getElementById('coreCanvas'); if(c)c.style.display=on?'block':'none'; }
-
-/* 二级子项定义 */
-const SETTINGS_SUBS={
-  hestia:[['model','模型路由'],['runtime','运行参数'],['ui','界面偏好'],['data','数据管理'],['about','关于']],
-  agents:[['ag-supervisor','主管 Agent'],['ag-finance','财务 Agent'],['ag-admin','行政 Agent'],['ag-office','办公 Agent'],['ag-assistant','助手 Agent']],
-  hmr:[['mem-backend','记忆后端'],['mem-layer','双层记忆'],['mem-recall','召回参数'],['mem-manage','记忆管理']],
-};
-const _setMenu=document.getElementById('setMenu');
-const _smL2=document.getElementById('smL2');
-const _sdPop=document.getElementById('sdPop');
-let _setHideTimer=null;
-
-function openSetMenu(){ clearTimeout(_setHideTimer); _setMenu.classList.add('show'); }
-function closeSetMenu(){
-  clearTimeout(_setHideTimer);
-  _setHideTimer=setTimeout(()=>{ _setMenu.classList.remove('show'); _smL2.innerHTML=''; document.querySelectorAll('.sm-l1 .sm-btn').forEach(b=>b.classList.remove('active')); }, 400);
-}
-// 一级悬停 → 展开二级
-function showL2(group, l1btn){
-  document.querySelectorAll('.sm-l1 .sm-btn').forEach(b=>b.classList.remove('active'));
-  l1btn.classList.add('active');
-  _smL2.innerHTML=(SETTINGS_SUBS[group]||[]).map(([k,name])=>
-    `<div class="sm-btn" data-sub="${k}"><b>${name}</b><span class="chev">›</span></div>`).join('');
-  _smL2.querySelectorAll('.sm-btn').forEach(b=>{
-    b.addEventListener('click',()=>openDetailPop(b.dataset.sub));
-  });
-}
-function openDetailPop(key){
-  document.getElementById('sdTitle').textContent=SETTINGS_TITLE[key]||'详情';
-  _sdPop.classList.add('show');
-  renderSettingDetail(key);
-}
-function closeDetailPop(){ _sdPop.classList.remove('show'); }
-
-const _gear=document.getElementById('settingsBtn');
-_gear.addEventListener('mouseenter', openSetMenu);
-_gear.addEventListener('mouseleave', closeSetMenu);
-_gear.addEventListener('click', openSetMenu);
-_setMenu.addEventListener('mouseenter', ()=>clearTimeout(_setHideTimer));
-_setMenu.addEventListener('mouseleave', closeSetMenu);
-document.querySelectorAll('.sm-l1 .sm-btn').forEach(b=>{
-  b.addEventListener('mouseenter', ()=>showL2(b.dataset.group, b));
-});
-document.getElementById('settingsBtn2')?.addEventListener('click', ()=>{ openSetMenu(); clearTimeout(_setHideTimer); });
-document.getElementById('sdClose').addEventListener('click', closeDetailPop);
-
-document.querySelectorAll('.nav-mini, .feed-item').forEach(it=>{
-  it.addEventListener('click',()=>{ it.classList.add('pressed'); setTimeout(()=>it.classList.remove('pressed'),180); });
-});
 
 /* ===== 左侧导航 hover 弹出精简条目 + 点击进中央大屏 ===== */
 const MODULE_META={
@@ -2426,9 +1780,9 @@ function openEntry(kind){
   document.getElementById('entryMask').classList.add('show');
 }
 function closeEntry(){document.getElementById('entryMask').classList.remove('show');}
-document.getElementById('entryCancel').addEventListener('click',closeEntry);
-document.getElementById('entryMask').addEventListener('click',e=>{if(e.target.id==='entryMask')closeEntry();});
-document.getElementById('entrySubmit').addEventListener('click',async()=>{
+document.getElementById('entryCancel')?.addEventListener('click',closeEntry);
+document.getElementById('entryMask')?.addEventListener('click',e=>{if(e.target.id==='entryMask')closeEntry();});
+document.getElementById('entrySubmit')?.addEventListener('click',async()=>{
   const f=ENTRY_FORMS[_entryKind]; if(!f)return;
   const v={}; document.querySelectorAll('#entryFields input, #entryFields textarea').forEach(i=>v[i.dataset.k]=i.value);
   const msg=document.getElementById('entryMsg');
@@ -2441,55 +1795,20 @@ document.getElementById('entrySubmit').addEventListener('click',async()=>{
   }catch(e){ msg.style.color='var(--amber)'; msg.textContent='录入失败:后端未连接'; }
 });
 
-/* ===== 模型选择器 ===== */
-const PROVIDER_LABEL=
-{anthropic:{n:'Claude',c:'#ff9d00'},openai:{n:'GPT',c:'#00ffb2'},
-  google:{n:'Gemini',c:'#38bdf8'},qwen:{n:'通义千问',c:'#ffc24b'},
-  local:{n:'本地模型',c:'#d99a3c'},stub:{n:'Stub 降级',c:'#7e93b8'}};
-async function loadModel(){
-  try{
-    const d=await(await fetch(`${API}/model`)).json();
-    const lbl=PROVIDER_LABEL[d.provider]||{n:d.provider,c:'#7e93b8'};
-    document.getElementById('modelName').textContent=lbl.n;
-    renderModelMenu(d);
-  }catch(e){}
-}
-function renderModelMenu(d){
-  const menu=document.getElementById('modelMenu'); if(!menu)return;
-  let h='<div class="mtitle">模型路由 · 点击切换</div>';
-  (d.available_providers||[]).forEach(p=>{
-    const lbl=PROVIDER_LABEL[p.provider]||{n:p.provider,c:'#7e93b8'};
-    const cur=p.provider===d.provider;
-    const dis=!p.configured;
-    h+=`<div class="model-opt ${cur?'active':''} ${dis?'disabled':''}" data-prov="${p.provider}">
-      <span class="mdot" style="background:${lbl.c};box-shadow:0 0 6px ${lbl.c}"></span>
-      <span class="mname"><b>${lbl.n}</b><span>${p.default_model}</span></span>
-      ${cur?'<span class="mtag">当前</span>':dis?'<span class="mtag" style="background:rgba(255,157,0,.12);color:var(--amber)">未配置</span>':'<span class="mtag">可用</span>'}</div>`;
-  });
-  menu.innerHTML=h;
-  menu.querySelectorAll('.model-opt:not(.disabled):not(.active)').forEach(opt=>{
-    opt.addEventListener('click',async()=>{
-      const prov=opt.dataset.prov;
-      try{await fetch(`${API}/model/switch`,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({provider:prov})});
-        menu.classList.remove('show'); loadModel();
-      }catch(e){}
-    });
-  });
-}
-document.getElementById('modelPill').addEventListener('click',e=>{
-  e.stopPropagation();
-  document.getElementById('modelMenu').classList.toggle('show');
-});
-document.addEventListener('click',()=>document.getElementById('modelMenu')?.classList.remove('show'));
-loadModel();
 
-/* 启动 */
-fetchAMapConfig();
-loadStatus(); loadMemStats(); loadKnowList(); connectWS(); loadKernel('supervisor');
-setInterval(loadStatus,15000);
-setInterval(loadMemStats,20000);
-setInterval(loadKnowList,30000);
+
+/* 启动 —— 全部包 try-catch,任一失败不影响其他;还失败的也在 upStat 显示具体错 */
+const _bootTry=(fn,name)=>{ try{ const r=fn(); if(r&&r.catch) r.catch(e=>{ try{document.getElementById('upStat').textContent='启动失败:'+name}catch(_){ } }); }
+                       catch(e){ try{document.getElementById('upStat').textContent='启动失败:'+name}catch(_){ } } };
+_bootTry(fetchAMapConfig, 'fetchAMapConfig');
+_bootTry(loadStatus, 'loadStatus');
+_bootTry(loadMemStats, 'loadMemStats');
+_bootTry(loadKnowList, 'loadKnowList');
+_bootTry(()=>connectWS(), 'connectWS');
+_bootTry(()=>loadKernel('supervisor'), 'loadKernel');
+try{ setInterval(loadStatus,15000); }catch(e){}
+try{ setInterval(loadMemStats,20000); }catch(e){}
+try{ setInterval(loadKnowList,30000); }catch(e){}
 // 右栏面板标题的 "›" → 打开对应中央大屏
 document.getElementById('memMore')?.addEventListener('click',()=>showModuleInCore('memory'));
 document.getElementById('knowMore')?.addEventListener('click',()=>showKnowledgeFull());
@@ -2499,10 +1818,11 @@ document.getElementById('ingFolder')?.addEventListener('click',()=>document.getE
 document.getElementById('ingNote')?.addEventListener('click',()=>{ try{ openEntry('office'); }catch(e){} });
 // 会话历史:只渲染列表,**不预建空会话**(否则每次刷新都堆一条 0 条的空壳);
 // 真正建会话推迟到用户发第一条消息时(transmitStream 里 ensureSession)。
-loadSessions();
+_bootTry(loadSessions, 'loadSessions');
 document.getElementById('sessNew')?.addEventListener('click',()=>newSession(true));
 
 
 
 /* 内联 onclick 桥接:模块作用域下,HTML 里 onclick="fn()" 需从 window 解析 */
 Object.assign(window, { openEntry, importDomainFile, switchProvider });
+

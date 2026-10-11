@@ -114,6 +114,69 @@ python -m uvicorn hestia.api:app --port 8000
 
 详见 [docs/RUN_CN.md](docs/RUN_CN.md)。
 
+### 开发常用命令(Windows / PowerShell 一行重启)
+
+开发期改完 `.env`、装了新包、调了后端代码,都要重启 hestia 让改动生效。**最简一行函数**,配一次永远省事:
+
+```powershell
+# ① 打开 PowerShell 启动脚本(只首次)
+notepad $PROFILE
+
+# ② 文件末尾粘这段,保存退出
+function restart-hestia {
+  $p=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess
+  if($p){Stop-Process -Id $p -Force; Start-Sleep 1}
+  Set-Location C:\Users\snow\projects\hestiaOS
+  python -m uvicorn hestia.api:app --port 8000
+}
+
+# ③ 重开 PowerShell 让配置生效(只在改了 $PROFILE 后需要)
+exit
+```
+
+之后**任何目录、任何时候**,一行搞定:
+
+```powershell
+restart-hestia   # 自动杀旧进程 → 切项目根 → 起新服务
+```
+
+如果 `notepad $PROFILE` 报"无法加载脚本",先放宽执行策略:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+| 场景 | 命令 |
+|---|---|
+| 改完 `.env` 要生效 | `restart-hestia` |
+| 装了新 pip 包 | `restart-hestia` |
+| 改完 `hestia/*.py` | `restart-hestia` |
+| 只想杀旧实例 | `$p=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess; if($p){Stop-Process -Id $p -Force}` |
+| 想边改边自动重启 | `python -m uvicorn hestia.api:app --port 8000 --reload`(开发期才用,生产关掉) |
+
+### 方式二 · Docker 部署
+
+```bash
+# 构建镜像(含依赖 + 默认 embedding 预热,首次构建较慢、镜像较大)
+docker build -t hestia-os .
+
+# 启动服务(密钥经 --env-file 注入,勿写进镜像)
+docker run -d --name hestia-os \
+  -p 8000:8000 \
+  --env-file .env \
+  -v hestia_data:/app/hestia_data \
+  hestia-os
+
+# 容器内跑全量回归(76 项,验证镜像健康)
+docker run --rm hestia-os python tests/run_all.py
+```
+
+要点:
+
+- 默认命令为 `uvicorn hestia.api:app`,监听 `8000`;未配 `HESTIA_API_KEY` 时无鉴权,仅限回环安全。
+- 数据目录 `HESTIA_DATA_DIR`(默认 `./hestia_data`)建议挂 volume 持久化。
+- 密钥经 `--env-file .env` 或 `-e HESTIA_API_KEY=...` 注入;`.dockerignore` 已排除 `.env`,不会被打进镜像。
+
 ## 八、知识库(HKC)模型配置
 
 HKC 知识库用**两个不同类型的模型**各司其职,都在 `.env` 里配置,无需改代码:

@@ -47,6 +47,35 @@ def test_loop_detection():
     check(d.should_abort(), "达阈值 should_abort")
 
 
+def test_loop_per_session():
+    print("\n【1b】循环检测 per-session 隔离(阶段四·步骤13,消除跨会话污染)")
+    from hestia.skills import SkillAdapter, set_loop_session, reset_loop_session, _loop_session
+    adp = SkillAdapter(None)   # _detector_for 不依赖 registry,构造最小实例即可
+
+    # 会话 A 连续同工具 8 次(达熔断)
+    tok = set_loop_session("sess_A")
+    try:
+        for _ in range(8):
+            va = adp._detector_for(_loop_session.get()).record("web_search", {"q": "天气"})
+    finally:
+        reset_loop_session(tok)
+    check(va.stuck, "会话 A 连续同工具达熔断")
+
+    # 切到会话 B:历史应从零,同工具仅 1 次不应被 A 污染成 stuck
+    tok = set_loop_session("sess_B")
+    try:
+        vb = adp._detector_for(_loop_session.get()).record("web_search", {"q": "天气"})
+    finally:
+        reset_loop_session(tok)
+    check(not vb.stuck, "会话 B 不受会话 A 污染(独立历史)")
+    check(not adp._detector_for("sess_B").should_abort(), "会话 B 未达熔断")
+
+    # 不同会话持有独立检测器实例;无会话时用共享默认槽(向后兼容)
+    check(adp._detector_for("sess_A") is not adp._detector_for("sess_B"), "不同会话独立检测器实例")
+    check(adp._detector_for(None) is adp._detector_for(None), "无会话共用默认槽(稳定)")
+    check(_loop_session.get() is None, "退出后 contextvar 已复位(无残留)")
+
+
 def test_compaction():
     print("\n【2】上下文压缩")
     from hestia.core.compaction import Compactor, extract_identifiers, estimate_messages_tokens

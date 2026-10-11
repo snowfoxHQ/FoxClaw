@@ -23,6 +23,18 @@ def test_semantic():
     assert _SE._has_neg("这个方案不好") is True
     print("[0] KEE 否定词词边界(badge/know 不误命中) OK")
 
+    # [0b] 语义方向阈值接线:默认 0.30(与既有硬编码一致,behavior-preserving)+ 可经构造参数配置
+    from hkc_kee.kee import KnowledgeEvolutionEngine
+    class _Bus:
+        def subscribe(self, *a, **k): pass
+    class _Store: pass
+    class _Gen: pass
+    eng = KnowledgeEvolutionEngine(_Store(), _Bus(), _Gen())
+    assert abs(eng.similarity_threshold - 0.30) < 1e-9, "默认阈值应 0.30(与既有硬编码一致)"
+    eng2 = KnowledgeEvolutionEngine(_Store(), _Bus(), _Gen(), similarity_threshold=0.90)
+    assert abs(eng2.similarity_threshold - 0.90) < 1e-9, "阈值应可经构造参数配置"
+    print("[0b] KEE 语义方向阈值接线(默认 0.30 / 可配置) OK")
+
     m = get_st_model(MODEL)
     if m is None:
         print("[skip] all-MiniLM 未缓存,跳过真语义验证(生产靠 auto/keyword 降级兜底)")

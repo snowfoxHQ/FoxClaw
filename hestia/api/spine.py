@@ -38,11 +38,8 @@ def _prewarm_hkc(osi):
             svc = getattr(osi, "hkc", None)      # 访问即触发 HKC 惰性装配
             if not svc or not getattr(svc, "available", False):
                 return
-            c = svc.container
-            try:
-                c.search.build_index()           # 全量 KU 建索引 → 加载 embedding 模型(冷成本大头)
-            except Exception as e:
-                print(f"[HestiaOS API] · HKC 预热(search)跳过: {e}")
+            # 搜索索引已在 assemble() 内构建(向量索引持久化加载优先,避免每次启动全量
+            # embedding 把 CPU 打满、启动卡几分钟),这里不再重复 build_index。
             try:
                 lr = getattr(osi, "learning_runtime", None)
                 if lr is not None:

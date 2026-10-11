@@ -22,10 +22,16 @@ from .shared_write import guard_shared_write
 
 
 def _ensure_hmr_importable():
-    """把 vendor/ 加入 sys.path,使内嵌的 HMR 可被导入。"""
+    """把 vendor/ 加入 sys.path,使内嵌的 HMR 可被导入。
+    同时把 vendor/hkc 也加入,使 HMR 内部能 `from hkc_search.embedding_backends import get_st_model`
+    走 HKC 进程缓存(同名 instance 只 load 1 次)—— 否则会兜底自己 SentenceTransformer Loading 第 2 次。
+    """
     vendor = Path(__file__).resolve().parent.parent.parent / "vendor"
     if vendor.exists() and str(vendor) not in sys.path:
         sys.path.insert(0, str(vendor))
+    vendor_hkc = vendor / "hkc"
+    if vendor_hkc.exists() and str(vendor_hkc) not in sys.path:
+        sys.path.insert(0, str(vendor_hkc))
 
 
 class HMRAdapter:
@@ -34,11 +40,24 @@ class HMRAdapter:
     若 HMR 不可用,调用方应回退到 MockHMR。
     """
 
-    def __init__(self, storage_path: str = "./hmr_data", llm_api_key: str = None):
+    def __init__(self, storage_path: str = "./hmr_data", llm_api_key: str = None,
+                 embedding_model: str = None):
+        """【P1·share-bge-m3】新增 embedding_model 参数。
+        上层(HestiaOS)通常在 HKC 已装配后再调本构造,bge-m3 已入 HKC 缓存;
+        传具体模型名(如 HKC_EMBEDDING_MODEL)使 HMR 与 HKC 共享同一 SentenceTransformer 实例。
+        不传则走 vendor/hmr/storage/vector_store.py 的 env 解析链(HKC_EMBEDDING_MODEL>bge-m3)。"""
         _ensure_hmr_importable()
         from hmr.core.hmr import HMR  # 内嵌包
 
-        self._hmr = HMR(storage_path=storage_path, llm_api_key=llm_api_key)
+        # 不传 None 就用 .env / HKC 的配置;只有上层显式 override 才用 _embedding_model
+        import os as _os
+        resolved_model = (embedding_model
+                          or _os.environ.get("EMBEDDING_MODEL")     # 【P2·单 embedding 入口】最高优先级
+                          or _os.environ.get("HKC_EMBEDDING_MODEL")
+                          or _os.environ.get("HESTIA_EMBEDDING_MODEL")
+                          or "all-MiniLM-L6-v2")
+        self._hmr = HMR(storage_path=storage_path, llm_api_key=llm_api_key,
+                        embedding_model=resolved_model)
         self.backend = "HMR"
         self.version = getattr(self._hmr, "VERSION", "2.0.0")
         # 并行子 Agent 会并发 ingest/recall,底层 HMR 的向量库/记忆图并非线程安全

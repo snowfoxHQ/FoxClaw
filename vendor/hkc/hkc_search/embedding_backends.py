@@ -78,6 +78,16 @@ def get_st_model(model_name: str):
         try:
             from sentence_transformers import SentenceTransformer
             m = SentenceTransformer(model_name)
+            # 限制 torch 内部线程数:全量索引构建(bge-m3 编码 1w+ 条)默认会用满所有核,
+            # 把 CPU 打满导致 uvicorn 事件循环饿死(启动后 HTTP 无响应/超时)。留核给事件循环。
+            # HKC_EMB_TORCH_THREADS 可覆盖(设 0 表示不限制)。
+            try:
+                import torch
+                _nt = int(os.environ.get("HKC_EMB_TORCH_THREADS", "2"))
+                if _nt > 0:
+                    torch.set_num_threads(_nt)
+            except Exception:
+                pass
         except Exception as e:
             logger.warning("加载 embedding 模型失败(降级,%ds 后重试): %s: %s",
                            int(_ST_FAIL_COOLDOWN), model_name, e)

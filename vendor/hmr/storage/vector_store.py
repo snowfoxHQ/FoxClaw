@@ -24,13 +24,24 @@ from collections import Counter
 class EmbeddingProvider:
     """
     三层 fallback Embedding：
-    1. OpenAI API（最好，需要 API Key）
+    1. OpenAI API（最好，需要 API Key）— 默认跳过（用户用云 LLM 主对话，embedding 走 bge-m3）
     2. sentence-transformers（本地模型，pip install sentence-transformers）
     3. TF-IDF 字符级 n-gram（纯 Python，始终可用，比哈希有真实语义）
+
+    【P1·全系统 2 模型】模型解析顺序：
+      显式传参 > HKC_EMBEDDING_MODEL(bge-m3)> HESTIA_EMBEDDING_MODEL > MiniLM 兜底。
+    【P1·share-bge-m3】ST 加载优先调 HKC 共享缓存 get_st_model(),同名复用 instance,
+    避免启动期重复加载 bge-m3 占双倍内存。
     """
 
-    def __init__(self, model: str = "text-embedding-3-small"):
-        self.model = model
+    def __init__(self, model: str = None):
+        # 【P2·单 embedding 入口】模型解析链 —— 与 harness.py / evidence.py 一致:
+        # 显式 > EMBEDDING_MODEL(系统单入口) > HKC_EMBEDDING_MODEL > HESTIA_EMBEDDING_MODEL > MiniLM 兜底
+        self.model = (model
+                      or os.environ.get("EMBEDDING_MODEL")
+                      or os.environ.get("HKC_EMBEDDING_MODEL")
+                      or os.environ.get("HESTIA_EMBEDDING_MODEL")
+                      or "all-MiniLM-L6-v2")
         self._provider = None
         self._vocab: Dict[str, int] = {}
         self._idf: Dict[str, float] = {}
@@ -40,29 +51,50 @@ class EmbeddingProvider:
         self._init_provider()
 
     def _init_provider(self):
-        # 尝试 OpenAI（捕获所有异常：未安装、无 key、客户端初始化失败等，均优雅降级）
-        try:
-            import openai
-            key = os.environ.get("OPENAI_API_KEY", "")
-            if key:
-                self._client = openai.OpenAI(api_key=key)
-                self._provider = "openai"
-                print("[HMR Embedding] 使用 OpenAI Embedding")
-                return
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"[HMR Embedding] OpenAI 初始化失败，降级：{e}")
+        # 【P1·全系统 2 模型】OpenAI 优先级:仅当用户显式开 HMR_USE_OPENAI_EMBEDDING=1 才走,
+        # 否则跳过(用户主对话已用 MiniMax 云 LLM,embedding 一律 bge-m3,不再切到 OpenAI)。
+        if os.environ.get("HMR_USE_OPENAI_EMBEDDING", "").strip() == "1":
+            try:
+                import openai
+                key = os.environ.get("OPENAI_API_KEY", "")
+                if key:
+                    self._client = openai.OpenAI(api_key=key)
+                    self._provider = "openai"
+                    print("[HMR Embedding] 使用 OpenAI Embedding")
+                    return
+            except ImportError:
+                pass
+            except Exception as e:
+                print(f"[HMR Embedding] OpenAI 初始化失败，降级：{e}")
 
         # 尝试 sentence-transformers
-        # 注意：sentence-transformers 已安装但模型权重下载失败（离线/内网）时抛 OSError，
-        # 不能只 catch ImportError，否则会直接崩溃而非降级到 TF-IDF。
+        # 【P1·share-bge-m3】优先用 HKC 共享缓存(同名复用 instance,启动期 0 重复加载)。
+        # 注意:sentence-transformers 已安装但模型权重下载失败(离线/内网)时抛 OSError,
+        # 不能只 catch ImportError,否则会直接崩溃而非降级到 TF-IDF。
         try:
-            from sentence_transformers import SentenceTransformer
-            self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
+            _shared = None
+            try:
+                from hkc_search.embedding_backends import get_st_model as _hk_get
+                _shared = _hk_get(self.model)
+            except Exception as _hk_e:
+                # 【P2·share-bge-m3】打印根因,不再静默吞错,便于排查 sys.path / 缓存 key 问题
+                print(f"[HMR-HKC 共享跳过] {_hk_e.__class__.__name__}: {_hk_e} → HMR 兜底独立 load SentenceTransformer")
+            if _shared is not None:
+                self._st_model = _shared
+                # 用实际模型维度校正 dim(bge-m3=1024, MiniLM=384)
+                _fn = (getattr(_shared, "get_embedding_dimension", None)
+                       or getattr(_shared, "get_sentence_embedding_dimension", None))
+                if _fn:
+                    self._dim = _fn()
+            else:
+                from sentence_transformers import SentenceTransformer
+                self._st_model = SentenceTransformer(self.model)
+                _fn = (getattr(self._st_model, "get_embedding_dimension", None)
+                       or getattr(self._st_model, "get_sentence_embedding_dimension", None))
+                if _fn:
+                    self._dim = _fn()
             self._provider = "sentence_transformers"
-            self._dim = 384
-            print("[HMR Embedding] 使用 sentence-transformers (all-MiniLM-L6-v2)")
+            print(f"[HMR Embedding] 使用 sentence-transformers ({self.model}, dim={self._dim})")
             return
         except ImportError:
             pass
@@ -206,10 +238,14 @@ class VectorStore:
 
     def __init__(
         self,
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = None,    # 【P2】默认 None → EmbeddingProvider 内部按 env 链解析
         storage_path: Optional[str] = None
     ):
-        self.embedding_model = embedding_model
+        self.embedding_model = (embedding_model
+                                or os.environ.get("EMBEDDING_MODEL")
+                                or os.environ.get("HKC_EMBEDDING_MODEL")
+                                or os.environ.get("HESTIA_EMBEDDING_MODEL")
+                                or "all-MiniLM-L6-v2")
         self.storage_path = Path(storage_path) if storage_path else None
         self._lock = threading.Lock()
 

@@ -105,14 +105,14 @@ class ToolExecMixin:
         conv = list(messages)
         for _ in range(max_rounds):
             if stop_event is not None and stop_event.is_set():
-                return ""
+                return None                      # 断连 → None(回退;fallback 也会因 stop 立即终止)
             res = self.router.call_tools(self.system_prompt, conv, schemas,
                                          agent_id=self.AGENT_ID)
             if not res.get("supported"):
                 return None                      # 端点实际不支持 tools → fallback
             calls = res.get("tool_calls") or []
             if not calls:
-                return res.get("text", "")       # 模型直接给出最终答案
+                return res.get("text") or None   # 模型直接给出最终答案;空答 → None → fallback(不再空回复不回退)
             conv.append(res["assistant_msg"])
             for c in calls:
                 result = self._dispatch_tool(c.get("name", ""), c.get("args") or {})
@@ -120,4 +120,6 @@ class ToolExecMixin:
         # 轮数超限 → 强制不再调工具、收敛出文本答案
         final = self.router.call_tools(self.system_prompt, conv, schemas,
                                        tool_choice="none", agent_id=self.AGENT_ID)
-        return final.get("text", "") if final.get("supported") else ""
+        if not final.get("supported"):
+            return None                          # 收敛调用失败 → fallback(不再空回复不回退)
+        return final.get("text") or None         # 收敛出空答 → None → fallback

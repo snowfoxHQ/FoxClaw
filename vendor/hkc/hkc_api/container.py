@@ -115,11 +115,8 @@ class HKCContainer:
         vector_index = VectorIndex(backend=backend)
         self.search  = HybridSearch(self.graph_store, vector_index=vector_index)
 
-        # 启动时构建索引（如果库里已有数据）
-        try:
-            self.search.build_index()
-        except Exception as e:
-            logger.warning("启动构建索引失败（可能库为空）: %s", e)
+        # 启动时构建索引（向量索引优先加载持久化副本，避免每次启动全量 embedding）
+        self._build_search_index()
 
         # 新知识写入后自动更新搜索索引
         self._wire_search_index_updates()
@@ -145,6 +142,61 @@ class HKCContainer:
         logger.info("HKC 容器装配完成: data_dir=%s embedding=%s",
                     self.data_dir, backend.name)
         return self
+
+    def _build_search_index(self):
+        """构建搜索索引。
+        启动优化:优先加载磁盘 faiss(秒级),仅对缺失的 KU 增量补算 embedding。
+        1.6 万条 KU 全量 bge-m3 encode 在 CPU 上要 30-60 分钟,绝不能放 startup 同步链。
+        增量补算只跑缺失的 N 条(几百~几千),几秒~十几秒,可以接受。
+        """
+        vec_path = str(self.data_dir / "search_vector")
+        try:
+            # 全量拉,不再截断。早期 limit=10000 在 KU>1 万时丢索引
+            kus = self.graph_store.query_all(limit=99999999)
+        except Exception:
+            kus = []
+
+        loaded_n = 0
+        if kus:
+            try:
+                if self.search.vector.load(vec_path):
+                    loaded_n = self.search.vector.size()
+                    logger.info(
+                        "向量索引已从磁盘加载: %d 条 (库内共 %d 条)",
+                        loaded_n, len(kus))
+            except Exception as e:
+                logger.warning("加载持久化向量索引失败,回退全量构建: %s", e)
+
+        # BM25 是纯文本索引,直接重建(快,毫秒级)
+        if kus:
+            self.search.bm25.build(kus)
+
+        if loaded_n == 0:
+            # 没有磁盘索引 → 全量构建一次(冷启动路径,首次后必有磁盘索引)
+            try:
+                self.search.build_index(kus=kus)
+                if kus:
+                    self.search.vector.save(vec_path)
+                    logger.info("搜索向量索引已落盘: %s (共 %d 条)", vec_path, len(kus))
+            except Exception as e:
+                logger.warning("构建搜索索引失败(可能库为空): %s", e)
+            return
+
+        # 已加载磁盘索引 → 仅补算缺失的 KU
+        existing_ids = set(self.search.vector._ku_ids)
+        missing = [ku for ku in kus if ku.ku_id not in existing_ids]
+        if missing:
+            logger.info("增量补算 %d 条 KU 的 embedding(磁盘已有 %d 条)",
+                        len(missing), loaded_n)
+            try:
+                self.search.vector.append_bulk(missing)
+                self.search.vector.save(vec_path)
+                logger.info("增量补算完成,索引已落盘(总计 %d 条)",
+                            self.search.vector.size())
+            except Exception as e:
+                logger.warning("增量补算失败(不影响已加载的索引): %s", e)
+        else:
+            logger.info("磁盘索引已覆盖全部 %d 条 KU,无需补算", len(kus))
 
     def _wire_search_index_updates(self):
         """订阅 knowledge.created，新 KU 写入后增量更新搜索索引。"""

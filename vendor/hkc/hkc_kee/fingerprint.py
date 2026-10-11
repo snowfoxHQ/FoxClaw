@@ -18,9 +18,9 @@ canonical fingerprint 回答的问题是:
 
 注:这里**有意**只做规则化规范(normalize)而非向量语义 —— 它是**又快又准的 exact 快路径**,
 覆盖"同一知识的不同来源重复录入"这一主要去重场景。
-向量级语义归并(同义词/近义表达,如 AI↔人工智能)**已经实现**,位于 dedup.py 的语义近重层:
-exact 指纹未命中时才回落到它(opt-in:HKC_KEE_SEMANTIC=1,仅身份型 Entity/Concept)。
-两者是分工,不是替代 —— 别把向量塞进指纹,那会让每次查重都要编码。
+同义词/近义表达(如「北平」↔「北京」)交给**别名(aliases)确定性匹配**:LLM 抽取时
+填写的别名与主名等价,经 identity_keys 一并纳入身份指纹,无需向量模型、零误合并。
+别把向量塞进指纹,那会让每次查重都要编码。
 """
 from __future__ import annotations
 import hashlib
@@ -72,9 +72,35 @@ def canonical_fingerprint(
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
 
 
+def _identity_name(ku) -> str:
+    """知识身份名：Fact/Claim 用完整 statement（避免截断 name 造成误合并），
+    其余类型用 name/title。"""
+    stmt = getattr(ku, "statement", "") or ""
+    if stmt:
+        return stmt
+    return getattr(ku, "name", "") or getattr(ku, "title", "") or ""
+
+
 def fingerprint_of_ku(ku) -> str:
-    """从一个 KU 对象算 canonical fingerprint。"""
+    """从一个 KU 对象算 canonical fingerprint（主身份，不含别名）。"""
     ku_type = getattr(getattr(ku, "ku_type", None), "value", None) or str(getattr(ku, "ku_type", ""))
-    name = getattr(ku, "name", "") or getattr(ku, "title", "")
     domain = getattr(ku, "domain", "") or ""
-    return canonical_fingerprint(ku_type, name, domain)
+    return canonical_fingerprint(ku_type, _identity_name(ku), domain)
+
+
+def identity_keys(ku) -> list[str]:
+    """返回 KU 的全部身份指纹（主名 + 所有别名），供去重索引登记/查询。
+
+    别名纳入身份：LLM 抽取的 aliases（如「北平」的别名「北京」）与主名等价，
+    让「北平」和「北京」落到同一 canonical 身份 —— 用确定性别名匹配取代向量语义近重。
+    无 aliases 时退化为单主名，与纯 exact 去重等价。"""
+    ku_type = getattr(getattr(ku, "ku_type", None), "value", None) or str(getattr(ku, "ku_type", ""))
+    domain = getattr(ku, "domain", "") or ""
+    keys = [canonical_fingerprint(ku_type, _identity_name(ku), domain)]
+    for alias in (getattr(ku, "aliases", None) or []):
+        if not alias:
+            continue
+        k = canonical_fingerprint(ku_type, alias, domain)
+        if k not in keys:
+            keys.append(k)
+    return keys

@@ -227,8 +227,14 @@ from .routes import knowledge  # noqa: F401
 # ── 认知搜索(HSR):routes/search.py(import 即注册) ────────────────
 from .routes import search  # noqa: F401
 
+# ── 聊天附件上传/下载(多模态渲染·步骤7):routes/attachments.py(import 即注册) ────────────────
+from .routes import attachments  # noqa: F401
+
+# ── 前端 LLM 管理(下拉式选模型 + 自定义):routes/llm_admin.py(import 即注册) ──────
+from .routes import llm_admin  # noqa: F401
+
 # 搬移前这些是 api 模块级符号,测试/外部仍经 hestia.api 访问 → re-export
-from .routes.task import _sanitize_images, _MAX_IMAGES, _MAX_IMG_B64, _STREAM_LIMITER  # noqa: F401
+from .routes.task import _sanitize_images, _sanitize_attachments, _MAX_IMAGES, _MAX_IMG_B64, _STREAM_LIMITER  # noqa: F401
 from .routes.domain import _parse_import_rows  # noqa: F401
 from .routes.knowledge import knowledge_ability as knowledge_ability, _HKCInsuffCov as _HKCInsuffCov  # noqa: F401
 
