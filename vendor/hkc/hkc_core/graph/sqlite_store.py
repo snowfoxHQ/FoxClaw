@@ -305,14 +305,28 @@ class SQLiteGraphStore(GraphStore):
             )
             self._db.commit()
 
-    def delete(self, ku_id: str) -> None:
+    def delete(self, ku_id: str) -> bool:
+        """软删除(将状态置为 deleted,保留行供审计)。不级联。
+
+        返回:
+          True  — 此前该 id 存在且未被删,本次成功置为 deleted
+          False — id 不存在或已经是 deleted
+
+        阶段 B 设计:本方法**不**发事件,事件由调用方按业务语义发。
+          - KEE dedup 删重复 KU → 不发(重复 KU 从未进 vector,无外部观测需要)
+          - routes.delete_source 级联删 → 调用方负责 publish KNOWLEDGE_DELETED
+        原因:事件是「对知识库的外部观测」,不是「存储层副作用」。
+        若存储层自动发,会与 KEE / 路由层的事件总线污染(KEE 内部 delete 走 store
+        不应该被业务订阅者看到,否则会误触发 indexing 重新处理同一 ID)。
+        """
         with self._lock:
-            self._db.execute(
+            cur = self._db.execute(
                 "UPDATE knowledge_units SET status='deleted', "
-                "updated_at=? WHERE ku_id=?",
+                "updated_at=? WHERE ku_id=? AND status != 'deleted'",
                 (datetime.now(timezone.utc).isoformat(), ku_id)
             )
             self._db.commit()
+            return cur.rowcount > 0
 
     def clear(self) -> int:
         """清空整个知识库:硬删除所有 KU / 关系 / 冲突卡 / 全文索引 + 重置内存图。

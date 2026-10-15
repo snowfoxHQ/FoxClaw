@@ -307,6 +307,16 @@ class KnowledgeEvolutionEngine:
                     "new_status": new_status.value,
                 }
             })
+            # 阶段 B:KEE 内部状态机变化必须 publish UPDATED,否则 _sync_ku 不会重新
+            # 检查该 KU,vector 里仍是旧状态(superseded/disputed 仍被检索召回)。
+            self.bus.publish({
+                "event":   KEPEvents.KNOWLEDGE_UPDATED,
+                "source":  "KEE",
+                "payload": {
+                    "ku_id": new_claim.ku_id,
+                    "reason": "claim_status_changed",
+                }
+            })
 
     def _ensure_open_pairs(self):
         """惰性构建 open 冲突对索引(frozenset({a,b}))。仅在持 _conflict_lock 时调用。"""
@@ -382,6 +392,16 @@ class KnowledgeEvolutionEngine:
         loser.claim_status  = ClaimStatus.SUPERSEDED
         self.store.put(winner)
         self.store.put(loser)
+        # 阶段 B:winner(→active)/loser(→superseded)状态都变了,发 UPDATED 让 _sync_ku
+        # 同步 vector:loser 必须从 vector 移除,否则检索仍召回已废弃 Claim。
+        self.bus.publish({
+            "event":   KEPEvents.KNOWLEDGE_UPDATED,
+            "source":  "KEE",
+            "payload": {
+                "ku_ids": [winner.ku_id, loser.ku_id],
+                "reason": "conflict_auto_resolved",
+            }
+        })
 
         # 关闭冲突卡
         card.status      = ConflictStatus.RESOLVED
@@ -417,6 +437,17 @@ class KnowledgeEvolutionEngine:
         # 每多一条 Evidence，置信度 +0.02，上限 0.98
         old_claim.confidence = min(0.98, old_claim.confidence + len(added) * 0.02)
         self.store.put(old_claim)
+        # 阶段 B:置信度/supports 变了,虽然向量文本没变(text_hash 同),仍 publish UPDATED
+        # 让 _sync_ku 走 (5b) 同 hash 跳过 encode,只是保证检索侧能拿到最新 confidence
+        # 注:_sync_ku 五分支不返回 confidence;但显式发 UPDATED 让审计日志完整。
+        self.bus.publish({
+            "event":   KEPEvents.KNOWLEDGE_UPDATED,
+            "source":  "KEE",
+            "payload": {
+                "ku_id": old_claim.ku_id,
+                "reason": "evidence_merged",
+            }
+        })
 
     def _max_conflict_gap(
         self,
@@ -458,6 +489,15 @@ class KnowledgeEvolutionEngine:
         loser.claim_status  = ClaimStatus.SUPERSEDED
         self.store.put(winner)
         self.store.put(loser)
+        # 阶段 B:同自动裁决,loser 变 superseded 必须从 vector 移除。
+        self.bus.publish({
+            "event":   KEPEvents.KNOWLEDGE_UPDATED,
+            "source":  "KEE",
+            "payload": {
+                "ku_ids": [winner.ku_id, loser.ku_id],
+                "reason": "conflict_manual_resolved",
+            }
+        })
 
         card.status      = ConflictStatus.RESOLVED
         card.resolved_by = resolved_by

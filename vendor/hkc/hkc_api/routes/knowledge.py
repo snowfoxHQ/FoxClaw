@@ -347,6 +347,20 @@ def _delete_source_cascade(c: HKCContainer, source: str) -> dict:
     for kid in to_delete:
         store.delete(kid)
 
+    # 4.5 阶段 B:sqlite_store.delete 改返 bool 不再发事件,调用方按业务语义显式发。
+    # 这里发一条批量 DELETED,让 _sync_ku 把每条 KU 从 vector 移除(否则级联删了
+    # 知识,检索仍召回已删 KU,会非常误导)。_on_ku_event 兼容 ku_id 单数/ku_ids 复数。
+    if to_delete:
+        from hkc_kep.event_bus import KEPEvents
+        c.event_bus.publish({
+            "event":   KEPEvents.KNOWLEDGE_DELETED,
+            "source":  "routes.knowledge.delete_source",
+            "payload": {
+                "ku_ids": sorted(to_delete),
+                "reason": "source_cascade_delete",
+            }
+        })
+
     # 5. 清理悬空关系(任一端已删除)
     del_rels = 0
     for r in store.get_all_relations(limit=BIG):

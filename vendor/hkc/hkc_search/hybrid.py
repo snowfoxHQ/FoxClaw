@@ -269,3 +269,49 @@ class HybridSearch:
             summary  = r.summary,
             rel_type = getattr(r, "rel_type", ""),
         )
+
+    # ── 阶段 B:索引增量更新入口 ────────────────────────────────────────
+
+    def update_ku(self, ku) -> bool:
+        """更新单条 KU 的向量。返回是否真发生编码(同 hash 跳过)。
+        阶段 B:替代原先 append_ku 直接 add(会让 vector 含同 ku_id 多条 → 检索排序错乱)。
+        内部用 self._lock 序列化,避免与 HTTP search 互竞。"""
+        with self._lock:
+            return self.vector.update_ku(ku)
+
+    def remove_ku(self, ku_id: str) -> bool:
+        """从 vector 删一条,同步 bm25 词条。返回是否真删了。
+        bm25 重建比 vector 删除便宜(KU 全在内存词袋),用新 corpus 全量重建即可。"""
+        with self._lock:
+            ok_v = self.vector.remove_ku(ku_id)
+            if not ok_v:
+                return False
+            # bm25 重建:用 store 重拉活动 KU(去 deleted/superseded/disputed/rejected)
+            self._rebuild_bm25_from_store()
+            return True
+
+    def _rebuild_bm25_from_store(self) -> None:
+        """用 store 当前 active 状态重建 bm25。删除/状态机变更后调。
+        bm25._rebuild_bm25() 已经处理 0 corpus 保护(_bm25=None,search 返 [])。"""
+        try:
+            kus = self.store.query_all(limit=99999999) if hasattr(self.store, "query_all") else []
+        except Exception:
+            kus = []
+        # 排除非活动状态(检索不该召回的)
+        active = [k for k in kus if k.status not in self._INACTIVE_STATUSES]
+        # Claim 还要看 claim_status
+        filtered = []
+        for k in active:
+            if k.ku_type.value == "Claim":
+                cs = k.to_dict().get("extra", {}).get("claim_status", "active")
+                if cs in self._INACTIVE_STATUSES:
+                    continue
+            filtered.append(k)
+        if not filtered:
+            self.bm25._ku_ids   = []
+            self.bm25._names    = []
+            self.bm25._summaries= []
+            self.bm25._corpus   = []
+            self.bm25._bm25     = None
+            return
+        self.bm25.build(filtered)

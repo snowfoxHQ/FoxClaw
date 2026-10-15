@@ -38,6 +38,7 @@ import pickle
 from dataclasses import dataclass
 
 
+import numpy as np
 from .embedding_backends import EmbeddingBackend, make_backend
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,53 @@ class VectorIndex:
         self._names      .extend([ku.name          for ku in kus])
         self._summaries  .extend([ku.summary[:100] for ku in kus])
         self._text_hashes.extend([_hash_text(t)     for t in texts])
+
+    def update_ku(self, ku) -> bool:
+        """更新某 KU 的向量。返回是否真发生编码(同 hash 跳过)。
+        阶段 B:由 hybrid.update_ku 在 _lock 内调用,经 text_hash 检测:
+          - hash 未变 → 跳过 encode(节省 1 次大模型调用,大库下显著)
+          - hash 变   → remove 旧条 + append 新条
+        注:IndexFlatIP add 总在末尾 push(id 自增),故 index == 在 5 个 list 里的位置。
+        """
+        if self._index is None:
+            return False
+        if ku.ku_id not in self._ku_ids:
+            return False
+        text = self._ku_text(ku)
+        new_hash = _hash_text(text)
+        idx = self._ku_ids.index(ku.ku_id)
+        if self._text_hashes[idx] == new_hash:
+            return False   # 同 hash → 跳过 encode
+        self.remove_ku(ku.ku_id)
+        self.append_ku(ku)
+        return True
+
+    def remove_ku(self, ku_id: str) -> bool:
+        """从 faiss 删一条 + 同步 5 个 list。返回是否真删了。
+        阶段 B:用于 KEE 状态机变更(把 superseded/disputed 等从检索剔除)、
+        delete_source 级联删、manifest 校验失败后清空旧数据。
+        IndexFlatIP.add 永远 push 末尾,id 与 list 位置一一对应。
+
+        faiss 1.13 注:Index.remove_ids(selector) 是 **in-place** 操作,直接修改
+        内部存储并返 int(剩余数量),**不**返新 Index。若用 `new_idx = idx.remove_ids()`
+        会让 new_idx 变成 int 而非 Index,后续操作全崩。**这是测试 E3/E4 早期失败
+        的根因**。
+        """
+        if self._index is None:
+            return False
+        if ku_id not in self._ku_ids:
+            return False
+        import faiss
+        idx = self._ku_ids.index(ku_id)
+        sel = faiss.IDSelectorBatch(np.array([idx], dtype=np.int64))
+        self._index.remove_ids(sel)
+        # 同步 4 个 list。faiss 内部已经把后续 id 重映射(连续 0..n-1),
+        # 我们的 _ku_ids/_names/... 是按位置存的,删 idx 后 4 list 同步剔 idx 位置。
+        self._ku_ids     = self._ku_ids[:idx]     + self._ku_ids[idx+1:]
+        self._names      = self._names[:idx]      + self._names[idx+1:]
+        self._summaries  = self._summaries[:idx]  + self._summaries[idx+1:]
+        self._text_hashes= self._text_hashes[:idx]+ self._text_hashes[idx+1:]
+        return True
 
     # ── 检索 ──────────────────────────────────────────────────
 

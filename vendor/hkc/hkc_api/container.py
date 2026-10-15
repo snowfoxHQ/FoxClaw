@@ -199,20 +199,87 @@ class HKCContainer:
             logger.info("磁盘索引已覆盖全部 %d 条 KU,无需补算", len(kus))
 
     def _wire_search_index_updates(self):
-        """订阅 knowledge.created，新 KU 写入后增量更新搜索索引。"""
+        """订阅 KU 事件,统一走 _sync_ku 五分支。
+
+        阶段 B 修正:
+          ① CREATED 处理器必须**查 status** 后再走 _sync_ku(ku_id) —— 重复 KU 已被
+             KEE 软删,append_ku 会把同 id 推进 vector,导致检索返回「已删」内容。
+          ② UPDATED 处理器也要查 status —— KEE 状态机把 Claim 从 active 改成
+             superseded/rejected,vector 必须同步 remove,否则检索召回已废弃 KU。
+          ③ DELETED 处理器不查 store(被删了 get=None),直接 vector.remove_ku。
+
+        _sync_ku 五分支:
+          1) store.get(ku_id) is None               → vector.remove(兜底)
+          2) status == 'deleted'                    → vector.remove
+          3) status not in {active}                 → vector.remove (superseded/rejected/disputed)
+          4) active + 不在 vector                   → vector.append_ku
+          5) active + 在 vector + text_hash 变      → vector.update_ku(remove+append)
+             5b) active + 在 vector + text_hash 同   → noop (同 hash 跳过 encode)
+
+        五分支都包在 try/except:单个 KU 同步失败不阻断其它 KU(继续下一条)。
+        """
         from hkc_kep.event_bus import KEPEvents
 
-        def on_created(event: dict):
+        def _on_ku_event(event_name: str, event: dict):
             ku_ids = event.get("payload", {}).get("ku_ids", [])
+            if not ku_ids and "ku_id" in event.get("payload", {}):
+                ku_ids = [event["payload"]["ku_id"]]
             for ku_id in ku_ids:
-                ku = self.graph_store.get(ku_id)
-                if ku:
-                    try:
-                        self.search.append_ku(ku)
-                    except Exception as e:
-                        logger.warning("索引增量更新失败 (%s): %s", ku_id, e)
+                self._sync_ku(ku_id)
 
-        self.event_bus.subscribe(KEPEvents.KNOWLEDGE_CREATED, on_created)
+        self.event_bus.subscribe(KEPEvents.KNOWLEDGE_CREATED,
+                                 lambda e: _on_ku_event("CREATED", e))
+        self.event_bus.subscribe(KEPEvents.KNOWLEDGE_UPDATED,
+                                 lambda e: _on_ku_event("UPDATED", e))
+        self.event_bus.subscribe(KEPEvents.KNOWLEDGE_DELETED,
+                                 lambda e: _on_ku_event("DELETED", e))
+
+    def _sync_ku(self, ku_id: str) -> None:
+        """五分支同步单条 KU 到 vector(见 _wire_search_index_updates 注释)。
+        单一 KU 失败不抛,只 log warning —— 摄入任务里 50 条 KU 失败 1 条不应拖累其余。
+        """
+        try:
+            ku = self.graph_store.get(ku_id)
+        except Exception as e:
+            logger.warning("_sync_ku 读 store 失败(%s): %s", ku_id, e)
+            return
+        if ku is None or getattr(ku, "status", "") == "deleted":
+            # 1) / 2) — KU 不存在或已删,删 vector
+            try:
+                self.search.remove_ku(ku_id)
+            except Exception as e:
+                logger.warning("vector.remove_ku(%s) 失败: %s", ku_id, e)
+            return
+        if getattr(ku, "status", "active") not in ("active",):
+            # 3) — superseded / rejected / disputed(非 active 状态)也不该被检索召回
+            try:
+                self.search.remove_ku(ku_id)
+            except Exception as e:
+                logger.warning("vector.remove_ku(%s) 失败: %s", ku_id, e)
+            return
+        # Claim 还要看 claim_status(可能 active 但 claim_status 是 superseded)
+        if getattr(ku, "ku_type", None) and getattr(ku.ku_type, "value", "") == "Claim":
+            extra = getattr(ku, "to_dict", lambda: {} )().get("extra", {}) or {}
+            cs = extra.get("claim_status", "active")
+            if cs in ("superseded", "rejected", "disputed"):
+                try:
+                    self.search.remove_ku(ku_id)
+                except Exception as e:
+                    logger.warning("vector.remove_ku(%s) 失败: %s", ku_id, e)
+                return
+        # 4) / 5) / 5b)
+        in_vector = ku_id in (self.search.vector._ku_ids or [])
+        if not in_vector:
+            try:
+                self.search.append_ku(ku)
+            except Exception as e:
+                logger.warning("vector.append_ku(%s) 失败: %s", ku_id, e)
+        else:
+            try:
+                # update_ku 内部用 text_hash 检测:同 hash 跳过 encode,变才重编
+                self.search.update_ku(ku)
+            except Exception as e:
+                logger.warning("vector.update_ku(%s) 失败: %s", ku_id, e)
 
     def stats(self) -> dict:
         """返回系统整体统计。"""
