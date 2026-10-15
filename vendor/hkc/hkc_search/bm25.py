@@ -116,6 +116,13 @@ class BM25Index:
         self._corpus.append(tokens)
 
     def _rebuild_bm25(self) -> None:
+        # 阶段 A 保护:空 corpus / 全空 doc 都会让 BM25Okapi 抛 ZeroDivisionError。
+        # 触发场景:① append_ku 第一个 KU,但 _ku_text 因为 tags/statement 全空只返
+        # 了 'name' ② 首次 build([]) ③ _compact 清洗后所有 doc token 数归零。
+        # 设 _bm25 = None 后 search() 自然返 [](),行为可预测。
+        if not self._corpus or not any(self._corpus):
+            self._bm25 = None
+            return
         try:
             from rank_bm25 import BM25Okapi
             self._bm25 = BM25Okapi(self._corpus)

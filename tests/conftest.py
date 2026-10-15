@@ -16,6 +16,18 @@ _REPO_ROOT = Path(__file__).parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# ── HKC vendor 隔离 ────────────────────────────────────────────────────────────
+# IDE/Cursor 等 shim 常把 `C:\GitHub\hestia-hkc\src` 注入到 sys.path 第一位,
+# 而那是上游低质量代码、跟本项目 vendor/hkc/ 是不同等级。**测试必须打 vendor 真代码**,
+# 否则会出现 tests/test_vendor_path_isolation.py 里那类「绿了但打错对象」的事故。
+# 把 vendor/hkc 强制插到 sys.path[0](即使 shim 在前也覆盖之),后续 `import hkc_*`
+# 全部解析到本仓库 vendor 副本。hestia.knowledge 自身也调 _ensure_hkc_importable()
+# 做同样事,但那只在 import hestia.knowledge 之后才生效;本测试文件顶层直接
+# import hkc_search 早于它,故在 conftest 阶段就注入更稳。
+_VENDOR_HKC = _REPO_ROOT / "vendor" / "hkc"
+if _VENDOR_HKC.exists() and str(_VENDOR_HKC) not in sys.path:
+    sys.path.insert(0, str(_VENDOR_HKC))
+
 # ── 规避 pytest 在 Windows + Python 3.14 下的 junction 清理 bug ────────────────
 # pytest 用 Path.symlink_to() 创建 `pytest-current` / `test_*current` 目录 junction
 # 作为「指向最新临时目录」的便利链接。Windows 会把这类 junction 标记为
