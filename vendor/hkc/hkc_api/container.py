@@ -58,6 +58,7 @@ class HKCContainer:
         self.ingest_jobs = None      # 异步摄入任务注册表(方案A)
         self.synthesis   = None      # 综合页 LLM 综述(派生只读视图,不进知识库)
         self.crystallizer = None     # Crystallizer 摄入适配器(集成层入口:外部推知识候选)
+        self.index_build_manager = None  # 阶段 C:后台冷构建管理器(无磁盘索引时跑)
 
         self._assembled = False
 
@@ -115,8 +116,26 @@ class HKCContainer:
         vector_index = VectorIndex(backend=backend)
         self.search  = HybridSearch(self.graph_store, vector_index=vector_index)
 
-        # 启动时构建索引（向量索引优先加载持久化副本，避免每次启动全量 embedding）
-        self._build_search_index()
+        # 启动时加载持久化索引 + 准备 BM25。阶段 C 后,**全量 build 由 IndexBuildManager
+        # 后台线程承担**,assemble() 内部只做「加载已存在」+「BM25 重建」,保证 Lifespan
+        # 启动不被 30-60 分钟的冷编码卡住。IndexBuildManager 见下段。
+        self._load_persisted_index_and_bm25()
+
+        # 阶段 C:起后台冷构建 manager。它会自动:
+        #   · vector 已覆盖库 → 立即返,标 ready
+        #   · vector 部分覆盖 / 为空 → 启 daemon 线程,扫描 + encode + append_bulk
+        # 全部完成后,manager 内部 save() 落盘,下次启动 assemble() 直接加载。
+        from hkc_search.index_build_manager import IndexBuildManager
+        import os as _os
+        self.index_build_manager = IndexBuildManager(
+            data_dir=str(self.data_dir),
+            hybrid_search=self.search,
+            graph_store=self.graph_store,
+            batch_size=int(_os.environ.get("HKC_BUILD_BATCH_SIZE", "64")),
+            max_failures=int(_os.environ.get("HKC_BUILD_MAX_FAILURES", "100")),
+            checkpoint_every_batches=int(_os.environ.get("HKC_BUILD_CHECKPOINT_BATCHES", "5")),
+        )
+        self.index_build_manager.start()
 
         # 新知识写入后自动更新搜索索引
         self._wire_search_index_updates()
@@ -143,60 +162,37 @@ class HKCContainer:
                     self.data_dir, backend.name)
         return self
 
-    def _build_search_index(self):
-        """构建搜索索引。
-        启动优化:优先加载磁盘 faiss(秒级),仅对缺失的 KU 增量补算 embedding。
-        1.6 万条 KU 全量 bge-m3 encode 在 CPU 上要 30-60 分钟,绝不能放 startup 同步链。
-        增量补算只跑缺失的 N 条(几百~几千),几秒~十几秒,可以接受。
+    def _load_persisted_index_and_bm25(self):
+        """阶段 C:启动期**只**加载磁盘索引 + 重建 BM25,**不**做全量 encode,
+        **不**做增量补算 —— 这两件事交给 IndexBuildManager 后台线程。
+        - vector.load:从 search_vector.faiss / .meta 加载(阶段 A 8 步校验失败 → _reset)
+        - bm25.build:从 store 拉 active KU 重建(快,毫秒级,不会卡启动)
+        设计目标:assemble() 整体在秒级返回(在 1.6 万 KU 库上,< 5s),
+        不再因为 30-60 分钟的冷编码被 Lifespan 启动超时打断。
         """
         vec_path = str(self.data_dir / "search_vector")
         try:
-            # 全量拉,不再截断。早期 limit=10000 在 KU>1 万时丢索引
-            kus = self.graph_store.query_all(limit=99999999)
+            kus = self.graph_store.query_all(limit=99999999) or []
         except Exception:
             kus = []
-
         loaded_n = 0
         if kus:
             try:
                 if self.search.vector.load(vec_path):
                     loaded_n = self.search.vector.size()
                     logger.info(
-                        "向量索引已从磁盘加载: %d 条 (库内共 %d 条)",
+                        "向量索引已从磁盘加载: %d 条 (库内共 %d 条,余下交 manager 后台)",
                         loaded_n, len(kus))
             except Exception as e:
-                logger.warning("加载持久化向量索引失败,回退全量构建: %s", e)
-
-        # BM25 是纯文本索引,直接重建(快,毫秒级)
+                logger.warning("加载持久化向量索引失败,manager 会兜底: %s", e)
+        # BM25 必须重建一次(它不持久化;且重建开销极小,毫秒级)
         if kus:
-            self.search.bm25.build(kus)
-
-        if loaded_n == 0:
-            # 没有磁盘索引 → 全量构建一次(冷启动路径,首次后必有磁盘索引)
             try:
-                self.search.build_index(kus=kus)
-                if kus:
-                    self.search.vector.save(vec_path)
-                    logger.info("搜索向量索引已落盘: %s (共 %d 条)", vec_path, len(kus))
+                self.search.bm25.build(kus)
             except Exception as e:
-                logger.warning("构建搜索索引失败(可能库为空): %s", e)
-            return
-
-        # 已加载磁盘索引 → 仅补算缺失的 KU
-        existing_ids = set(self.search.vector._ku_ids)
-        missing = [ku for ku in kus if ku.ku_id not in existing_ids]
-        if missing:
-            logger.info("增量补算 %d 条 KU 的 embedding(磁盘已有 %d 条)",
-                        len(missing), loaded_n)
-            try:
-                self.search.vector.append_bulk(missing)
-                self.search.vector.save(vec_path)
-                logger.info("增量补算完成,索引已落盘(总计 %d 条)",
-                            self.search.vector.size())
-            except Exception as e:
-                logger.warning("增量补算失败(不影响已加载的索引): %s", e)
-        else:
-            logger.info("磁盘索引已覆盖全部 %d 条 KU,无需补算", len(kus))
+                logger.warning("BM25 重建失败(非致命,search 会回退 bm25=None 保护): %s", e)
+        if not kus:
+            logger.info("库为空,无需构建索引")
 
     def _wire_search_index_updates(self):
         """订阅 KU 事件,统一走 _sync_ku 五分支。
@@ -291,12 +287,28 @@ class HKCContainer:
         s["embedding"]      = getattr(self, "_embedding_name", "")  # 生效的向量后端(stub 无语义)
         s["bm25_size"]      = self.search.bm25.size()
         s["vector_size"]    = self.search.vector.size()
+        # 阶段 C:把后台构建状态也吐出,前端可做「正在编码 N/M」提示
+        if self.index_build_manager is not None:
+            s["index_build"] = self.index_build_manager.stats()
+        else:
+            s["index_build"] = {"index_state": "idle"}
         s["abilities"]      = self.ace.list_available()
         return s
 
     def close(self):
         """关闭资源。每次 reset_container(测试 tearDown / 服务热重载)都会调,
         必须把线程池和额外的 SQLite 连接一并释放,否则会累积线程/文件描述符泄漏。"""
+        # 阶段 C:先停后台构建线程(它持有 self.search / self.graph_store 引用),
+        # 再释放 SQLite。否则若线程在 close 期间还在跑,SQLite 已被 close 句柄释放,
+        # 线程内 append_bulk 会爆「database is closed」。
+        if getattr(self, "index_build_manager", None):
+            try:
+                self.index_build_manager.cancel()
+                # 限时 join:不阻塞 close 太久(2s 内退出是合理预期,batch_size=64 bge-m3
+                # 约 3-5s,但 cancel 标志会让它在 batch 边界停)。
+                self.index_build_manager.join(timeout=2.0)
+            except Exception:
+                pass
         if self.ingest_jobs:
             try: self.ingest_jobs.shutdown()
             except Exception: pass
