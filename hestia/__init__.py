@@ -80,9 +80,26 @@ class HestiaOS:
             llm_api_key=api_key,
         )
 
-        # 把预装配的 HKC 缓存到 lazy 句柄(后续 self.hkc 直接返回,不再二次 init)
-        self._hkc_service = _early_hkc
-        self._hkc_inited = _early_hkc is not None
+        # 【P1·share-bge-m3】早期 init 只为预热 bge-m3 入 HKC 共享缓存——绝**不留**容器:
+        # 否则 HKCContainer 会被钉在 hkc_api.container._container 全局单例(由 init_hkc
+        # line 143 注册)+ HKCService 内部 _container 引用,产生泄漏,在 aclose→rmtree 时
+        # 留下 events.db/hkc.db 文件锁(PermissionError [WinError 32])。预热完立即关+清。
+        if _early_hkc is not None:
+            try:
+                _early_hkc.close()
+            except Exception:
+                pass
+            try:
+                from hkc_api.container import reset_container
+                reset_container()
+            except Exception:
+                pass
+            _early_hkc = None
+
+        # 真正持有 HKCService 的是后续 lazy `self.hkc` 路径(line 374-375)。
+        # 此处只置 None/False,与 line 336-342 一致。
+        self._hkc_service = None
+        self._hkc_inited = False
 
         # ThoughtChain（共享存储，各 Agent 通过 agent_id 隔离）
         self.thought_chain = ThoughtChain(
@@ -468,11 +485,28 @@ class HestiaOS:
                 tc.close()
             except Exception:
                 pass
-        # HKC:仅当被惰性装配过才需释放(未访问过则从未开句柄)
+        # HKC:仅当被惰性装配过才需释放(未访问过则从未开句柄)。
+        # 必须清两层引用:
+        # 1) self._hkc_service (HestiaOS 属性) — 否则 HKCService 实例及 _container 闭包持有的
+        #    SQLite 连接在 CPython 引用计数下不会立即 close,残留 events.db/hkc.db 文件锁
+        # 2) hkc_api.container._container (vendor 全局单例) — hestia.knowledge.init_hkc
+        #    第 143 行把它注册进去,reset_container() 才会同时关 SQLite + 清引用。
+        # 不清会导致 lifespan teardown 后的 rmtree 报 PermissionError [WinError 32]。
+        hkc_was_inited = getattr(self, "_hkc_inited", False) or getattr(self, "_hkc_service", None) is not None
         if getattr(self, "_hkc_service", None) is not None:
             try:
                 self._hkc_service.close()
             except Exception:
                 pass
+            self._hkc_service = None
+        # vendor 全局单例 — 即使 lazy hkc 没被访问,启动期 HestiaOS.__init__ 早期预装配
+        # (line 67-85) 已经把 container 塞进 _cm._container;aclose 必须清。
+        if hkc_was_inited:
+            try:
+                from hkc_api.container import reset_container
+                reset_container()
+            except Exception:
+                pass
+        self._hkc_inited = False
 
 
