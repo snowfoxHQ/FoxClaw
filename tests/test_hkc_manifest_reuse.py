@@ -15,10 +15,10 @@ HKC 持久化 manifest 校验测试(阶段 A 提交)。
   M11 save invariant:4 list 长度不一致时抛 AssertionError
   M12 text_hashes 与 _ku_text 内容一致(同 KU 不同时间 hash 相同)
 
-  B1  bm25 空 corpus 列表 → _bm25 = None
-  B2  bm25 全空 doc 列表([[]]*5) → _bm25 = None
-  B3  bm25 有一个非空 doc → 正常 rebuild
-  B4  bm25 search 在 _bm25=None 时返 []
+  B1  bm25 空 corpus → size=0,search 返 []
+  B2  bm25 全空 doc(5 条)→ 不崩,size 计数正确,search 返 []
+  B3  bm25 有一个非空 doc → 正常命中
+  B4  bm25 未 build 时 search 返 []
 
 设计原则(同 P0):
   - 不 mock:真 faiss + StubBackend + 真 VectorIndex + 真 BM25Index。
@@ -283,42 +283,37 @@ class TestManifestValidation:
 
 
 # ── B1~B4: bm25 0 corpus 保护 ────────────────────────────────────
+# B 阶段把 BM25Index 重写为自实现倒排索引(不再包装 rank_bm25),旧私有属性
+# `_bm25` / `_ku_ids` / `_names` / `_summaries` / `_corpus` / `_rebuild_bm25`
+# 均已不存在。故断言改为验证**对外行为**(size / search),不再耦合私有结构 ——
+# 旧测试直接拼私有 list 再调私有 rebuild,是它在此次重构后失效的根因。
 
 class TestBM25EmptyCorpus:
     def test_build_empty_list(self):
-        """B1:build([]) → _bm25 = None,size=0。"""
+        """B1:build([]) → 索引为空,search 返 []。"""
         b = BM25Index()
         b.build([])
-        assert b._bm25 is None
         assert b.size() == 0
+        assert b.search("anything") == []
 
     def test_build_all_empty_docs(self):
-        """B2:全空 doc(都是 [[]] * N)→ _bm25 = None。
-        触发场景:append_ku 第一个 KU 时 _ku_text 拼出空 token 列表。"""
+        """B2:全空 doc(name/summary/tags 皆空)→ 不崩,size 计数正确,search 返 []。
+        触发场景:append_ku 首个 KU 时拼出的 token 列表为空。"""
         b = BM25Index()
-        # 直接喂 5 个全空 doc
-        for _ in range(5):
-            b._ku_ids.append("KU_X")
-            b._names.append("x")
-            b._summaries.append("x")
-            b._corpus.append([])  # 空 token
-        b._rebuild_bm25()
-        assert b._bm25 is None
+        for i in range(5):
+            b.append_ku(ConceptKU(ku_id=f"KU_{i}", name="", summary=""))
+        assert b.size() == 5
+        assert b.search("x") == []
 
     def test_build_one_valid_doc(self):
-        """B3:哪怕只有一个非空 doc 也能正常 rebuild。"""
+        """B3:哪怕只有一个非空 doc 也能正常命中。"""
         b = BM25Index()
-        b._ku_ids.append("KU_X")
-        b._names.append("x")
-        b._summaries.append("x is a letter")
-        b._corpus.append(["x", "is", "letter"])
-        b._rebuild_bm25()
-        assert b._bm25 is not None
+        b.append_ku(ConceptKU(ku_id="KU_X", name="x", summary="x is a letter"))
         r = b.search("x letter", top_k=1)
         assert len(r) == 1 and r[0].ku_id == "KU_X"
 
     def test_search_with_no_bm25(self):
-        """B4:_bm25 is None 时 search 返 []。"""
+        """B4:未 build 时 search 返 []。"""
         b = BM25Index()
         # 不 build,直接 search
         assert b.search("anything") == []
