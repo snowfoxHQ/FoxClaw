@@ -325,10 +325,7 @@ class HybridSearch:
                     continue
             filtered.append(k)
         if not filtered:
-            self.bm25._ku_ids   = []
-            self.bm25._names    = []
-            self.bm25._summaries= []
-            self.bm25._corpus   = []
-            self.bm25._bm25     = None
+            # B 阶段:用 bm25.clear() 替代旧版直接改私有状态,解耦封装
+            self.bm25.clear()
             return
         self.bm25.build(filtered)
