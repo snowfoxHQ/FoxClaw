@@ -814,9 +814,22 @@ async function renderGraph(){
   }
 }
 
-// startRotation/stopRotation 在 3D 版中由 planet 内部循环管理，留空兼容旧调用
-function startRotation(){}
-function stopRotation(){}
+// startRotation/stopRotation:上传/解析/摄入期间停掉星球渲染循环 ——
+// 每帧 _update() + renderer.render() 会争 GPU 和主线程,拖慢大文件上传。
+// 真正省 CPU 的是停 RAF(只关 autoSpin 不够,缓动还在跑)。
+// planet.raf 在 start() 里被赋值,dispose() 里被 cancel —— 这里只 cancel。
+function startRotation(){
+  if(!planet) return;
+  if(planet.raf) return;       // 已在跑(避免 start() 双重 RAF 嵌套)
+  planet.start();               // 复用现有 start() 启动 tick
+}
+function stopRotation(){
+  if(!planet) return;
+  if(planet.raf){
+    cancelAnimationFrame(planet.raf);
+    planet.raf = null;
+  }
+}
 
 
 function relLabel(t){
@@ -1432,8 +1445,16 @@ async function submitIngest(){
 // ════════════════════════════════════════════════════════
 //  模态 + 连接
 // ════════════════════════════════════════════════════════
-function openModal(s){ $(s).classList.add('show'); }
-function closeModal(s){ $(s).classList.remove('show'); }
+// 打开摄入模态 → 停星球渲染(避免大文件上传被 GPU/主线程争用拖慢)
+function openModal(s){
+  $(s).classList.add('show');
+  if(s === '#ingest-modal') stopRotation();
+}
+// 关闭摄入模态 → 恢复星球渲染(idempotent:stopRotation 未调过也无害)
+function closeModal(s){
+  $(s).classList.remove('show');
+  if(s === '#ingest-modal') startRotation();
+}
 
 // ── 书籍管理(按来源删除)──
 async function openBooks(){
@@ -1588,7 +1609,8 @@ _syncLLMFields();  // 初始化字段状态
 $('#btn-use-demo').onclick=()=>{ client.useDemo(); setConn(); closeModal('#settings-modal'); loadData(); toast('已切换到演示数据'); };
 $('#btn-fit').onclick=()=>window._fitGraph&&window._fitGraph();
 $$('[data-close]').forEach(b=>b.onclick=()=>{ closeModal('#ingest-modal'); closeModal('#settings-modal'); closeModal('#books-modal'); });
-$$('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('show'); }));
+// 点背景关模态:走 closeModal(里面会触发 ingest 的 startRotation,见 openModal 注释)
+$$('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) closeModal('#'+m.id); }));
 // G6 的 autoResize:true 已处理窗口缩放，无需手动重建
 
 // 启动：有保存的连接设置则回填并静默自动重连，否则按演示模式启动
