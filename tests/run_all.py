@@ -218,7 +218,10 @@ def main():
                     print(f"  ↻ {desc} 首次 0xC0000005 原生崩溃,重试通过(已知环境性偶发)")
             results.append((desc, "通过" if ok else "失败", time.time() - t0))
             if not ok:
-                tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
+                # 打印 15 行而非 3 行:pytest 的 collection error(如缺依赖)把原因
+                # 放在 traceback 中段,只截最后 3 行会只剩「ERROR xxx.py」+「Interrupted」,
+                # 在 CI 里完全无法定位(2026-10-17 实际踩过:CI 红但日志看不出缺 faiss)。
+                tail = (r.stdout + r.stderr).strip().splitlines()[-15:]
                 print(f"  ✗ {desc} 失败:")
                 for line in tail: print(f"      {line}")
                 # 失败时落盘完整输出,便于复现/定位偶发失败(尤其 teardown 期崩溃)。
