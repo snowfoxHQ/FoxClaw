@@ -35,6 +35,8 @@ import hashlib
 import logging
 import os
 import pickle
+import sys
+import threading
 from dataclasses import dataclass
 
 
@@ -58,6 +60,13 @@ def _hash_text(text: str) -> str:
     SHA1 16 字符足够防误判(碰撞概率 ~1/2^64);hex 短,存盘小。
     故意不用 blake2 —— _compact 的内存清洗会让 hash 形式不可读,SHA1 hex 短更易排查。"""
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+# 阶段 C:Vector 索引自动升级阈值。
+# 当累积向量数 >= 这个阈值后,IndexFlatIP(暴力精确)自动升级到 IndexIVFFlat(聚类倒排,10x 检索加速)。
+# 通过环境变量 HKC_VECTOR_IVF_THRESHOLD 可调(默认 10000;测试时设 200 即可触发升级)。
+# 设 0 = 禁用升级,始终用 IndexFlatIP(用于回归测试 / 精度对比)。
+HKC_VECTOR_IVF_THRESHOLD = int(os.environ.get("HKC_VECTOR_IVF_THRESHOLD", "10000"))
 
 
 @dataclass
@@ -95,6 +104,11 @@ class VectorIndex:
         # 阶段 B 的 update_ku 用它做"内容真伪变化"检测 —— 不变则跳过 encode,变才重编。
         # save/load 都要带;load 缺失则视为旧 v1 manifest,触发 _reset() 兜底。
         self._text_hashes: list[str] = []
+        # B1+B2 写-写互斥锁（RLock 支持 update_ku 内部嵌套调
+        # remove_ku/append_ku 不死锁）。append_bulk 内部 encode 在锁外，
+        # 仅 faiss.add + 4 list extend 持锁（微秒级）—— 避免和 _sync_ku
+        # 抢锁导致 ingest 阻塞。读（search）不持此锁，与写不互斥。
+        self._write_lock = threading.RLock()
 
     @property
     def backend_name(self) -> str:
@@ -110,49 +124,59 @@ class VectorIndex:
         if not kus:
             return
         texts      = [self._ku_text(ku) for ku in kus]
-        embeddings = self._backend.encode(texts)
-        self._init_index()
-        self._index.add(embeddings)
-        self._ku_ids     = [ku.ku_id         for ku in kus]
-        self._names      = [ku.name          for ku in kus]
-        self._summaries  = [ku.summary[:100] for ku in kus]
-        self._text_hashes = [_hash_text(t)    for t in texts]
+        embeddings = self._backend.encode(texts)   # encode 锁外(慢)
+        with self._write_lock:                       # 锁内(微秒)
+            self._init_index()
+            self._index.add(embeddings)
+            self._maybe_upgrade_to_ivf()            # 阶段 C:达阈值时 Flat → IVF
+            self._ku_ids     = [ku.ku_id         for ku in kus]
+            self._names      = [ku.name          for ku in kus]
+            self._summaries  = [ku.summary[:100] for ku in kus]
+            self._text_hashes = [_hash_text(t)    for t in texts]
         logger.info("向量索引构建完成，共 %d 条 (backend=%s)",
                     len(self._ku_ids), self._backend.name)
 
     def append_ku(self, ku) -> None:
         # 先 encode（触发后端维度校正），再用校正后的 dim 初始化索引
         text  = self._ku_text(ku)
-        vec   = self._backend.encode([text])
-        if self._index is None:
-            self._init_index()
-        self._index.add(vec)
-        self._ku_ids.append(ku.ku_id)
-        self._names.append(ku.name)
-        self._summaries.append(ku.summary[:100])
-        self._text_hashes.append(_hash_text(text))
+        vec   = self._backend.encode([text])   # encode 锁外(慢)
+        with self._write_lock:                   # 锁内(微秒)
+            if self._index is None:
+                self._init_index()
+            self._index.add(vec)
+            self._maybe_upgrade_to_ivf()         # 阶段 C:达阈值时 Flat → IVF
+            self._ku_ids.append(ku.ku_id)
+            self._names.append(ku.name)
+            self._summaries.append(ku.summary[:100])
+            self._text_hashes.append(_hash_text(text))
 
     def append_bulk(self, kus: list) -> None:
         """批量追加 KU（一次 encode 调用，比循环 append_ku 快 ~10x）。
         用于启动时把磁盘索引中缺失的 KU 增量补齐：N=几百到几千时秒级返回。
-        空列表直接返回。无内部锁——调用方（hybrid._lock）持有锁。"""
+        B1+B2:encode 在锁外(慢,几十~几百 ms/batch),仅 faiss.add + 4 list
+        extend 持 _write_lock(微秒级)—— 避免和 _sync_ku 抢锁导致 ingest
+        阻塞。RLock 允许同线程嵌套(update_ku 内部也调)。"""
         if not kus:
             return
         texts      = [self._ku_text(ku) for ku in kus]
-        embeddings = self._backend.encode(texts)
-        if self._index is None:
-            self._init_index()
-        self._index.add(embeddings)
-        self._ku_ids     .extend([ku.ku_id         for ku in kus])
-        self._names      .extend([ku.name          for ku in kus])
-        self._summaries  .extend([ku.summary[:100] for ku in kus])
-        self._text_hashes.extend([_hash_text(t)     for t in texts])
+        embeddings = self._backend.encode(texts)   # 锁外(慢)
+        with self._write_lock:                       # 锁内(微秒)
+            if self._index is None:
+                self._init_index()
+            self._index.add(embeddings)
+            self._maybe_upgrade_to_ivf()            # 阶段 C:达阈值时 Flat → IVF
+            self._ku_ids     .extend([ku.ku_id         for ku in kus])
+            self._names      .extend([ku.name          for ku in kus])
+            self._summaries  .extend([ku.summary[:100] for ku in kus])
+            self._text_hashes.extend([_hash_text(t)     for t in texts])
 
     def update_ku(self, ku) -> bool:
         """更新某 KU 的向量。返回是否真发生编码(同 hash 跳过)。
         阶段 B:由 hybrid.update_ku 在 _lock 内调用,经 text_hash 检测:
           - hash 未变 → 跳过 encode(节省 1 次大模型调用,大库下显著)
           - hash 变   → remove 旧条 + append 新条
+        B1+B2:整体持 _write_lock(RLock 支持内部 remove_ku/append_ku
+        嵌套 acquire 不死锁);encode 在 append_ku 内已锁外。
         注:IndexFlatIP add 总在末尾 push(id 自增),故 index == 在 5 个 list 里的位置。
         """
         if self._index is None:
@@ -164,8 +188,9 @@ class VectorIndex:
         idx = self._ku_ids.index(ku.ku_id)
         if self._text_hashes[idx] == new_hash:
             return False   # 同 hash → 跳过 encode
-        self.remove_ku(ku.ku_id)
-        self.append_ku(ku)
+        with self._write_lock:
+            self.remove_ku(ku.ku_id)
+            self.append_ku(ku)
         return True
 
     def remove_ku(self, ku_id: str) -> bool:
@@ -173,6 +198,7 @@ class VectorIndex:
         阶段 B:用于 KEE 状态机变更(把 superseded/disputed 等从检索剔除)、
         delete_source 级联删、manifest 校验失败后清空旧数据。
         IndexFlatIP.add 永远 push 末尾,id 与 list 位置一一对应。
+        B1+B2:整体持 _write_lock(RLock 支持嵌套)。
 
         faiss 1.13 注:Index.remove_ids(selector) 是 **in-place** 操作,直接修改
         内部存储并返 int(剩余数量),**不**返新 Index。若用 `new_idx = idx.remove_ids()`
@@ -183,16 +209,17 @@ class VectorIndex:
             return False
         if ku_id not in self._ku_ids:
             return False
-        import faiss
-        idx = self._ku_ids.index(ku_id)
-        sel = faiss.IDSelectorBatch(np.array([idx], dtype=np.int64))
-        self._index.remove_ids(sel)
-        # 同步 4 个 list。faiss 内部已经把后续 id 重映射(连续 0..n-1),
-        # 我们的 _ku_ids/_names/... 是按位置存的,删 idx 后 4 list 同步剔 idx 位置。
-        self._ku_ids     = self._ku_ids[:idx]     + self._ku_ids[idx+1:]
-        self._names      = self._names[:idx]      + self._names[idx+1:]
-        self._summaries  = self._summaries[:idx]  + self._summaries[idx+1:]
-        self._text_hashes= self._text_hashes[:idx]+ self._text_hashes[idx+1:]
+        with self._write_lock:
+            import faiss
+            idx = self._ku_ids.index(ku_id)
+            sel = faiss.IDSelectorBatch(np.array([idx], dtype=np.int64))
+            self._index.remove_ids(sel)
+            # 同步 4 个 list。faiss 内部已经把后续 id 重映射(连续 0..n-1),
+            # 我们的 _ku_ids/_names/... 是按位置存的,删 idx 后 4 list 同步剔 idx 位置。
+            self._ku_ids     = self._ku_ids[:idx]     + self._ku_ids[idx+1:]
+            self._names      = self._names[:idx]      + self._names[idx+1:]
+            self._summaries  = self._summaries[:idx]  + self._summaries[idx+1:]
+            self._text_hashes= self._text_hashes[:idx]+ self._text_hashes[idx+1:]
         return True
 
     # ── 检索 ──────────────────────────────────────────────────
@@ -369,6 +396,73 @@ class VectorIndex:
             self._index = faiss.IndexFlatIP(self._backend.dim)
         except ImportError:
             raise ImportError("faiss-cpu 未安装: pip install faiss-cpu")
+
+    def _maybe_upgrade_to_ivf(self) -> None:
+        """累积向量数达阈值时,IndexFlatIP → IndexIVFFlat 自动升级。
+
+        设计:
+          - < HKC_VECTOR_IVF_THRESHOLD: 保持 IndexFlatIP(精确,无训练开销)
+          - >= HKC_VECTOR_IVF_THRESHOLD: 升级(10x 检索加速)
+
+        升级流程(在调用方的 _write_lock 内,持锁 1-3s):
+          1. reconstruct 所有当前向量(0..n-1)
+          2. nlist = max(64, int(sqrt(n)))
+          3. IndexIVFFlat(quantizer=Flat, dim, nlist, METRIC_IP)
+          4. train + add + nprobe=16(精度保留)
+          5. 替换 self._index
+
+        一次性:升级后 isinstance 检查直接 return,后续 append_ku 直接 add 到 IVF。
+        save/load 透明:faiss.write_index/read_index 自动处理 IVF,manifest v2 不变。
+        """
+        import faiss
+        import numpy as np
+        if HKC_VECTOR_IVF_THRESHOLD <= 0:
+            return
+        # faiss.read_index() 反序列化会把 IndexFlatIP 降为基类 IndexFlat
+        # (丢失 Python 子类信息),用 isinstance 永远 False → 走 type name 判断
+        type_name = type(self._index).__name__
+        if "IVF" in type_name:
+            return  # 已是 IVF
+        if type_name not in ("IndexFlat", "IndexFlatIP"):
+            return  # 未知 Flat 变体,不动
+        n = self._index.ntotal
+        if n < HKC_VECTOR_IVF_THRESHOLD:
+            return
+        nlist = max(64, int(n ** 0.5))
+        # n ≥ HKC_VECTOR_IVF_THRESHOLD > 0 ⇒ n ≥ max(64, sqrt(n)) ⇒ n ≥ nlist
+        # (对 n≥1 必有 sqrt(n) ≤ n),因此 n >= nlist 在升级瞬间必然成立。
+        # faiss 1.13 train() 自己会校验 n >= nlist 并抛 RuntimeError,被外层 try/except 兜住,
+        # 不再单独 return(防御性分支只会让阈值恰好=1 且 n=1 这类边缘情况被静默忽略,
+        # 而那种情况本就该让 faiss 自己报错)。
+        try:
+            vectors = np.vstack(
+                [self._index.reconstruct(i) for i in range(n)]
+            ).astype(np.float32)
+            # L2 归一化兜底:对已归一化向量(bge-m3 等)幂等;对未归一化
+            # backend 防止 IVF(IP 距离)与原 IndexFlatIP 行为不一致导致
+            # 搜索结果"看起来变差"。0 向量(L2 norm=0)用一个常量 norm 替代,
+            # 避免除零后所有分量变成 nan。
+            norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+            norms = np.where(norms > 0, norms, 1.0)
+            vectors = (vectors / norms).astype(np.float32)
+            quantizer = faiss.IndexFlatIP(self._backend.dim)
+            new_index = faiss.IndexIVFFlat(
+                quantizer, self._backend.dim, nlist, faiss.METRIC_INNER_PRODUCT)
+            new_index.train(vectors)
+            new_index.add(vectors)
+            new_index.nprobe = 16  # 搜 16 个聚类,精度保留(~99%)
+            self._index = new_index
+            msg = (f"VectorIndex 升级: Flat → IVF (n={n}, nlist={nlist}, "
+                   f"nprobe=16, dim={self._backend.dim})")
+            logger.info(msg)
+            # logger 通过 root handler 输出,uvicorn 自带 logging 配置
+            # 不一定把 hkc_search 接到 stderr —— 加 stderr 直接 print 兜底,
+            # 下次阈值正常触发时(ivf_status 显示进度 100%),人工能直接看到。
+            print(msg, file=sys.stderr, flush=True)
+        except Exception as e:
+            warn_msg = f"VectorIndex 升级失败,继续用 Flat: {e}"
+            logger.warning(warn_msg)
+            print(warn_msg, file=sys.stderr, flush=True)
 
     @staticmethod
     def _ku_text(ku) -> str:
