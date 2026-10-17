@@ -46,7 +46,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .embedding_backends import get_st_model
 
@@ -81,6 +81,7 @@ class IndexBuildManager:
         batch_size: int = 64,
         max_failures: int = 100,
         checkpoint_every_batches: int = 5,
+        on_ready: Callable[[], None] | None = None,   # B3:ready 时回调(flush pending)
     ):
         """data_dir:           索引/状态落盘目录
         hybrid_search:      HybridSearch 实例(vector + bm25)
@@ -89,6 +90,8 @@ class IndexBuildManager:
                             约 3-5 秒一批,平衡内存与延迟
         max_failures:       单任务内连续失败超过该数 → 任务标 failed
         checkpoint_every_batches: 每 N 个 batch 写一次 state.json(防进程崩丢进度)
+        on_ready:           可选回调,任务标 ready 时在 _mark_ready_locked 内调
+                            (B3:container 借此 flush pending_ops 队列,避免循环引用)
         """
         self.data_dir = data_dir
         self.hybrid = hybrid_search
@@ -96,6 +99,7 @@ class IndexBuildManager:
         self.batch_size = batch_size
         self.max_failures = max_failures
         self.checkpoint_every_batches = max(1, checkpoint_every_batches)
+        self.on_ready = on_ready
 
         # 状态
         self.task_id:      str = ""
@@ -293,7 +297,9 @@ class IndexBuildManager:
                 try:
                     # append_bulk 内部走 backend.encode() → 走 _ST_MODELS 共享缓存
                     # (embedding_backends.get_st_model 单一入口,绝不 load 重复模型)
-                    with self.hybrid._lock:
+                    # B1+B2:用 _write_lock(写-写互斥),读(search)不阻塞;
+                    # vector.append_bulk 内部 encode 锁外,仅 faiss.add 锁内(微秒)
+                    with self.hybrid._write_lock:
                         self.hybrid.vector.append_bulk(batch)
                     with self._lock:
                         self.scanned += len(batch)
@@ -350,7 +356,9 @@ class IndexBuildManager:
                 self._save_state_locked()
 
     def _mark_ready_locked(self) -> None:
-        """vector 索引已就绪 → 落盘 + 标 ready。**在 _lock 内调**。"""
+        """vector 索引已就绪 → 落盘 + 标 ready。**在 _lock 内调**。
+        B3:state 变 ready 后,释放 _lock 再调 on_ready 回调(container 借此
+        flush pending_ops 队列)—— 避免在 _lock 内回调又间接持 _lock 死锁。"""
         with self._lock:
             self.state              = "ready"
             self.finished_at        = _now_iso()
@@ -362,3 +370,9 @@ class IndexBuildManager:
                 self.hybrid.vector.save(vec_path)
             except Exception as e:
                 logger.warning("manager 落盘 vector 失败(非致命,下次启动会重扫): %s", e)
+        # 释放 _lock 后再调 on_ready(防回调里 acquire 任何 manager 内的锁嵌套)
+        if self.on_ready is not None:
+            try:
+                self.on_ready()
+            except Exception as e:
+                logger.warning("on_ready 回调失败(非致命,pending 可能延后 flush): %s", e)

@@ -56,6 +56,10 @@ class HybridSearch:
         # 索引读写锁:摄入线程 append_ku(改 bm25/faiss)会撞 HTTP 线程的 search;
         # faiss 并发 add+search 是未定义行为(可能崩)。RLock 序列化改与读。
         self._lock  = threading.RLock()
+        # B2 写-写互斥锁:读(search/search_neighbors)持 _lock,写(append_ku/bulk/
+        # update/remove/build_index)持 _write_lock —— 读-写不互斥,IndexBuildManager
+        # 跑时 search 不再被堵。RLock 与 vector._write_lock 保持一致(允许嵌套)。
+        self._write_lock = threading.RLock()
 
     # ── 主接口 ───────────────────────────────────────────────
 
@@ -126,15 +130,27 @@ class HybridSearch:
             return
 
         logger.info("构建搜索索引，共 %d 条 KU", len(kus))
-        with self._lock:
+        with self._write_lock:
             self.bm25.build(kus)
             self.vector.build(kus)
 
     def append_ku(self, ku) -> None:
         """新 KU 写入后增量更新索引。"""
-        with self._lock:
+        with self._write_lock:
             self.bm25.append_ku(ku)
             self.vector.append_ku(ku)
+
+    def append_bulk(self, kus: list) -> None:
+        """批量追加(IndexBuildManager 冷构建期调)。
+        B1+B2:持 _write_lock(不持 _lock),与读(search)不互斥。
+        vector.append_bulk 内部 encode 锁外,仅 faiss.add 持 _write_lock(微秒)。
+        bm25 同步全量重建(append_bulk 是大操作,bm25 重建比单条 append 累积更稳)。"""
+        if not kus:
+            return
+        with self._write_lock:
+            self.vector.append_bulk(kus)
+            # bm25 重建(用 store 当前 active 状态)
+            self._rebuild_bm25_from_store()
 
     # ── 各路检索 ─────────────────────────────────────────────
 
@@ -275,14 +291,15 @@ class HybridSearch:
     def update_ku(self, ku) -> bool:
         """更新单条 KU 的向量。返回是否真发生编码(同 hash 跳过)。
         阶段 B:替代原先 append_ku 直接 add(会让 vector 含同 ku_id 多条 → 检索排序错乱)。
-        内部用 self._lock 序列化,避免与 HTTP search 互竞。"""
-        with self._lock:
+        B1+B2:持 _write_lock(不持 _lock),与读(search)不互斥。"""
+        with self._write_lock:
             return self.vector.update_ku(ku)
 
     def remove_ku(self, ku_id: str) -> bool:
         """从 vector 删一条,同步 bm25 词条。返回是否真删了。
-        bm25 重建比 vector 删除便宜(KU 全在内存词袋),用新 corpus 全量重建即可。"""
-        with self._lock:
+        bm25 重建比 vector 删除便宜(KU 全在内存词袋),用新 corpus 全量重建即可。
+        B1+B2:持 _write_lock(不持 _lock),与读(search)不互斥。"""
+        with self._write_lock:
             ok_v = self.vector.remove_ku(ku_id)
             if not ok_v:
                 return False

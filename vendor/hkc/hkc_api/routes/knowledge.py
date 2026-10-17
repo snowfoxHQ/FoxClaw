@@ -10,8 +10,11 @@ from ..schemas import (
     GraphResponse, CrystallizeRequest,
 )
 from hkc_kde.kde import DuplicateDocumentError
+import logging
 import os
 import tempfile
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -256,21 +259,90 @@ def get_ingest_job(job_id: str, c: HKCContainer = Depends(get_container)):
 
 @router.post("/reset")
 def reset_knowledge(c: HKCContainer = Depends(get_container)):
-    """清空整个知识库(所有 KU / 关系 / 冲突卡),用于"清库重来"。**不可逆**。"""
+    """清空整个知识库 + vector/bm25 索引 + 冷构建状态,用于"清库重来"。**不可逆**。
+
+    完整清理(之前版本只清 graph_store + 调 build_index(),库空时 build_index
+    直接 return 不动 vector —— 残留 14181 条死引用 + 旧 v1 manifest 触发冷构建):
+      1. IndexBuildManager 后台线程(cancel + join 3s,避开 hybrid._write_lock 抢锁)
+      2. graph_store (SQLite) + KEE dedup/conflict 索引
+      3. in-memory vector + bm25(在 hybrid._write_lock 内,vector._reset + bm25 重建)
+      4. IndexBuildManager 内存状态 → state=idle
+      5. 磁盘文件: search_vector.faiss/.meta + index_build_state.json
+
+    不需要重启服务:reset 后 IndexBuildManager.state=idle,vector_size=0,
+    下次 _sync_ku 走 _do_sync_ku 同步路径(append_ku),不会触发冷构建,不会搜到死引用。
+    """
+    # 1. 取消 IndexBuildManager 后台线程(避免与 hybrid._write_lock 抢锁 —
+    #    build 线程在 batch 边界持锁几秒,3s 兜底超时不让用户久等)
+    if c.index_build_manager is not None:
+        try:
+            c.index_build_manager.cancel()
+            if not c.index_build_manager.join(timeout=3.0):
+                logger.warning("IndexBuildManager 3s 内未退出,reset 强行继续")
+        except Exception as e:
+            logger.warning("cancel/join IndexBuildManager 失败: %s", e)
+
+    # 2. graph_store + KEE dedup/conflict 索引
     n = c.graph_store.clear()
     try:
-        c.kee.dedup.rebuild_index()   # 重置去重指纹索引,否则残留旧指纹影响后续摄入
+        c.kee.dedup.rebuild_index()   # 重置去重指纹索引
     except Exception:
         pass
     try:
-        c.kee.reset_conflict_index()  # 失效 open 冲突对索引,否则残留旧对影响后续建卡
+        c.kee.reset_conflict_index()  # 失效 open 冲突对索引
     except Exception:
         pass
+
+    # 3. 清 in-memory vector + bm25(持 hybrid._write_lock,排他)
+    #    vector._reset() 自身不持锁(vector_search.py:355),调用方负责持锁
     try:
-        c.search.build_index()        # 重建(空)搜索索引
-    except Exception:
-        pass
-    return {"cleared_kus": n, "status": "ok"}
+        with c.search._write_lock:
+            c.search.vector._reset()              # 清 _index + 4 个 list
+            c.search._rebuild_bm25_from_store()   # 库空 → 自动清 5 字段 + _bm25=None
+    except Exception as e:
+        logger.warning("清 vector/bm25 失败(非致命,后续写时会重建): %s", e)
+
+    # 4. 删 vector 磁盘文件 + IndexBuildManager state.json
+    vec_path = str(c.data_dir / "search_vector")
+    for ext in (".faiss", ".meta"):
+        p = vec_path + ext
+        if os.path.exists(p):
+            try:
+                os.unlink(p)
+            except Exception as e:
+                logger.warning("删 %s 失败(非致命): %s", p, e)
+
+    if c.index_build_manager is not None:
+        sp = getattr(c.index_build_manager, "state_path", None)
+        if sp and os.path.exists(sp):
+            try:
+                os.unlink(sp)
+            except Exception as e:
+                logger.warning("删 state.json 失败(非致命): %s", e)
+
+    # 5. 重置 IndexBuildManager 内存状态(让 stats() 立刻显示干净,不等磁盘 reload)
+    if c.index_build_manager is not None:
+        mgr = c.index_build_manager
+        with mgr._lock:
+            mgr.state              = "idle"
+            mgr.task_id            = ""
+            mgr.index_version      = ""
+            mgr.source_total       = 0
+            mgr.scanned            = 0
+            mgr.ready              = 0
+            mgr.failed             = 0
+            mgr.failures           = []
+            mgr.error_summary      = ""
+            mgr.started_at         = None
+            mgr.finished_at        = None
+            mgr.last_checkpoint_at = None
+
+    return {
+        "cleared_kus":  n,
+        "status":       "ok",
+        "vector_size":  c.search.vector.size(),
+        "index_state":  c.index_build_manager.state if c.index_build_manager else "n/a",
+    }
 
 
 def _delete_source_cascade(c: HKCContainer, source: str) -> dict:

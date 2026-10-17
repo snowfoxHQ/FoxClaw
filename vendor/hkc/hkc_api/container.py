@@ -16,6 +16,8 @@ hkc-api / container.py
 # TODO: Replace with proper package install before v1 release
 
 import logging
+import threading
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +61,11 @@ class HKCContainer:
         self.synthesis   = None      # 综合页 LLM 综述(派生只读视图,不进知识库)
         self.crystallizer = None     # Crystallizer 摄入适配器(集成层入口:外部推知识候选)
         self.index_build_manager = None  # 阶段 C:后台冷构建管理器(无磁盘索引时跑)
+
+        # B3:IndexBuildManager 跑时(building)_sync_ku 入队,跑完(ready)flush。
+        # maxlen 防 OOM(超出从头丢,降级而非阻断,摄入仍走同步路径)
+        self._pending_ops: deque = deque(maxlen=10000)
+        self._pending_lock = threading.Lock()
 
         self._assembled = False
 
@@ -134,6 +141,7 @@ class HKCContainer:
             batch_size=int(_os.environ.get("HKC_BUILD_BATCH_SIZE", "64")),
             max_failures=int(_os.environ.get("HKC_BUILD_MAX_FAILURES", "100")),
             checkpoint_every_batches=int(_os.environ.get("HKC_BUILD_CHECKPOINT_BATCHES", "5")),
+            on_ready=lambda: self.flush_pending_ops(),  # B3:ready 时 flush pending 队列
         )
         self.index_build_manager.start()
 
@@ -231,8 +239,32 @@ class HKCContainer:
                                  lambda e: _on_ku_event("DELETED", e))
 
     def _sync_ku(self, ku_id: str) -> None:
-        """五分支同步单条 KU 到 vector(见 _wire_search_index_updates 注释)。
+        """B3 入口:IndexBuildManager building 时入队(微秒返回,不持任何锁);
+        其他状态走 _do_sync_ku(原五分支逻辑)。
         单一 KU 失败不抛,只 log warning —— 摄入任务里 50 条 KU 失败 1 条不应拖累其余。
+
+        B3 设计要点(2026-10-16 修正):
+          - **不**在 _sync_ku 入口同步 flush(早期版本有 bug:每次入队都
+            同步调 flush_pending_ops(),IndexBuildManager 跑时持 hybrid._write_lock
+            3-5s/batch(内含 encode),user 上传线程 acquire 同一锁等 3-5s
+            → 整个 ingest pipeline 卡死 30-50s)。
+          - 依赖 on_ready 回调集中 flush(IndexBuildManager._mark_ready_locked
+            触发,state=ready 时 hybrid._write_lock 不再被持,flush 立即完成)。
+          - 兜底:on_ready 漏掉的极端情况,user 后续上传走 _do_sync_ku
+            同步路径(state 已变 ready,走 else 分支)。
+        """
+        # B3:building 期间走队列,绕开 _sync_ku 内部的 graph_store.get + hybrid.* 锁
+        if (self.index_build_manager is not None
+                and self.index_build_manager.state == "building"):
+            with self._pending_lock:
+                self._pending_ops.append(("sync", ku_id))
+            # 不在入口同步 flush —— 由 on_ready 回调集中处理
+            return
+        self._do_sync_ku(ku_id)
+
+    def _do_sync_ku(self, ku_id: str) -> None:
+        """五分支同步单条 KU 到 vector(原 _sync_ku 逻辑,B3 入口和 flush 共用)。
+        单一 KU 失败不抛,只 log warning。
         """
         try:
             ku = self.graph_store.get(ku_id)
@@ -277,6 +309,32 @@ class HKCContainer:
             except Exception as e:
                 logger.warning("vector.update_ku(%s) 失败: %s", ku_id, e)
 
+    def flush_pending_ops(self) -> int:
+        """B3:flush 队列里 _sync_ku 攒下的待处理 op。
+        - atomic swap:持 pending_lock 取队列副本 + 清空(几微秒)
+        - 释放 lock 后批量执行(slow 操作在锁外,调 _do_sync_ku 走原五分支)
+        - 返回 flush 数量(供 on_ready 回调 / 调试)
+        设计:IndexBuildManager ready 时调一次;每次 _sync_ku 入队也自检
+        flush(避免 ready 事件错过)。风险:deque maxlen=10000 超出从头丢;
+        但 _sync_ku 入队时自检 state,ready 后立即 flush,正常不积压。"""
+        with self._pending_lock:
+            if not self._pending_ops:
+                return 0
+            pending = list(self._pending_ops)
+            self._pending_ops.clear()
+        flushed = 0
+        for op in pending:
+            try:
+                op_type, ku_id = op[0], op[1]
+                if op_type == "sync":
+                    # 调 _do_sync_ku(跳过 B3 检测,强制同步执行,避免再次入队死循环)
+                    self._do_sync_ku(ku_id)
+                flushed += 1
+            except Exception as e:
+                logger.warning("flush_pending_ops 失败[%s/%s]: %s",
+                               op[0], op[1], e)
+        return flushed
+
     def stats(self) -> dict:
         """返回系统整体统计。"""
         if not self._assembled:
@@ -293,6 +351,9 @@ class HKCContainer:
         else:
             s["index_build"] = {"index_state": "idle"}
         s["abilities"]      = self.ace.list_available()
+        # B3 监控:IndexBuildManager building 期间 _sync_ku 入队的 KU 数
+        # (= 待 flush 积压)。ready 后被 on_ready 回调一次性清零
+        s["pending_ops"]    = len(self._pending_ops)
         return s
 
     def close(self):
