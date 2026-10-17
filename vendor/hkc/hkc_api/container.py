@@ -150,7 +150,7 @@ class HKCContainer:
 
         # 8. 异步摄入任务注册表(后台线程池执行文件摄入)
         from hkc_api.ingest_jobs import IngestJobRegistry
-        self.ingest_jobs = IngestJobRegistry(max_workers=2)
+        self.ingest_jobs = IngestJobRegistry(max_workers=4)
 
         # 9. 综合页 LLM 综述服务(派生只读视图;缓存独立 synthesis.db,不进知识库,守 Principle 07)
         from hkc_api.synthesis import SynthesisService

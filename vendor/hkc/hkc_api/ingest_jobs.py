@@ -33,7 +33,7 @@ class IngestJob:
 class IngestJobRegistry:
     """维护 job_id → IngestJob,并用线程池在后台执行摄入。"""
 
-    def __init__(self, max_workers: int = 2, max_jobs: int = 200):
+    def __init__(self, max_workers: int = 4, max_jobs: int = 200):
         self._jobs: dict[str, IngestJob] = {}
         self._lock = threading.RLock()
         self._max_jobs = max_jobs        # 内存里最多保留多少条 job 记录

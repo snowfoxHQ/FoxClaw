@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Optional
 
 from .chunker import Chunk
@@ -173,13 +174,14 @@ class Extractor:
         total = len(chunks)
 
         # 并发抽取:每段一次 LLM 调用是 I/O 密集,串行 500 段要 40+ 分钟。用有限并发
-        # (默认 5,可经 HKC_EXTRACT_CONCURRENCY 调)把整本书从几十分钟压到几分钟。
-        # 并发度要温和,避免触发各 provider 的限流(429);进度回调在主线程串行调,无竞态。
+        # (默认 4,可经 HKC_EXTRACT_CONCURRENCY 调)把整本书从几十分钟压到几分钟。
+        # 并发度要温和,避免触发各 provider 的限流(429);429 已有 _retry_llm 兜底
+        # (指数退避 + Retry-After header),并发可适度放松但仍建议 4-8 区间。
         import os
         try:
-            workers = max(1, int(os.getenv("HKC_EXTRACT_CONCURRENCY", "5")))
+            workers = max(1, int(os.getenv("HKC_EXTRACT_CONCURRENCY", "4")))
         except ValueError:
-            workers = 5
+            workers = 4
         try:
             llm_timeout = float(os.getenv("HKC_LLM_TIMEOUT", "60"))
         except ValueError:
@@ -234,6 +236,56 @@ class Extractor:
 
         return ExtractionResult(doc_id=doc_id, source=source, items=items)
 
+    def _retry_llm(self, func, *args, max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 8.0, **kwargs):
+        """
+        通用 LLM retry 包装:处理 429 RateLimit / 5xx / Timeout,指数退避 + Retry-After。
+
+        用法:
+            resp = self._retry_llm(
+                client.messages.create,
+                model=..., max_tokens=..., timeout=..., system=..., messages=[...],
+            )
+
+        可重试的异常:
+            - status_code == 429 (限流,anthropic/openai SDK 都会设置)
+            - 500 <= status_code < 600 (服务端错误)
+            - ConnectionError / TimeoutError (网络层)
+
+        退避策略:
+            - 优先读取异常 headers['Retry-After'] (秒),作为本次等待时间
+            - 否则用 base_delay,每次 * 2 直到 max_delay
+            - 最多 max_retries+1 次尝试 (默认 4 次 = 1 + 3 retry)
+        """
+        delay = base_delay
+        for attempt in range(max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                status = getattr(e, 'status_code', None)
+                if status is None:
+                    status = getattr(e, 'status', None)
+                is_429 = (status == 429) or 'RateLimit' in type(e).__name__
+                is_5xx = isinstance(status, int) and 500 <= status < 600
+                is_conn = isinstance(e, (ConnectionError, TimeoutError)) or 'Timeout' in type(e).__name__
+                retryable = is_429 or is_5xx or is_conn
+                if not retryable or attempt == max_retries:
+                    raise
+                # 取 Retry-After header
+                wait = delay
+                headers = getattr(e, 'headers', None)
+                if headers and 'Retry-After' in headers:
+                    try:
+                        wait = float(headers['Retry-After'])
+                    except (TypeError, ValueError):
+                        pass
+                wait = min(wait, max_delay)
+                logger.warning(
+                    "LLM %s (status=%s, attempt %d/%d) retry after %.1fs: %s",
+                    type(e).__name__, status, attempt + 1, max_retries, wait, e,
+                )
+                time.sleep(wait)
+                delay = min(delay * 2, max_delay)
+
     def complete(self, system: str, user: str, max_tokens: int = 1500, timeout: float = 60.0) -> str:
         """
         通用单轮补全（非抽取）：给定 system+user，返回模型文本。
@@ -242,13 +294,15 @@ class Extractor:
         """
         client = self._get_client()
         if self.provider == "anthropic":
-            resp = client.messages.create(
+            resp = self._retry_llm(
+                client.messages.create,
                 model=self.model, max_tokens=max_tokens, timeout=timeout,
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
             return resp.content[0].text.strip()
-        resp = client.chat.completions.create(
+        resp = self._retry_llm(
+            client.chat.completions.create,
             model=self.model, max_tokens=max_tokens, timeout=timeout,
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": user}],
@@ -263,7 +317,8 @@ class Extractor:
         try:
             client = self._get_client()
             if self.provider == "anthropic":
-                resp = client.messages.create(
+                resp = self._retry_llm(
+                    client.messages.create,
                     model      = self.model,
                     max_tokens = 2048,
                     timeout    = timeout,
@@ -273,7 +328,8 @@ class Extractor:
                 raw_text = resp.content[0].text.strip()
             else:
                 # OpenAI 兼容格式(DeepSeek / OpenAI):system 作为一条 message
-                resp = client.chat.completions.create(
+                resp = self._retry_llm(
+                    client.chat.completions.create,
                     model       = self.model,
                     max_tokens  = 2048,
                     timeout     = timeout,
@@ -361,7 +417,8 @@ class Extractor:
         try:
             client = self._get_client()
             if self.provider == "anthropic":
-                resp = client.messages.create(
+                resp = self._retry_llm(
+                    client.messages.create,
                     model      = self.model,
                     max_tokens = max_tokens,
                     timeout    = timeout,
@@ -370,7 +427,8 @@ class Extractor:
                 )
                 raw_text = resp.content[0].text.strip()
             else:
-                resp = client.chat.completions.create(
+                resp = self._retry_llm(
+                    client.chat.completions.create,
                     model       = self.model,
                     max_tokens  = max_tokens,
                     timeout     = timeout,
