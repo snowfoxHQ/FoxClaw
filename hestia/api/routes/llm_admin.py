@@ -13,7 +13,7 @@ import json
 import time
 import base64
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
 from fastapi import HTTPException
 from pydantic import BaseModel
