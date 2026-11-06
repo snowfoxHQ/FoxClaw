@@ -4,8 +4,13 @@
 import os, sys, types, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import pytest
 
 def test_multimodal():
+    # ISOLATION_GUARD:本用例依赖 import 时固化的模块级单例(网关/限流器/路由配置按 env 在 import 时定型),单进程全量跑会被前序用例污染 →
+    # 假红。全量请用 tests/run_all.py(每文件独立子进程)。
+    if "snowfoxclaw.core.model_router" in sys.modules:
+        pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
     for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
         os.environ.pop(k, None)
     os.environ["HKC_EMBEDDING"] = "stub"

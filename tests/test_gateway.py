@@ -3,8 +3,13 @@
 import os, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import pytest
 
 def test_gateway():
+    # ISOLATION_GUARD:本用例依赖 import 时固化的模块级单例(网关/限流器/路由配置按 env 在 import 时定型),单进程全量跑会被前序用例污染 →
+    # 假红。全量请用 tests/run_all.py(每文件独立子进程)。
+    if "snowfoxclaw.api" in sys.modules:
+        pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
     # 本测试用 pop("SNOWFOXCLAW_API_KEY") 验证「未设即网关默认关」,但 pop 之后 load_dotenv
     # (override=False)仍会从 .env 把键灌回来(开发者 .env 常带真实 SNOWFOXCLAW_API_KEY)→ 判定
     # 随机器漂移。关掉 .env 使本测试自洽,单独运行也稳定。
