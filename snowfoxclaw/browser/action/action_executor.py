@@ -21,8 +21,12 @@ class ActionExecutor:
         return handler(action)
 
     def _do_navigate(self, action: WebAction):
-        self.driver.navigate(action.target)
-        return {"navigated_to": action.target}
+        # URL 准入:此前直接把模型给的字符串交给 driver → file:// 读本机文件、
+        # javascript: 执行脚本、内网/云元数据 SSRF。ValueError 由 service.act 转成错误返回。
+        from .url_policy import validate_navigate_url
+        target = validate_navigate_url(action.target)
+        self.driver.navigate(target)
+        return {"navigated_to": target}
 
     def _do_click(self, action: WebAction):
         handle = self.indexer.resolve(action.target)

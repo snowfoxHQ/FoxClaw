@@ -123,13 +123,17 @@ python_files = [
     "test_anthropic_tools.py",
     "test_api.py",
     "test_api_auth.py",
+    "test_api_host_guard.py",
     "test_attachments.py",
     "test_audit_sink.py",
     "test_browser.py",
     "test_capabilities.py",
+    "test_channel_trust.py",
     "test_channels.py",
+    "test_cli.py",
     "test_compaction_toolpair.py",
     "test_config_layering.py",
+    "test_context_compaction_wiring.py",
     "test_dispatch.py",
     "test_domain_evals.py",
     "test_domain_import.py",
@@ -147,9 +151,6 @@ python_files = [
     "test_governance_audit.py",
     "test_governance_middleware.py",
     "test_hkc.py",
-    # 以下 3 个此前漏出白名单:它们仍会被 run_all.py 显式指定执行(不受 python_files 限制),
-    # 所以 regression 会跑到;但 toolchain 的 `pytest --collect-only` 收集不到 → 缺依赖
-    # 这类 import 级错误无法在 collect 阶段提前暴露(2026-10-17 缺 faiss 即由此漏检)。
     "test_hkc_index_build_manager.py",
     "test_hkc_manifest_reuse.py",
     "test_hkc_search_event_sync.py",
@@ -200,6 +201,8 @@ python_files = [
     "test_tracing.py",
     "test_truth_crystallizer.py",
     "test_truth_flow.py",
+    "test_url_policy.py",
+    "test_version_sync.py",
     "test_web_trigger.py",
 ]
 addopts = "-q"

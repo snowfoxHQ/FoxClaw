@@ -62,6 +62,50 @@ def _loopback_bypass_on() -> bool:
     return True  # 默认开
 
 
+def _host_header_allowed(host_header: str) -> bool:
+    """【P3-rebind】Host 头校验,防 DNS rebinding。
+
+    攻击模型(本机默认部署即中招):用户在本机跑 `foxclaw serve`(回环监听、无 key),
+    随后浏览器打开 evil.com;evil.com 的 DNS 解析到 127.0.0.1,于是页面内的
+    `fetch("http://evil.com:8000/api/...")` 实际打到本机 API,且与页面同源 →
+    恶意页可读写本地数据面(会话历史、记忆、触发执行链)。
+
+    本函数卡住的是「Host 头是公网域名」这一环:浏览器发请求时 Host 必须与被访问
+    域名一致,所以改解析也绕不过。规则:
+      - 无点主机名(localhost / testserver / 机器名)→ 放行;
+      - IP 字面量:回环与私网放行(家庭/公司局域网用法不受影响);
+      - 带点公网域名 → 默认拒绝,可用 SNOWFOXCLAW_ALLOWED_HOSTS 显式放行
+        (逗号分隔,支持 `*.example.com`)。
+    """
+    raw = (host_header or "").strip().lower()
+    if not raw:
+        return True                     # 无 Host(HTTP/1.0 或测试直连)→ 不在此拦
+    if raw.startswith("["):             # [::1]:8000
+        hostname = raw.split("]")[0].lstrip("[")
+    else:
+        hostname = raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
+    hostname = hostname.rstrip(".")
+    if not hostname:
+        return True
+
+    import ipaddress
+    try:                                # IP 字面量:只放行回环/私网
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        return ip.is_loopback or ip.is_private
+
+    allowed = [h.strip().lower() for h in
+               os.environ.get("SNOWFOXCLAW_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    for pat in allowed:
+        if pat.startswith("*.") and hostname.endswith(pat[1:]):
+            return True
+        if hostname == pat:
+            return True
+    return "." not in hostname            # 单标签主机名(localhost/testserver/机器名)放行
+
+
 def _is_guarded_path(path: str) -> bool:
     """【P3-8】需要鉴权/限流/追踪的数据面路径:/api/*、/knowledge/*、/config/*。
 
@@ -85,8 +129,18 @@ async def _api_key_guard(request, call_next):
     【P3-loopback】本机客户端(127.0.0.1 / ::1)自动免密:仅对非 loopback 客户端
     校验 X-API-Key。详见 _loopback_bypass_on。"""
     api_key = os.environ.get("SNOWFOXCLAW_API_KEY", "").strip()
+    path = request.url.path
+    # 【P3-rebind】与是否配 key 无关:本机开发(无 key、回环监听)才是 DNS rebinding
+    # 的典型受害场景,所以这层放在 api_key 分支之外,默认部署也生效。
+    if _is_guarded_path(path):
+        _client = request.client.host if request.client else ""
+        if _is_loopback_client(_client) and not _host_header_allowed(
+                request.headers.get("host", "")):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                {"error": "forbidden: Host 头不是本机地址(已启用 DNS rebinding 防护)。"
+                          "自建域名请加入 SNOWFOXCLAW_ALLOWED_HOSTS。"}, status_code=403)
     if api_key:
-        path = request.url.path
         # /knowledge/* 是 HKC 星球的数据面(graph/ingest/reset),必须同 /api 一起鉴权,
         # 否则 ingest/reset/graph 对公众开放(泄密+可乱写)。/ws 由端点内部鉴权。
         if _is_guarded_path(path):

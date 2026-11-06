@@ -350,7 +350,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 tmsgs = self._pref_augment(tmsgs)
             except Exception:
                 tmsgs = messages
-            tmsgs = self._compact_context(tmsgs, "tools")
+            _compact = getattr(self, "_compact_context", None)   # 轻量替身对象无此方法
+            if _compact is not None:
+                tmsgs = _compact(tmsgs, "tools")
             try:
                 final = self._reply_with_tools(task, tmsgs, stop_event=stop_event)
             except Exception:
@@ -373,7 +375,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 messages = self._pref_augment(messages)
             except Exception:
                 messages = hist + [{"role": "user", "content": task}]
-            messages = self._compact_context(messages, "chat")
+            _compact = getattr(self, "_compact_context", None)   # 轻量替身对象无此方法
+            if _compact is not None:
+                messages = _compact(messages, "chat")
             _tail = ""   # 滑窗尾缓冲:跨 chunk 边界的泄露检测只扫最近 _WIN 字,不再整段重扫(消 O(n²))
             _WIN = 256   # 覆盖最长敏感串(密钥)跨 chunk 边界的情况
             for chunk in self.router.stream(self.system_prompt, messages,
