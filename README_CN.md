@@ -1,4 +1,4 @@
-cd# Snowfoxclaw · 认知智能体操作系统
+# Snowfoxclaw · 认知智能体操作系统
 
 **认知 Agent 操作系统** —— 以 HMR 记忆运行时为内核,五个智能体协同,Harness 跨层治理,记忆/认知层与 LLM 彻底解耦。
 
