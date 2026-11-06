@@ -44,6 +44,11 @@ dependencies = [
     "rich>=13.7.0",
 ]
 
+[project.scripts]
+# 命令名保持 foxclaw(与 PyPI 上 snowfoxclaw 0.1.0 占位包发布的入口一致):
+# `pip install -e .` 之后可直接 `foxclaw serve`。
+foxclaw = "snowfoxclaw.cli:main"
+
 [tool.setuptools.packages.find]
 # 只把主包 snowfoxclaw 纳入安装;vendor/、tests/、frontend/ 等以仓库相对路径使用,不入包。
 include = ["snowfoxclaw*"]
