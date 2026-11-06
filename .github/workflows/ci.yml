@@ -4,6 +4,14 @@ on:
   push:
     branches: [ main, master ]
   pull_request:
+  workflow_dispatch:
+
+# 合并自占位包仓库的 ci.yml：只取权限最小化与手动触发两项，
+# 其余（3.10/3.13/3.14 矩阵、ruff format 硬门）未并入——
+# 本项目 requires-python>=3.11，且存量 240 个文件未过 ruff format，
+# 直接加会当场红。格式门待单独一轮 format 后再开。
+permissions:
+  contents: read
 
 jobs:
   toolchain:
