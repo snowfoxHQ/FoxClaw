@@ -21,14 +21,14 @@ def show(title, data, limit=None):
 
 
 def test_api():
-    # 环境变量须在 import hestia.api 前设好(模块加载时按环境变量建网关/agent)
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_test_")  # 不污染仓库根
-    from hestia.api import app
+    # 环境变量须在 import snowfoxclaw.api 前设好(模块加载时按环境变量建网关/agent)
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_test_")  # 不污染仓库根
+    from snowfoxclaw.api import app
 
     with TestClient(app) as c:
         print("="*64)
-        print("HESTIA OS · API 端到端验证 (ASGI TestClient)")
+        print("SNOWFOXCLAW · API 端到端验证 (ASGI TestClient)")
         print("="*64)
 
         # 1. 系统状态

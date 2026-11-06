@@ -5,17 +5,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_tracing():
-    # 关掉 .env:否则开发者 .env 的 HESTIA_MCP_SERVER=1 会在 import api 时构建 MCP 服务器,
+    # 关掉 .env:否则开发者 .env 的 SNOWFOXCLAW_MCP_SERVER=1 会在 import api 时构建 MCP 服务器,
     # 而本测试有**两处** `with TestClient(app)`(82/189 行),第二次进 lifespan 会撞
     # StreamableHTTPSessionManager「.run() can only be called once per instance」而失败。
-    os.environ["HESTIA_SKIP_DOTENV"] = "1"
+    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_trace_")
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_trace_")
     for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
         os.environ.pop(k, None)
 
-    from hestia.core.tracing import (Trace, TraceStore, start_trace, current_trace,
+    from snowfoxclaw.core.tracing import (Trace, TraceStore, start_trace, current_trace,
                                      clear_trace, span, MAX_SPANS_PER_TRACE)
 
     print("=" * 60); print("请求链路追踪验证"); print("=" * 60)
@@ -83,7 +83,7 @@ def test_tracing():
 
     # ── 端到端:经 API 请求产生 trace ─────────────────────────
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
 
     with TestClient(app) as c:
         # [7] 数据面请求 → 带 X-Trace-Id + 可查详情;链路里能看到 LLM span
@@ -126,7 +126,7 @@ def test_tracing():
     # ── 持久化 + 采样(内存环重启即失;慢的/出错的必须留得住)──────────
     import time as _t
     store = TraceStore(limit=2)
-    store.attach_db(Path(os.environ["HESTIA_DATA_DIR"]) / "t.db")
+    store.attach_db(Path(os.environ["SNOWFOXCLAW_DATA_DIR"]) / "t.db")
 
     def _mk(name, ms, err=False):
         tr = Trace(name); tr.add_span({"name": "s", "ok": not err, "ms": ms})
@@ -134,7 +134,7 @@ def test_tracing():
         return tr
 
     # [10] 采样:慢的必存、出错的必存、正常的(采样率 0)不存
-    os.environ["HESTIA_TRACE_SLOW_MS"] = "500"; os.environ["HESTIA_TRACE_SAMPLE"] = "0"
+    os.environ["SNOWFOXCLAW_TRACE_SLOW_MS"] = "500"; os.environ["SNOWFOXCLAW_TRACE_SAMPLE"] = "0"
     slow = _mk("GET /slow", 900); fast = _mk("GET /fast", 5); bad = _mk("GET /err", 5, err=True)
     for t in (slow, fast, bad):
         store.put(t)
@@ -159,11 +159,11 @@ def test_tracing():
     print("[12] 历史查询过滤(slow_ms / errors_only)OK")
 
     # [13] 保留上限:超出删最旧(磁盘有界)
-    os.environ["HESTIA_TRACE_RETAIN"] = "100"; os.environ["HESTIA_TRACE_SAMPLE"] = "1"
+    os.environ["SNOWFOXCLAW_TRACE_RETAIN"] = "100"; os.environ["SNOWFOXCLAW_TRACE_SAMPLE"] = "1"
     for i in range(140):
         store.put(_mk(f"GET /bulk{i}", 1))
     assert len(store.query(limit=999)) <= 100, "落库未按保留上限修剪"
-    os.environ["HESTIA_TRACE_SAMPLE"] = "0"
+    os.environ["SNOWFOXCLAW_TRACE_SAMPLE"] = "0"
     print("[13] 落库保留上限(超出删最旧,磁盘有界)OK")
 
     # [14] 库不可用 → 优雅降级为仅内存(不能因为落库失败就把请求搞挂)
@@ -173,8 +173,8 @@ def test_tracing():
     assert s2.query(limit=9) == [] and len(s2.list(limit=9)) == 1
     print("[14] 库不可用 → 降级仅内存,不影响请求 OK")
 
-    # ── W3C Trace Context:零依赖跨进程传播(HestiaOS 唯一的跨进程边界=MCP 双向)──
-    from hestia.core.tracing import parse_traceparent, to_traceparent, current_traceparent
+    # ── W3C Trace Context:零依赖跨进程传播(Snowfoxclaw 唯一的跨进程边界=MCP 双向)──
+    from snowfoxclaw.core.tracing import parse_traceparent, to_traceparent, current_traceparent
 
     # [15] traceparent 解析:合法接受,非法/全零一律拒(不信外部输入)
     good = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
@@ -211,10 +211,10 @@ def test_tracing():
     print("[18] 出站 current_traceparent(trace 内可用/trace 外 None)OK")
 
     # ── OTLP/HTTP-JSON 导出(可选、零依赖、绝不阻塞请求)───────────────
-    from hestia.core.tracing import OTLP, _trace_to_otlp
+    from snowfoxclaw.core.tracing import OTLP, _trace_to_otlp
 
     # [19] 默认关:未配 endpoint → 完全不启用(零成本)
-    os.environ.pop("HESTIA_OTLP_ENDPOINT", None)
+    os.environ.pop("SNOWFOXCLAW_OTLP_ENDPOINT", None)
     assert OTLP.stats()["enabled"] is False
     OTLP.submit(_mk("GET /x", 5))                # 未配 endpoint → no-op,不该起线程/不该报错
     print("[19] 未配 endpoint → OTLP 完全不启用(零成本)OK")
@@ -240,7 +240,7 @@ def test_tracing():
     ok = [k for k in kids if k["name"] == "child.ok"][0]
     assert ok["status"]["code"] == 1
     svc = o["resourceSpans"][0]["resource"]["attributes"][0]
-    assert svc["key"] == "service.name" and svc["value"]["stringValue"] == "hestia-os"
+    assert svc["key"] == "service.name" and svc["value"]["stringValue"] == "snowfoxclaw"
     print(f"[20] OTLP/JSON 结构(根+{len(kids)} 子 span·parentSpanId·32hex traceId·状态码)OK")
 
     # [21] 端到端:起一个本地 collector,确认真的 POST /v1/traces 且 body 可解析
@@ -255,7 +255,7 @@ def test_tracing():
     srv = socketserver.TCPServer(("127.0.0.1", 0), _H)
     port = srv.server_address[1]
     _th2.Thread(target=srv.serve_forever, daemon=True).start()
-    os.environ["HESTIA_OTLP_ENDPOINT"] = f"http://127.0.0.1:{port}"
+    os.environ["SNOWFOXCLAW_OTLP_ENDPOINT"] = f"http://127.0.0.1:{port}"
     t21 = _mk("GET /exported", 12)
     OTLP.submit(t21)
     for _ in range(50):                          # 后台线程异步发,等它落地
@@ -270,8 +270,8 @@ def test_tracing():
     print("[21] 端到端导出(本地 collector 收到 POST /v1/traces,traceId 对得上)OK")
 
     # [22] 队列满 → 丢弃计数增长,submit 不阻塞(遥测绝不能拖慢请求)
-    os.environ["HESTIA_OTLP_ENDPOINT"] = "http://127.0.0.1:1"    # 打不通 → worker 卡住,队列会满
-    from hestia.core.tracing import _OtlpExporter
+    os.environ["SNOWFOXCLAW_OTLP_ENDPOINT"] = "http://127.0.0.1:1"    # 打不通 → worker 卡住,队列会满
+    from snowfoxclaw.core.tracing import _OtlpExporter
     ex = _OtlpExporter(maxsize=2)
     before = ex.dropped
     t0_ = _t.perf_counter()
@@ -280,7 +280,7 @@ def test_tracing():
     elapsed = (_t.perf_counter() - t0_) * 1000
     assert ex.dropped > before, "队列满时应丢弃而非阻塞"
     assert elapsed < 2000, f"submit 不该阻塞调用方(耗时 {elapsed:.0f}ms)"
-    os.environ.pop("HESTIA_OTLP_ENDPOINT", None)
+    os.environ.pop("SNOWFOXCLAW_OTLP_ENDPOINT", None)
     print(f"[22] 队列满→丢弃 {ex.dropped} 条且不阻塞(50 次 submit 仅 {elapsed:.0f}ms)OK")
 
     print("\n请求链路追踪验证全部通过")

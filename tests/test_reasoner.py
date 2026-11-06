@@ -11,10 +11,10 @@ import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
+from snowfoxclaw.cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
 
 
 def test_reasoner_base_order():
@@ -34,7 +34,7 @@ def test_reasoner_base_order():
 
 
 def _policy():
-    from hestia.finance import FinanceRuntime
+    from snowfoxclaw.finance import FinanceRuntime
     p = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml")).policy
     # 显式锁定本测试的前提阈值(200,模糊带 [140,200)),**不依赖产品默认值** ——
     # 默认阈值是给用户按自己实际调的可调项,不该让调它就牵动这些验证推理逻辑的测试。
@@ -47,8 +47,8 @@ def _policy():
 
 def test_finance_gatekeeper_reasoner():
     print("\n【2】财务守门人认知化:裁决逐字一致 + 证据链 + 假设")
-    from hestia.finance.reasoner import FinanceGatekeeperReasoner
-    from hestia.finance.models import Transaction
+    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
+    from snowfoxclaw.finance.models import Transaction
     r = FinanceGatekeeperReasoner(_policy())
     # 小额(规则内)→ approve
     rv = r.reason((Transaction(amount=-150, category="travel", entity="高铁", account="default"), 5000))
@@ -63,9 +63,9 @@ def test_finance_gatekeeper_reasoner():
 
 def test_context_evidence_no_decision_change():
     print("\n【2b】Step2:情境证据(历史/预算/频率)丰满证据链,但**决策不变**")
-    from hestia.finance import FinanceRuntime
-    from hestia.finance.reasoner import FinanceGatekeeperReasoner
-    from hestia.finance.models import Transaction
+    from snowfoxclaw.finance import FinanceRuntime
+    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
+    from snowfoxclaw.finance.models import Transaction
     rt = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"))
     rt.set_budget("travel", 3000); rt.set_balance("default", 5000)
     for _ in range(3):   # 3 笔历史同类交易(同对手方)
@@ -98,8 +98,8 @@ class _MockLLM:
 
 def test_llm_arbitration_safety():
     print("\n【2c】Step3:LLM 裁决的安全不变量(只增强模糊、只能 approve→confirm、永不 reject)")
-    from hestia.finance.reasoner import FinanceGatekeeperReasoner
-    from hestia.finance.models import Transaction
+    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
+    from snowfoxclaw.finance.models import Transaction
     policy = _policy()   # large_purchase_check 阈值 200;模糊带 [140,200)
     def txn(amt): return Transaction(amount=-amt, category="travel", entity="高铁", account="default")
     def mk(llm, enabled=True): return FinanceGatekeeperReasoner(policy, llm=llm, llm_enabled=enabled)
@@ -146,9 +146,9 @@ def test_real_path_evidence():
     print("\n【3】真实路径:认知化守门人 + req 附证据链")
     d = tempfile.mkdtemp(prefix="reasoner_")
     try:
-        from hestia import HestiaOS
-        from hestia.orchestration import CrossAgentRequest
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        from snowfoxclaw import Snowfoxclaw
+        from snowfoxclaw.orchestration import CrossAgentRequest
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         os_.finance_runtime.set_balance("default", 5000)
         # 大额 → 需确认(裁决不变)+ 证据链附在 req 上
         req = os_.orchestrator.route_request(CrossAgentRequest(

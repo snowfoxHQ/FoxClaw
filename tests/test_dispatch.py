@@ -9,10 +9,10 @@ D 阶段测试 — 主管真实调度子 Agent + 共享记忆。
 import sys, os, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-os.environ["HESTIA_SHADOW_ROUNDS"] = "20"
+os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "20"
 
 import asyncio
-from hestia import HestiaOS
+from snowfoxclaw import Snowfoxclaw
 
 
 def check(cond, msg):
@@ -25,7 +25,7 @@ async def main():
     print("=" * 60)
     print("D 阶段 · 主管真实调度 + 共享记忆")
     print("=" * 60)
-    os_ = HestiaOS(data_dir=tempfile.mkdtemp(prefix="hestia_dispatch_"), shadow_rounds=20)
+    os_ = Snowfoxclaw(data_dir=tempfile.mkdtemp(prefix="snowfoxclaw_dispatch_"), shadow_rounds=20)
 
     # 1. 主管调度不同类型任务,验证路由
     print("\n【1】主管真实调度(关键词路由)")

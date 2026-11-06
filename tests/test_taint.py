@@ -13,12 +13,12 @@ import os, sys, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.core import injection_guard as IG
-from hestia.skills import permission as PERM
-from hestia.agents.base import (
+from snowfoxclaw.core import injection_guard as IG
+from snowfoxclaw.skills import permission as PERM
+from snowfoxclaw.agents.base import (
     CognitiveAgent, _taint_get, _taint_raise, _taint_reset,
 )
 
@@ -104,7 +104,7 @@ def test_dispatch_recall_memory_raises_taint():
 
 
 def test_dispatch_web_search_raises_taint(monkeypatch):
-    from hestia.core import web_search as WS
+    from snowfoxclaw.core import web_search as WS
     monkeypatch.setattr(WS, "search_answer", lambda q: {"answer": "答案ABC", "references": []})
     a = types.SimpleNamespace(_think=lambda **k: None)
     out = CognitiveAgent._dispatch_tool(a, "web_search", {"query": "问题"})

@@ -1,7 +1,7 @@
 """pytest 共享配置:sys.path 注入 + 环境隔离(等价于 run_all.py 的 env 注入)。
 
 关键点:env 必须在**模块级**设置(而非 fixture)。因为 pytest 收集阶段就会 import
-每个测试文件,若 env 晚于 import 设置,测试文件顶层的 `HestiaOS(...)` /
+每个测试文件,若 env 晚于 import 设置,测试文件顶层的 `Snowfoxclaw(...)` /
 `TestClient(app)` 会读到未隔离的环境(真实 Key 打外部 API、读真实数据目录等)。
 conftest.py 由 pytest 在收集前加载,故模块级赋值能保证先于任何测试文件 import 生效。
 """
@@ -17,12 +17,12 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # ── HKC vendor 隔离 ────────────────────────────────────────────────────────────
-# IDE/Cursor 等 shim 常把 `C:\GitHub\hestia-hkc\src` 注入到 sys.path 第一位,
+# IDE/Cursor 等 shim 常把 `C:\GitHub\snowfoxclaw-hkc\src` 注入到 sys.path 第一位,
 # 而那是上游低质量代码、跟本项目 vendor/hkc/ 是不同等级。**测试必须打 vendor 真代码**,
 # 否则会出现 tests/test_vendor_path_isolation.py 里那类「绿了但打错对象」的事故。
 # 把 vendor/hkc 强制插到 sys.path[0](即使 shim 在前也覆盖之),后续 `import hkc_*`
-# 全部解析到本仓库 vendor 副本。hestia.knowledge 自身也调 _ensure_hkc_importable()
-# 做同样事,但那只在 import hestia.knowledge 之后才生效;本测试文件顶层直接
+# 全部解析到本仓库 vendor 副本。snowfoxclaw.knowledge 自身也调 _ensure_hkc_importable()
+# 做同样事,但那只在 import snowfoxclaw.knowledge 之后才生效;本测试文件顶层直接
 # import hkc_search 早于它,故在 conftest 阶段就注入更稳。
 _VENDOR_HKC = _REPO_ROOT / "vendor" / "hkc"
 if _VENDOR_HKC.exists() and str(_VENDOR_HKC) not in sys.path:
@@ -45,24 +45,24 @@ if sys.platform == "win32":
     _ppl._force_symlink = _skip_force_symlink
 
 # ── 环境隔离(与 run_all.py 的 env 注入保持一致,强制覆盖继承环境)──────────────
-# HESTIA_SKIP_DOTENV=1:让 api.py 完全不读项目根 .env,防止真实 Key 灌回 / 写真实数据目录。
-os.environ["HESTIA_SKIP_DOTENV"] = "1"
+# SNOWFOXCLAW_SKIP_DOTENV=1:让 api.py 完全不读项目根 .env,防止真实 Key 灌回 / 写真实数据目录。
+os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
 # 锁 shadow 轮数、stub 嵌入、关 MCP、清 provider/model:回归保持离线/免费/确定性。
-os.environ["HESTIA_SHADOW_ROUNDS"] = "50"
+os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "50"
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HKC_EMBEDDING"] = "stub"
-os.environ["HESTIA_MCP_SERVER"] = "0"
-os.environ["HESTIA_PROVIDER"] = ""
-os.environ["HESTIA_MODEL"] = ""
-# 清空外部 API key(第二道防线):鉴权/网关测试要自行控制 HESTIA_API_KEY。
+os.environ["SNOWFOXCLAW_MCP_SERVER"] = "0"
+os.environ["SNOWFOXCLAW_PROVIDER"] = ""
+os.environ["SNOWFOXCLAW_MODEL"] = ""
+# 清空外部 API key(第二道防线):鉴权/网关测试要自行控制 SNOWFOXCLAW_API_KEY。
 for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "HESTIA_API_KEY"):
+           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "SNOWFOXCLAW_API_KEY"):
     os.environ[_k] = ""
 
-# 兜底:为未自设 HESTIA_DATA_DIR 的测试提供一个临时目录,避免 KeyError。
+# 兜底:为未自设 SNOWFOXCLAW_DATA_DIR 的测试提供一个临时目录,避免 KeyError。
 # (各测试文件顶层通常会自行 mkdtemp 覆盖此值,此处仅作安全网。)
-os.environ.setdefault("HESTIA_DATA_DIR", tempfile.mkdtemp(prefix="hestia_test_"))
+os.environ.setdefault("SNOWFOXCLAW_DATA_DIR", tempfile.mkdtemp(prefix="snowfoxclaw_test_"))
 
 
 @pytest.fixture

@@ -12,10 +12,10 @@ import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.kernel import CapabilityRegistry
+from snowfoxclaw.kernel import CapabilityRegistry
 
 
 def test_registry_primitive():
@@ -41,8 +41,8 @@ def test_cycles_broken_structural():
     print("\n【2】结构:两处直接环被打断")
     d = tempfile.mkdtemp(prefix="cap_os_")
     try:
-        from hestia import HestiaOS
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        from snowfoxclaw import Snowfoxclaw
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         # 环1:Agent 不再直接持 search_runtime
         assert not hasattr(os_.finance, "_search_runtime"), "Agent 不应有 _search_runtime 直接引用"
         assert os_.finance._caps is os_.capabilities, "Agent 改持能力中枢"
@@ -61,8 +61,8 @@ def test_behavior_preserved():
     print("\n【3】行为保持:编排 + 双向搜索 经中枢解析仍工作")
     d = tempfile.mkdtemp(prefix="cap_beh_")
     try:
-        from hestia import HestiaOS
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        from snowfoxclaw import Snowfoxclaw
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         # 跨 Agent 编排(orchestrator 经中枢解析 finance)
         r = os_.supervisor.cross_request(
             from_agent="admin", to_agent="finance", request_type="budget_request",
@@ -112,9 +112,9 @@ def test_hkc_single_init_concurrent():
     import threading
     d = tempfile.mkdtemp(prefix="cap_hkc_")
     try:
-        from hestia import HestiaOS
-        import hestia.knowledge as K
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        from snowfoxclaw import Snowfoxclaw
+        import snowfoxclaw.knowledge as K
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         orig = K.init_hkc
         cnt = {"n": 0}
         clock = threading.Lock()

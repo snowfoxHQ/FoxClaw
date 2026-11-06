@@ -22,7 +22,7 @@ def check(cond, msg):
 
 def test_abstraction():
     print("\n【1】渠道抽象层")
-    from hestia.channels import ChannelAdapter, InboundMessage, SendResult, ChannelRegistry, OutboundMessage
+    from snowfoxclaw.channels import ChannelAdapter, InboundMessage, SendResult, ChannelRegistry, OutboundMessage
     # handle_raw 异常隔离:on_message 抛异常不冒泡
     class A(ChannelAdapter):
         CHANNEL = "t"
@@ -46,7 +46,7 @@ def test_abstraction():
 
 def test_telegram():
     print("\n【2】Telegram")
-    from hestia.channels.telegram import TelegramAdapter
+    from snowfoxclaw.channels.telegram import TelegramAdapter
     tg = TelegramAdapter(bot_token="fake")
     m = tg.normalize({"update_id": 1, "message": {
         "message_id": 5, "date": 1718900000, "text": "你好",
@@ -62,7 +62,7 @@ def test_telegram():
 
 def test_weixin():
     print("\n【3】微信")
-    from hestia.channels.weixin import WeixinAdapter, ITEM_TEXT, MSG_FROM_USER
+    from snowfoxclaw.channels.weixin import WeixinAdapter, ITEM_TEXT, MSG_FROM_USER
     wx = WeixinAdapter(token="t")
     h = wx._headers()
     check(h["AuthorizationType"] == "ilink_bot_token", "iLink 鉴权类型")
@@ -82,7 +82,7 @@ def test_weixin():
 
 def test_feishu():
     print("\n【4】飞书")
-    from hestia.channels.feishu import FeishuAdapter
+    from snowfoxclaw.channels.feishu import FeishuAdapter
     fs = FeishuAdapter(app_id="x", app_secret="y", encrypt_key="my_secret_key_123")
     # URL 验证
     r = fs.handle_event({"type": "url_verification", "challenge": "c1"})
@@ -114,7 +114,7 @@ def test_feishu():
 
 def test_discord():
     print("\n【5】Discord")
-    from hestia.channels.discord import DiscordAdapter
+    from snowfoxclaw.channels.discord import DiscordAdapter
     dc = DiscordAdapter(bot_token="fake")
     m = dc.normalize({"op": 0, "t": "MESSAGE_CREATE", "d": {
         "id": "m1", "content": "你好", "channel_id": "c1", "guild_id": "g1",
@@ -127,9 +127,9 @@ def test_discord():
 
 def test_closed_loop():
     print("\n【6】闭环调度 + 幂等去重")
-    from hestia.channels import ChannelAdapter, InboundMessage, SendResult
-    from hestia.channels.dispatcher import ChannelDispatcher
-    from hestia import HestiaOS
+    from snowfoxclaw.channels import ChannelAdapter, InboundMessage, SendResult
+    from snowfoxclaw.channels.dispatcher import ChannelDispatcher
+    from snowfoxclaw import Snowfoxclaw
     import warnings
     warnings.simplefilter("ignore")
 
@@ -140,9 +140,9 @@ def test_closed_loop():
         def send(self, msg): self.sent.append(msg.text); return SendResult(True)
 
     import tempfile, shutil
-    data_dir = tempfile.mkdtemp(prefix="hestia_ch_test_")
+    data_dir = tempfile.mkdtemp(prefix="snowfoxclaw_ch_test_")
     shutil.rmtree(data_dir, ignore_errors=True)   # 确保干净起步(防残留幂等记录污染)
-    os_ = HestiaOS(data_dir=data_dir, shadow_rounds=50)
+    os_ = Snowfoxclaw(data_dir=data_dir, shadow_rounds=50)
     disp = ChannelDispatcher(os_.supervisor)
     mock = Mock(); disp.register_channel(mock)
 

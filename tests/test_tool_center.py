@@ -5,12 +5,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_tool_center():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    _DATA = tempfile.mkdtemp(prefix="hestia_toolc_")
-    os.environ["HESTIA_DATA_DIR"] = _DATA
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    _DATA = tempfile.mkdtemp(prefix="snowfoxclaw_toolc_")
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = _DATA
 
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
 
     WEBAPI = {"id": "wx_weather", "name": "天气", "description": "查天气", "kind": "web_api",
               "triggers": ["天气"], "side_effect": "read",
@@ -117,8 +117,8 @@ def test_tool_center():
         print("[11] 删除用户技能 OK")
 
     # 12. 持久化 round-trip:直建新 OS(同数据目录),已安装的 send_x 应仍在
-    from hestia import HestiaOS
-    os2 = HestiaOS(data_dir=_DATA)
+    from snowfoxclaw import Snowfoxclaw
+    os2 = Snowfoxclaw(data_dir=_DATA)
     assert os2.skill_registry.get("send_x") is not None, "重启后用户技能丢失"
     assert os2.skill_registry.get("send_x").source == "user"
     print("[12] 重启后用户技能仍在(持久化 round-trip) OK")

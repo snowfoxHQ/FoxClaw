@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════
-   HESTIA DECK — Widget Definitions
+   SNOWFOXCLAW DECK — Widget Definitions
    每个 widget 是一个 registerWidget() 注册。
    新增模块只需在这里加一个 register block。
    ════════════════════════════════════════════════════════════ */
@@ -397,7 +397,7 @@ WidgetRuntime.register({
       <div class="term">
         <div class="term-out" data-role="term-out"></div>
         <div class="term-prompt-line">
-          <span class="term-ps">hestia@deck</span><span class="term-ps-sep">:</span><span class="term-ps-path" data-role="term-agent">~/supervisor</span><span class="term-ps-dollar">$</span>
+          <span class="term-ps">snowfoxclaw@deck</span><span class="term-ps-sep">:</span><span class="term-ps-path" data-role="term-agent">~/supervisor</span><span class="term-ps-dollar">$</span>
           <span class="term-caret"></span>
         </div>
       </div>`;
@@ -416,7 +416,7 @@ WidgetRuntime.register({
 
 function _termBoot(el) {
   const lines = [
-    ['HESTIA DECK · 执行终端 v1.0', 'info'],
+    ['SNOWFOXCLAW DECK · 执行终端 v1.0', 'info'],
     ['初始化 HMR 认知运行时...', 'out'],
     ['挂载记忆层 [Vector · Graph · KV]', 'ok'],
     ['Harness 线束在线 · Shadow 校准模式', 'ok'],

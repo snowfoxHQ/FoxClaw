@@ -15,11 +15,11 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.capability import get_text_embedder, embedding_stats
-from hestia.harness.harness import SemanticDrift
+from snowfoxclaw.capability import get_text_embedder, embedding_stats
+from snowfoxclaw.harness.harness import SemanticDrift
 
-BOGUS = "hestia-nonexistent-model-xyz"
-BOGUS2 = "hestia-nonexistent-model-abc"
+BOGUS = "snowfoxclaw-nonexistent-model-xyz"
+BOGUS2 = "snowfoxclaw-nonexistent-model-abc"
 
 
 def test_same_name_loads_once():
@@ -36,7 +36,7 @@ def test_same_name_loads_once():
 
 def test_five_harnesses_one_load():
     print("\n【2】5 个 SemanticDrift 用同名 → 只加载 1 次(P0 收敛核心)")
-    name = "hestia-nonexistent-shared"
+    name = "snowfoxclaw-nonexistent-shared"
     before = embedding_stats()["load_attempts"]
     drifts = [SemanticDrift(name) for _ in range(5)]   # 模拟 5 个 Agent 的 Harness
     after = embedding_stats()["load_attempts"]

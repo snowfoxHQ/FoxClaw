@@ -2,7 +2,7 @@
 M3 · 治理中间件回归测试
 
 验证框架无关的 GovernanceSession / governed:
-  1. 解耦:全程不构造 HestiaOS、不碰 agents/skills/channels/HMR,即可治理 + 审计;
+  1. 解耦:全程不构造 Snowfoxclaw、不碰 agents/skills/channels/HMR,即可治理 + 审计;
   2. 工具越权确定性拦截(guard 抛 GovernanceBlocked);
   3. @governed 装饰器(同步 + 异步)在越权时阻止函数执行;
   4. 正常动作放行;审计链可取回且含 BLOCK 节点;
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.governance import GovernanceSession, governed, GovernanceBlocked
+from snowfoxclaw.governance import GovernanceSession, governed, GovernanceBlocked
 
 
 def check(cond, msg):
@@ -110,13 +110,13 @@ def test_import_decoupling():
     print("\n【4】物理解耦:导入治理中间件不连带拉入 Agent 框架")
     # 必须在**全新子进程**里验(本进程里其它测试早已 import 了 agents,sys.modules 被污染)
     code = (
-        "import sys, hestia.governance;"
-        "bad=[m for m in ('hestia.agents.agents','hestia.skills',"
-        "'hestia.channels','hestia.core.memory_adapter','hestia.orchestration')"
+        "import sys, snowfoxclaw.governance;"
+        "bad=[m for m in ('snowfoxclaw.agents.agents','snowfoxclaw.skills',"
+        "'snowfoxclaw.channels','snowfoxclaw.core.memory_adapter','snowfoxclaw.orchestration')"
         " if m in sys.modules];"
         "assert not bad, ('leaked:', bad);"
-        "assert 'hestia.harness.harness' in sys.modules;"
-        "assert 'hestia.core.thought_chain' in sys.modules;"
+        "assert 'snowfoxclaw.harness.harness' in sys.modules;"
+        "assert 'snowfoxclaw.core.thought_chain' in sys.modules;"
         "print('DECOUPLED_OK')"
     )
     env = dict(os.environ, PYTHONUTF8="1", HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
@@ -124,7 +124,7 @@ def test_import_decoupling():
                        cwd=str(Path(__file__).parent.parent), env=env,
                        encoding="utf-8", errors="replace")
     check("DECOUPLED_OK" in r.stdout and r.returncode == 0,
-          f"import hestia.governance 不拉入 agents/skills/channels/HMR（{r.stdout.strip()[:60]}{r.stderr.strip()[-80:]}）")
+          f"import snowfoxclaw.governance 不拉入 agents/skills/channels/HMR（{r.stdout.strip()[:60]}{r.stderr.strip()[-80:]}）")
 
 
 def main():

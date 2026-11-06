@@ -12,12 +12,12 @@ import os, sys, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.core import tools as T
-from hestia.core.model_router import ModelRouter
-from hestia.agents.base import CognitiveAgent
+from snowfoxclaw.core import tools as T
+from snowfoxclaw.core.model_router import ModelRouter
+from snowfoxclaw.agents.base import CognitiveAgent
 
 
 # ── 1. P1 运行时注入 ───────────────────────────────────────────────────────────
@@ -36,23 +36,23 @@ def test_registry_default_and_deny():
     assert set(reg.names()) == {"web_search", "recall_memory"}
     names = [s["function"]["name"] for s in reg.schemas()]
     assert "web_search" in names and "recall_memory" in names
-    os.environ["HESTIA_TOOL_DENY"] = "web_search"
+    os.environ["SNOWFOXCLAW_TOOL_DENY"] = "web_search"
     try:
         names2 = [s["function"]["name"] for s in reg.schemas()]
         assert "web_search" not in names2 and "recall_memory" in names2
         assert T.is_tool_denied("web_search")
     finally:
-        os.environ.pop("HESTIA_TOOL_DENY", None)
+        os.environ.pop("SNOWFOXCLAW_TOOL_DENY", None)
 
 
 def test_tool_use_flag_default_off():
-    os.environ.pop("HESTIA_TOOL_USE", None)
+    os.environ.pop("SNOWFOXCLAW_TOOL_USE", None)
     assert T.tool_use_enabled() is False, "默认必须关(behavior-preserving)"
-    os.environ["HESTIA_TOOL_USE"] = "1"
+    os.environ["SNOWFOXCLAW_TOOL_USE"] = "1"
     try:
         assert T.tool_use_enabled() is True
     finally:
-        os.environ.pop("HESTIA_TOOL_USE", None)
+        os.environ.pop("SNOWFOXCLAW_TOOL_USE", None)
 
 
 # ── 3. call_tools 降级 ─────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ def test_reply_with_tools_empty_answer_returns_none():
 
 # ── 5. 工具分派 ────────────────────────────────────────────────────────────────
 def test_dispatch_web_search_ok(monkeypatch):
-    from hestia.core import web_search as ws
+    from snowfoxclaw.core import web_search as ws
     monkeypatch.setattr(ws, "search_answer", lambda q: {"answer": "实时答案XYZ", "references": []})
     agent = types.SimpleNamespace(_think=lambda **k: None)
     out = CognitiveAgent._dispatch_tool(agent, "web_search", {"query": "OpenAI 新模型"})
@@ -162,7 +162,7 @@ def test_dispatch_recall_memory():
 
 
 def test_dispatch_denied(monkeypatch):
-    monkeypatch.setenv("HESTIA_TOOL_DENY", "web_search")
+    monkeypatch.setenv("SNOWFOXCLAW_TOOL_DENY", "web_search")
     agent = types.SimpleNamespace(_think=lambda **k: None)
     out = CognitiveAgent._dispatch_tool(agent, "web_search", {"query": "x"})
     assert "禁用" in out
@@ -179,7 +179,7 @@ def test_tool_capability_readonly_and_failclosed():
 
 def test_permission_gate_allows_readonly_asks_sideeffect():
     import types as _t
-    from hestia.skills import permission as perm
+    from snowfoxclaw.skills import permission as perm
     ro = _t.SimpleNamespace(id="tool:web_search", params={}, **T.tool_capability("web_search"))
     assert perm.evaluate(ro, {}, confirmed=False).decision == "allow"
     send = _t.SimpleNamespace(id="tool:send_email", params={},
@@ -190,7 +190,7 @@ def test_permission_gate_allows_readonly_asks_sideeffect():
 
 def test_dispatch_hitl_blocks_side_effect_tool(monkeypatch):
     """核心:若工具被判为有副作用(写/发送),_dispatch_tool 走 HITL——不执行、返回需确认。"""
-    from hestia.core import web_search as ws
+    from snowfoxclaw.core import web_search as ws
     called = {"n": 0}
     monkeypatch.setattr(ws, "search_answer",
                         lambda q: called.__setitem__("n", called["n"] + 1) or {"answer": "x"})
@@ -211,7 +211,7 @@ def test_dispatch_unknown_tool():
 
 def test_tool_path_injects_preferences(monkeypatch):
     """回归(Finding 1):工具路径也要注入用户偏好,不能开工具化就丢掉"越用越懂你"。"""
-    monkeypatch.setenv("HESTIA_TOOL_USE", "1")
+    monkeypatch.setenv("SNOWFOXCLAW_TOOL_USE", "1")
     captured = {}
     fake = types.SimpleNamespace()
     fake._sanitize_history = lambda h, max_turns=12: []

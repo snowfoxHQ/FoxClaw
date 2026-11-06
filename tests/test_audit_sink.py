@@ -2,7 +2,7 @@
 
 覆盖:
   1. 单元层:EventSpine + sink 直连 —— JSONL 格式、字段齐全、追加语义、开关、坏行容错
-  2. 端到端层:真实 HestiaOS 装配 → 共享写入 → 文件里出现完整记录(接线正确性)
+  2. 端到端层:真实 Snowfoxclaw 装配 → 共享写入 → 文件里出现完整记录(接线正确性)
 """
 import os
 import shutil
@@ -26,10 +26,10 @@ def check(cond, msg):
 
 def test_unit():
     print("\n【1】单元层:EventSpine + sink 直连")
-    from hestia.kernel.spine import EventSpine
-    from hestia.core.audit_sink import SharedWriteAuditSink, attach, ENV_SWITCH
+    from snowfoxclaw.kernel.spine import EventSpine
+    from snowfoxclaw.core.audit_sink import SharedWriteAuditSink, attach, ENV_SWITCH
 
-    tmp = tempfile.mkdtemp(prefix="hestia_asink_")
+    tmp = tempfile.mkdtemp(prefix="snowfoxclaw_asink_")
     try:
         path = Path(tmp) / "audit" / "shared_write.jsonl"
         spine = EventSpine()
@@ -74,7 +74,7 @@ def test_unit():
         old = os.environ.get(ENV_SWITCH)
         os.environ[ENV_SWITCH] = "0"
         try:
-            check(attach(EventSpine(), tmp) is None, "HESTIA_SHARED_WRITE_AUDIT=0 → 不挂")
+            check(attach(EventSpine(), tmp) is None, "SNOWFOXCLAW_SHARED_WRITE_AUDIT=0 → 不挂")
             os.environ[ENV_SWITCH] = "1"
             s2 = attach(EventSpine(), tmp)
             check(s2 is not None and s2.path == Path(tmp) / "audit" / "shared_write.jsonl",
@@ -89,11 +89,11 @@ def test_unit():
 
 
 def test_end_to_end():
-    print("\n【2】端到端:真实 HestiaOS 装配 → 共享写入 → 落盘")
-    tmp = tempfile.mkdtemp(prefix="hestia_asink_e2e_")
+    print("\n【2】端到端:真实 Snowfoxclaw 装配 → 共享写入 → 落盘")
+    tmp = tempfile.mkdtemp(prefix="snowfoxclaw_asink_e2e_")
     try:
-        from hestia import HestiaOS
-        osi = HestiaOS(data_dir=tmp, shadow_rounds=5)
+        from snowfoxclaw import Snowfoxclaw
+        osi = Snowfoxclaw(data_dir=tmp, shadow_rounds=5)
 
         check(osi.shared_write_audit is not None, "sink 已随装配挂上(默认开启)")
         audit_path = Path(tmp) / "audit" / "shared_write.jsonl"

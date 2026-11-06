@@ -17,11 +17,11 @@ import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import hestia.core.web_search as ws
+import snowfoxclaw.core.web_search as ws
 ws.needs_search = lambda q: False
 
-from hestia import HestiaOS
-from hestia.core.thought_chain import ThoughtNode
+from snowfoxclaw import Snowfoxclaw
+from snowfoxclaw.core.thought_chain import ThoughtNode
 
 SLEEP = 0.4
 PAR_TASK = "同时查今天的日程、分析本月理财、总结这篇论文"
@@ -89,10 +89,10 @@ def bench_concurrency(os_, threads=12, per_thread=20):
 
 
 def main():
-    os_ = HestiaOS(data_dir=tempfile.mkdtemp())
+    os_ = Snowfoxclaw(data_dir=tempfile.mkdtemp())
     os_.router.complete = _slow
     print("=" * 60)
-    print("Hestia OS · M2 并发压测")
+    print("Snowfoxclaw · M2 并发压测")
     print("=" * 60)
     bench_latency(os_)
     bench_concurrency(os_)

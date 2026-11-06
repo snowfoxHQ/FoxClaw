@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hestia Deck · AI 指挥中枢</title>
+<title>Snowfoxclaw Deck · AI 指挥中枢</title>
 <link rel="stylesheet" href="./deck.css?v=5.32">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <div class="topbar">
     <div class="brand">
       <div class="logo">H</div>
-      <h1>Hestia OS</h1><span class="ver">v5.32</span>
+      <h1>Snowfoxclaw</h1><span class="ver">v5.32</span>
     </div>
     <!-- Agent 卡片已精简:对话统一走输入框(主管自动分诊);保留「财务/地图/学习」三个有二级面板的入口,移到右侧 -->
     <div class="topright">
@@ -173,7 +173,7 @@
 <div class="setmenu" id="setMenu">
   <!-- 一级:三大模块 -->
   <div class="sm-col sm-l1">
-    <div class="sm-btn" data-group="hestia"><span class="gi">◈</span><b>Hestia OS</b><span class="chev">›</span></div>
+    <div class="sm-btn" data-group="snowfoxclaw"><span class="gi">◈</span><b>Snowfoxclaw</b><span class="chev">›</span></div>
     <div class="sm-btn" data-group="agents"><span class="gi">⬡</span><b>Agents</b><span class="chev">›</span></div>
     <div class="sm-btn" data-group="hmr"><span class="gi">❖</span><b>HMR</b><span class="chev">›</span></div>
   </div>
@@ -300,7 +300,7 @@
     };
   };
   // DIAG 标记(肉眼可见,确认硬刷是否真生效):注入时间戳。
-  // 看不到这行被替换 → 浏览器/hestia 缓存了旧 HTML。
+  // 看不到这行被替换 → 浏览器/snowfoxclaw 缓存了旧 HTML。
   var dt = document.getElementById('diagTag');
   if(dt) dt.textContent = 'DIAG v5.37 @ ' + new Date().toTimeString().slice(0,8);
 })();

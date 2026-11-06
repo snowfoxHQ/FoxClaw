@@ -23,10 +23,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from hestia.core.thought_chain import ThoughtChain, ThoughtNode
-from hestia.harness.harness import Harness
-from hestia.harness.loop_detection import ToolLoopDetector
-from hestia.core.recovery import RestartRecovery, _pid_alive
+from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
+from snowfoxclaw.harness.harness import Harness
+from snowfoxclaw.harness.loop_detection import ToolLoopDetector
+from snowfoxclaw.core.recovery import RestartRecovery, _pid_alive
 from evals.governance import cases
 
 OUT_DIR = Path(__file__).resolve().parent
@@ -359,7 +359,7 @@ def _write_convergence_svg(sl: dict, path: Path):
 # ── 人类可读摘要 ───────────────────────────────────────────
 def _print_summary(report: dict):
     print("=" * 60)
-    print("Hestia OS · Agent 治理评测（离线 · 不调 LLM）")
+    print("Snowfoxclaw · Agent 治理评测（离线 · 不调 LLM）")
     print("=" * 60)
     print(f"\n【漂移检测】达标门槛 flag_recall≥{RECALL_BAR} / hard_fpr≤{FPR_BAR}")
     for name, d in report["detection"].items():

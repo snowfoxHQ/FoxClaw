@@ -7,10 +7,10 @@
 import sys, os, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-os.environ["HESTIA_SHADOW_ROUNDS"] = "50"
+os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "50"
 
 import asyncio
-from hestia import HestiaOS
+from snowfoxclaw import Snowfoxclaw
 
 
 def check(cond, msg):
@@ -23,8 +23,8 @@ async def main():
     print("=" * 60)
     print("主管编排 · 全局态势 + 跨 Agent 协调")
     print("=" * 60)
-    _data = tempfile.mkdtemp(prefix="hestia_orch_")   # 系统临时目录,不污染仓库根
-    os_ = HestiaOS(data_dir=_data, shadow_rounds=50)
+    _data = tempfile.mkdtemp(prefix="snowfoxclaw_orch_")   # 系统临时目录,不污染仓库根
+    os_ = Snowfoxclaw(data_dir=_data, shadow_rounds=50)
 
     # 准备各内核的数据
     fin = os_.finance_runtime

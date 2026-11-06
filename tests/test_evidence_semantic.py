@@ -18,10 +18,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "vendor" / "hkc"))
 def test_evidence_semantic():
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-    os.environ["HESTIA_EVIDENCE_MODEL"] = "all-MiniLM-L6-v2"     # 进程缓存里通常有,保证离线可测
+    os.environ["SNOWFOXCLAW_EVIDENCE_MODEL"] = "all-MiniLM-L6-v2"     # 进程缓存里通常有,保证离线可测
 
-    from hestia.search.evidence import EvidenceFusion, _has_neg, _semantic_sim
-    from hestia.search.models import RawEvidence
+    from snowfoxclaw.search.evidence import EvidenceFusion, _has_neg, _semantic_sim
+    from snowfoxclaw.search.models import RawEvidence
 
     print("=" * 60); print("证据融合语义化验证"); print("=" * 60)
     f = EvidenceFusion()

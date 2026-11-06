@@ -1,6 +1,6 @@
 """
 hkc_sdk
-Hestia Knowledge Core — Python SDK
+Snowfoxclaw Knowledge Core — Python SDK
 
 统一入口 connect()，两种后端无感切换：
 

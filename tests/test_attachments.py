@@ -7,27 +7,27 @@ import os, sys, tempfile, shutil
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ── 环境隔离:必须在 import hestia 之前(import 会读这些键初始化) ─────────────
+# ── 环境隔离:必须在 import snowfoxclaw 之前(import 会读这些键初始化) ─────────────
 for _k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
-           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "HESTIA_API_KEY"):
+           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "SNOWFOXCLAW_API_KEY"):
     os.environ.pop(_k, None)
 os.environ["HKC_EMBEDDING"] = "stub"
-os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_att_")
-os.environ["HESTIA_SKIP_DOTENV"] = "1"
-os.environ["HESTIA_PROVIDER"] = ""      # 不指定 provider → 无 key 时降级 stub(确定性)
-os.environ["HESTIA_MODEL"] = ""
-os.environ["HESTIA_MCP_SERVER"] = "0"
+os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_att_")
+os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
+os.environ["SNOWFOXCLAW_PROVIDER"] = ""      # 不指定 provider → 无 key 时降级 stub(确定性)
+os.environ["SNOWFOXCLAW_MODEL"] = ""
+os.environ["SNOWFOXCLAW_MCP_SERVER"] = "0"
 os.environ["HF_HUB_OFFLINE"] = "1"      # 离线:HMR embedding 读本地缓存,不联网
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import pytest
 from fastapi.testclient import TestClient
 
-from hestia.api import app, _sanitize_attachments
-from hestia.api.routes.task import _MAX_ATTACHMENTS, _ATTACH_TEXT_MAX, _ATTACH_TEXT_TOTAL
-from hestia.agents.base import CognitiveAgent
-from hestia.core.sessions import SessionStore
+from snowfoxclaw.api import app, _sanitize_attachments
+from snowfoxclaw.api.routes.task import _MAX_ATTACHMENTS, _ATTACH_TEXT_MAX, _ATTACH_TEXT_TOTAL
+from snowfoxclaw.agents.base import CognitiveAgent
+from snowfoxclaw.core.sessions import SessionStore
 
 
 @pytest.fixture()
@@ -135,7 +135,7 @@ def test_upload_and_download():
 
 
 def test_chat_stream_with_attachments():
-    import hestia.api as _api
+    import snowfoxclaw.api as _api
     with TestClient(app) as c:
         # 先上传一个带正文的附件,拿到引用
         up = c.post("/api/upload", files={"file": ("要点.txt", "预算 100 万".encode("utf-8"), "text/plain")})

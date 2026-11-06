@@ -1,26 +1,26 @@
 ---
 name: skill-router
-version: "1.0-hestia"
+version: "1.0-snowfoxclaw"
 implements: agent-harness-skills/skill-router
-description: Hestia 实现版路由。把 AHS 标准的任务→skill 匹配落地到主管 Agent 的分诊逻辑。
+description: Snowfoxclaw 实现版路由。把 AHS 标准的任务→skill 匹配落地到主管 Agent 的分诊逻辑。
 bound_modules:
-  - hestia/planning/planner.py (★ P1-2 统一路由原语:is_negated / trigger_route / keyword_hits)
-  - hestia/skills/pipeline.py (route:在 skill 候选上打分)
-  - hestia/pipeline/cognitive_pipeline.py (stage_route:A 方案管线内选 skill)
-  - hestia/agents/agents.py (SupervisorAgent._route / _is_meta:分派到子 Agent)
+  - snowfoxclaw/planning/planner.py (★ P1-2 统一路由原语:is_negated / trigger_route / keyword_hits)
+  - snowfoxclaw/skills/pipeline.py (route:在 skill 候选上打分)
+  - snowfoxclaw/pipeline/cognitive_pipeline.py (stage_route:A 方案管线内选 skill)
+  - snowfoxclaw/agents/agents.py (SupervisorAgent._route / _is_meta:分派到子 Agent)
 side_effect: read
 trust_level: high
 ---
 
-# Skill Router(Hestia 实现版)
+# Skill Router(Snowfoxclaw 实现版)
 
-> AHS 标准 `skill-router` 在 Hestia 的落地。标准定义匹配算法,本文件定义 Hestia 用主管 Agent 实现。
+> AHS 标准 `skill-router` 在 Snowfoxclaw 的落地。标准定义匹配算法,本文件定义 Snowfoxclaw 用主管 Agent 实现。
 
-## 标准 → Hestia 真实落地
+## 标准 → Snowfoxclaw 真实落地
 
-> ⚠️ **P1-2 后:路由/规划的三步打分原语(否定过滤 0.8×触发命中 + 0.2×描述匹配、`is_negated`、`split_on`)统一收敛到 `hestia/planning/planner.py` 单一真源**;主管分派、`skills/pipeline.py::route`、管线内 `stage_route` 都复用它,不再各写一套。
+> ⚠️ **P1-2 后:路由/规划的三步打分原语(否定过滤 0.8×触发命中 + 0.2×描述匹配、`is_negated`、`split_on`)统一收敛到 `snowfoxclaw/planning/planner.py` 单一真源**;主管分派、`skills/pipeline.py::route`、管线内 `stage_route` 都复用它,不再各写一套。
 
-| AHS 标准 | Hestia 实现 | 代码位置 |
+| AHS 标准 | Snowfoxclaw 实现 | 代码位置 |
 |---------|------------|---------|
 | 三步打分 / 选主 | `trigger_route(task, candidates)` 统一引擎 | `planning/planner.py: trigger_route` |
 | 否定词检测 | `is_negated`(统一原语);主管另有 `_is_meta` 判元问题 | `planning/planner.py`、`agents.py: _is_meta` |
@@ -31,5 +31,5 @@ trust_level: high
 
 ## 关键差异
 
-> 标准是"选一个 skill_id";Hestia 有**两条落地**:① 主管把任务分派给一个**真实 Agent 实例**(agents.py);② A 方案下管线内 `stage_route` 直接选 **skill**(opt-in,默认关)。两者共用 `planning.planner` 打分引擎。
-> 元问题(你是谁/能联网吗)由主管自答,跳过分派——Hestia 特有。
+> 标准是"选一个 skill_id";Snowfoxclaw 有**两条落地**:① 主管把任务分派给一个**真实 Agent 实例**(agents.py);② A 方案下管线内 `stage_route` 直接选 **skill**(opt-in,默认关)。两者共用 `planning.planner` 打分引擎。
+> 元问题(你是谁/能联网吗)由主管自答,跳过分派——Snowfoxclaw 特有。

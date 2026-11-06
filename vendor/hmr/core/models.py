@@ -1,6 +1,6 @@
 """
 HMR v1 - Core Data Structures
-Hestia Memory Runtime
+Snowfoxclaw Memory Runtime
 """
 
 from typing import List, Dict, Any, Optional, Literal

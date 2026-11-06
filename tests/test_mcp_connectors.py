@@ -4,16 +4,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_mcp_connectors():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ["HESTIA_SKIP_DOTENV"] = "1"      # 不加载开发机 .env(否则 HESTIA_API_KEY 会开启鉴权导致 401)
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"      # 不加载开发机 .env(否则 SNOWFOXCLAW_API_KEY 会开启鉴权导致 401)
     os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试,直接用本地缓存
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    _DATA = tempfile.mkdtemp(prefix="hestia_mcp_")
-    os.environ["HESTIA_DATA_DIR"] = _DATA
+    _DATA = tempfile.mkdtemp(prefix="snowfoxclaw_mcp_")
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = _DATA
 
     from fastapi.testclient import TestClient
-    from hestia.api import app
-    import hestia.skills.mcp_client as mc
+    from snowfoxclaw.api import app
+    import snowfoxclaw.skills.mcp_client as mc
     from types import SimpleNamespace as NS
 
     # 客户端 SSRF 防线(用真实 _amcp_list_tools,monkeypatch 之前测):连内网/元数据 host
@@ -97,8 +97,8 @@ def test_mcp_connectors():
     # 9. 持久化 round-trip
     with TestClient(app) as c:
         c.post("/api/ahs/mcp/servers", json=SRV)
-    from hestia import HestiaOS
-    os2 = HestiaOS(data_dir=_DATA)
+    from snowfoxclaw import Snowfoxclaw
+    os2 = Snowfoxclaw(data_dir=_DATA)
     assert any(s["id"] == "demo_srv" for s in os2.mcp_manager.servers()), "server 未持久化"
     assert os2.skill_registry.get("mcp__demo_srv__get_time") is not None, "mcp 技能未持久化"
     print("[9] 重启后 server + mcp 技能仍在(持久化 round-trip) OK")

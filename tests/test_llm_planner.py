@@ -2,7 +2,7 @@
 LLM 驱动规划器(P0-1)测试 —— 全离线(用 fake router,不触发真实网络)。
 
 覆盖:
-  1. 开关:HESTIA_LLM_PLAN / HESTIA_LLM_REPLAN 默认关 / 显式开
+  1. 开关:SNOWFOXCLAW_LLM_PLAN / SNOWFOXCLAW_LLM_REPLAN 默认关 / 显式开
   2. build_plan_tool:submit_plan 的 schema 含 agent 枚举 + flow 枚举
   3. llm_plan 的 fail-safe:不支持 tools / 模型不产出 / args 解析失败 / 空输入 / 抛异常 → None
   4. llm_plan 正常解析:flow + steps + 依赖 + 非法 agent 兜底 + 单步强制 single
@@ -19,7 +19,7 @@ from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.planning.llm_planner import (
+from snowfoxclaw.planning.llm_planner import (
     llm_plan,
     llm_plan_enabled,
     llm_replan,
@@ -58,13 +58,13 @@ def _plan_args(flow="sequential", steps=()):
 
 def test_enabled_switch():
     print("\n【1】开关默认关 / 显式开")
-    os.environ.pop("HESTIA_LLM_PLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_PLAN", None)
     assert llm_plan_enabled() is False, "默认必须关(可逆/不改变现有行为)"
-    os.environ["HESTIA_LLM_PLAN"] = "1"
+    os.environ["SNOWFOXCLAW_LLM_PLAN"] = "1"
     assert llm_plan_enabled() is True
-    os.environ["HESTIA_LLM_PLAN"] = "0"
+    os.environ["SNOWFOXCLAW_LLM_PLAN"] = "0"
     assert llm_plan_enabled() is False
-    os.environ.pop("HESTIA_LLM_PLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_PLAN", None)
     print("  ✓ 默认关 / '1'开 / '0'关")
 
 
@@ -136,19 +136,19 @@ def test_llm_plan_parse():
 
 def test_supervisor_llm_plan():
     print("\n【5】SupervisorAgent._llm_plan:开关 + 路由链路")
-    from hestia.agents.agents import SupervisorAgent
+    from snowfoxclaw.agents.agents import SupervisorAgent
     D = type("D", (), {"AGENT_NAME": "dummy"})
     sub = {"finance": D(), "office": D(), "admin": D(), "assistant": D()}
 
     # 未开启 → None
-    os.environ.pop("HESTIA_LLM_PLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_PLAN", None)
     a1 = SupervisorAgent.__new__(SupervisorAgent)
     a1.router = _FakeRouter(result={"supported": True})
     a1._subagents = sub
     assert a1._llm_plan("任务") is None
 
     # 开启 + 多步 → (Plan, step_routes)
-    os.environ["HESTIA_LLM_PLAN"] = "1"
+    os.environ["SNOWFOXCLAW_LLM_PLAN"] = "1"
     a2 = SupervisorAgent.__new__(SupervisorAgent)
     a2.router = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [
@@ -174,17 +174,17 @@ def test_supervisor_llm_plan():
     a4._subagents = sub
     assert a4._llm_plan("任务") is None
 
-    os.environ.pop("HESTIA_LLM_PLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_PLAN", None)
     print("  ✓ 开关 / 多步链路 / 单步回退 / 不支持回退 正确")
 
 
 def test_replan_enabled_switch():
     print("\n【6】反思重规划开关")
-    os.environ.pop("HESTIA_LLM_REPLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_REPLAN", None)
     assert replan_enabled() is False, "默认必须关(可逆)"
-    os.environ["HESTIA_LLM_REPLAN"] = "1"
+    os.environ["SNOWFOXCLAW_LLM_REPLAN"] = "1"
     assert replan_enabled() is True
-    os.environ.pop("HESTIA_LLM_REPLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_REPLAN", None)
     print("  ✓ 默认关 / '1'开")
 
 
@@ -213,7 +213,7 @@ def test_llm_replan_parse():
 
 def test_dispatch_failed():
     print("\n【8】_dispatch_failed:失败判定")
-    from hestia.agents.agents import _dispatch_failed
+    from snowfoxclaw.agents.agents import _dispatch_failed
     # 多步 blocked → True
     assert _dispatch_failed({"result": {"dispatched_to": "multi", "blocked": True}}) is True
     # parallel steps 含 failed → True
@@ -230,8 +230,8 @@ def test_dispatch_failed():
 def test_replan_and_redo():
     print("\n【9】_replan_and_redo:失败 → 反思 → 重执行 → 成功")
     import asyncio
-    from hestia.agents.agents import SupervisorAgent
-    os.environ["HESTIA_LLM_REPLAN"] = "1"
+    from snowfoxclaw.agents.agents import SupervisorAgent
+    os.environ["SNOWFOXCLAW_LLM_REPLAN"] = "1"
     D = type("D", (), {"AGENT_NAME": "dummy"})
     sub = {"finance": D(), "office": D(), "admin": D(), "assistant": D()}
 
@@ -271,15 +271,15 @@ def test_replan_and_redo():
     out = asyncio.run(a._replan_and_redo("查支出再发邮件", None, "sess", sub, {}, [], failed_dr))
     assert calls["n"] == 2, f"应重执行 1 次,实际 {calls['n']}"
     assert out["result"]["blocked"] is False
-    os.environ.pop("HESTIA_LLM_REPLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_REPLAN", None)
     print("  ✓ 失败触发反思 → 重执行 1 次 → 成功")
 
 
 def test_replan_gives_up():
     print("\n【10】_replan_and_redo:模型放弃 → 不重执行,保留原结果")
     import asyncio
-    from hestia.agents.agents import SupervisorAgent
-    os.environ["HESTIA_LLM_REPLAN"] = "1"
+    from snowfoxclaw.agents.agents import SupervisorAgent
+    os.environ["SNOWFOXCLAW_LLM_REPLAN"] = "1"
     D = type("D", (), {"AGENT_NAME": "dummy"})
     sub = {"finance": D(), "assistant": D()}
 
@@ -304,7 +304,7 @@ def test_replan_gives_up():
     out = asyncio.run(a._replan_and_redo("查支出", None, "s", sub, {}, [], failed_dr))
     assert called["n"] == 0, "放弃时不应重执行"
     assert out is failed_dr, "放弃时保留原结果"
-    os.environ.pop("HESTIA_LLM_REPLAN", None)
+    os.environ.pop("SNOWFOXCLAW_LLM_REPLAN", None)
     print("  ✓ 放弃短路,保留原结果")
 
 
@@ -312,7 +312,7 @@ def test_sv_replan_stage():
     print("\n【11】sv_replan stage:短路 + 触发")
     import asyncio
     from types import SimpleNamespace
-    from hestia.pipeline.supervisor_stages import sv_replan
+    from snowfoxclaw.pipeline.supervisor_stages import sv_replan
 
     # 无失败 → 短路
     a1 = SimpleNamespace(_replan_enabled=lambda: True)

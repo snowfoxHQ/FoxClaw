@@ -5,7 +5,7 @@ Any agent framework (here: a minimal home-grown tool-calling loop) only needs to
 one GovernanceSession to gain — three-dimensional drift interception (tool over-reach /
 semantic off-goal / scope creep), tool-loop detection, and a fully auditable reason chain.
 
-Fully offline: no HestiaOS is constructed, no agents/skills/channels/HMR are touched,
+Fully offline: no Snowfoxclaw is constructed, no agents/skills/channels/HMR are touched,
 no network. Content is kept in English so it matches the default English embedding model
 (the semantic dimension's sensitivity depends on the embedding matching the language —
 see the M1 evals finding; tool/scope enforcement is language-independent).
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.governance import GovernanceSession, governed, GovernanceBlocked
+from snowfoxclaw.governance import GovernanceSession, governed, GovernanceBlocked
 
 
 # ── Tools that live inside "some framework" (plain functions) ─────────
@@ -68,7 +68,7 @@ def main():
 
     print("\n[summary]", gov.summary())
     print("\n" + "=" * 58)
-    print("Note: no HestiaOS, no agents/skills/memory were involved — the governance")
+    print("Note: no Snowfoxclaw, no agents/skills/memory were involved — the governance")
     print("core (Harness + ThoughtChain) is a guardrail you can mount on anything.")
     print("=" * 58)
 

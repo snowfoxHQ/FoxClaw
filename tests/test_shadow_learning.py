@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-os.environ.setdefault("HESTIA_SKIP_DOTENV", "1")
+os.environ.setdefault("SNOWFOXCLAW_SKIP_DOTENV", "1")
 os.environ.setdefault("HKC_EMBEDDING", "stub")
 
 CHECKS = []
@@ -31,8 +31,8 @@ def check(cond, msg):
         raise AssertionError(f"断言失败: {msg}")
 
 
-from hestia.core.thought_chain import ThoughtChain, ThoughtNode
-from hestia.harness.harness import Harness
+from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
+from snowfoxclaw.harness.harness import Harness
 
 
 def _tc():
@@ -223,7 +223,7 @@ def test_safety_boundary():
               "semantic 权重被上调(权重级学习保留)")
     else:
         # stub 向量下语义分可能不足 BLOCK —— 直接驱动内部入口验证分支语义
-        from hestia.harness.harness import HarnessResult
+        from snowfoxclaw.harness.harness import HarnessResult
         res = HarnessResult(status="BLOCK", delta=0.9, dominant_dim="semantic",
                             scores={"semantic": 0.9, "tool": 0.0, "scope": 0.0},
                             reason="t")
@@ -233,7 +233,7 @@ def test_safety_boundary():
         check(h.weights["semantic"] > w0["semantic"], "semantic 权重上调")
 
     # 未知维度:fail-closed,权重都不动,只记录
-    from hestia.harness.harness import HarnessResult
+    from snowfoxclaw.harness.harness import HarnessResult
     w1 = dict(h.weights)
     res = HarnessResult(status="BLOCK", delta=0.9, dominant_dim="financial",
                         scores={}, reason="t")

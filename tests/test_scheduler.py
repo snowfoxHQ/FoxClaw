@@ -12,7 +12,7 @@ import sys, threading, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.kernel import Scheduler
+from snowfoxclaw.kernel import Scheduler
 
 
 class _CapSpine:
@@ -85,8 +85,8 @@ def test_lifecycle_events_and_accounting():
 
 def test_pm_delegation_unified_lifecycle():
     print("\n【4】Step3:有 ProcessManager → 委托它发唯一 task.lifecycle.<state>(不双套词汇)")
-    from hestia.kernel import EventSpine, ProcessManager
-    from hestia.core.system_bus import SystemBus
+    from snowfoxclaw.kernel import EventSpine, ProcessManager
+    from snowfoxclaw.core.system_bus import SystemBus
     spine = EventSpine()
     seen = []
     spine.project(lambda e: seen.append(e.topic))

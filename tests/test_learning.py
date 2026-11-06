@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.learning import LearningRuntime
+from snowfoxclaw.learning import LearningRuntime
 
 CSV = str(Path(__file__).parent.parent / "examples" / "sample_knowledge.csv")
 

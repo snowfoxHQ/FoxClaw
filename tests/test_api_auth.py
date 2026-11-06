@@ -1,7 +1,7 @@
 """
 API 可选鉴权回归
 
-验证 HESTIA_API_KEY:
+验证 SNOWFOXCLAW_API_KEY:
   · 未设 → /api/* 开放(本地默认,既有行为不变);
   · 设了 → /api/* 与 /ws/* 需带正确 X-API-Key,否则 401;前端与 /docs 始终开放。
 中间件每请求读环境变量,故可在同一 TestClient 内切换验证。
@@ -10,14 +10,14 @@ import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-# 本测试要精确控制 HESTIA_API_KEY 的有/无;若 .env 带真实 key 会污染判定
-# (见 hestia/api.py 中 HESTIA_SKIP_DOTENV 的说明),故关掉 .env。
-os.environ["HESTIA_SKIP_DOTENV"] = "1"
+# 本测试要精确控制 SNOWFOXCLAW_API_KEY 的有/无;若 .env 带真实 key 会污染判定
+# (见 snowfoxclaw/api.py 中 SNOWFOXCLAW_SKIP_DOTENV 的说明),故关掉 .env。
+os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
 
 import tempfile
-os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_test_")  # 不污染仓库根
+os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_test_")  # 不污染仓库根
 from fastapi.testclient import TestClient
-from hestia.api import app
+from snowfoxclaw.api import app
 
 
 def check(cond, msg):
@@ -30,13 +30,13 @@ def main():
     print("=" * 56)
     print("API 可选鉴权回归")
     print("=" * 56)
-    os.environ.pop("HESTIA_API_KEY", None)
+    os.environ.pop("SNOWFOXCLAW_API_KEY", None)
     with TestClient(app) as c:
-        print("\n【1】未设 HESTIA_API_KEY:开放(本地默认)")
+        print("\n【1】未设 SNOWFOXCLAW_API_KEY:开放(本地默认)")
         check(c.get("/api/status").status_code == 200, "/api/status 开放(200)")
 
-        print("\n【2】设了 HESTIA_API_KEY:/api/* 受保护")
-        os.environ["HESTIA_API_KEY"] = "secret-123"
+        print("\n【2】设了 SNOWFOXCLAW_API_KEY:/api/* 受保护")
+        os.environ["SNOWFOXCLAW_API_KEY"] = "secret-123"
         check(c.get("/api/status").status_code == 401, "无 X-API-Key → 401")
         check(c.get("/api/status", headers={"X-API-Key": "wrong"}).status_code == 401,
               "错误 key → 401")
@@ -67,7 +67,7 @@ def main():
         check(r_root.status_code in (200, 404), f"/ 非 401(前端不被 key 挡, {r_root.status_code})")
 
         print("\n【5】撤销 key → 恢复开放")
-        os.environ.pop("HESTIA_API_KEY", None)
+        os.environ.pop("SNOWFOXCLAW_API_KEY", None)
         check(c.get("/api/status").status_code == 200, "撤 key 后 /api/status 恢复开放")
 
     print("\n" + "=" * 56)

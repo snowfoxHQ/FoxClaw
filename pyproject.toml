@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hestia-os"
+name = "snowfoxclaw"
 version = "0.1.0"
-description = "Hestia OS - Cognitive Agent Operating System built on HMR"
+description = "Snowfoxclaw - Cognitive Agent Operating System built on HMR"
 requires-python = ">=3.11"
 
 # 依赖以本表为唯一来源(CI 用 `pip install -e .` 安装,不再手写第二份清单)。
@@ -45,8 +45,8 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-# 只把主包 hestia 纳入安装;vendor/、tests/、frontend/ 等以仓库相对路径使用,不入包。
-include = ["hestia*"]
+# 只把主包 snowfoxclaw 纳入安装;vendor/、tests/、frontend/ 等以仓库相对路径使用,不入包。
+include = ["snowfoxclaw*"]
 
 [project.optional-dependencies]
 dev = [
@@ -65,7 +65,7 @@ dev = [
 # 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
 # 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
 browser = ["playwright>=1.44.0"]
-# Google Gemini provider。model_router 在 HESTIA_PROVIDER=google 时才惰性 import
+# Google Gemini provider。model_router 在 SNOWFOXCLAW_PROVIDER=google 时才惰性 import
 # google.generativeai;未装则该分支 ImportError(其余 provider 不受影响)。此前只在
 # 文档里写「pip install google-generativeai」,依赖表无对应声明,属 R1 检测出的缺口。
 gemini = ["google-generativeai>=0.8"]
@@ -108,7 +108,7 @@ check_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # S2 迁移完成:全部 76 个测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
-# 注意:网关/内置MCP/流式限流等少数测试依赖模块级单例(HESTIA_GATEWAY、HESTIA_MCP_SERVER、
+# 注意:网关/内置MCP/流式限流等少数测试依赖模块级单例(SNOWFOXCLAW_GATEWAY、SNOWFOXCLAW_MCP_SERVER、
 # _STREAM_LIMITER 均在 import 时按 env 固化),单进程 `pytest tests/` 会让这些单例被首个
 # import 定死、相互污染。故全量执行统一走 tests/run_all.py(每个文件独立子进程
 # `python -m pytest <file> -q` 隔离)。本白名单确保任意单文件可被 pytest 收集/运行。
@@ -200,7 +200,7 @@ python_files = [
 addopts = "-q"
 
 [tool.coverage.run]
-source = ["hestia"]
+source = ["snowfoxclaw"]
 # 全量回归走 run_all.py(每文件独立子进程),coverage 需 parallel 模式:每个子进程各写一份
 # .coverage,最后 `coverage combine` 合并成基线。patch=["subprocess"] 让 coverage run 设置
 # COVERAGE_PROCESS_CONFIG 环境变量,子进程经 coverage 的 sitecustomize(.pth)自动测量,

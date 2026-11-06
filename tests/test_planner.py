@@ -15,7 +15,7 @@ from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.planning import planner as P
+from snowfoxclaw.planning import planner as P
 
 
 def test_primitives():
@@ -55,27 +55,27 @@ def test_trigger_route_engine():
 def test_three_sites_delegate():
     print("\n【3】三处委托同一引擎(单一真源)")
     # AHS
-    from hestia.skills import build_default_registry
-    from hestia.skills.pipeline import route, plan
+    from snowfoxclaw.skills import build_default_registry
+    from snowfoxclaw.skills.pipeline import route, plan
     reg = build_default_registry()
     assert route("不要计算", reg).primary != "calculator", "AHS route 否定生效"
     assert len(plan("先算 5+5 然后再算 9*9", reg).tasks) == 2, "AHS plan 拆解"
     # search
-    from hestia.search.planner import QueryPlanner
+    from snowfoxclaw.search.planner import QueryPlanner
     sub = QueryPlanner()._decompose("查A，查B、查C")
     assert len(sub) == 3, "search 拆解走共享原语"
     # supervisor(用引擎的 keyword_hits;此处直接验证原语等价)
     assert P.keyword_hits("买基金理财", ["理财", "基金", "收支"]) == 2
-    print("  ✓ AHS / search / 主管 三处均由 hestia.planning 单一真源驱动")
+    print("  ✓ AHS / search / 主管 三处均由 snowfoxclaw.planning 单一真源驱动")
 
 
 def test_dedup_structural():
     print("\n【4】结构去重:pipeline 不再持有本地 _negated/_split_on")
-    import hestia.skills.pipeline as pipe
+    import snowfoxclaw.skills.pipeline as pipe
     assert not hasattr(pipe, "_negated"), "pipeline 应删除本地 _negated(改用共享)"
     assert not hasattr(pipe, "_split_on"), "pipeline 应删除本地 _split_on(改用共享)"
     assert not hasattr(pipe, "_NEGATIONS"), "pipeline 应删除本地 _NEGATIONS 常量"
-    print("  ✓ pipeline 的重复否定/拆分实现已删除,收敛到 hestia.planning")
+    print("  ✓ pipeline 的重复否定/拆分实现已删除,收敛到 snowfoxclaw.planning")
 
 
 def main():

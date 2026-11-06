@@ -11,11 +11,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 )
 def test_routing():
     for k in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GOOGLE_API_KEY",
-              "DASHSCOPE_API_KEY", "HESTIA_MODEL", "HESTIA_MODEL_FAST", "HESTIA_MODEL_SMART",
-              "HESTIA_PROVIDER"]:
+              "DASHSCOPE_API_KEY", "SNOWFOXCLAW_MODEL", "SNOWFOXCLAW_MODEL_FAST", "SNOWFOXCLAW_MODEL_SMART",
+              "SNOWFOXCLAW_PROVIDER"]:
         os.environ.pop(k, None)
 
-    from hestia.core.model_router import ModelRouter, _route_tier, _tier_model
+    from snowfoxclaw.core.model_router import ModelRouter, _route_tier, _tier_model
 
     print("=" * 60); print("任务感知模型路由 + fallback 链验证"); print("=" * 60)
 
@@ -28,7 +28,7 @@ def test_routing():
     print("[1] 任务→档 + 档→模型 OK")
 
     # [2] 按任务/Agent 选档
-    os.environ["HESTIA_PROVIDER"] = "deepseek"; os.environ["DEEPSEEK_API_KEY"] = "x"
+    os.environ["SNOWFOXCLAW_PROVIDER"] = "deepseek"; os.environ["DEEPSEEK_API_KEY"] = "x"
     r = ModelRouter()
     assert r.provider == "deepseek"
     assert r._model_for("deepseek", "supervisor", [{"role": "user", "content": "x"}]) == "deepseek-chat"

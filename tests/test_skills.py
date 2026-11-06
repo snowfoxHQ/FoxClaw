@@ -11,18 +11,18 @@ Skill 接入层测试 — 助手的万能工具箱 + 对外生态兼容层
 import sys, os, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-os.environ["HESTIA_SHADOW_ROUNDS"] = "50"
+os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "50"
 
 import asyncio
-from hestia import HestiaOS
+from snowfoxclaw import Snowfoxclaw
 
 
 async def main():
     print("=" * 60)
     print("Skill 接入层 · 助手万能工具箱 + 对外兼容层")
     print("=" * 60)
-    _data = tempfile.mkdtemp(prefix="hestia_skill_")   # 系统临时目录,不污染仓库根
-    os_ = HestiaOS(data_dir=_data, shadow_rounds=50)
+    _data = tempfile.mkdtemp(prefix="snowfoxclaw_skill_")   # 系统临时目录,不污染仓库根
+    os_ = Snowfoxclaw(data_dir=_data, shadow_rounds=50)
     asst = os_.assistant
 
     # 1. 列出可用 skill
@@ -63,7 +63,7 @@ async def main():
 
     # 6. 深审回归:HookManager.audit_log 有界(长跑不泄漏)
     print("\n【6】深审回归:钩子审计日志有界(长跑不泄漏)")
-    from hestia.skills.lifecycle import HookManager
+    from snowfoxclaw.skills.lifecycle import HookManager
     hm = HookManager(audit_limit=100)
     hm.register("after_tool_call", lambda ctx: {}, name="probe")
     for _ in range(5000):
@@ -87,7 +87,7 @@ def test_calc_hardening():
     针对 2026-10-25 新增的几道闸 —— 旧实现只有字符白名单,
     而白名单挡得住"取名字/取属性",挡不住 `9**9**9` 在 eval 阶段跑满 CPU 与内存。
     """
-    from hestia.skills import _demo_calc
+    from snowfoxclaw.skills import _demo_calc
 
     # 正常路径不受影响
     assert _demo_calc("50*2")["result"] == 100

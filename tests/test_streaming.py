@@ -5,15 +5,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def test_streaming():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
-    os.environ["HESTIA_STREAM_RATE"] = "1"   # 令牌桶=1,测限流
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_stream_")
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
+    os.environ["SNOWFOXCLAW_STREAM_RATE"] = "1"   # 令牌桶=1,测限流
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_stream_")
 
     print("=" * 60); print("LLM 流式输出验证"); print("=" * 60)
 
     # 1) router.stream(stub 模式):分块拼接 == 完整文本、多块
-    from hestia.core.model_router import ModelRouter
+    from snowfoxclaw.core.model_router import ModelRouter
     r = ModelRouter()   # 无 key → stub
     chunks = list(r.stream("sys", [{"role": "user", "content": "你好世界这是一段用于测试流式分块的文本"}]))
     assert len(chunks) > 1, f"应多块: {len(chunks)}"
@@ -22,7 +22,7 @@ def test_streaming():
 
     # 2) /api/chat/stream SSE:多个 delta + done 收尾
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
     with TestClient(app) as c:
         with c.stream("POST", "/api/chat/stream",
                       json={"task": "简单介绍一下你自己", "agent_id": "assistant"}) as resp:

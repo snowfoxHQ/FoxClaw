@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def test_config_layering():
     print("=" * 60); print("E1 分层配置验证"); print("=" * 60)
 
-    from hestia.core.config import LayeredConfig, load_policy_layer
+    from snowfoxclaw.core.config import LayeredConfig, load_policy_layer
 
     # 1) LayeredConfig:标量高层覆盖;集合三层并集(只增不减);policy_locked
     cfg = LayeredConfig(policy={"model": "P", "deny": ["a"]},
@@ -22,7 +22,7 @@ def test_config_layering():
     # 2) load_policy_layer:env + policy.json 合并;默认空
     d = tempfile.mkdtemp(prefix="e1_")
     try:
-        os.environ["HESTIA_POLICY_DENY"] = "gmail_send, danger_tool"
+        os.environ["SNOWFOXCLAW_POLICY_DENY"] = "gmail_send, danger_tool"
         (Path(d) / "policy.json").write_text(json.dumps({"deny": ["file_delete"]}), encoding="utf-8")
         pl = load_policy_layer(d)
         assert set(pl["deny"]) == {"gmail_send", "danger_tool", "file_delete"}, pl
@@ -31,7 +31,7 @@ def test_config_layering():
         # 3) SkillPolicy:policy 层 deny 生效 + undeny 撤不掉 + 从盘 user deny 生效(引用未断) + user 可撤
         (Path(d) / "skill_policy.json").write_text(
             json.dumps({"deny": ["user_denied"], "allow": []}), encoding="utf-8")
-        from hestia.skills.policy import SkillPolicy
+        from snowfoxclaw.skills.policy import SkillPolicy
         pol = SkillPolicy(d)
         assert pol.is_blocked("gmail_send") is True, "policy 层 deny 生效"
         assert pol.is_blocked("user_denied") is True, "从盘加载的 user deny 生效(_load 就地更新、引用未断)"
@@ -42,13 +42,13 @@ def test_config_layering():
         assert set(snap["policy_deny"]) == {"gmail_send", "danger_tool", "file_delete"}, snap
         print("[3] SkillPolicy:policy 层不可 undeny + user 层可撤 + 从盘 user deny 生效 OK")
     finally:
-        os.environ.pop("HESTIA_POLICY_DENY", None)
+        os.environ.pop("SNOWFOXCLAW_POLICY_DENY", None)
         shutil.rmtree(d, ignore_errors=True)
 
     # 4) behavior-preserving:无 policy 层(无 env、无 policy.json)→ SkillPolicy 行为 = 现状
     d2 = tempfile.mkdtemp(prefix="e1b_")
     try:
-        from hestia.skills.policy import SkillPolicy
+        from snowfoxclaw.skills.policy import SkillPolicy
         pol2 = SkillPolicy(d2)
         assert pol2.is_blocked("anything") is False, "无 policy 层 + 无 user deny → 不拦"
         pol2.deny("x"); assert pol2.is_blocked("x") is True

@@ -1,15 +1,15 @@
-cd# Hestia OS · 认知智能体操作系统
+cd# Snowfoxclaw · 认知智能体操作系统
 
 **认知 Agent 操作系统** —— 以 HMR 记忆运行时为内核,五个智能体协同,Harness 跨层治理,记忆/认知层与 LLM 彻底解耦。
 
 ```
 传统智能体框架:  记忆 = 存储,        智能体 = 无状态执行
-Hestia OS:        记忆 = 持续认知运行时,智能体 = 会推理 · 会学习 · 会演化
+Snowfoxclaw:        记忆 = 持续认知运行时,智能体 = 会推理 · 会学习 · 会演化
 ```
 
 ## 一、这是什么
 
-Hestia OS 不是"又一个智能体框架",而是智能体的操作系统。它建立在 HMR(Hestia 记忆运行时)之上,核心护城河独立于任何大模型:
+Snowfoxclaw 不是"又一个智能体框架",而是智能体的操作系统。它建立在 HMR(Snowfoxclaw 记忆运行时)之上,核心护城河独立于任何大模型:
 
 - **推理链(ThoughtChain)** —— 每个智能体的推理轨迹是可审计、可对比的有向图,不是普通日志
 - **线束(Harness)** —— 跨层约束与校准:三维漂移检测(语义/工具/范围)+ 影子模式自校准 + 策略自学习
@@ -60,11 +60,11 @@ Hestia OS 不是"又一个智能体框架",而是智能体的操作系统。它�
 ## 五、目录结构
 
 ```
-hestia_os/
+snowfoxclaw/
 ├── README.md / README_CN.md      项目总览(英 / 中)
 ├── pyproject.toml
-├── hestia/                       后端 Python 包
-│   ├── __init__.py               HestiaOS 系统入口(装配所有子系统)
+├── snowfoxclaw/                       后端 Python 包
+│   ├── __init__.py               Snowfoxclaw 系统入口(装配所有子系统)
 │   ├── api.py                    FastAPI + WebSocket
 │   ├── core/                     thought_chain / memory_adapter / model_router /
 │   │                             system_bus / truth_pipeline / token_meter /
@@ -92,7 +92,7 @@ hestia_os/
 ## 六、环境要求
 
 - **Python 3.11 及以上**(3.12 最稳定)
-- ⚠ **Windows 用户**:不要把项目放在 OneDrive 接管的目录(文档/桌面/图片),Python 无法在重定向占位符里建目录。放到 `C:\hestia_os` 这类简单路径。
+- ⚠ **Windows 用户**:不要把项目放在 OneDrive 接管的目录(文档/桌面/图片),Python 无法在重定向占位符里建目录。放到 `C:\snowfoxclaw` 这类简单路径。
 
 ## 七、快速开始
 
@@ -109,25 +109,25 @@ python tests/run_all.py        # 全量回归(全绿)
 
 # 4. 启动服务(配 key 则真实调模型,不配则 stub)
 export DEEPSEEK_API_KEY=sk-...  # 或 ANTHROPIC_API_KEY;Windows: $env:DEEPSEEK_API_KEY="sk-..."
-python -m uvicorn hestia.api:app --port 8000
+python -m uvicorn snowfoxclaw.api:app --port 8000
 ```
 
 详见 [docs/RUN_CN.md](docs/RUN_CN.md)。
 
 ### 开发常用命令(Windows / PowerShell 一行重启)
 
-开发期改完 `.env`、装了新包、调了后端代码,都要重启 hestia 让改动生效。**最简一行函数**,配一次永远省事:
+开发期改完 `.env`、装了新包、调了后端代码,都要重启 snowfoxclaw 让改动生效。**最简一行函数**,配一次永远省事:
 
 ```powershell
 # ① 打开 PowerShell 启动脚本(只首次)
 notepad $PROFILE
 
 # ② 文件末尾粘这段,保存退出
-function restart-hestia {
+function restart-snowfoxclaw {
   $p=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess
   if($p){Stop-Process -Id $p -Force; Start-Sleep 1}
-  Set-Location C:\Users\snow\projects\hestiaOS
-  python -m uvicorn hestia.api:app --port 8000
+  Set-Location C:\Users\snow\projects\Snowfoxclaw
+  python -m uvicorn snowfoxclaw.api:app --port 8000
 }
 
 # ③ 重开 PowerShell 让配置生效(只在改了 $PROFILE 后需要)
@@ -137,7 +137,7 @@ exit
 之后**任何目录、任何时候**,一行搞定:
 
 ```powershell
-restart-hestia   # 自动杀旧进程 → 切项目根 → 起新服务
+restart-snowfoxclaw   # 自动杀旧进程 → 切项目根 → 起新服务
 ```
 
 如果 `notepad $PROFILE` 报"无法加载脚本",先放宽执行策略:
@@ -148,34 +148,34 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 | 场景 | 命令 |
 |---|---|
-| 改完 `.env` 要生效 | `restart-hestia` |
-| 装了新 pip 包 | `restart-hestia` |
-| 改完 `hestia/*.py` | `restart-hestia` |
+| 改完 `.env` 要生效 | `restart-snowfoxclaw` |
+| 装了新 pip 包 | `restart-snowfoxclaw` |
+| 改完 `snowfoxclaw/*.py` | `restart-snowfoxclaw` |
 | 只想杀旧实例 | `$p=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess; if($p){Stop-Process -Id $p -Force}` |
-| 想边改边自动重启 | `python -m uvicorn hestia.api:app --port 8000 --reload`(开发期才用,生产关掉) |
+| 想边改边自动重启 | `python -m uvicorn snowfoxclaw.api:app --port 8000 --reload`(开发期才用,生产关掉) |
 
 ### 方式二 · Docker 部署
 
 ```bash
 # 构建镜像(含依赖 + 默认 embedding 预热,首次构建较慢、镜像较大)
-docker build -t hestia-os .
+docker build -t snowfoxclaw .
 
 # 启动服务(密钥经 --env-file 注入,勿写进镜像)
-docker run -d --name hestia-os \
+docker run -d --name snowfoxclaw \
   -p 8000:8000 \
   --env-file .env \
-  -v hestia_data:/app/hestia_data \
-  hestia-os
+  -v snowfoxclaw_data:/app/snowfoxclaw_data \
+  snowfoxclaw
 
 # 容器内跑全量回归(76 项,验证镜像健康)
-docker run --rm hestia-os python tests/run_all.py
+docker run --rm snowfoxclaw python tests/run_all.py
 ```
 
 要点:
 
-- 默认命令为 `uvicorn hestia.api:app`,监听 `8000`;未配 `HESTIA_API_KEY` 时无鉴权,仅限回环安全。
-- 数据目录 `HESTIA_DATA_DIR`(默认 `./hestia_data`)建议挂 volume 持久化。
-- 密钥经 `--env-file .env` 或 `-e HESTIA_API_KEY=...` 注入;`.dockerignore` 已排除 `.env`,不会被打进镜像。
+- 默认命令为 `uvicorn snowfoxclaw.api:app`,监听 `8000`;未配 `SNOWFOXCLAW_API_KEY` 时无鉴权,仅限回环安全。
+- 数据目录 `SNOWFOXCLAW_DATA_DIR`(默认 `./snowfoxclaw_data`)建议挂 volume 持久化。
+- 密钥经 `--env-file .env` 或 `-e SNOWFOXCLAW_API_KEY=...` 注入;`.dockerignore` 已排除 `.env`,不会被打进镜像。
 
 ## 八、知识库(HKC)模型配置
 
@@ -242,7 +242,7 @@ HKC_EMBEDDING_MODEL=BAAI/bge-m3          # 首次自动下载(约 2.2GB);或填�
 
 - **`.env` 是权威来源** —— 启动时读取,改完重启生效。
 - 星球页「连接设置」里的「知识抽取模型」段是**可选的运行时覆盖**(存浏览器 localStorage,刷新可能覆盖 .env);想始终以 .env 为准,那段留空即可。
-- 页面第一个「API Key」是访问后端的鉴权通行证(= `.env` 的 `HESTIA_API_KEY`),与模型 key 无关。
+- 页面第一个「API Key」是访问后端的鉴权通行证(= `.env` 的 `SNOWFOXCLAW_API_KEY`),与模型 key 无关。
 
 > 提示:换 embedding 模型会改变向量维度(如 384→1024),需重建知识库索引(清空后重新摄入)。
 

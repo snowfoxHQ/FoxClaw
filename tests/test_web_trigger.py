@@ -1,6 +1,6 @@
 """联网触发判定:个人数据问题绝不联网,外部世界问题正常联网。
 
-背景(链路追踪抓出来的真 bug):原先纯时间词(今天/本月/最近…)也算触发,而 HestiaOS 的
+背景(链路追踪抓出来的真 bug):原先纯时间词(今天/本月/最近…)也算触发,而 Snowfoxclaw 的
 领域(个人财务/行程/学习)天生满是时间词 → 「分析一下本月支出」这类**问自己账本**的任务
 被误判为需联网,白跑 ~22s 的付费深度搜索。错搜代价远大于漏搜,故改为:
 个人数据否决 > 外部话题触发 > 纯时间词不触发。
@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_web_trigger():
-    from hestia.core.web_search import (needs_search, TOPIC_TRIGGERS,
+    from snowfoxclaw.core.web_search import (needs_search, TOPIC_TRIGGERS,
                                         TIME_WORDS)
 
     print("=" * 60); print("联网触发判定验证"); print("=" * 60)
@@ -60,10 +60,10 @@ def test_web_trigger():
     #     真实教训:这条保护原先只写在 needs_search 里;技能派发默认开启后,
     #     「查一下最新的本月支出」经**技能路由**照样把私人财务问题发去 external 的 web_search
     #     —— 同一个 bug 从没设防的旁路回来了,还多了数据外泄。
-    from hestia.core.web_search import is_personal_query
-    from hestia.pipeline import stage_route
-    from hestia.pipeline.cognitive_pipeline import PipelineContext
-    from hestia.skills import build_default_registry
+    from snowfoxclaw.core.web_search import is_personal_query
+    from snowfoxclaw.pipeline import stage_route
+    from snowfoxclaw.pipeline.cognitive_pipeline import PipelineContext
+    from snowfoxclaw.skills import build_default_registry
 
     assert is_personal_query("查一下最新的本月支出") is True
     assert is_personal_query("查一下最新新闻") is False

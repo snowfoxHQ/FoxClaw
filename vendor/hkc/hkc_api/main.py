@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Hestia Knowledge Core API",
+    title="Snowfoxclaw Knowledge Core API",
     description="知识从存储进化成能力。KDE 摄入 → KEE 演化 → ACE 编译 → Search 检索。",
     version="1.0.0",
     lifespan=lifespan,
@@ -119,7 +119,7 @@ app.include_router(config.router)
 @app.get("/")
 def root():
     return {
-        "name":    "Hestia Knowledge Core",
+        "name":    "Snowfoxclaw Knowledge Core",
         "version": "1.0.0",
         "docs":    "/docs",
         "modules": ["KDE", "KEE", "ACE", "Search"],

@@ -30,19 +30,19 @@ def check(cond, label):
         print(f"  ✗ {label}")
 
 
-# 测试环境自洽:不读 .env,不打外部 API,不写真实数据目录(在任何 hestia import 之前)
-os.environ["HESTIA_SKIP_DOTENV"] = "1"
-os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
-os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_b7_")
+# 测试环境自洽:不读 .env,不打外部 API,不写真实数据目录(在任何 snowfoxclaw import 之前)
+os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
+os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
+os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_b7_")
 for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "HESTIA_API_KEY"):
+           "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "SNOWFOXCLAW_API_KEY"):
     os.environ[_k] = ""
 
 
 # ═══════════════ [1][2] P3-1 / P3-8 辅助函数行为 ═══════════════
 def test_helpers():
     print("\n【1】P3-1:_constant_time_eq 常量时间比较")
-    from hestia.api import _constant_time_eq, _is_guarded_path
+    from snowfoxclaw.api import _constant_time_eq, _is_guarded_path
     check(_constant_time_eq("abc", "abc") is True, "相同字符串相等")
     check(_constant_time_eq("abc", "abd") is False, "末位不同不等")
     check(_constant_time_eq("abc", "abcd") is False, "长度不同不等")
@@ -63,7 +63,7 @@ def test_helpers():
 # ═══════════════ [3] P3-1+P3-8 接线防退化(源码级) ═══════════════
 def test_wiring_source():
     print("\n【3】P3-1+P3-8 接线防退化:中间件/WS 统一走辅助函数(源码级断言)")
-    import hestia.api as api_mod
+    import snowfoxclaw.api as api_mod
 
     src_guard = inspect.getsource(api_mod._api_key_guard)
     check("_is_guarded_path(path)" in src_guard, "_api_key_guard 用 _is_guarded_path")
@@ -86,7 +86,7 @@ def test_wiring_source():
 # ═══════════════ [4] P3-7 isinstance 异常分类 ═══════════════
 def _run_ability_with(exc):
     """用抛指定异常的假 HKC 驱动 knowledge_ability 端点,返回 (status, body)。"""
-    import hestia.api as api_mod
+    import snowfoxclaw.api as api_mod
     from types import SimpleNamespace
 
     class _Client:
@@ -111,7 +111,7 @@ def _run_ability_with(exc):
 
 def test_ability_isinstance():
     print("\n【4】P3-7:knowledge_ability 异常分类(isinstance 精确 + 回退)")
-    import hestia.api as api_mod
+    import snowfoxclaw.api as api_mod
 
     check(api_mod._HKCInsuffCov is not None, "vendor 下 hkc_sdk.exceptions 可 import")
 
@@ -163,8 +163,8 @@ class _MockHMR:
 
 
 def _make_pipeline():
-    from hestia.core.system_bus import SystemBus
-    from hestia.core.truth_pipeline import TruthPipeline
+    from snowfoxclaw.core.system_bus import SystemBus
+    from snowfoxclaw.core.truth_pipeline import TruthPipeline
     bus = SystemBus()
     events = []
     for ch in ("trace.recorded", "truth.appended", "truth.skipped", "memory.updated"):
@@ -213,7 +213,7 @@ def test_truth_system_attribution():
 # ═══════════════ [7] P3-6/P4-1 SystemBus exact ═══════════════
 def test_system_bus_exact():
     print("\n【7】P3-6/P4-1:SystemBus exact 参数")
-    from hestia.core.system_bus import SystemBus
+    from snowfoxclaw.core.system_bus import SystemBus
 
     bus = SystemBus()
     received = []
@@ -255,7 +255,7 @@ def test_system_bus_exact():
 # ═══════════════ [8] P5-3 _transition 终态守卫 ═══════════════
 def test_transition_terminal_guard():
     print("\n【8】P5-3:ProcessManager._transition 终态守卫")
-    from hestia.kernel.process_manager import ProcessManager
+    from snowfoxclaw.kernel.process_manager import ProcessManager
     pm = ProcessManager()
     rec = pm.create("t1", agent_id="test")
     pm.mark_running(rec.process_id)
@@ -279,8 +279,8 @@ def test_transition_terminal_guard():
 # ═══════════════ [9] P5-1 reason_code ═══════════════
 def test_reason_code():
     print("\n【9】P5-1:PermissionDecision.reason_code 分类")
-    from hestia.skills import SkillSpec
-    from hestia.skills.permission import (
+    from snowfoxclaw.skills import SkillSpec
+    from snowfoxclaw.skills.permission import (
         evaluate, PermissionRules, MISSING_PARAMS, DESTRUCTIVE_CONFIRM,
         SIDE_EFFECT_CONFIRM, ASK_RULE, EXTERNAL_CONFIRM)
 

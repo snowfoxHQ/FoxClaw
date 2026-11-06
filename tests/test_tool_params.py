@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.core.tools import default_registry, tool_capability
-from hestia.skills.permission import evaluate
+from snowfoxclaw.core.tools import default_registry, tool_capability
+from snowfoxclaw.skills.permission import evaluate
 
 
 def check(cond, msg):
@@ -81,7 +81,7 @@ def main():
 
     print("\n【6】参数解析失败不再静默(args_parse_failed 标记存在)")
     import inspect
-    from hestia.core.model_router import ModelRouter
+    from snowfoxclaw.core.model_router import ModelRouter
     # 检查整个类:标记可能随重构从 call_tools 移到 _call_openai_tools 等子方法,
     # 锁「类内存在该标记」而非锁某个方法名(避免重构后误报)。
     src = inspect.getsource(ModelRouter)

@@ -1,8 +1,8 @@
 /* ═══════ 球体特效开关:默认关,需要时手动开 ═══════
    ─ 手动开(任一即生效):
      1) URL 加 ?visual=1                            临时(本次会话)
-     2) localStorage.hestia_visual = "1"            永久
-     3) 设置 → 界面偏好 → 背景全息球动画 勾选      永久(写 localStorage.hestia_lowpower=0,兼容旧 toggle)
+     2) localStorage.snowfoxclaw_visual = "1"            永久
+     3) 设置 → 界面偏好 → 背景全息球动画 勾选      永久(写 localStorage.snowfoxclaw_lowpower=0,兼容旧 toggle)
    ─ 系统级默认关(无需操作):
      4) matchMedia('(prefers-reduced-motion: reduce)').matches
      5) navigator.connection.saveData === true
@@ -11,8 +11,8 @@ const _lowpower = (() => {
   try {
     // 显式开:URL / localStorage / 旧版 toggleBallAnim
     if (new URLSearchParams(location.search).get('visual') === '1') return false;
-    if (localStorage.getItem('hestia_visual') === '1') return false;
-    if (localStorage.getItem('hestia_lowpower') === '0') return false;   // 兼容旧版开关
+    if (localStorage.getItem('snowfoxclaw_visual') === '1') return false;
+    if (localStorage.getItem('snowfoxclaw_lowpower') === '0') return false;   // 兼容旧版开关
     // 显式关:URL ?low=1 仍生效(应急)
     if (new URLSearchParams(location.search).get('low') === '1') return true;
     // 系统级 → 关
@@ -21,15 +21,15 @@ const _lowpower = (() => {
   } catch {}
   return true;   // ← 默认:不启动(保护 GPU + 启动秒开)
 })();
-window._hestiaLowpower = _lowpower;   // 暴露给其他模块读
-// 暴露切换 API(控制台手动开:  hestiaVisual.on()  /  永久关:  hestiaVisual.off()  /  状态:  hestiaVisual.isOn())
-window.hestiaVisual = {
+window._snowfoxclawLowpower = _lowpower;   // 暴露给其他模块读
+// 暴露切换 API(控制台手动开:  snowfoxclawVisual.on()  /  永久关:  snowfoxclawVisual.off()  /  状态:  snowfoxclawVisual.isOn())
+window.snowfoxclawVisual = {
   isOn: () => !_lowpower,
-  on()  { try { localStorage.setItem('hestia_visual', '1'); } catch{} location.reload(); },
-  off() { try { localStorage.removeItem('hestia_visual'); localStorage.setItem('hestia_lowpower', '1'); } catch{} location.reload(); },
+  on()  { try { localStorage.setItem('snowfoxclaw_visual', '1'); } catch{} location.reload(); },
+  off() { try { localStorage.removeItem('snowfoxclaw_visual'); localStorage.setItem('snowfoxclaw_lowpower', '1'); } catch{} location.reload(); },
   toggle() { this.isOn() ? this.off() : this.on(); },
 };
-if (_lowpower) console.info('[hestia] 球体特效已关闭(默认) — 想看动画:控制台跑 hestiaVisual.on() 或 URL 加 ?visual=1');
+if (_lowpower) console.info('[snowfoxclaw] 球体特效已关闭(默认) — 想看动画:控制台跑 snowfoxclawVisual.on() 或 URL 加 ?visual=1');
 function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关闭模式直接 noop
   if (_lowpower) return () => {};
   let last = 0; const gap = 1000 / fps;

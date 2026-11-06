@@ -3,13 +3,13 @@
 
 它解决什么问题
 --------------
-P0-3 定义了「谁能往共享层写什么」的策略表(hestia/core/shared_write.py),但它默认跑在
+P0-3 定义了「谁能往共享层写什么」的策略表(snowfoxclaw/core/shared_write.py),但它默认跑在
 audit 模式 —— 只记录、不拦截。切到 enforce 之前必须先回答一个问题:
 
     这份策略表在**真实调用路径**上,到底会不会误判?
 
 单测(tests/test_shared_write.py)用 Mock 后端验证了策略函数本身;本工具补的是端到端
-那一层:走**真实 HestiaOS 装配**(真实 HMRAdapter + 真实 EventSpine + 真实 Agent),
+那一层:走**真实 Snowfoxclaw 装配**(真实 HMRAdapter + 真实 EventSpine + 真实 Agent),
 用 8 处**真实写入点的原样参数**跑一遍,确认零误伤;再用越界探针确认真的拦得住。
 
 用法
@@ -20,8 +20,8 @@ audit 模式 —— 只记录、不拦截。切到 enforce 之前必须先回答
 
 退出码:0 = 全部符合预期;1 = 有偏离(详见输出)
 
-数据安全:默认在临时目录建实例,不碰 ./hestia_data;不加载项目 .env(本工具不 import
-hestia.api,而 load_dotenv 只发生在那里)。
+数据安全:默认在临时目录建实例,不碰 ./snowfoxclaw_data;不加载项目 .env(本工具不 import
+snowfoxclaw.api,而 load_dotenv 只发生在那里)。
 """
 
 from __future__ import annotations
@@ -59,9 +59,9 @@ def check(cond: bool, msg: str) -> bool:
 
 # ── 8 处真实共享写入点(参数照抄调用点,勿凭记忆改写) ────────────────────
 # 用于「零误伤」验收:这些在 enforce 下都必须放行,否则就是策略表错了。
-#   hestia/agents/agents.py:269 / :390 / :468 / :509 / :594 / :631  (主管,6 处)
-#   hestia/agents/base.py:779                                     (偏好,各 Agent)
-#   hestia/core/truth_pipeline.py:86                              (真值,写入方 system)
+#   snowfoxclaw/agents/agents.py:269 / :390 / :468 / :509 / :594 / :631  (主管,6 处)
+#   snowfoxclaw/agents/base.py:779                                     (偏好,各 Agent)
+#   snowfoxclaw/core/truth_pipeline.py:86                              (真值,写入方 system)
 _WHO_ANY = ("supervisor", "finance", "office", "admin", "assistant")
 LEGITIMATE = [
     ("supervisor", "decision",    ["dispatch", "multi_step", "to:finance"], "多步记录", "主管多步分发"),
@@ -98,7 +98,7 @@ def audit_case(hmr, agent_id, mem_type, tags, content,
     同样以 allowed=False 记在事件里)。按事件数**增量**取本次那条,避免某次写入未产生
     事件时误读上一次的结果 —— 那会让该断言变成"永远通过"的假断言。
     """
-    from hestia.core.shared_write import SharedWriteDenied
+    from snowfoxclaw.core.shared_write import SharedWriteDenied
     spine = hmr.shared_write_spine
     before = len(spine.history("memory.shared.write", 100000))
     try:
@@ -122,16 +122,16 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="保留临时数据目录")
     args = ap.parse_args()
 
-    os.environ["HESTIA_SHARED_WRITE_MODE"] = args.mode
-    data_dir = tempfile.mkdtemp(prefix="hestia_swa_")
+    os.environ["SNOWFOXCLAW_SHARED_WRITE_MODE"] = args.mode
+    data_dir = tempfile.mkdtemp(prefix="snowfoxclaw_swa_")
 
     print("=" * 66)
     print(f"P0-3 共享层写入策略 · 端到端验收   [模式={args.mode}]")
     print("=" * 66)
 
     try:
-        from hestia import HestiaOS
-        osi = HestiaOS(data_dir=data_dir, shadow_rounds=5)
+        from snowfoxclaw import Snowfoxclaw
+        osi = Snowfoxclaw(data_dir=data_dir, shadow_rounds=5)
 
         # ── 1. 装配自检:闸门真的接上了吗?没挂上则后面全是在测空气 ──
         print("\n【1】装配自检")
@@ -186,12 +186,12 @@ def main() -> int:
         print(f"✓ 验收通过:{_TOTAL}/{_TOTAL} 项符合预期")
         if args.mode != "enforce":
             print("\n下一步(灰度推进):")
-            print("  ① 先切 warn 观察真实流量:  HESTIA_SHARED_WRITE_MODE=warn")
+            print("  ① 先切 warn 观察真实流量:  SNOWFOXCLAW_SHARED_WRITE_MODE=warn")
             print("     —— 越界写入会被打出告警,但**不拦截**,不影响任何现有功能。")
             print("  ② 观察期内查审计事件,逐条判读有无「合法的被拒」:")
-            print("     curl -H \"X-API-Key: $HESTIA_API_KEY\" \\")
+            print("     curl -H \"X-API-Key: $SNOWFOXCLAW_API_KEY\" \\")
             print("       'http://127.0.0.1:8000/api/bus/history?channel=memory.shared.write&limit=200'")
-            print("  ③ 确认零误伤后再切实拦截:  HESTIA_SHARED_WRITE_MODE=enforce")
+            print("  ③ 确认零误伤后再切实拦截:  SNOWFOXCLAW_SHARED_WRITE_MODE=enforce")
         return 0
     finally:
         if args.keep:

@@ -15,7 +15,7 @@ import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"   # harness 走 hash,快
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"   # harness 走 hash,快
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
@@ -25,8 +25,8 @@ def main():
     print("=" * 60)
     d = tempfile.mkdtemp(prefix="truth_")
     try:
-        from hestia import HestiaOS
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        from snowfoxclaw import Snowfoxclaw
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         seen = []
         os_.event_spine.project(lambda e: seen.append(e.topic))
 
@@ -55,7 +55,7 @@ def main():
         # 4. 被拦截的直连任务:发 blocked=True、不落共享真值记录、CognitiveState 不崩
         print("\n【4】被拦截的直连任务:blocked=True + 不落共享记录 + 观测不崩")
         import types
-        from hestia.agents.base import HarnessBlockedError
+        from snowfoxclaw.agents.base import HarnessBlockedError
         async def boom(self, task, ctx, sid, mem):
             raise HarnessBlockedError(types.SimpleNamespace(reason="越界"), None)
         os_.finance._execute = types.MethodType(boom, os_.finance)

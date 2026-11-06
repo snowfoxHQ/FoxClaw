@@ -25,13 +25,13 @@ import types
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import hestia.core.web_search as ws
+import snowfoxclaw.core.web_search as ws
 ws.needs_search = lambda q: False      # 自答/兜底路径不触发联网,保持离线
 
-from hestia import HestiaOS
-from hestia.agents.base import CognitiveAgent, HarnessBlockedError
-from hestia.agents.agents import SupervisorAgent
-from hestia.pipeline import SUPERVISOR_STAGES
+from snowfoxclaw import Snowfoxclaw
+from snowfoxclaw.agents.base import CognitiveAgent, HarnessBlockedError
+from snowfoxclaw.agents.agents import SupervisorAgent
+from snowfoxclaw.pipeline import SUPERVISOR_STAGES
 
 EXPECTED_STAGES = ["recall", "meta_check", "schedule", "route", "plan", "dispatch", "replan", "aggregate"]
 
@@ -58,7 +58,7 @@ def main():
           "主管覆盖 _cognitive_pipeline(路由分发走 SUPERVISOR_STAGES)")
     check(_names() == EXPECTED_STAGES, f"主管 stage 序列={EXPECTED_STAGES}(实为 {_names()})")
 
-    os_ = HestiaOS(data_dir=tempfile.mkdtemp(prefix="hestia_svpipe_"))
+    os_ = Snowfoxclaw(data_dir=tempfile.mkdtemp(prefix="snowfoxclaw_svpipe_"))
     os_.router.provider = "stub"        # 共享 router,五 Agent 同源 → 全离线确定性
     os_.router._client = None
     sup = os_.supervisor

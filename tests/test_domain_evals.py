@@ -18,9 +18,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_domain_evals():
-    from hestia.finance import FinanceRuntime
-    from hestia.finance.models import Transaction
-    from hestia.finance.reasoner import FinanceGatekeeperReasoner
+    from snowfoxclaw.finance import FinanceRuntime
+    from snowfoxclaw.finance.models import Transaction
+    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
 
     print("=" * 60); print("领域推理评测(财务守门人)"); print("=" * 60)
 
@@ -114,7 +114,7 @@ def test_domain_evals():
     #     原 `self.rules = list(DEFAULT_RULES)` 只复制列表、不复制规则对象 → 所有 runtime
     #     共享同一批**可变**规则,[3] 里把 pol_bad 阈值压到 100 竟连带把 pol 和模块级
     #     DEFAULT_RULES 一起改了(要重启才恢复)。现已 deepcopy。
-    from hestia.finance.policy import DEFAULT_RULES
+    from snowfoxclaw.finance.policy import DEFAULT_RULES
     p1, p2 = _policy(), _policy()
     r1 = [r for r in p1.rules if r.id == "large_purchase_check"][0]
     r2 = [r for r in p2.rules if r.id == "large_purchase_check"][0]
@@ -133,8 +133,8 @@ def test_domain_evals():
     # 用户点名要的 4 条规则(2026-07-16)。前两条的检测早就实现,只是从不产生裁决。
     # ══════════════════════════════════════════════════════════
     from datetime import datetime, timedelta
-    from hestia.finance.models import Budget
-    from hestia.finance.reasoning import FinanceReasoning as FR
+    from snowfoxclaw.finance.models import Budget
+    from snowfoxclaw.finance.reasoning import FinanceReasoning as FR
 
     def _txn(amount, entity, days_ago=0, category="misc", tags=None):
         return Transaction(amount=amount, category=category, entity=entity, account="default",
@@ -293,7 +293,7 @@ def test_domain_evals():
 
     # [16] 校准不污染模块级出厂默认(自校准直接写 rule.threshold,最容易复发 [4] 那个 bug)
     assert rd.threshold == 500.0, f"校准污染了模块级 DEFAULT_RULES(阈值变成 {rd.threshold})"
-    from hestia.finance.policy import FACTORY_THRESHOLDS
+    from snowfoxclaw.finance.policy import FACTORY_THRESHOLDS
     assert FACTORY_THRESHOLDS["large_purchase_check"] == 500.0, "出厂快照被污染 → 判定基准失效"
     print("[16] 校准不污染模块级出厂默认/出厂快照 OK")
 
@@ -316,7 +316,7 @@ def test_domain_evals():
 
     # [18]【A】月初超支外推不可信 → 不报。overspend_forecast 用 spent/day,day=1 时
     #     一笔正常消费被 ×30 放大成"月底将超支"。前 7 天标 reliable=False,裁决层闭嘴。
-    from hestia.finance.models import Transaction as _T
+    from snowfoxclaw.finance.models import Transaction as _T
     def _jul(day, amt):    # 落在 2026-07 的一笔支出
         return _T(amount=-amt, category="food", entity="午饭", account="default",
                   timestamp=f"2026-07-{day:02d}T12:00:00")
@@ -364,7 +364,7 @@ def test_domain_evals():
     # [21]【E】并发校准无竞态、yaml 不写坏。finance_runtime 是单例,analyze() 会被请求
     #     线程并发调 → apply_calibration 并发改规则+写盘。写锁 + 原子 rename 保证安全。
     import threading as _th
-    from hestia.finance.policy import FinancePolicyEngine
+    from snowfoxclaw.finance.policy import FinancePolicyEngine
     rt21 = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"))
     for t in _real():
         rt21.add_transaction(t, run_gatekeeper=False)

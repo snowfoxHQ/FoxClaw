@@ -11,7 +11,7 @@ import sys, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.pipeline import (
+from snowfoxclaw.pipeline import (
     PipelineContext, CognitivePipeline, DEFAULT_STAGES,
     stage_recall, stage_act, stage_verify)
 
@@ -66,7 +66,7 @@ def test_default_pipeline():
 
 def test_plan_route_stage():
     print("\n【1c】plan/route stage:P1-2 引擎分析结构(informational,不改执行)")
-    from hestia.pipeline import stage_plan, stage_route
+    from snowfoxclaw.pipeline import stage_plan, stage_route
     # 多步任务(顺序连接词)
     ctx = PipelineContext(agent=FakeAgent(), task="先分析支出 然后 给出建议")
     stage_plan(ctx); stage_route(ctx)
@@ -147,8 +147,8 @@ def test_stage_events():
 
 def test_route_skill_optin_inert():
     print("\n【7】A·Step5:route 默认自动选 skill(仅只读+高阈值);可关;有副作用的不自动选")
-    from hestia.pipeline import stage_route
-    from hestia.skills import build_default_registry
+    from snowfoxclaw.pipeline import stage_route
+    from snowfoxclaw.skills import build_default_registry
     reg = build_default_registry()          # 含 calculator(触发词「计算」等)
 
     # (a) 【契约变更 2026-07-16】原为"默认关"(behavior-preserving 放量期)。
@@ -201,7 +201,7 @@ def test_route_skill_optin_inert():
 
 def test_act_skill_dispatch_step2():
     print("\n【8】A·Step2:act 按 ctx.route 经 PolicyGate dispatch skill(opt-in;非成功 fail-safe 无副作用)")
-    from hestia.skills import build_default_registry, SkillAdapter
+    from snowfoxclaw.skills import build_default_registry, SkillAdapter
     reg = build_default_registry()
     adapter = SkillAdapter(reg)
 
@@ -271,9 +271,9 @@ def test_act_skill_dispatch_step2():
 def test_run_task_confirm_suspend_step3():
     print("\n【9】A·Step3:skill needs_confirmation 提升为 run_task 顶层 status + _confirmed 恢复执行")
     import tempfile, shutil
-    from hestia.agents.base import CognitiveAgent
-    from hestia.core.thought_chain import ThoughtChain
-    from hestia.skills import build_default_registry, SkillAdapter, SkillSpec
+    from snowfoxclaw.agents.base import CognitiveAgent
+    from snowfoxclaw.core.thought_chain import ThoughtChain
+    from snowfoxclaw.skills import build_default_registry, SkillAdapter, SkillSpec
 
     class _FakeHMR:
         def recall(self, query="", agent_id=None, top_k=5, **kw): return []
@@ -342,7 +342,7 @@ def test_run_task_confirm_suspend_step3():
 
 def test_reflect_retry_optin():
     print("\n【4】reflect opt-in:漂移超阈值 → 有上限重试")
-    from hestia.pipeline import stage_verify   # noqa
+    from snowfoxclaw.pipeline import stage_verify   # noqa
     a = FakeAgent(nodes=[_Node("WARN", 0.8)])   # verify 得 max_delta=0.8 > 阈值 0.5
     ctx = PipelineContext(agent=a, task="V",
                           context={"_reflect": {"max_retries": 2, "drift_threshold": 0.5}})

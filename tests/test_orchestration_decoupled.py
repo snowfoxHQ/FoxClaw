@@ -16,16 +16,16 @@ import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def test_structural_decoupling():
     print("\n【1】结构去耦:编排层无领域方法/无领域内核 API 引用")
-    from hestia.orchestration import Orchestrator
+    from snowfoxclaw.orchestration import Orchestrator
     assert not hasattr(Orchestrator, "_handle_budget_request"), "编排层不应再有 _handle_budget_request"
     assert not hasattr(Orchestrator, "_handle_schedule_request"), "编排层不应再有 _handle_schedule_request"
-    src = Path("hestia/orchestration/__init__.py").read_text(encoding="utf-8")
+    src = Path("snowfoxclaw/orchestration/__init__.py").read_text(encoding="utf-8")
     for banned in ("budget_status", "detect_conflicts", "due_items", "Transaction",
                    ".waypoints", ".policy", "review_states"):
         assert banned not in src, f"编排层仍引用领域内核 API: {banned}"
@@ -34,8 +34,8 @@ def test_structural_decoupling():
 
 def test_domain_logic_in_agents():
     print("\n【2】领域逻辑归属 Agent(situation / handle_cross_request)")
-    from hestia.agents.agents import FinanceAgent, AdminAgent, OfficeAgent
-    from hestia.agents.base import CognitiveAgent
+    from snowfoxclaw.agents.agents import FinanceAgent, AdminAgent, OfficeAgent
+    from snowfoxclaw.agents.base import CognitiveAgent
     assert FinanceAgent.handle_cross_request is not CognitiveAgent.handle_cross_request
     assert AdminAgent.handle_cross_request is not CognitiveAgent.handle_cross_request
     assert FinanceAgent.situation is not CognitiveAgent.situation
@@ -47,8 +47,8 @@ def test_behavior_and_generic_routing():
     print("\n【3】行为保持 + 通用路由")
     d = tempfile.mkdtemp(prefix="p3_")
     try:
-        from hestia import HestiaOS
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        from snowfoxclaw import Snowfoxclaw
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         fin = os_.finance_runtime
         fin.set_budget("travel", 3000); fin.set_balance("default", 5000)
         fin.import_csv(str(Path("examples/sample_transactions.csv")))

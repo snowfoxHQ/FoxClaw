@@ -9,7 +9,7 @@ opt-in:只对有真实 Key 的 provider 打真模型(要联网、会消耗额度
 
 用法:
   python bench/e2e_real_models.py            # 只测当前环境已配 Key 的 provider
-  HESTIA_E2E_SKIP_PROVIDER=google python ...  # 跳过某 provider(如无 SDK/额度)
+  SNOWFOXCLAW_E2E_SKIP_PROVIDER=google python ...  # 跳过某 provider(如无 SDK/额度)
 """
 import os
 import sys
@@ -18,12 +18,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import hestia.core.web_search as ws  # noqa: E402
+import snowfoxclaw.core.web_search as ws  # noqa: E402
 ws.needs_search = lambda q: False
 
-from hestia.core.model_router import ModelRouter  # noqa: E402
+from snowfoxclaw.core.model_router import ModelRouter  # noqa: E402
 
-_SYS = "你是 HestiaOS 助手。"
+_SYS = "你是 Snowfoxclaw 助手。"
 _MSG = [{"role": "user", "content": "请只回复两个字：你好"}]
 _MAX_TOKENS = 64
 # stub/故障 的特征文案(出现即视为"非真实成功")
@@ -58,13 +58,13 @@ def _smoke(provider: str) -> dict:
 
 
 def main():
-    skip = {s.strip().lower() for s in os.environ.get("HESTIA_E2E_SKIP_PROVIDER", "").split(",")
+    skip = {s.strip().lower() for s in os.environ.get("SNOWFOXCLAW_E2E_SKIP_PROVIDER", "").split(",")
             if s.strip()}
     configured = [p["provider"] for p in ModelRouter.available_providers()
                   if p["configured"] and p["provider"] not in skip]
 
     print("=" * 64)
-    print("Hestia OS · 真实多模型 E2E 冒烟(非 stub)")
+    print("Snowfoxclaw · 真实多模型 E2E 冒烟(非 stub)")
     print("=" * 64)
 
     if not configured:

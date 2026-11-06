@@ -1,5 +1,5 @@
 :root{
-  /* 品牌三色（与 HestiaOS 统一）*/
+  /* 品牌三色（与 Snowfoxclaw 统一）*/
   --green:    #2c9678;   /* 主操作：搜索/编译按钮、覆盖度进度条、active Claim */
   --klein:    #002FA7;   /* 数据强调：选中节点、链接、Evidence 引用、置信度数值 */
   --canvas:   #DADFE2;   /* 画布背景、卡片底色 */

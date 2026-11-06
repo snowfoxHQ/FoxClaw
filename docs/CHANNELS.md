@@ -1,6 +1,6 @@
-# HestiaOS 消息平台接入说明
+# Snowfoxclaw 消息平台接入说明
 
-把 HestiaOS 接到消息平台,让用户在微信 / 飞书 / Telegram / Discord 里直接和你的认知系统对话。
+把 Snowfoxclaw 接到消息平台,让用户在微信 / 飞书 / Telegram / Discord 里直接和你的认知系统对话。
 
 ## 架构总览
 
@@ -19,10 +19,10 @@
 ## 通用启动方式
 
 ```python
-from hestia import HestiaOS
-from hestia.channels.dispatcher import ChannelDispatcher
+from snowfoxclaw import Snowfoxclaw
+from snowfoxclaw.channels.dispatcher import ChannelDispatcher
 
-os_ = HestiaOS(data_dir="./data")
+os_ = Snowfoxclaw(data_dir="./data")
 dispatcher = ChannelDispatcher(os_.supervisor)
 
 # 注册渠道(下面每个平台示例都用这个 dispatcher)
@@ -38,7 +38,7 @@ dispatcher.register_channel(adapter)   # adapter 见下文各平台
 **拿 token:** Telegram 里找 `@BotFather` → 发 `/newbot` → 按提示拿到 bot token。
 
 ```python
-from hestia.channels.telegram import TelegramAdapter
+from snowfoxclaw.channels.telegram import TelegramAdapter
 
 tg = TelegramAdapter(bot_token="123456:ABC-DEF...")
 dispatcher.register_channel(tg)
@@ -61,13 +61,13 @@ while True:
 
 照 Tencent 官方开源插件 [`Tencent/openclaw-weixin`](https://github.com/Tencent/openclaw-weixin) 公开的 iLink Bot API 协议实现。
 
-**拿 token:** token 需用微信官方那套**扫码登录**获得(扫码登录在微信侧,HestiaOS 不复现登录,只复现登录后的消息收发)。可用 OpenClaw 官方 CLI 扫码:
+**拿 token:** token 需用微信官方那套**扫码登录**获得(扫码登录在微信侧,Snowfoxclaw 不复现登录,只复现登录后的消息收发)。可用 OpenClaw 官方 CLI 扫码:
 ```bash
 openclaw channels login --channel openclaw-weixin   # 扫码后本地拿到 token
 ```
 
 ```python
-from hestia.channels.weixin import WeixinAdapter
+from snowfoxclaw.channels.weixin import WeixinAdapter
 
 wx = WeixinAdapter(token="<扫码登录得到的 token>")
 dispatcher.register_channel(wx)
@@ -88,7 +88,7 @@ while True:
 飞书是**平台主动推事件到你的回调地址**,所以需要一个公网可达的 webhook 端点(FastAPI 路由)。
 
 ```python
-from hestia.channels.feishu import FeishuAdapter
+from snowfoxclaw.channels.feishu import FeishuAdapter
 
 fs = FeishuAdapter(
     app_id="cli_xxx",
@@ -121,7 +121,7 @@ async def feishu_events(request: Request):
 **拿 token:** Discord Developer Portal → 创建 Application → Bot → 拿 bot token。**务必在 Bot 设置里开启 `MESSAGE CONTENT INTENT`**(否则收不到消息文本)。把 Bot 邀请进你的服务器。
 
 ```python
-from hestia.channels.discord import DiscordAdapter
+from snowfoxclaw.channels.discord import DiscordAdapter
 
 dc = DiscordAdapter(bot_token="...")
 dispatcher.register_channel(dc)
@@ -142,16 +142,16 @@ asyncio.run(dc.connect_gateway())   # 需要 websockets 库
 
 ## 备选:对接 OpenClaw 网关
 
-若你已在用 OpenClaw(它接了某些渠道),可让 HestiaOS 通过 OpenClaw 网关收发,而不必自己实现那些渠道。
+若你已在用 OpenClaw(它接了某些渠道),可让 Snowfoxclaw 通过 OpenClaw 网关收发,而不必自己实现那些渠道。
 
 ```python
-from hestia.channels.openclaw_bridge import OpenClawBridgeAdapter
+from snowfoxclaw.channels.openclaw_bridge import OpenClawBridgeAdapter
 
 bridge = OpenClawBridgeAdapter(gateway_url="http://127.0.0.1:8080", api_token="...")
 dispatcher.register_channel(bridge)
 ```
 
-OpenClaw 负责渠道接入,HestiaOS 负责认知处理,两者通过 HTTP 桥接。
+OpenClaw 负责渠道接入,Snowfoxclaw 负责认知处理,两者通过 HTTP 桥接。
 
 ---
 

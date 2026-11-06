@@ -18,12 +18,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.browser import BrowserService
-from hestia.browser.perception.dom_extractor import DomExtractor
-from hestia.browser.perception.element_indexer import ElementIndexer
-from hestia.browser.perception.semantic_reducer import SemanticReducer
-from hestia.browser.action.action_verifier import ActionVerifier
-from hestia.browser.action.action_types import WebAction, SUPPORTED_ACTIONS
+from snowfoxclaw.browser import BrowserService
+from snowfoxclaw.browser.perception.dom_extractor import DomExtractor
+from snowfoxclaw.browser.perception.element_indexer import ElementIndexer
+from snowfoxclaw.browser.perception.semantic_reducer import SemanticReducer
+from snowfoxclaw.browser.action.action_verifier import ActionVerifier
+from snowfoxclaw.browser.action.action_types import WebAction, SUPPORTED_ACTIONS
 
 
 class FakeDriver:

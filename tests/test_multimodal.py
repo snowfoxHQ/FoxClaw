@@ -9,10 +9,10 @@ def test_multimodal():
     for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
         os.environ.pop(k, None)
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_mm_")
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_mm_")
 
-    from hestia.core.model_router import ModelRouter
+    from snowfoxclaw.core.model_router import ModelRouter
 
     print("=" * 60); print("多模态对话通道验证"); print("=" * 60)
 
@@ -48,7 +48,7 @@ def test_multimodal():
     print("[4] 无 user / 已多模态 / 无图 边界 OK")
 
     # [5] _sanitize_images 护栏(数量/大小/类型/非列表)
-    from hestia.api import _sanitize_images, _MAX_IMAGES, _MAX_IMG_B64
+    from snowfoxclaw.api import _sanitize_images, _MAX_IMAGES, _MAX_IMG_B64
     big = "x" * (_MAX_IMG_B64 + 1)
     many = [{"media_type": "image/png", "data": "a"}] * (_MAX_IMAGES + 3)
     assert len(_sanitize_images(many)) == _MAX_IMAGES, "未限数量"
@@ -111,7 +111,7 @@ def test_multimodal():
 
     # [9] /api/chat/stream 端到端:带图 SSE 正常产出(stub),超大图被 sanitize 掉不崩
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
     with TestClient(app) as c:
         body = {"task": "看图说话", "agent_id": "assistant",
                 "images": [{"media_type": "image/png", "data": "iVBORw0KGgo="},

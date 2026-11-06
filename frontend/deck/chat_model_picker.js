@@ -1,9 +1,9 @@
 // chat_model_picker.js — chat 输入框旁的「下拉式模型选择器」
 //
 // 视觉:参考图1 (CodeBuddy 模型列表) + 图2 (「添加自定义」对话框)。
-// 数据:全部走 hestia/api/routes/llm_admin.py 的 REST 端点(GET/POST/DELETE)。
-// 状态:切换写入 HESTIA_DATA_DIR/.current_model,model_router 用 mtime 缓存 lazy reload,
-//     用户改完**无需重启 hestia**,下次 chat 自动走新模型。
+// 数据:全部走 snowfoxclaw/api/routes/llm_admin.py 的 REST 端点(GET/POST/DELETE)。
+// 状态:切换写入 SNOWFOXCLAW_DATA_DIR/.current_model,model_router 用 mtime 缓存 lazy reload,
+//     用户改完**无需重启 snowfoxclaw**,下次 chat 自动走新模型。
 //
 // 不会外泄:GET /api/llm/models 只返 has_key 布尔;POST /api/llm/custom/add 只在服务端保存。
 
@@ -447,7 +447,7 @@ function bindEvents() {
   loadModels();
   // 多 tab 同步:监听 storage 事件
   window.addEventListener('storage', (e) => {
-    if (e.key === '__hestia_model_changed__') loadModels();
+    if (e.key === '__snowfoxclaw_model_changed__') loadModels();
   });
   // 切完模型后,广播给其它 tab(简版:周期性 reload)
   setInterval(() => {

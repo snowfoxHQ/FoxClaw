@@ -43,7 +43,7 @@ benign 被 WARN 记为 `soft_fpr`(质量信号,非失败)。这是指标语义�
    **「模型无关」原则**:应允许换中文/多语 embedding。
    **✅ 已兑现（2026-07-03）**:`compare_embeddings.py` 换多语 `paraphrase-multilingual-MiniLM-L12-v2`
    重跑同一中文场景——**中文跑题硬拦率 `block_recall` 0.0 → 1.0**（向量层:跑题漂移 0.48→0.99）。
-   换模型一行搞定:`HESTIA_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2`。代价是更敏感
+   换模型一行搞定:`SNOWFOXCLAW_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2`。代价是更敏感
    （benign 软误报 `soft_fpr` 升到 ~0.67,但只 WARN 不阻断,`hard_fpr` 仍 0）。见 `compare_embeddings.py`。
 2. **工具场景软误报偏高**(`soft_fpr≈0.67`,全为 WARN 非 BLOCK):同源于中文语义距离偏大;
    硬误报 `hard_fpr=0`,不影响执行。自学习把权重从 semantic 移向 tool 后,该软噪声会**自行下降**

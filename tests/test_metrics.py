@@ -5,13 +5,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def test_metrics():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_metrics_")
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_metrics_")
 
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
 
     print("=" * 60); print("ops 监控验证"); print("=" * 60)
 
@@ -42,7 +42,7 @@ def test_metrics():
 
         # [4] Prometheus 文本格式
         p = c.get("/metrics")
-        assert p.status_code == 200 and "hestia_requests_total" in p.text and "hestia_llm_calls_total" in p.text
+        assert p.status_code == 200 and "snowfoxclaw_requests_total" in p.text and "snowfoxclaw_llm_calls_total" in p.text
         print("[4] /metrics Prometheus 文本 OK")
 
         # [5] 未匹配路由(404)不撑爆 key:20 个不同 404 路径 → 只 1 个 "unmatched" key

@@ -10,7 +10,7 @@ param(
 )
 $ErrorActionPreference = "Continue"
 
-$logDir = "C:\Users\snow\projects\hestiaOS\hestia_data"
+$logDir = "C:\Users\snow\projects\Snowfoxclaw\snowfoxclaw_data"
 $log    = if ($which -eq "err") { "$logDir\uvicorn.err.log" } else { "$logDir\uvicorn.log" }
 
 if (-not (Test-Path $log)) {

@@ -1,6 +1,6 @@
 """工具中心第3期 · SKILL.md 指令技能 · OpenClaw 兼容段(原 test_markdown_skills [8]-[12])。
 
-独立成文件的原因:原文件单进程内 3×TestClient lifespan + 4×HestiaOS 实例 +
+独立成文件的原因:原文件单进程内 3×TestClient lifespan + 4×Snowfoxclaw 实例 +
 两个不同 ST 模型共存,第三次 lifespan 预热阶段 torch/FAISS 必现 0xC0000005
 进程崩溃(git stash 基线对照实锤,与业务改动无关——原生库析构/重入问题)。
 进程隔离后两段各自全绿。本段自包含:不依赖前半段的 sid,自带 _DATA。
@@ -10,12 +10,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_markdown_skills_openclaw():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    _DATA = tempfile.mkdtemp(prefix="hestia_oc_")
-    os.environ["HESTIA_DATA_DIR"] = _DATA
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    _DATA = tempfile.mkdtemp(prefix="snowfoxclaw_oc_")
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = _DATA
 
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
 
     # 8. OpenClaw 兼容:无 triggers 的原味技能(单 .md)→ 装成功 + 描述相关触发
     NO_TRIG = "---\nname: skill-vetter\nversion: 1.0.0\ndescription: Security-first skill vetting. Use before installing any skill from ClawdHub or GitHub.\n---\nCheck red flags before install."
@@ -45,8 +45,8 @@ def test_markdown_skills_openclaw():
         print("[10] zip 无 SKILL.md → 400 OK")
 
     # 11. 描述相关注入(无 triggers)+ 持久化 round-trip
-    from hestia import HestiaOS
-    os3 = HestiaOS(data_dir=_DATA)
+    from snowfoxclaw import Snowfoxclaw
+    os3 = Snowfoxclaw(data_dir=_DATA)
     assert os3.md_skills.get("skill-vetter-zip") is not None   # 持久化含 zip 装的
     ag3 = os3.assistant
     hit = ag3._skill_augment("please vet this skill before install", [{"role": "user", "content": "please vet this skill before install"}])
@@ -59,7 +59,7 @@ def test_markdown_skills_openclaw():
     with TestClient(app) as c:
         r = c.patch("/api/ahs/md-skills/skill-vetter-zip", json={"triggers": ["审核", "搜索"]})
         assert r.status_code == 200 and r.json()["skill"]["triggers"] == ["审核", "搜索"], r.text
-    os4 = HestiaOS(data_dir=_DATA)
+    os4 = Snowfoxclaw(data_dir=_DATA)
     ag4 = os4.assistant
     hit = ag4._skill_augment("帮我审核这个技能", [{"role": "user", "content": "帮我审核这个技能"}])
     assert "Check red flags" in hit[-1]["content"]   # 加了中文 triggers → 中文任务命中

@@ -4,12 +4,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_markdown_skills():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    _DATA = tempfile.mkdtemp(prefix="hestia_md_")
-    os.environ["HESTIA_DATA_DIR"] = _DATA
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    _DATA = tempfile.mkdtemp(prefix="snowfoxclaw_md_")
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = _DATA
 
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
 
     SKILL = "---\nname: 周报助手\ndescription: 教怎么写周报\ntriggers: 周报, 汇报\n---\n先列本周成果,再列风险,最后列下周计划。"
 
@@ -46,8 +46,8 @@ def test_markdown_skills():
         print("[5] 启停 OK")
 
     # 6. 注入:直建 OS,agent 挂了 md_skills,_skill_augment 命中注入 + 持久化
-    from hestia import HestiaOS
-    os2 = HestiaOS(data_dir=_DATA)
+    from snowfoxclaw import Snowfoxclaw
+    os2 = Snowfoxclaw(data_dir=_DATA)
     assert os2.md_skills.get(sid) is not None, "重启后指令技能丢失(持久化)"
     ag = os2.assistant
     out = ag._skill_augment("帮我写周报", [{"role": "user", "content": "帮我写周报"}])
@@ -65,7 +65,7 @@ def test_markdown_skills():
 
     print("\nSKILL.md 指令技能验证全部通过")
     # 注:OpenClaw 兼容段(原 [8]-[12])已拆到 test_markdown_skills_openclaw.py。
-    # 原因:单进程内 3×TestClient lifespan + 4×HestiaOS 实例 + 两个不同 ST 模型共存时,
+    # 原因:单进程内 3×TestClient lifespan + 4×Snowfoxclaw 实例 + 两个不同 ST 模型共存时,
     # 第三次 lifespan 预热阶段 torch/FAISS 必现 0xC0000005 进程崩溃(基线对照实锤,
     # 与业务改动无关)。进程隔离后两段各自全绿。
 

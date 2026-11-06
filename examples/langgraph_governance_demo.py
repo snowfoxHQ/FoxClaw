@@ -2,7 +2,7 @@
 治理中间件 · 真实 LangGraph 接入 demo（M3 生态收尾）
 
 用真实的 LangGraph `StateGraph`(带循环 + 条件边)跑一个工具执行图,每一步工具调用都经
-Hestia 的 `GovernanceSession` 网关:越权工具在**真实 LangGraph 执行流里**被拦,图优雅停机,
+Snowfoxclaw 的 `GovernanceSession` 网关:越权工具在**真实 LangGraph 执行流里**被拦,图优雅停机,
 事后 `gov.audit()` 取回完整可审计推理链。
 
 这把 M3 从"能挂"变成"挂在真框架上给你看"。离线可跑(工具是 stub,不需 LLM)。
@@ -15,7 +15,7 @@ from typing import TypedDict
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from langgraph.graph import StateGraph, END
-from hestia.governance import GovernanceSession
+from snowfoxclaw.governance import GovernanceSession
 
 
 # ── 图状态 ────────────────────────────────────────────────

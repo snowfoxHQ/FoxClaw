@@ -7,15 +7,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_domain_import():
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_import_")
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_import_")
 
     import openpyxl
 
     print("=" * 60); print("OS 领域导入(csv/xlsx/json)验证"); print("=" * 60)
 
     # ── Part A:解析器单元 ─────────────────────────────────────
-    from hestia.api import _parse_import_rows
+    from snowfoxclaw.api import _parse_import_rows
 
     csv_bytes = b"amount,category,entity\n-50,food,cafe\n-20,transport,metro\n"
     rows = _parse_import_rows("t.csv", csv_bytes)
@@ -37,7 +37,7 @@ def test_domain_import():
 
     # ── Part B:三领域文件导入端点(TestClient)────────────────
     from fastapi.testclient import TestClient
-    from hestia.api import app
+    from snowfoxclaw.api import app
 
     with TestClient(app) as c:
         # [2] finance:csv / xlsx / json 三格式各导入成功

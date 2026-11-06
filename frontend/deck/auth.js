@@ -1,14 +1,14 @@
-/* 鉴权注入:后端若设了 HESTIA_API_KEY,同源 /api、/knowledge 请求需带 X-API-Key。
-   从 localStorage.hestiaApiKey 读取并包一层 fetch 自动注入。
+/* 鉴权注入:后端若设了 SNOWFOXCLAW_API_KEY,同源 /api、/knowledge 请求需带 X-API-Key。
+   从 localStorage.snowfoxclawApiKey 读取并包一层 fetch 自动注入。
    必须最先加载(在 settings.js 等业务模块之前),否则模块顶层提前发出的请求
    (如 settings.js 的 loadModel → /api/model)会漏带 key 被 401。 */
 (function(){
-  if(window.__hestiaFetchPatched) return;
+  if(window.__snowfoxclawFetchPatched) return;
   const _fetch=window.fetch.bind(window);
   let _authHinted=false;
   window.fetch=function(url,opts){
     try{
-      const key=localStorage.getItem('hestiaApiKey');
+      const key=localStorage.getItem('snowfoxclawApiKey');
       const u=String(url||'');
       // /knowledge/* 与 /api/* 一样受后端可选鉴权守护,两者都要注入 key
       // /stats 是 HKC 统计数据面,后端已纳入守护,同样需要注入
@@ -22,11 +22,11 @@
       p.then(r=>{
         if(r && r.status===401 && !_authHinted){
           _authHinted=true;
-          if(typeof window.__hestiaAuthHint==='function') window.__hestiaAuthHint();
+          if(typeof window.__snowfoxclawAuthHint==='function') window.__snowfoxclawAuthHint();
         }
       }).catch(()=>{});
     }catch(e){}
     return p;
   };
-  window.__hestiaFetchPatched=true;
+  window.__snowfoxclawFetchPatched=true;
 })();

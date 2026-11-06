@@ -12,12 +12,12 @@ import os, sys, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.core import injection_guard as IG
-from hestia.core import web_search as WS
-from hestia.agents.base import CognitiveAgent, KERNEL_PROMPT
+from snowfoxclaw.core import injection_guard as IG
+from snowfoxclaw.core import web_search as WS
+from snowfoxclaw.agents.base import CognitiveAgent, KERNEL_PROMPT
 
 
 # ── 1. scan ────────────────────────────────────────────────────────────────────
@@ -124,17 +124,17 @@ def test_principle07_mention_NOT_flagged():
 def test_semantic_leak_default_off_no_false_positive():
     # 语义比对默认关闭(opt-in):"合法解释规则"(Principle 07)不误伤、不引入 ST 模型调用
     import os
-    old = os.environ.get("HESTIA_DLP_SEMANTIC")
-    os.environ["HESTIA_DLP_SEMANTIC"] = "0"
+    old = os.environ.get("SNOWFOXCLAW_DLP_SEMANTIC")
+    os.environ["SNOWFOXCLAW_DLP_SEMANTIC"] = "0"
     try:
         ans = "Principle 07 是指知识的身份、合并、演化只能由 KEE 依据证据决定,前端只读不回写。"
         assert IG._has_semantic_leak(ans, KERNEL_PROMPT) is False
         assert "system_prompt_leak" not in IG.scan_output(ans, kernel=KERNEL_PROMPT)
     finally:
         if old is None:
-            os.environ.pop("HESTIA_DLP_SEMANTIC", None)
+            os.environ.pop("SNOWFOXCLAW_DLP_SEMANTIC", None)
         else:
-            os.environ["HESTIA_DLP_SEMANTIC"] = old
+            os.environ["SNOWFOXCLAW_DLP_SEMANTIC"] = old
 
 
 def test_scan_output_semantic_leak_wiring():

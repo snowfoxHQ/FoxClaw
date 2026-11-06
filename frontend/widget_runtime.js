@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════
-   HESTIA DECK — Widget Runtime
+   SNOWFOXCLAW DECK — Widget Runtime
    可插拔 widget 系统。新模块只需 registerWidget() 一次。
    ════════════════════════════════════════════════════════════ */
 
@@ -248,13 +248,13 @@ const WidgetRuntime = (() => {
         column: i.column,
         order: i.order,
       }));
-      localStorage.setItem('hestia_widget_layout', JSON.stringify(layout));
+      localStorage.setItem('snowfoxclaw_widget_layout', JSON.stringify(layout));
     } catch {}
   }
 
   function loadLayout() {
     try {
-      const saved = JSON.parse(localStorage.getItem('hestia_widget_layout'));
+      const saved = JSON.parse(localStorage.getItem('snowfoxclaw_widget_layout'));
       if (saved && saved.length) {
         // 过滤掉已不存在的 widget 类型
         const valid = saved.filter(i => registry.has(i.widgetId));

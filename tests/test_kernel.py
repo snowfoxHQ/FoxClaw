@@ -24,7 +24,7 @@ def check(cond, msg):
 
 def test_scheduler():
     print("\n【1】认知调度器")
-    from hestia.core.scheduler import CognitiveScheduler, SystemContext
+    from snowfoxclaw.core.scheduler import CognitiveScheduler, SystemContext
     sch = CognitiveScheduler()
     d_reason = sch.schedule("帮我规划设计方案")
     d_tool = sch.schedule("算一下 5+5")
@@ -40,7 +40,7 @@ def test_scheduler():
 
 def test_process_manager():
     print("\n【2】进程状态机")
-    from hestia.kernel import ProcessManager
+    from snowfoxclaw.kernel import ProcessManager
     pm = ProcessManager()
     p = pm.create("任务", agent_id="finance", schedule={"priority": 0.5})
     check(p.state == "scheduled", "创建后进入 scheduled")
@@ -68,7 +68,7 @@ def test_process_manager():
 
 def test_system_bus():
     print("\n【3】系统事件总线")
-    from hestia.core.system_bus import SystemBus
+    from snowfoxclaw.core.system_bus import SystemBus
     bus = SystemBus()
     received = []
     bus.subscribe("test.ch", lambda m: received.append(m.payload))
@@ -79,8 +79,8 @@ def test_system_bus():
 
 def test_truth_pipeline():
     print("\n【4】真值管线")
-    from hestia.core.system_bus import SystemBus
-    from hestia.core.truth_pipeline import TruthPipeline
+    from snowfoxclaw.core.system_bus import SystemBus
+    from snowfoxclaw.core.truth_pipeline import TruthPipeline
 
     class FakeHMR:
         def __init__(self): self.items = []
@@ -101,8 +101,8 @@ def test_truth_pipeline():
 
 def test_cognitive_state():
     print("\n【5】认知状态快照")
-    from hestia.core.system_bus import SystemBus
-    from hestia.cognitive import CognitiveStateTracker
+    from snowfoxclaw.core.system_bus import SystemBus
+    from snowfoxclaw.cognitive import CognitiveStateTracker
     bus = SystemBus()
     t = CognitiveStateTracker(bus)
     bus.publish("execution.completed", {"task": "分析财务", "agent_id": "finance",
@@ -122,8 +122,8 @@ def test_cognitive_state():
 
 def test_permission():
     print("\n【6】权限管线")
-    from hestia.skills import build_default_registry, SkillAdapter
-    from hestia.skills.permission import PermissionRules
+    from snowfoxclaw.skills import build_default_registry, SkillAdapter
+    from snowfoxclaw.skills.permission import PermissionRules
     reg = build_default_registry()
     ad = SkillAdapter(reg)
     calc = reg.get("calculator")
@@ -143,9 +143,9 @@ def test_trust_single_source():
     此前 permission.TRUST_LEVEL 与 trust_level() 重复(且含死 key bundled/remote)——对 3 个合法
     SkillKind 二者 downgrade 行为本就一致(latent,非 live bug),本次收敛为单一真源、行为不变。"""
     print("\n【6b】信任分级单一真源(P6):permission 复用 trust_level(),删死字典")
-    from hestia.skills import SkillSpec
-    from hestia.skills import permission as perm
-    from hestia.skills.permission import evaluate
+    from snowfoxclaw.skills import SkillSpec
+    from snowfoxclaw.skills import permission as perm
+    from snowfoxclaw.skills.permission import evaluate
     check(not hasattr(perm, "TRUST_LEVEL"), "permission.TRUST_LEVEL 死字典已删(不再双真源)")
     # 3 个合法 kind × 两种 source:permission 的 downgrade 恒等于 (trust_level()=='low'),且行为不变
     expect = {"local": False, "web_api": False, "mcp": True}   # behavior-preserving 基线
@@ -163,8 +163,8 @@ def test_trust_single_source():
 
 def test_breaker_hooks():
     print("\n【7】断路器 + 钩子")
-    from hestia.skills import SkillRegistry, SkillSpec, SkillAdapter
-    from hestia.skills.lifecycle import CircuitBreaker, HookManager
+    from snowfoxclaw.skills import SkillRegistry, SkillSpec, SkillAdapter
+    from snowfoxclaw.skills.lifecycle import CircuitBreaker, HookManager
     reg = SkillRegistry()
     reg.register(SkillSpec(id="flaky", name="易碎", description="总失败",
                  kind="local", side_effect="read", handler=lambda **k: (_ for _ in ()).throw(RuntimeError("boom"))))
@@ -188,8 +188,8 @@ def test_breaker_hooks():
 
 def test_ahs_pipeline():
     print("\n【8】AHS 执行链")
-    from hestia.skills import build_default_registry, SkillAdapter
-    from hestia.skills.pipeline import AHSPipeline, route, plan
+    from snowfoxclaw.skills import build_default_registry, SkillAdapter
+    from snowfoxclaw.skills.pipeline import AHSPipeline, route, plan
     reg = build_default_registry()
     ad = SkillAdapter(reg)
     pipe = AHSPipeline(reg, ad)

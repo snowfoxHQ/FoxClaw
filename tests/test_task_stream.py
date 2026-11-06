@@ -7,23 +7,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def test_task_stream():
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
-    os.environ.setdefault("HESTIA_EMBEDDING_MODEL", "hestia-nonexistent-fast")
-    os.environ["HESTIA_STREAM_RATE"] = "60"   # 放开限流(限流由 test_streaming 覆盖),这里只验通路
-    os.environ["HESTIA_DATA_DIR"] = tempfile.mkdtemp(prefix="hestia_taskstream_")
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
+    os.environ["SNOWFOXCLAW_STREAM_RATE"] = "60"   # 放开限流(限流由 test_streaming 覆盖),这里只验通路
+    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_taskstream_")
     # 强制 stub(离线/确定性/免费):关掉 .env,使进程环境变量成为唯一来源。
     # (旧写法是逐个把 key 置空以依赖 load_dotenv(override=False)——但那挡不住「先 pop 再
-    #  import」的路径,也挡不住 .env 里的 HESTIA_MCP_SERVER 等非 key 变量。见 api.py 说明。)
-    os.environ["HESTIA_SKIP_DOTENV"] = "1"
+    #  import」的路径,也挡不住 .env 里的 SNOWFOXCLAW_MCP_SERVER 等非 key 变量。见 api.py 说明。)
+    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
     for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-               "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "HESTIA_API_KEY"):
+               "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "SNOWFOXCLAW_API_KEY"):
         os.environ[_k] = ""
 
     print("=" * 60); print("D1 · /api/task/stream 任务流式化验证"); print("=" * 60)
 
     from fastapi.testclient import TestClient
-    import hestia.api as _api
-    from hestia.api import app
+    import snowfoxclaw.api as _api
+    from snowfoxclaw.api import app
     # pytest 同进程下,test_streaming.py 可能已把模块级流式限流桶设为 rate=1(并耗尽),
     # 而本测试要放开限流跑两条流式通路 —— 复位桶容量/速率/余量(限流语义由 test_streaming 覆盖)。
     _api._STREAM_LIMITER.capacity = 60

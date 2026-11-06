@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_negotiation():
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["HESTIA_SHADOW_ROUNDS"] = "6"
+    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
 
-    from hestia.orchestration import CrossAgentRequest, Orchestrator
+    from snowfoxclaw.orchestration import CrossAgentRequest, Orchestrator
 
     print("=" * 60); print("跨域协商闭环验证"); print("=" * 60)
 
@@ -116,7 +116,7 @@ def test_negotiation():
     print("[7] 让步逻辑崩溃 → 维持 rejected + 记录错误 OK")
 
     # ── 真 AdminAgent 的让步策略(领域逻辑归领域 Agent)──
-    from hestia.agents.agents import AdminAgent
+    from snowfoxclaw.agents.agents import AdminAgent
     adm = AdminAgent.__new__(AdminAgent)
 
     # [8] AdminAgent:逐轮降档 → 夹到下限(600)→ 到底认输。全程单调下降、必然终止

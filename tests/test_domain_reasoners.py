@@ -12,7 +12,7 @@ import os, sys
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["HESTIA_EMBEDDING_MODEL"] = "hestia-nonexistent-fast"
+os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
@@ -29,13 +29,13 @@ class _MockLLM:
 
 # ─────────────────────────── 行程冲突推理 ───────────────────────────
 def _wp(name, start=None, dur=0, lng=None, lat=None):
-    from hestia.itinerary.models import Waypoint
+    from snowfoxclaw.itinerary.models import Waypoint
     return Waypoint(name=name, start_time=start, duration_min=dur, lng=lng, lat=lat)
 
 
 def test_itinerary_reasoner():
     print("\n【1】行程冲突推理:规则权威 + 可选 LLM 只升级")
-    from hestia.itinerary.reasoner import ItineraryConflictReasoner
+    from snowfoxclaw.itinerary.reasoner import ItineraryConflictReasoner
     # 时间重叠 → confirm,规则权威;即便 LLM 说 OK 也不被推翻,且不问 LLM
     conflict = [_wp("会议A", "2026-07-08T10:00:00", 120), _wp("会议B", "2026-07-08T11:00:00", 60)]
     llm = _MockLLM("OK")
@@ -76,14 +76,14 @@ def test_itinerary_reasoner():
 # ─────────────────────────── 学习复习推理 ───────────────────────────
 def _rs(item_id, rep, ease, due_days):
     from datetime import datetime, timedelta
-    from hestia.learning.models import ReviewState
+    from snowfoxclaw.learning.models import ReviewState
     return ReviewState(item_id=item_id, repetitions=rep, ease_factor=ease,
                        due_date=(datetime.now() + timedelta(days=due_days)).isoformat())
 
 
 def test_learning_reasoner():
     print("\n【2】学习复习推理:规则权威 + 可选 LLM 只升级")
-    from hestia.learning.reasoner import LearningReviewReasoner
+    from snowfoxclaw.learning.reasoner import LearningReviewReasoner
     # 高遗忘风险(掌握度 0、已到期)→ confirm,规则权威,不问 LLM
     risky = [_rs("weak", 0, 1.3, 0)]
     llm = _MockLLM("OK")
@@ -120,8 +120,8 @@ def test_learning_reasoner():
 
 def test_llm_cannot_hide_hard_problems():
     print("\n【3】核心不变量:LLM 永远无法隐藏规则已检出的硬问题")
-    from hestia.itinerary.reasoner import ItineraryConflictReasoner
-    from hestia.learning.reasoner import LearningReviewReasoner
+    from snowfoxclaw.itinerary.reasoner import ItineraryConflictReasoner
+    from snowfoxclaw.learning.reasoner import LearningReviewReasoner
     # 即使 LLM 疯狂回 "OK/APPROVE/一切正常",冲突/风险仍被规则裁为 confirm
     for bad in ["OK", "APPROVE", "一切正常没问题", ""]:
         conflict = [_wp("A", "2026-07-08T10:00:00", 120), _wp("B", "2026-07-08T11:00:00", 60)]

@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hestia.core.compaction import Compactor, group_tool_calls
+from snowfoxclaw.core.compaction import Compactor, group_tool_calls
 
 
 def check(cond, msg):

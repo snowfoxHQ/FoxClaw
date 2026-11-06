@@ -22,7 +22,7 @@ def check(cond, msg):
 
 def test_loop_detection():
     print("\n【1】工具循环检测")
-    from hestia.harness.loop_detection import ToolLoopDetector
+    from snowfoxclaw.harness.loop_detection import ToolLoopDetector
     # repeat
     d = ToolLoopDetector(warning=3, critical=5, circuit_break=8)
     for _ in range(8):
@@ -49,7 +49,7 @@ def test_loop_detection():
 
 def test_loop_per_session():
     print("\n【1b】循环检测 per-session 隔离(阶段四·步骤13,消除跨会话污染)")
-    from hestia.skills import SkillAdapter, set_loop_session, reset_loop_session, _loop_session
+    from snowfoxclaw.skills import SkillAdapter, set_loop_session, reset_loop_session, _loop_session
     adp = SkillAdapter(None)   # _detector_for 不依赖 registry,构造最小实例即可
 
     # 会话 A 连续同工具 8 次(达熔断)
@@ -78,7 +78,7 @@ def test_loop_per_session():
 
 def test_compaction():
     print("\n【2】上下文压缩")
-    from hestia.core.compaction import Compactor, extract_identifiers, estimate_messages_tokens
+    from snowfoxclaw.core.compaction import Compactor, extract_identifiers, estimate_messages_tokens
     # token 估算(压缩触发的判据)
     check(estimate_messages_tokens([{"role": "user", "content": "你好世界"}]) > 0, "token 估算非零")
     # 标识符提取(含 ¥金额)
@@ -104,8 +104,8 @@ def test_compaction():
 
 def test_hooks():
     print("\n【3】钩子标准化")
-    from hestia.skills.lifecycle import HookManager
-    from hestia.skills.hooks_spec import Hooks, normalize_hook, is_valid_hook
+    from snowfoxclaw.skills.lifecycle import HookManager
+    from snowfoxclaw.skills.hooks_spec import Hooks, normalize_hook, is_valid_hook
     check(normalize_hook("pre_skill") == Hooks.BEFORE_TOOL_CALL, "旧名规整为标准名")
     check(is_valid_hook("on_loop"), "on_loop 是合法钩子")
     # 向后兼容互通
@@ -129,7 +129,7 @@ def test_hooks():
 
 def test_idempotency():
     print("\n【4】幂等守卫")
-    from hestia.core.idempotency import IdempotencyGuard, make_key
+    from snowfoxclaw.core.idempotency import IdempotencyGuard, make_key
     k1 = make_key("message", "telegram", "msg1", "u1")
     k2 = make_key("message", "telegram", "msg1", "u1")
     check(k1 == k2, "相同输入得相同 key")
@@ -159,7 +159,7 @@ def test_idempotency():
 
 def test_recovery():
     print("\n【5】重启恢复")
-    from hestia.core.recovery import RestartRecovery, _pid_alive
+    from snowfoxclaw.core.recovery import RestartRecovery, _pid_alive
     log = tempfile.mktemp(suffix=".jsonl")
     # boot_id 防 pid 复用
     rA = RestartRecovery(log_path=log, boot_id="bootA")
@@ -191,7 +191,7 @@ def test_recovery():
 
 def test_steering_queue():
     print("\n【6】干预队列")
-    from hestia.core.steering_queue import SteeringQueue
+    from snowfoxclaw.core.steering_queue import SteeringQueue
     # 基本流
     q = SteeringQueue(lease_seconds=30)
     q.publish("m1", "finance", {"r": "A"})
@@ -223,7 +223,7 @@ def test_steering_queue():
 
 def test_token_meter():
     print("\n【7】Token 计量器")
-    from hestia.core.token_meter import TokenMeter, estimate_tokens
+    from snowfoxclaw.core.token_meter import TokenMeter, estimate_tokens
     # 估算非零
     check(estimate_tokens("你好世界hello") > 0, "token 估算非零")
     check(estimate_tokens("") == 0, "空文本 0 token")
@@ -251,7 +251,7 @@ def test_token_meter():
 
 def test_thoughtchain_concurrency():
     print("\n【8】ThoughtChain 并发写(共享审计存储)")
-    from hestia.core.thought_chain import ThoughtChain, ThoughtNode
+    from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
     tc = ThoughtChain(db_path=tempfile.mktemp(suffix=".db"))
     # WAL 已启用?(并发加固的核心)
     with tc._conn() as c:
@@ -279,8 +279,8 @@ def test_thoughtchain_concurrency():
 
 def test_harness_action_wiring():
     print("\n【9】Harness 学习规则 action 级生效(penalize_tool / restrict_scope)")
-    from hestia.core.thought_chain import ThoughtChain, ThoughtNode
-    from hestia.harness.harness import Harness
+    from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
+    from snowfoxclaw.harness.harness import Harness
     tc = ThoughtChain(db_path=tempfile.mktemp(suffix=".db"))
 
     def fresh(baseline_entities):
@@ -341,8 +341,8 @@ def test_harness_action_wiring():
 
 def test_harness_thread_safety():
     print("\n【10】Harness 累积态线程安全(为请求 offload 到线程池铺路)")
-    from hestia.core.thought_chain import ThoughtChain, ThoughtNode
-    from hestia.harness.harness import Harness
+    from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
+    from snowfoxclaw.harness.harness import Harness
     tc = ThoughtChain(db_path=tempfile.mktemp(suffix=".db"))
     h = Harness(agent_id="t", thought_chain=tc,
                 policy_path=tempfile.mktemp(suffix=".yaml"), shadow_rounds=10**9)
@@ -373,8 +373,8 @@ def test_harness_thread_safety():
 
 def test_harness_delta_history_bounded():
     print("\n【11】深审修复:_delta_history 校准后停止增长(长跑不无界泄漏)")
-    from hestia.core.thought_chain import ThoughtChain, ThoughtNode
-    from hestia.harness.harness import Harness
+    from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
+    from snowfoxclaw.harness.harness import Harness
     tc = ThoughtChain(db_path=tempfile.mktemp(suffix=".db"))
     rounds = 5
     h = Harness(agent_id="t2", thought_chain=tc,
@@ -394,11 +394,11 @@ def test_harness_delta_history_bounded():
 def test_orchestration_request_log_bounded():
     print("\n【12】深审修复:orchestrator.request_log 有界(长跑不泄漏)")
     import tempfile as _tf, shutil as _sh, asyncio as _aio
-    from hestia import HestiaOS
-    from hestia.orchestration import CrossAgentRequest
+    from snowfoxclaw import Snowfoxclaw
+    from snowfoxclaw.orchestration import CrossAgentRequest
     d = _tf.mkdtemp(prefix="reqlog_")
     try:
-        os_ = HestiaOS(data_dir=d, shadow_rounds=50)
+        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
         os_.finance_runtime.set_balance("default", 100000)
         for _ in range(1200):           # 远超 maxlen=1000
             os_.orchestrator.route_request(CrossAgentRequest(
@@ -415,7 +415,7 @@ def test_orchestration_request_log_bounded():
 def test_hmr_adapter_stats_lock():
     print("\n【13】深审修复:HMR 适配层 stats/status 补齐锁覆盖(与 ingest/recall 互斥)")
     import threading, tempfile, time
-    from hestia.core.memory_adapter import create_memory_backend
+    from snowfoxclaw.core.memory_adapter import create_memory_backend
     hmr = create_memory_backend(storage_path=tempfile.mkdtemp(prefix="hmrlock_"))
     if not hasattr(hmr, "_lock"):
         print("  ~ MockHMR(无 vendor/hmr)无 _lock,跳过"); return

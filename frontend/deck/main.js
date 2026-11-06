@@ -2,13 +2,13 @@
 import './auth.js?v=5.37';
 import { escapeHtml } from './util.js?v=2.9';
 import { renderMarkdown, renderReply } from './markdown.js?v=2.9';
-import './visuals.js?v=5.36';   // 球体特效默认关 + hestiaVisual.on/off/toggle API
+import './visuals.js?v=5.36';   // 球体特效默认关 + snowfoxclawVisual.on/off/toggle API
 import { _origin, API, WS, _lastKernelData } from './state.js?v=5.31';
 import { fetchAMapConfig, kpSet, renderFinance, renderLearning, renderItinerary, itinSideHTML, renderSituation, drawAMapInto, initMapSearch } from './domain.js?v=5.31';
 import { openSetMenu, switchProvider, uiPref, openAuthSetting } from './settings.js?v=5.36';   // uiPref.ballAnim 默认 false
 import './chat_model_picker.js?v=1.3';   // chat 输入框旁的下拉式模型选择器(图1 风格);v1.3 当前选中的 custom 也常驻 ✎ ✕(v1.2 误隐藏)
 
-/* ════════════ 后端数据层:接真实 Hestia OS ════════════ */
+/* ════════════ 后端数据层:接真实 Snowfoxclaw ════════════ */
 
 
 
@@ -34,7 +34,7 @@ function showAuthHint(){
   document.getElementById('ah-x').onclick=()=>bar.remove();
 }
 // 鉴权注入模块(auth.js)检测到 401 时回调此函数弹提示条
-window.__hestiaAuthHint=showAuthHint;
+window.__snowfoxclawAuthHint=showAuthHint;
 
 /* 1. 加载五 Agent 状态 */
 async function loadStatus(){
@@ -929,7 +929,7 @@ let _chatHistory=[];   // 多轮对话历史 [{role,content}];随请求带给后
 function clearChatHistory(){ _chatHistory=[]; }   // 新话题/清屏可调
 
 /* ═══ 会话历史:对话不再刷新即丢,落盘到后端、左栏可回看 ═══ */
-let _sessionId = localStorage.getItem('hestiaSessionId') || '';
+let _sessionId = localStorage.getItem('snowfoxclawSessionId') || '';
 async function ensureSession(){
   if(_sessionId){
     const ok = await fetch(`${API}/sessions/${_sessionId}`).then(r=>r.ok).catch(()=>false);
@@ -941,7 +941,7 @@ async function newSession(focus=true){
   try{
     const s=await fetch(`${API}/sessions`,{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify({})}).then(r=>r.json());
-    _sessionId=s.id; localStorage.setItem('hestiaSessionId',_sessionId);
+    _sessionId=s.id; localStorage.setItem('snowfoxclawSessionId',_sessionId);
     _chatHistory=[];
     if(focus){ document.getElementById('coreChat')?.classList.remove('show'); }
     await loadSessions();
@@ -951,7 +951,7 @@ async function newSession(focus=true){
 async function openSession(id){
   try{
     const d=await fetch(`${API}/sessions/${id}`).then(r=>r.json());
-    _sessionId=d.id; localStorage.setItem('hestiaSessionId',_sessionId);
+    _sessionId=d.id; localStorage.setItem('snowfoxclawSessionId',_sessionId);
     _chatHistory=(d.messages||[]).map(m=>({role:m.role,content:m.content,ts:(m.ts||0)*1000,attachments:m.attachments||undefined}));
     renderSessionThread(d.agent_id||'supervisor');
     await loadSessions();
@@ -998,7 +998,7 @@ async function loadSessions(){
 async function delSession(id){
   try{ await fetch(`${API}/sessions/${id}`,{method:'DELETE'}); }catch(e){}
   if(id===_sessionId){ _sessionId=''; _chatHistory=[];
-    localStorage.removeItem('hestiaSessionId');
+    localStorage.removeItem('snowfoxclawSessionId');
     document.getElementById('coreChat')?.classList.remove('show');
     await ensureSession();
   }
@@ -1143,7 +1143,7 @@ window.actPulse=0;
 function connectWS(){
   try{
     // 后端若开了鉴权,WS 用 ?key= 传(浏览器无法给 WS 设请求头)
-    const _k=localStorage.getItem('hestiaApiKey');
+    const _k=localStorage.getItem('snowfoxclawApiKey');
     const ws=new WebSocket(WS + (_k?('?key='+encodeURIComponent(_k)):''));
     ws.onmessage=ev=>{
       let m; try{m=JSON.parse(ev.data);}catch(e){return;}

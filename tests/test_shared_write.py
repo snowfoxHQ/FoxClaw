@@ -32,7 +32,7 @@ class _FakeSpine:
 
 def test_facets():
     print("\n【1】facet 归一")
-    from hestia.core.shared_write import SharedWritePolicy
+    from snowfoxclaw.core.shared_write import SharedWritePolicy
     f = SharedWritePolicy.facets_of("decision",
                                     ["dispatch", "agent:office", "shared", "to:finance"])
     check(f == ("type:decision", "dispatch", "to:finance"),
@@ -42,7 +42,7 @@ def test_facets():
 
 def test_evaluate_branches():
     print("\n【2】判定分支")
-    from hestia.core.shared_write import SharedWritePolicy
+    from snowfoxclaw.core.shared_write import SharedWritePolicy
     p = SharedWritePolicy(mode="enforce")
 
     d = p.evaluate("office", "decision", ["finance", "transfer"])
@@ -66,7 +66,7 @@ def test_evaluate_branches():
 
 def test_modes():
     print("\n【3】三种模式")
-    from hestia.core.shared_write import (
+    from snowfoxclaw.core.shared_write import (
         SharedWritePolicy, guard_shared_write, SharedWriteDenied)
 
     class _Backend:
@@ -95,7 +95,7 @@ def test_modes():
 
 def test_backward_compat():
     print("\n【4】未挂策略 → 完全向后兼容")
-    from hestia.core.shared_write import guard_shared_write
+    from snowfoxclaw.core.shared_write import guard_shared_write
 
     class _Bare:
         pass
@@ -106,7 +106,7 @@ def test_backward_compat():
 
 def test_audit_payload_privacy():
     print("\n【5】审计事件不留正文")
-    from hestia.core.shared_write import SharedWritePolicy, guard_shared_write
+    from snowfoxclaw.core.shared_write import SharedWritePolicy, guard_shared_write
 
     class _B:
         pass
@@ -123,7 +123,7 @@ def test_audit_payload_privacy():
 
 def test_existing_legitimate_writes_pass():
     print("\n【6】现有 8 处合法共享写入,默认策略下全部放行(基线不误伤)")
-    from hestia.core.shared_write import SharedWritePolicy
+    from snowfoxclaw.core.shared_write import SharedWritePolicy
     p = SharedWritePolicy(mode="audit")
 
     # 逐条取自真实调用点(memory_adapter 之前 grep 出的 shared=True 处)
@@ -145,8 +145,8 @@ def test_existing_legitimate_writes_pass():
 
 def test_end_to_end_mock_backend():
     print("\n【7】端到端:MockHMR 挂策略后 ingest(shared=True) 真走闸门")
-    from hestia.core.memory_adapter import MockHMR
-    from hestia.core.shared_write import (
+    from snowfoxclaw.core.memory_adapter import MockHMR
+    from snowfoxclaw.core.shared_write import (
         SharedWritePolicy, attach, SharedWriteDenied)
 
     be = MockHMR()
@@ -171,19 +171,19 @@ def test_end_to_end_mock_backend():
 
 def test_mode_resolution():
     print("\n【8】模式解析优先级")
-    from hestia.core.shared_write import SharedWritePolicy
-    old = os.environ.get("HESTIA_SHARED_WRITE_MODE")
+    from snowfoxclaw.core.shared_write import SharedWritePolicy
+    old = os.environ.get("SNOWFOXCLAW_SHARED_WRITE_MODE")
     try:
-        os.environ["HESTIA_SHARED_WRITE_MODE"] = "enforce"
+        os.environ["SNOWFOXCLAW_SHARED_WRITE_MODE"] = "enforce"
         check(SharedWritePolicy().mode == "enforce", "环境变量生效")
         check(SharedWritePolicy(mode="audit").mode == "audit", "显式入参优先于环境变量")
-        os.environ["HESTIA_SHARED_WRITE_MODE"] = "乱填的值"
+        os.environ["SNOWFOXCLAW_SHARED_WRITE_MODE"] = "乱填的值"
         check(SharedWritePolicy().mode == "audit", "非法值回落 audit(保守:不拦截)")
     finally:
         if old is None:
-            os.environ.pop("HESTIA_SHARED_WRITE_MODE", None)
+            os.environ.pop("SNOWFOXCLAW_SHARED_WRITE_MODE", None)
         else:
-            os.environ["HESTIA_SHARED_WRITE_MODE"] = old
+            os.environ["SNOWFOXCLAW_SHARED_WRITE_MODE"] = old
 
 
 def main():
