@@ -70,9 +70,12 @@ def _is_guarded_path(path: str) -> bool:
     新数据面)只改一处,也避免三处漂移出不一致的防护口径。
     /knowledge/* 是 HKC 数据面(graph/ingest/reset),必须与 /api 同一防护口径。
     /config/* 是 HKC 运行时 LLM 配置(连接设置),属可变状态,与数据面同口径保护。
+    /stats 是 HKC 统计(真实 data_dir + 全库 KU 总数),虽挂在应用根路径上,内容同属
+    数据面 —— 此前遗漏,设了 HESTIA_API_KEY 仍可匿名读取。
     """
     return (path.startswith("/api") or path.startswith("/knowledge")
-            or path.startswith("/config"))
+            or path.startswith("/config")
+            or path == "/stats" or path.startswith("/stats/"))
 
 
 async def _api_key_guard(request, call_next):

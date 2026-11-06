@@ -65,6 +65,10 @@ dev = [
 # 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
 # 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
 browser = ["playwright>=1.44.0"]
+# Google Gemini provider。model_router 在 HESTIA_PROVIDER=google 时才惰性 import
+# google.generativeai;未装则该分支 ImportError(其余 provider 不受影响)。此前只在
+# 文档里写「pip install google-generativeai」,依赖表无对应声明,属 R1 检测出的缺口。
+gemini = ["google-generativeai>=0.8"]
 # 知识核心(HKC,vendor/hkc)。核心运行时依赖;缺失时 /api/knowledge/* 优雅降级。
 # 真实语义向量另需 sentence-transformers+faiss(已随本体);文件摄入见 knowledge-files。
 knowledge = ["networkx>=3.0", "rank-bm25>=0.2", "aiofiles>=23.0", "requests>=2.31"]

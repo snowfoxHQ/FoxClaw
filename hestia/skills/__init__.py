@@ -493,10 +493,27 @@ def _demo_calc(expression: str = "") -> dict:
     allowed = set("0123456789+-*/(). ")
     if not set(expression) <= allowed:
         return {"error": "仅支持数字和基本运算符"}
+    # 字符白名单只挡住"取名字/取属性"(字母被禁),挡不住**计算量攻击**:
+    # `9**9**9` 这类表达式在 eval 阶段就会长时间计算并吃满内存 —— 属 R2 检测出的低危项。
+    # 故在 eval 之前限长度、限连续乘方、限指数大小;eval 之后再兜底检查结果规模。
+    if len(expression) > 200:
+        return {"error": "表达式过长"}
+    if expression.count("**") > 1:
+        return {"error": "不支持连续乘方"}
+    if "**" in expression:
+        _, _, exp = expression.rpartition("**")
+        exp = exp.strip()
+        if not exp.isdigit() or int(exp) > 100:
+            return {"error": "乘方的指数需为不超过 100 的整数"}
     try:
-        return {"expression": expression, "result": eval(expression)}
+        result = eval(expression)
     except Exception as e:
         return {"error": str(e)}
+    if isinstance(result, int) and result.bit_length() > 4096:
+        return {"error": "结果过大"}
+    if isinstance(result, float) and (result != result or result in (float("inf"), float("-inf"))):
+        return {"error": "结果过大"}
+    return {"expression": expression, "result": result}
 
 
 def build_default_registry() -> SkillRegistry:

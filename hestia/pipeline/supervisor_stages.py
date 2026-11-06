@@ -17,6 +17,7 @@ import asyncio
 from datetime import datetime
 
 from .cognitive_pipeline import PipelineContext, stage_recall  # noqa: F401  (recall 复用默认 stage)
+from ..core.dispatch import dispatch_failed  # 谓词在 core:避免 pipeline 反向 import agents
 
 
 # ── Stage 2: meta_check —— 元问题判断(你是谁/能做什么 → 主管以总管身份自答,不分派)──
@@ -191,8 +192,7 @@ async def sv_replan(ctx: PipelineContext) -> None:
         return
     agent = ctx.agent
     dr = ctx.dispatch_result or {}
-    from ..agents.agents import _dispatch_failed   # 局部 import,避免包间循环依赖
-    if not _dispatch_failed(dr):
+    if not dispatch_failed(dr):
         return                      # 无失败/未完成步骤 → 无需重规划
     if not agent._replan_enabled():
         return                      # opt-in 关 / 不支持 tools → 保留原结果(fail-safe)

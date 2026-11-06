@@ -11,7 +11,8 @@
       const key=localStorage.getItem('hestiaApiKey');
       const u=String(url||'');
       // /knowledge/* 与 /api/* 一样受后端可选鉴权守护,两者都要注入 key
-      if(key && (u.indexOf('/api')>=0 || u.indexOf('/knowledge')>=0)){
+      // /stats 是 HKC 统计数据面,后端已纳入守护,同样需要注入
+      if(key && (u.indexOf('/api')>=0 || u.indexOf('/knowledge')>=0 || u.indexOf('/stats')>=0)){
         opts=opts||{}; opts.headers=Object.assign({}, opts.headers, {'X-API-Key':key});
       }
     }catch(e){}
