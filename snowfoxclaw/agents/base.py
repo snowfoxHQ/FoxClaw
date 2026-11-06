@@ -259,6 +259,41 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 out.append({"role": role, "content": content})
         return out
 
+    def _compact_context(self, messages: list, stage: str = "") -> list:
+        """LLM 调用前的上下文预算闸:超阈值则摘要/截断,任何失败都原样返回。
+
+        历史:`core/compaction.py` 的 Compactor 早已实现(含 tool_calls 原子组切分、
+        LLM 摘要→部分摘要→截断三级降级),但**没有任何生产调用点**,实际生效的
+        只有 `_sanitize_history` 的「按条数砍到 12 条」——长对话、多工具轮会
+        直接把 provider 上下文撑爆。这里补上真实接线。
+
+        预算由 SNOWFOXCLAW_CONTEXT_MAX_TOKENS 控制(默认 6000);置 0 可整体关闭。
+        """
+        import os as _os
+        try:
+            limit = int(_os.environ.get("SNOWFOXCLAW_CONTEXT_MAX_TOKENS", "6000") or 6000)
+        except Exception:
+            limit = 6000
+        if limit <= 0:
+            return messages
+        try:
+            from ..core.compaction import Compactor
+            compactor = Compactor(router=getattr(self, "router", None), max_tokens=limit)
+            compacted, res = compactor.maybe_compact(messages)
+            if res is not None:
+                try:
+                    self._think(
+                        content=(f"上下文压缩[{stage or 'llm'}] {res.method}: "
+                                 f"{res.original_count}→{res.compacted_count} 条, "
+                                 f"{res.original_tokens}→{res.compacted_tokens} token"
+                                 + (f"; {res.note}" if res.note else "")),
+                        node_type="reflection", conf=0.7)
+                except Exception:
+                    pass
+            return compacted
+        except Exception:
+            return messages
+
     @staticmethod
     def _attachments_context(attachments) -> str:
         """把聊天附件拼成一段给 LLM 的上下文:文本类贴正文、其它降级为「文件名 + 元数据」提示。
@@ -315,6 +350,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 tmsgs = self._pref_augment(tmsgs)
             except Exception:
                 tmsgs = messages
+            tmsgs = self._compact_context(tmsgs, "tools")
             try:
                 final = self._reply_with_tools(task, tmsgs, stop_event=stop_event)
             except Exception:
@@ -337,6 +373,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 messages = self._pref_augment(messages)
             except Exception:
                 messages = hist + [{"role": "user", "content": task}]
+            messages = self._compact_context(messages, "chat")
             _tail = ""   # 滑窗尾缓冲:跨 chunk 边界的泄露检测只扫最近 _WIN 字,不再整段重扫(消 O(n²))
             _WIN = 256   # 覆盖最长敏感串(密钥)跨 chunk 边界的情况
             for chunk in self.router.stream(self.system_prompt, messages,

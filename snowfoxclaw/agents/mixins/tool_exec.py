@@ -104,6 +104,9 @@ class ToolExecMixin:
             return None
         conv = list(messages)
         for _ in range(max_rounds):
+            # 上下文预算:工具轮每轮追加 assistant.tool_calls + tool 结果,不压会撑爆窗口
+            # (Compactor 保证 tool_calls 与其结果同进同出,缺口见 core/compaction.py:100)。
+            conv = self._compact_context(conv, "tool_loop")
             if stop_event is not None and stop_event.is_set():
                 return None                      # 断连 → None(回退;fallback 也会因 stop 立即终止)
             res = self.router.call_tools(self.system_prompt, conv, schemas,

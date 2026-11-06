@@ -230,6 +230,23 @@ class Compactor:
         res.compacted_tokens = compacted_tokens
         return res
 
+    def maybe_compact(self, messages: list) -> tuple:
+        """接入用入口:需要压缩才压,返回 (消息列表, CompactionResult | None)。
+
+        与 compact() 的差别:未超预算时不产生 CompactionResult(调用方无需判别),
+        跳过/无效时返回**原始消息**而不是半成品;任何异常都降级为原样返回。
+        供 agents/base.py::_compact_context 在每次 LLM 调用前挂接。
+        """
+        try:
+            if not self.needs_compaction(messages):
+                return list(messages), None
+            res = self.compact(messages)
+            if res.method == "none" or res.method.startswith("skipped"):
+                return list(messages), res      # 压缩没生效 → 原样,结果仅用于观测
+            return res.messages, res
+        except Exception:
+            return list(messages), None
+
     def _try_summarize(self, messages: list, identifiers: list) -> str | None:
         """用 LLM 摘要,失败返回 None(交给下一级降级)。"""
         try:
