@@ -65,3 +65,5 @@ dist/
 
 # run_all.py 失败时落盘的单测完整输出(临时诊断产物,不入库)
 tests/_fail_*.txt
+_uv.out
+_uv.err
