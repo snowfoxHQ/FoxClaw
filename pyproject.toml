@@ -45,7 +45,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# 命令名保持 foxclaw(与 PyPI 上 foxclaw 0.1.0 占位包发布的入口一致):
+# 命令名与包名一致(foxclaw),`pip install` 之后直接可用:
 # `pip install -e .` 之后可直接 `foxclaw serve`。
 foxclaw = "foxclaw.cli:main"
 

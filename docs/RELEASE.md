@@ -95,8 +95,15 @@ Actions → Release → Run workflow:
   `permissions: id-token: write`。
 - npm:npm ≥ 11.5 支持 trusted publishing,同样加 `id-token: write` 并去掉 `NODE_AUTH_TOKEN`。
 
-## 待决:仓库名
+## 仓库名(2026-11-08 已定)
 
-`git remote` 是 `snowfoxHQ/HestiaOS-dev`,但 `npm/package.json` 的 `homepage` /
-`repository` 写的是 `snowfoxHQ/FoxClaw`。OIDC 的 publisher 要求仓库名精确匹配,
-所以切 OIDC 之前必须先统一这两处。
+两个仓库,职责不同,别再混:
+
+| 仓库 | 可见性 | 用途 |
+|---|---|---|
+| `snowfoxHQ/FoxClaw` | public | 对外发布。PyPI/npm 的 `homepage`/`repository` 都指它,OIDC publisher 也填它 |
+| `snowfoxHQ/HestiaOS-dev` | private | 本地 `git remote origin` 指向的开发备份 |
+
+公开仓库原名 `SnowFoxClaw`,已于 2026-11-08 改名为 `FoxClaw`(GitHub 对旧名自动 301,
+老链接不会 404)。切 OIDC 时 publisher 的 repo 必须写成 `FoxClaw`——不是 `HestiaOS-dev`,
+也不是小写 `foxclaw`(registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配)。
