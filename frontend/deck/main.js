@@ -6,7 +6,7 @@ import './visuals.js?v=5.36';   // 球体特效默认关 + snowfoxclawVisual.on/
 import { _origin, API, WS, _lastKernelData } from './state.js?v=5.31';
 import { fetchAMapConfig, kpSet, renderFinance, renderLearning, renderItinerary, itinSideHTML, renderSituation, drawAMapInto, initMapSearch } from './domain.js?v=5.31';
 import { openSetMenu, switchProvider, uiPref, openAuthSetting } from './settings.js?v=5.36';   // uiPref.ballAnim 默认 false
-import './chat_model_picker.js?v=1.3';   // chat 输入框旁的下拉式模型选择器(图1 风格);v1.3 当前选中的 custom 也常驻 ✎ ✕(v1.2 误隐藏)
+import './chat_model_picker.js?v=1.4';   // chat 输入框旁的下拉式模型选择器;v1.4 保存即切换 + BASE URL 自动补 /v1 + 模型 ID 软提示
 
 /* ════════════ 后端数据层:接真实 Snowfoxclaw ════════════ */
 

@@ -21,6 +21,36 @@ function _esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// BASE URL 规范化(与后端 core/model_router.normalize_base_url 同规则):
+// 无 scheme → 补 https://;path 为空 → 补 /v1;已有 path(/v1、/compatible-mode/v1…)原样保留。
+// 病根:用户照厂商文档填 https://api.deepseek.com,SDK 拼出 /chat/completions → 多数网关 404/401,
+// 用户以为是"模型填不上"。前端先收拾干净,后端再兜一层(旧记录 / 直接调 API 的场景)。
+function _normalizeBaseUrl(u) {
+  let s = String(u || '').trim();
+  if (!s) return s;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) s = 'https://' + s;
+  let parsed;
+  try { parsed = new URL(s); } catch { return s; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return s;
+  let path = parsed.pathname.replace(/\/+$/, '');
+  if (!path) path = '/v1';
+  return `${parsed.protocol}//${parsed.host}${path}${parsed.search || ''}`;
+}
+
+// 常见厂商的模型 ID 提示(只做 placeholder 引导,不阻断保存 —— 自建网关可能有自定义名)
+const _MODEL_HINTS = [
+  { re: /api\.deepseek\.com/i,  hint: 'deepseek-chat',   note: 'DeepSeek 官方 ID:deepseek-chat / deepseek-reasoner' },
+  { re: /api\.openai\.com/i,    hint: 'gpt-4o-mini',     note: 'OpenAI 官方 ID:gpt-4o-mini / gpt-4o' },
+  { re: /dashscope\.aliyuncs/i, hint: 'qwen-plus',       note: '通义千问 ID:qwen-plus / qwen-max' },
+  { re: /minimax/i,             hint: 'MiniMax-Text-01', note: 'MiniMax ID:MiniMax-Text-01 / abab6.5s-chat' },
+];
+
+function _hintForBaseUrl(u) {
+  const s = String(u || '');
+  for (const h of _MODEL_HINTS) if (h.re.test(s)) return h;
+  return null;
+}
+
 function _isCustomCurrent() {
   return _models.current && _models.current.source === 'custom';
 }
@@ -160,9 +190,10 @@ async function selectModel(source, provider, name) {
       body: JSON.stringify(body),
     });
     if (!r.ok) {
-      const err = await r.text();
-      alert(`切换失败: ${err}`);
-      return;
+      let msg = `HTTP ${r.status}`;
+      try { const j = await r.json(); msg = j.detail || JSON.stringify(j); } catch {}
+      alert(`切换失败: ${msg}`);
+      return false;
     }
     const j = await r.json();
     _models.current = j.current;
@@ -170,8 +201,10 @@ async function selectModel(source, provider, name) {
     document.getElementById('chatModelMenu')?.classList.remove('show');
     renderPill();
     renderMenu();
+    return true;
   } catch (e) {
     alert(`切换失败: ${e.message || e}`);
+    return false;
   }
 }
 
@@ -274,6 +307,7 @@ function openAddDialog(mode = 'add', preset = null) {
   set('cm_extra_headers', preset?.extra_headers && Object.keys(preset.extra_headers).length
     ? JSON.stringify(preset.extra_headers) : '');
   set('cm_note',          preset?.note);
+  _applyModelHint(preset?.base_url);
 
   // API KEY 字段 placeholder 区分 add / edit
   const keyInp = document.getElementById('cm_api_key');
@@ -287,6 +321,28 @@ function openAddDialog(mode = 'add', preset = null) {
   if (msg) { msg.textContent = ''; msg.className = 'cm-msg'; }
   mask.classList.add('show');
   setTimeout(() => document.getElementById('cm_name')?.focus(), 50);
+}
+
+// 已知厂商的"模型 ID 写错"软提示(只警告不阻断 —— 自建网关可以有自定义别名)
+function _modelWarning(baseUrl, modelId) {
+  const s = String(baseUrl || ''), m = String(modelId || '').trim();
+  if (!m) return '';
+  if (/api\.deepseek\.com/i.test(s) && !/^deepseek-(chat|reasoner)$/.test(m))
+    return `⚠ DeepSeek 官方没有「${m}」,应填 deepseek-chat 或 deepseek-reasoner`;
+  return '';
+}
+
+// 按 BASE URL 域名更新「模型 ID」的 placeholder + 副标题提示(不阻断保存)
+function _applyModelHint(baseUrl) {
+  const hint = _hintForBaseUrl(baseUrl);
+  const inp = document.getElementById('cm_model');
+  if (inp) inp.placeholder = hint ? `例:${hint.hint}` : '例:MiniMax-Text-01';
+  const sub = document.getElementById('cmAddSubHint');
+  if (sub) {
+    const warn = _modelWarning(baseUrl, inp?.value);
+    sub.textContent = warn || (hint ? hint.note : '');
+    sub.style.color = warn ? '#e0685a' : '#e0a45c';
+  }
 }
 
 function closeAddDialog() {
@@ -304,7 +360,8 @@ function _readForm() {
   const v = (id) => (document.getElementById(id)?.value || '').trim();
   const out = {
     name:         v('cm_name'),
-    base_url:     v('cm_base_url'),
+    // 保存前再规范化一次(用户可能没触发 blur 直接点保存);后端也会兜一层
+    base_url:     _normalizeBaseUrl(v('cm_base_url')),
     api_key:      v('cm_api_key'),
     model:        v('cm_model'),
     group_id:     v('cm_group_id'),
@@ -337,16 +394,24 @@ async function _onSave() {
       return;
     }
     _setMsg('保存中…', 'info');
+    let savedName = payload.name;
     if (_cmMode === 'add') {
       await addCustom(payload);
-      _setMsg(`已保存: ${payload.name}`, 'ok');
+      savedName = payload.name;
     } else {
       const r = await updateCustom(_cmEditingName, payload);
-      _setMsg(`已更新: ${r.name}`, 'ok');
+      savedName = r.name;
       // 改名后,_cmEditingName 失效 → 下次 _onTest 会失败 → 清掉,避免误测
       _cmEditingName = r.name;
     }
     await loadModels();
+    // 保存即生效 —— 用户点「保存」的诉求就是「用它」。
+    // 病根:此前只写盘不切换,聊天仍走 .env 的旧 provider,用户看到 AuthenticationError/stub,
+    // 以为是"模型填不上";实际上是要再回菜单点一次这个条目。现在省掉这一步。
+    _setMsg('已保存,正在切换…', 'info');
+    const ok = await selectModel('custom', null, savedName);
+    _setMsg(ok ? `已保存并切换到 ${savedName}` : `已保存 ${savedName},但切换失败(见弹窗)`,
+            ok ? 'ok' : 'err');
     setTimeout(closeAddDialog, 600);
   } catch (e) {
     _setMsg(`保存失败: ${e.message || e}`, 'err');
@@ -381,7 +446,10 @@ async function _onTest() {
     await addCustom(payload);
     const r = await testModel('custom', null, payload.name);
     if (r.ok) {
-      _setMsg(`✓ 连通 (${r.latency_ms} ms, model=${r.model}, reply="${(r.reply || '').slice(0, 30)}")`, 'ok');
+      // 测试通过 = 这份配置真的能用 → 直接切过去,不用用户再回菜单点一次
+      await loadModels();
+      await selectModel('custom', null, payload.name);
+      _setMsg(`✓ 连通 (${r.latency_ms} ms, model=${r.model}) — 已切换`, 'ok');
     } else {
       _setMsg(`✗ 连通失败: ${(r.error || '').slice(0, 200)}\n(已为你保留,可手动改后再测或删除)`, 'err');
     }
@@ -432,6 +500,19 @@ function bindEvents() {
       if (e.target === mask) closeAddDialog();
     });
   }
+  // BASE URL 失焦即规范化(补 https:// / 补 /v1),并联动模型 ID 提示
+  const baseInp = document.getElementById('cm_base_url');
+  if (baseInp) {
+    baseInp.addEventListener('blur', () => {
+      const v = baseInp.value.trim();
+      if (!v) return;
+      baseInp.value = _normalizeBaseUrl(v);
+      _applyModelHint(baseInp.value);
+    });
+    baseInp.addEventListener('input', () => _applyModelHint(baseInp.value));
+  }
+  const modelInp = document.getElementById('cm_model');
+  if (modelInp) modelInp.addEventListener('input', () => _applyModelHint(baseInp?.value));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (mask?.classList.contains('show')) closeAddDialog();

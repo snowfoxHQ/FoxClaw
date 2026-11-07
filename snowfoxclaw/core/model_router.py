@@ -20,6 +20,39 @@ import json
 import threading
 import re as _re
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+
+# ── BASE URL 规范化(自定义模型)─────────────────────────────────────────────
+# 病根:用户按厂商文档填 `https://api.deepseek.com`(无 /v1),OpenAI SDK 会拼成
+# `https://api.deepseek.com/chat/completions` —— 兼容网关多数只认 `/v1/chat/completions`,
+# 于是 404/401;/v1 又常被"看文档照抄"的人漏掉。两边都不该让用户自己猜:
+#   · 无 scheme → 补 https://
+#   · path 为空或 "/" → 补 /v1
+#   · 已有 path(/v1、/compatible-mode/v1、/openai/v1…)→ 原样保留
+# 幂等:normalize(normalize(x)) == normalize(x)。
+def normalize_base_url(url: str) -> str:
+    """把用户填的 BASE URL 收拾成 SDK 可直接用的形式(带 scheme + 至少一段 path)。
+
+    非法输入抛 ``ValueError``(空串 / 非 http(s) / 解析失败)。
+    """
+    raw = (url or "").strip()
+    if not raw:
+        raise ValueError("BASE URL 不能为空")
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        parts = urlsplit(raw)
+    except Exception as e:                      # pragma: no cover - urlsplit 极少抛
+        raise ValueError(f"BASE URL 解析失败: {e}")
+    if parts.scheme.lower() not in ("http", "https"):
+        raise ValueError("BASE URL 必须以 http:// 或 https:// 开头")
+    if not parts.netloc:
+        raise ValueError("BASE URL 缺少主机名(例:https://api.deepseek.com/v1)")
+    path = (parts.path or "").rstrip("/")
+    if not path:
+        path = "/v1"
+    return urlunsplit((parts.scheme.lower(), parts.netloc, path, parts.query, ""))
 
 
 # ── 推理块剥离:openai-compatible 协议(DeepSeek-R1 / MiniMax-Text-01 等)把内部
@@ -376,11 +409,16 @@ class ModelRouter:
             key = match.get("api_key", "") or ""
         if not key:
             return None, "", "API key 为空"
+        # 老记录可能存成不带 /v1 的形式 → 构造时统一规范化(与 llm_admin 新增/编辑同源)
+        try:
+            base_url = normalize_base_url(match.get("base_url", ""))
+        except ValueError as e:
+            return None, "", f"BASE URL 非法: {e}"
         try:
             from openai import OpenAI
             client = OpenAI(
                 api_key=key,
-                base_url=match.get("base_url", ""),
+                base_url=base_url,
                 timeout=30.0,
                 max_retries=2,
                 default_headers=match.get("extra_headers") or {},
@@ -498,7 +536,7 @@ class ModelRouter:
                     "type": "base64",
                     "media_type": im.get("media_type", "image/png"),
                     "data": im.get("data", "")}})
-        elif provider in ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom"):
+        elif provider in ModelRouter._OPENAI_FAMILY:
             blocks = [{"type": "text", "text": text}]
             for im in images:
                 mt = im.get("media_type", "image/png"); d = im.get("data", "")
@@ -520,7 +558,7 @@ class ModelRouter:
             usage = ({"input_tokens": getattr(u, "input_tokens", None),
                       "output_tokens": getattr(u, "output_tokens", None)} if u else None)
             return resp.content[0].text, usage
-        elif provider in ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom"):
+        elif provider in self._OPENAI_FAMILY:
             msgs = [{"role": "system", "content": system}] + messages
             resp = client.chat.completions.create(model=model, max_tokens=max_tokens, messages=msgs)
             u = getattr(resp, "usage", None)
@@ -667,6 +705,10 @@ class ModelRouter:
         与正文内嵌 <think> 块都从这里出去,作为独立 SSE thinking 事件;正文不受影响。"""
         def _stopped():
             return stop_event is not None and stop_event.is_set()
+        # 前端切模型(.current_model)→ mtime 缓存 lazy reload。
+        # 病根:此前只有 complete() 里 reload,而聊天主路径是 stream() —— 用户在"模型选择器"
+        # 里切完自定义模型后,流式对话仍拿旧 provider/旧 client(表现为"填了不生效")。
+        self._maybe_reload_selection()
         system = self._inject_runtime(system)   # 规则化:与 complete 同一咽喉注入运行时事实基准
         if self.is_stub:
             try:
@@ -786,7 +828,11 @@ class ModelRouter:
     # 模型无关:openai 家族(openai/deepseek/qwen/local,含 openai-compatible 万能通道)走
     # OpenAI tools 格式;anthropic 走原生 tool_use block(P0-2);google/stub 不支持 →
     # supported=False,由上层自动回退关键词增强链(fallback,不破坏)。
-    _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local", "generic", "minimax")
+    # ⚠ "custom"(前端选中的自定义模型)必须在这里 —— 它是**运行时**才出现的 openai-compatible
+    # 通道,漏掉会让 stream() 退化为 complete() 一次性输出(前端表现为"不流式"),且
+    # supports_tools() 变 False → 工具体系静默降级。凡新增 openai 兼容 provider,
+    # 只改这一处(调用点已统一引用本元组)。
+    _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom")
     _TOOL_PROVIDERS = _OPENAI_FAMILY + ("anthropic",)
 
     def supports_tools(self) -> bool:

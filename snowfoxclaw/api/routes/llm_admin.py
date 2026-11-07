@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 import snowfoxclaw.api as _api
 from .. import app
+from ...core.model_router import normalize_base_url
 
 
 _DATA_DIR = Path(os.environ.get("SNOWFOXCLAW_DATA_DIR", "./snowfoxclaw_data"))
@@ -119,10 +120,18 @@ class _SelectReq(BaseModel):
 
 @app.post("/api/llm/select")
 async def select_model(req: _SelectReq):
-    """记录用户选择(``model_router`` 用 mtime 缓存 lazy reload,无需重启)。"""
+    """记录用户选择 *并立即生效*。
+
+    病根:此前只写 ``.current_model`` 就算成功 —— 若该自定义模型其实构造不出 client
+    (key 空 / BASE URL 非法 / 记录已被删),前端显示"已切换",聊天却继续走旧 provider,
+    用户看到的是"填了填不上"。现在选中前先自检,失败直接 400 带原因。
+    """
+    router = _api._os_instance.router if _api._os_instance else None
     if req.source == "auto":
         if CURRENT_MODEL_PATH.exists():
             CURRENT_MODEL_PATH.unlink()
+        if router is not None:
+            router._maybe_reload_selection()
         return {"ok": True, "current": None}
     if req.source == "preset":
         if not req.provider or req.provider not in _PROVIDER_KEY_ENV:
@@ -136,12 +145,24 @@ async def select_model(req: _SelectReq):
         match = next((m for m in models if m.get("name") == req.name), None)
         if not match:
             raise HTTPException(404, f"未找到自定义模型: {req.name}")
+        # 预检:能不能真构造出 client(否则"切换成功"是假象)
+        if router is not None:
+            client, _model, err = router._build_custom_client(req.name)
+            if client is None:
+                raise HTTPException(400, f"该自定义模型不可用: {err}")
         data = {"source": "custom", "name": req.name, "model_id": match.get("model", "")}
     else:
         raise HTTPException(400, f"未知 source: {req.source}")
     CURRENT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     CURRENT_MODEL_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    return {"ok": True, "current": data}
+    # 立即 reload(mtime 变了);正常聊天路径也会 lazy reload,这里只是让 /runtime 立刻正确
+    if router is not None:
+        router._maybe_reload_selection()
+    return {"ok": True, "current": data,
+            "runtime": ({"provider": router.provider,
+                         "model": getattr(router, "model", ""),
+                         "client_ok": getattr(router, "_client", None) is not None}
+                        if router is not None else None)}
 
 
 class _CustomAddReq(BaseModel):
@@ -161,6 +182,10 @@ async def add_custom_model(req: _CustomAddReq):
         raise HTTPException(400, "name 不能为空")
     if not req.base_url.strip() or not req.api_key.strip() or not req.model.strip():
         raise HTTPException(400, "base_url / api_key / model 都必填")
+    try:
+        base_url = normalize_base_url(req.base_url)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     models = _load_custom()
     if any(m.get("name") == name for m in models):
         raise HTTPException(409, f"已存在同名模型: {name}")
@@ -169,7 +194,7 @@ async def add_custom_model(req: _CustomAddReq):
         extra["MiniMax-Group-Id"] = req.group_id.strip()
     models.append({
         "name":          name,
-        "base_url":      req.base_url.strip(),
+        "base_url":      base_url,
         "api_key_obf":   _obf(req.api_key.strip()),
         "model":         req.model.strip(),
         "extra_headers": extra,
@@ -248,7 +273,10 @@ async def update_custom_model(name: str, req: _CustomUpdateReq):
 
     # 应用普通字段
     if req.base_url is not None:
-        target["base_url"] = req.base_url.strip()
+        try:
+            target["base_url"] = normalize_base_url(req.base_url)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     if req.model is not None:
         target["model"] = req.model.strip()
     if req.api_key is not None and req.api_key.strip():
@@ -342,9 +370,13 @@ async def test_model(req: _TestReq):
             raise HTTPException(404, f"未找到自定义模型: {req.name}")
         key = _deobf(match.get("api_key_obf", ""))
         try:
+            base_url = normalize_base_url(match.get("base_url", ""))
+        except ValueError as e:
+            return {"ok": False, "error": f"BASE URL 非法: {e}", "latency_ms": 0}
+        try:
             client = OpenAI(
                 api_key=key,
-                base_url=match["base_url"],
+                base_url=base_url,
                 timeout=15.0,
                 default_headers=match.get("extra_headers") or {},
             )
