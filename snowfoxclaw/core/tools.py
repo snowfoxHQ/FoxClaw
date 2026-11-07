@@ -147,10 +147,14 @@ def default_registry() -> ToolRegistry:
 # 病根提醒:prompt 级隔离挡不住弱模型被块内强指令诱导(实测 flash ~2/3 被劫持),真正的
 # 安全阀在**动作级**——工具执行前过权限管线,写/副作用/不可逆动作走人在回路(HITL)。
 # 字段对齐 permission.evaluate:side_effect(read/write/send/pay)/ read_only / external / destructive。
+# parallel_safe 不在权限语义里,只用于**同轮多工具是否可并发**:置 True 表示"纯读、可与其他
+# parallel_safe 工具同时跑"(见 agents/mixins/tool_exec.py::_run_tools)。未声明 = 串行。
 # **新增任何工具都应在此声明能力;未声明者 fail-closed 当作有副作用 → 强制 HITL(见 _DEFAULT_CAP)。**
 TOOL_CAPABILITIES: dict[str, dict] = {
-    "web_search":    {"side_effect": "read", "read_only": True, "external": False, "destructive": False},
-    "recall_memory": {"side_effect": "read", "read_only": True, "external": False, "destructive": False},
+    "web_search":    {"side_effect": "read", "read_only": True, "external": False,
+                      "destructive": False, "parallel_safe": True},
+    "recall_memory": {"side_effect": "read", "read_only": True, "external": False,
+                      "destructive": False, "parallel_safe": True},
 }
 # 未声明工具的兜底:当有副作用 + 外部 → permission 管线判 ask → 强制人在回路。宁误拦不漏放。
 _DEFAULT_CAP = {"side_effect": "write", "read_only": False, "external": True, "destructive": False}
