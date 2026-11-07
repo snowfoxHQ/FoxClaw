@@ -38,6 +38,11 @@ function stepText(s) {
   if (typeof s === 'string') return s
   return s.desc || s.task || s.label || JSON.stringify(s)
 }
+
+const SRC_CN = { memory: '记忆', knowledge: '知识', web: '联网', agent: '态势' }
+function srcLabel(s) {
+  return SRC_CN[s] || s || '证据'
+}
 </script>
 
 <template>
@@ -76,6 +81,19 @@ function stepText(s) {
               <li v-for="(s, k) in m.plan.steps" :key="k">{{ stepText(s) }}</li>
             </ol>
           </details>
+
+          <div v-if="m.search" class="sres">
+            <div class="sres-h">
+              <span class="sroute">{{ m.search.route }}</span>
+              <span>置信度 {{ Math.round((m.search.confidence || 0) * 100) }}%</span>
+              <span>{{ m.search.iterations }} 轮迭代</span>
+            </div>
+            <div v-for="(n, k) in m.search.nodes" :key="k" class="srow">
+              <span class="ssrc" :class="n.source">{{ srcLabel(n.source) }}</span>
+              <p>{{ n.fact }}</p>
+              <em>{{ Math.round((n.confidence || 0) * 100) }}</em>
+            </div>
+          </div>
 
           <p v-if="m.content" class="a-text">{{ m.content }}<span v-if="m.streaming" class="caret" /></p>
           <p v-else-if="m.streaming" class="a-text waiting"><span class="dots">···</span></p>
@@ -197,6 +215,43 @@ function stepText(s) {
 .ev-link, .ev-file { font-size: 10.5px; color: var(--accent); text-decoration: none; }
 .ev-file { color: var(--dim); }
 .ev-link:hover { text-decoration: underline; }
+
+/* ── 认知搜索结果卡 ── */
+.sres {
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--line-soft);
+  overflow: hidden;
+}
+.sres-h {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 9.5px; color: var(--faint); font-family: var(--mono);
+}
+.sres-h .sroute {
+  padding: 1px 6px; border-radius: var(--r-pill);
+  color: var(--green); background: rgba(26, 157, 95, 0.1);
+  font-weight: 600;
+}
+.srow {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(23, 32, 26, 0.04);
+}
+.srow:last-child { border-bottom: 0; }
+.ssrc {
+  flex-shrink: 0; font-size: 9px; padding: 1px 5px; border-radius: 4px;
+  color: var(--dim); background: var(--surface-2);
+}
+.ssrc.knowledge { color: var(--green); background: rgba(26, 157, 95, 0.1); }
+.ssrc.web { color: var(--accent); background: rgba(10, 132, 255, 0.1); }
+.srow p {
+  flex: 1; min-width: 0;
+  font-size: 11.5px; line-height: 1.6; color: var(--dim);
+  word-break: break-word;
+}
+.srow em { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--faint); }
 
 .notice {
   padding: 6px 10px; border-radius: var(--r-sm);

@@ -23,6 +23,8 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
       '/ws': { target: 'ws://127.0.0.1:8000', ws: true },
       '/planet': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      /* /knowledge/* 无 /api 前缀:HKC 自带 router 由后端根路径挂载 */
+      '/knowledge': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
   },
 })

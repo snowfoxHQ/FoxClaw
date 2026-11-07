@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { getJSON } from '../api.js'
+import { getJSON, getRaw } from '../api.js'
 
 /* 单一状态源:所有栏只读这一份,不再有 _syncNav 那类「三个入口各改一遍」的补丁。 */
 export const state = reactive({
@@ -83,7 +83,8 @@ export async function loadProgress() {
     const [sit, proc, src] = await Promise.all([
       getJSON('/orchestration/situation').catch(() => null),
       getJSON('/processes?limit=5').catch(() => null),
-      getJSON('/knowledge/sources').catch(() => null),
+      /* 根路径:/knowledge/* 是 vendor/hkc 的 router(app.include_router 无 /api 前缀) */
+      getRaw('/knowledge/sources').catch(() => null),
     ])
     state.officeStats = {
       waypoints: sit?.itinerary?.waypoints ?? 0,

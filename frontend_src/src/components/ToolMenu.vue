@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ConnectorPanel from './ConnectorPanel.vue'
-import { attachFile, attachImage, chat, ingestFile, ingestFolder, say, setMode } from '../stores/chat.js'
+import { attachFile, attachImage, chat, ingestFile, ingestFolder, say, setMode, ui } from '../stores/chat.js'
 
 const open = ref(false)
 const showConn = ref(false)
@@ -32,6 +32,13 @@ function toggle() {
 function close() {
   open.value = false
 }
+/* 斜杠命令 /摄入、/设置 通过 store 信号打到这里,避免把 input 引用抬到全局 */
+watch(() => ui.ingestTick, () => inFile.value?.click())
+watch(() => ui.toolsTick, () => {
+  showConn.value = false
+  open.value = true
+})
+
 function onDocDown(e) {
   if (root.value && !root.value.contains(e.target)) close()
 }

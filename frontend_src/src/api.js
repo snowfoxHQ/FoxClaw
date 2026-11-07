@@ -34,3 +34,17 @@ export async function postForm(path, form) {
   if (!r.ok) throw await toError(r, path)
   return r.json()
 }
+
+/* 少数端点在根路径、不带 /api 前缀 —— vendor/hkc 的 knowledge router 是直接
+   include_router(knowledge.router) 挂上去的,实测 /api/knowledge/* 是 404。 */
+export async function getRaw(path, init) {
+  const r = await fetch(path, init)
+  if (!r.ok) throw await toError(r, path)
+  return r.json()
+}
+
+export async function postFormRaw(path, form) {
+  const r = await fetch(path, { method: 'POST', body: form })
+  if (!r.ok) throw await toError(r, path)
+  return r.json()
+}

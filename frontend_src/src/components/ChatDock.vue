@@ -1,19 +1,155 @@
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import ComposerMenu from './ComposerMenu.vue'
 import ModelPicker from './ModelPicker.vue'
 import ToolMenu from './ToolMenu.vue'
-import { chat, dropAttachment, dropImage, send, stop } from '../stores/chat.js'
+import { getJSON } from '../api.js'
+import {
+  chat, dropAttachment, dropImage, newSession, pushLocal, requestIngest, requestTools,
+  runSearch, say, send, setMode, stop,
+} from '../stores/chat.js'
 
 const text = ref('')
 const ta = ref(null)
+const menu = ref(null) // 'slash' | 'at' | null
+const mq = ref('')
+const hover = ref(0)
+const skills = ref([])
+
+const CMD = [
+  { key: '/新建', desc: '开一个新会话', run: () => newSession() },
+  { key: '/流式', desc: '切到流式对话', run: () => { setMode('stream'); say('已切到流式对话') } },
+  { key: '/任务', desc: '切到编排任务', run: () => { setMode('orchestrate'); say('已切到编排任务') } },
+  { key: '/搜索', desc: '检索记忆/知识/联网:/搜索 关键词', arg: true },
+  { key: '/摄入', desc: '选文件摄入知识库', run: () => requestIngest() },
+  { key: '/设置', desc: '打开工具栏浮层', run: () => requestTools() },
+  { key: '/停止', desc: '停止当前生成', run: () => stop() },
+  { key: '/清屏', desc: '只清空当前显示,不动后端', run: () => { chat.messages = [] } },
+  {
+    key: '/帮助',
+    desc: '列出全部命令',
+    run: () => pushLocal(CMD.map((c) => `${c.key.padEnd(6)}  ${c.desc}`).join('\n')),
+  },
+]
 
 const busy = () => chat.streamState === 'streaming'
 
+const items = computed(() => {
+  const q = mq.value.toLowerCase()
+  if (menu.value === 'slash') {
+    return CMD.filter((c) => c.key.slice(1).toLowerCase().includes(q) || c.desc.includes(mq.value))
+      .map((c) => ({ label: c.key, desc: c.desc, tag: c.arg ? '带参数' : '' }))
+  }
+  if (menu.value === 'at') {
+    return skills.value
+      .filter((s) => s.label.toLowerCase().includes(q) || (s.desc || '').includes(mq.value))
+      .slice(0, 8)
+  }
+  return []
+})
+
+const hint = computed(() => (menu.value === 'slash' ? '命令' : '提及技能'))
+
+onMounted(async () => {
+  try {
+    const [a, b] = await Promise.all([
+      getJSON('/ahs/md-skills').catch(() => ({})),
+      getJSON('/ahs/skills').catch(() => ({})),
+    ])
+    skills.value = [
+      ...(a.skills || [])
+        .filter((s) => s.enabled !== false)
+        .map((s) => ({ label: s.name, desc: s.description || '', tag: '技能' })),
+      ...(b.skills || []).map((s) => ({
+        label: s.name || s.id, desc: s.description || '', tag: s.kind || '工具',
+      })),
+    ]
+  } catch {
+    /* 拿不到就只留命令面板 */
+  }
+})
+
+/* 只看光标左侧的 token:用户在中间补字时也能正确触发 */
+function syncMenu() {
+  const el = ta.value
+  if (!el) return
+  const pos = el.selectionStart ?? text.value.length
+  const before = text.value.slice(0, pos)
+  const mSlash = /(^|\s)\/([^\s/]*)$/.exec(before)
+  if (mSlash) {
+    if (menu.value !== 'slash') hover.value = 0
+    menu.value = 'slash'
+    mq.value = mSlash[2]
+    return
+  }
+  const mAt = /(^|\s)@([^\s@]*)$/.exec(before)
+  if (mAt) {
+    if (menu.value !== 'at') hover.value = 0
+    menu.value = 'at'
+    mq.value = mAt[2]
+    return
+  }
+  menu.value = null
+}
+
+watch(text, () => nextTick(syncMenu))
+
+function closeMenu() {
+  menu.value = null
+}
+
+function choose(i) {
+  const it = items.value[i]
+  if (!it) return
+  const el = ta.value
+  const pos = el ? el.selectionStart : text.value.length
+  const before = text.value.slice(0, pos)
+
+  if (menu.value === 'slash') {
+    const cmd = CMD.find((c) => c.key === it.label)
+    if (cmd && cmd.arg) {
+      /* 带参数的命令:把命令留在输入框,让用户接着写关键词 */
+      text.value = `${cmd.key} `
+      closeMenu()
+      nextTick(() => el && el.focus())
+      return
+    }
+    text.value = ''
+    closeMenu()
+    if (cmd && cmd.run) cmd.run()
+    return
+  }
+
+  /* @ 技能:把当前 @token 替换成完整技能名 */
+  const idx = before.lastIndexOf('@')
+  const after = text.value.slice(pos)
+  text.value = `${before.slice(0, idx)}@${it.label} ${after}`
+  closeMenu()
+  nextTick(() => el && el.focus())
+}
+
+/* 纯命令(不带面板)也要能执行 */
+function tryCommand(t) {
+  if (!t.startsWith('/')) return false
+  const [head, ...rest] = t.split(/\s+/)
+  const cmd = CMD.find((c) => c.key === head)
+  if (!cmd) {
+    say(`未知命令:${head}`)
+    return true
+  }
+  const arg = rest.join(' ').trim()
+  if (cmd.key === '/搜索') runSearch(arg)
+  else if (cmd.run) cmd.run()
+  return true
+}
+
 function submit() {
   if (busy()) return stop()
-  const t = text.value
-  if (!t.trim() && !chat.attachments.length && !chat.images.length) return
+  const t = text.value.trim()
+  if (!t && !chat.attachments.length && !chat.images.length) return
   text.value = ''
+  closeMenu()
+  if (tryCommand(t)) return
   send(t)
 }
 
@@ -24,9 +160,31 @@ function grow() {
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, 112)}px`
 }
-watch(text, () => nextTick(grow))
 
 function onKey(e) {
+  if (menu.value && items.value.length) {
+    const n = items.value.length
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      hover.value = (hover.value + 1) % n
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      hover.value = (hover.value - 1 + n) % n
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      choose(hover.value)
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeMenu()
+      return
+    }
+  }
   if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return
   e.preventDefault()
   submit()
@@ -63,6 +221,15 @@ function kb(n) {
       </div>
     </div>
 
+    <ComposerMenu
+      v-if="menu && items.length"
+      :items="items"
+      :index="hover"
+      :hint="hint"
+      @pick="choose"
+      @hover="hover = $event"
+    />
+
     <div class="wrap">
       <ToolMenu />
       <ModelPicker />
@@ -70,9 +237,11 @@ function kb(n) {
         ref="ta"
         v-model="text"
         rows="1"
-        placeholder="告诉我你想做什么…  Enter 发送 · Shift+Enter 换行"
+        placeholder="告诉我你想做什么…  / 命令 · @ 技能 · Enter 发送"
         @keydown="onKey"
         @input="grow"
+        @click="syncMenu"
+        @keyup="syncMenu"
       />
       <button class="send" :class="{ stop: busy() }" :title="busy() ? '停止生成' : '发送'" @click="submit">
         {{ busy() ? '■' : '➤' }}

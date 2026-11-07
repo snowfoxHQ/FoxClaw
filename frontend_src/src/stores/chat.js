@@ -1,6 +1,6 @@
 /* 对话与输入区状态:模式 / 附件 / 图片 / 摄入任务 / 消息流 / SSE */
 import { reactive } from 'vue'
-import { API, getJSON, postForm, postJSON } from '../api.js'
+import { API, getJSON, getRaw, postForm, postFormRaw, postJSON } from '../api.js'
 import { loadSessions, state as app } from './app.js'
 
 const MODE_KEY = 'sfx.chat.mode'
@@ -66,7 +66,8 @@ export function dropImage(i) {
   chat.images.splice(i, 1)
 }
 
-/* ── 摄入知识库:POST /api/knowledge/ingest/file/async → 轮询 jobs/{id} ── */
+/* ── 摄入知识库:POST /knowledge/ingest/file/async → 轮询 /knowledge/ingest/jobs/{id}
+      注意路径无 /api 前缀:vendor/hkc 的 knowledge router 是根路径挂载的。 ── */
 export async function ingestFile(file, collection = '') {
   if (!file) return
   if (chat.ingest) return say('等当前文件摄入完成再传下一个')
@@ -76,7 +77,7 @@ export async function ingestFile(file, collection = '') {
   if (collection) fd.append('collection', collection)
   let jobId
   try {
-    jobId = (await postForm('/knowledge/ingest/file/async', fd)).job_id
+    jobId = (await postFormRaw('/knowledge/ingest/file/async', fd)).job_id
   } catch (e) {
     chat.ingest = { ...chat.ingest, status: 'error', msg: e.message }
     return say(`摄入失败:${e.message}`)
@@ -103,7 +104,7 @@ async function pollIngest(jobId) {
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 900))
     try {
-      const j = await getJSON(`/knowledge/ingest/jobs/${jobId}`)
+      const j = await getRaw(`/knowledge/ingest/jobs/${jobId}`)
       const pct = j.total
         ? Math.round((j.processed / j.total) * 100)
         : j.status === 'done'
@@ -167,6 +168,62 @@ export async function loadSession(id, { quiet = false } = {}) {
       localStorage.removeItem(SID_KEY)
     }
     if (!quiet) say(`会话加载失败:${e.message}`)
+  }
+}
+
+/* 组件间的一次性信号:斜杠命令要调 ToolMenu 里的文件选择/浮层,又不能硬耦合 */
+export const ui = reactive({ ingestTick: 0, toolsTick: 0 })
+export function requestIngest() {
+  ui.ingestTick += 1
+}
+export function requestTools() {
+  ui.toolsTick += 1
+}
+
+/* 纯本地消息(/帮助 之类),不经过后端 */
+export function pushLocal(content) {
+  chat.messages.push({
+    role: 'assistant', content, ts: Date.now(),
+    thinking: '', evidence: [], error: '', notice: '', streaming: false,
+  })
+}
+
+/* 认知搜索(HSR):POST /api/search/query,结果作为一张证据卡挂在消息流里 */
+export async function runSearch(rawQuery) {
+  const query = String(rawQuery || '').trim()
+  if (!query) return say('用法:/搜索 关键词')
+  if (chat.streamState === 'streaming') return say('正在生成,先点停止')
+
+  chat.messages.push({
+    role: 'user', content: `/搜索 ${query}`, ts: Date.now(),
+    attachments: [], thinking: '', streaming: false,
+  })
+  chat.messages.push({
+    role: 'assistant', content: '检索中…', ts: Date.now(), search: null,
+    thinking: '', evidence: [], error: '', notice: '', streaming: false, stage: '检索',
+  })
+  const msg = chat.messages[chat.messages.length - 1]
+
+  try {
+    /* internal_only=true:只查 HMR 记忆 + HKC 知识 + Agent 态势,不联网 —— 联网分支实测返回空图 */
+    const d = await postJSON('/search/query', { query, agent_id: 'supervisor', internal_only: true })
+    const nodes = (d.graph && d.graph.nodes) || []
+    msg.search = {
+      route: d.route || 'HSR',
+      confidence: d.confidence || 0,
+      iterations: d.iterations || 0,
+      nodes: nodes.slice(0, 6).map((n) => ({
+        fact: n.fact, source: n.source, origin: n.origin, confidence: n.confidence,
+      })),
+    }
+    msg.content = nodes.length
+      ? `命中 ${nodes.length} 条证据 · 整体置信度 ${Math.round((d.confidence || 0) * 100)}%`
+      : '没有检索到相关证据'
+  } catch (e) {
+    msg.content = ''
+    msg.error = `检索失败:${e.message}`
+  } finally {
+    msg.stage = ''
   }
 }
 
