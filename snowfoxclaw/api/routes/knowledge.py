@@ -79,6 +79,37 @@ async def knowledge_ingest(p: KnowledgeIngestPayload):
         raise HTTPException(500, f"摄入失败(通常因未配置 LLM): {e}")
 
 
+@app.get("/api/knowledge/recent")
+async def knowledge_recent(limit: int = 10):
+    """最近录入的知识单元。右栏「最近知识」看前 10 条,知识库面板看全量。
+
+    只读、无 LLM。短知识经 `/api/knowledge/ingest` 进来,长文档走知识星球(3D 图谱);
+    两边落的是同一个图库,所以这里能看到全部新增 KU 而不只是「短知识」。
+
+    为什么不复用 HKC 的 `/knowledge/graph`:那条路径的 KUResponse 不带 created_at
+    (schema 里没有),无法按时间倒序。这里直接读已装配容器的 graph_store 拿原始
+    KU 对象(带 created_at),避免为了排序去改 vendor 里的公开 schema。
+    """
+    hkc = _hkc_or_none()
+    if hkc is None or not hkc.available:
+        return {"available": False, "total": 0, "kus": []}
+    try:
+        store = hkc.container.graph_store
+        kus = await asyncio.to_thread(store.query_all, 4000)
+    except Exception as e:
+        return {"available": True, "total": 0, "kus": [], "error": str(e)}
+
+    # ISO 字符串,字典序即时间序
+    kus.sort(key=lambda k: getattr(k, "created_at", "") or "", reverse=True)
+    n = max(1, min(int(limit or 10), 200))
+    return {"available": True, "total": len(kus), "kus": [
+        {"ku_id": ku.ku_id, "ku_type": ku.ku_type.value, "name": ku.name,
+         "summary": ku.summary or "", "domain": ku.domain or "",
+         "created_at": getattr(ku, "created_at", "") or "",
+         "tags": list(ku.tags or [])}
+        for ku in kus[:n]]}
+
+
 # ── HKC 融合第 2 档 Step1:ACE 能力(只读查询面,无 LLM、零成本)─────────
 @app.get("/api/knowledge/abilities")
 async def knowledge_abilities():

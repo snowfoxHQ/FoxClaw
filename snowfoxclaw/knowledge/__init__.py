@@ -11,6 +11,8 @@ BM25+向量+图 / ACE 能力编译)。按 HMR 同款方式 vendor 在 `vendor/hk
   · 资源可释放:HKCService.close() 关闭全部 4 个 SQLite 连接(经修好的 HKCContainer.close)。
   · 惰性装配:由 Snowfoxclaw.hkc 属性首次访问时才装配,避免每次构造 OS 都开 db 句柄。
 """
+import base64
+import json
 import os
 import sys
 from pathlib import Path
@@ -27,17 +29,93 @@ def _ensure_hkc_importable() -> bool:
     return True
 
 
+def _to_hkc_provider(name: str) -> str:
+    """Snowfoxclaw 的 provider 名 → HKC 底层只认的 4 个协议名。
+
+    (anthropic / deepseek / openai / openai-compatible)其余全是 OpenAI 协议兼容。
+    """
+    n = (name or "").strip().lower()
+    if n == "anthropic":
+        return "anthropic"
+    if n == "deepseek":
+        return "deepseek"
+    return "openai-compatible"
+
+
+def _selected_llm():
+    """读前端「LLM 管理」里当前选中的模型,返回 ``(provider, key, base_url, model)`` 或 None。
+
+    这是**用户在界面上显式做过的选择**(SNOWFOXCLAW_DATA_DIR/.current_model),比任何
+    env 默认值都更能代表"现在真实在用的那个模型",所以排在 LLM_* 之前。
+
+    病根:此前 HKC 只看 env。用户在界面里配好 custom(deepseek-flash)后主对话正常,
+    但知识抽取仍读环境里那个早已失效的 DEEPSEEK_API_KEY,每次摄入都是 401 → 0 条 KU。
+    """
+    try:
+        data_dir = Path(os.environ.get("SNOWFOXCLAW_DATA_DIR", "./snowfoxclaw_data"))
+        sel_file = data_dir / ".current_model"
+        if not sel_file.exists():
+            return None
+        sel = json.loads(sel_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    source = (sel.get("source") or "").strip().lower()
+    name = (sel.get("name") or "").strip()
+    model = (sel.get("model_id") or sel.get("model") or "").strip()
+
+    if source == "custom" and name:
+        try:
+            models = json.loads((data_dir / "custom_models.json").read_text(encoding="utf-8"))
+            match = next((m for m in models if m.get("name") == name), None)
+        except Exception:
+            match = None
+        if not match:
+            return None
+        key = ""
+        obf = match.get("api_key_obf") or ""
+        if obf:
+            try:
+                key = base64.b64decode(obf.encode()).decode()
+            except Exception:
+                key = ""
+        key = key or (match.get("api_key") or "")
+        # base_url 必须和主对话走同一个规范化(缺 path 补 /v1),否则 SDK 拼出
+        # https://api.deepseek.com/chat/completions 而主对话用 /v1/chat/completions
+        base = match.get("base_url") or ""
+        try:
+            from ..core.model_router import normalize_base_url
+            base = normalize_base_url(base)
+        except Exception:
+            pass
+        return _to_hkc_provider("generic"), key, base, model or match.get("model") or ""
+
+    if source == "preset" and name:
+        env_name = ""
+        try:
+            from ..core.model_router import PROVIDER_ENV
+            env_name = PROVIDER_ENV.get(name, "")
+        except Exception:
+            pass
+        key = (os.environ.get(env_name) or "").strip() if env_name else ""
+        return (_to_hkc_provider(name), key, "", model)
+
+    return None
+
+
 def _detect_llm(api_key=None):
-    """【P2·单 LLM 入口】模型无关地决定 HKC 抽取用的 provider/key/base_url。
+    """【P2·单 LLM 入口】模型无关地决定 HKC 抽取用的 provider/key/base_url/model。
 
-    默认从 LLM_PROVIDER / LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 单入口读,
-    与主对话 100% 同源(同 token 同 base_url);HKC 底层只认 4 个 provider 协议名
-    (anthropic / deepseek / openai / openai-compatible),做一次协议名映射:
-        generic / minimax / qwen / local / openai → openai-compatible
-    (它们都是 OpenAI 协议兼容,语义同 HKC 底层认的 'openai-compatible')。
+    优先级(由高到低),整体目标是「和主对话用同一个模型」:
+      1. ``HKC_LLM_*`` —— 显式让 HKC 独立配(主对话走云、抽取走本地)
+      2. **前端 LLM 管理当前选中项** —— 用户在界面上做的显式选择
+      3. ``LLM_PROVIDER / LLM_API_KEY / LLM_BASE_URL / LLM_MODEL`` 单入口 env
+      4. 主对话的自动探测(``ModelRouter._auto_detect``)
 
-    向后兼容:用户若仍想 HKC 独立配(主对话走云、HKC 走本地),可显式设 HKC_LLM_*
-    4 个 env,优先级仍最高。
+    HKC 底层只认 4 个协议名(anthropic / deepseek / openai / openai-compatible),
+    其余按 OpenAI 兼容协议映射过去。
+
+    返回 ``(provider, key, base_url, model)``。
     """
     # 1. 显式 HKC_LLM_PROVIDER 覆盖(向后兼容「HKC 独立配」场景)
     env_provider = (os.environ.get("HKC_LLM_PROVIDER") or "").strip().lower()
@@ -48,23 +126,40 @@ def _detect_llm(api_key=None):
         base = (os.environ.get("HKC_LLM_BASE_URL")
                 or os.environ.get("LLM_BASE_URL")
                 or "")
-        return env_provider, key or api_key, base
+        model = (os.environ.get("HKC_LLM_MODEL")
+                 or os.environ.get("LLM_MODEL")
+                 or "")
+        return env_provider, key or api_key, base, model
 
-    # 2. 默认单入口:从 LLM_* 读
-    provider = (os.environ.get("LLM_PROVIDER") or "generic").strip().lower()
+    # 2. 界面里当前选中的模型(用户显式动作,优先于 env 默认)
+    selected = _selected_llm()
+    if selected:
+        provider, key, base, model = selected
+        return provider, (key or api_key or "").strip(), (base or "").strip(), model
+
+    # 3. 单入口 env。未显式指定 provider 时**复用主对话的自动探测**,
+    #    不能默认成 "generic" —— 那是个空 key 的壳,会让抽取打 api.openai.com
+    #    拿 Missing credentials,每次摄入都 0 条。
+    provider = (os.environ.get("LLM_PROVIDER") or "").strip().lower()
     key = (os.environ.get("LLM_API_KEY") or api_key or "").strip()
     base = os.environ.get("LLM_BASE_URL", "").strip()
+    model = (os.environ.get("LLM_MODEL") or os.environ.get("HKC_LLM_MODEL") or "").strip()
 
-    # 3. 协议名映射 → HKC 底层 4 个合法值
-    if provider in ("generic", "minimax", "qwen", "local", "openai"):
-        hkc_provider = "openai-compatible"
-    elif provider == "deepseek":
-        hkc_provider = "deepseek"
-    elif provider == "anthropic":
-        hkc_provider = "anthropic"
-    else:
-        hkc_provider = "openai-compatible"   # 未知 provider 兜底
-    return hkc_provider, key, base
+    provider_env = {}
+    if not provider:
+        try:
+            from ..core.model_router import ModelRouter, PROVIDER_ENV
+            provider_env = PROVIDER_ENV
+            detected = ModelRouter._auto_detect()
+        except Exception:
+            detected = ""
+        provider = detected if detected and detected not in ("stub", "local") else "generic"
+    if not key:
+        env_name = provider_env.get(provider) or ""
+        if env_name:
+            key = (os.environ.get(env_name) or "").strip()
+
+    return _to_hkc_provider(provider), key, base, model
 
 
 class HKCService:
@@ -122,7 +217,7 @@ def init_hkc(data_dir, api_key=None):
         print(f"[Snowfoxclaw] · HKC 依赖缺失(可选,pip install 'snowfoxclaw[knowledge]'): {e}")
         return None
     try:
-        provider, llm_key, llm_base_url = _detect_llm(api_key)
+        provider, llm_key, llm_base_url, llm_model = _detect_llm(api_key)
         # 【P2·单 LLM 入口】embedding 模型名优先 EMBEDDING_MODEL(系统唯一本地入口),
         # 再 HKC_EMBEDDING_MODEL(向后兼容);其他 HKC 行为开关不变。
         _emb_model = (os.environ.get("EMBEDDING_MODEL")
@@ -134,7 +229,7 @@ def init_hkc(data_dir, api_key=None):
             embedding_model=_emb_model,                                # local/auto 模型名(如 bge-m3)
             llm_api_key=llm_key or None,
             llm_provider=provider,
-            llm_model=os.environ.get("LLM_MODEL") or os.environ.get("HKC_LLM_MODEL"),
+            llm_model=llm_model or None,
             llm_base_url=llm_base_url or None,
         ).assemble()
         # 注册为 hkc_api 全局单例:若将来挂 HKC 自身 /hkc REST 路由,
