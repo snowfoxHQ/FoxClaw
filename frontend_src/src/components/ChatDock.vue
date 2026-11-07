@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ComposerMenu from './ComposerMenu.vue'
 import ModelPicker from './ModelPicker.vue'
 import ToolMenu from './ToolMenu.vue'
@@ -51,6 +51,8 @@ const items = computed(() => {
 const hint = computed(() => (menu.value === 'slash' ? '命令' : '提及技能'))
 
 onMounted(async () => {
+  grow()
+  window.addEventListener('resize', onResize)
   try {
     const [a, b] = await Promise.all([
       getJSON('/ahs/md-skills').catch(() => ({})),
@@ -68,6 +70,8 @@ onMounted(async () => {
     /* 拿不到就只留命令面板 */
   }
 })
+
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
 /* 只看光标左侧的 token:用户在中间补字时也能正确触发 */
 function syncMenu() {
@@ -111,11 +115,12 @@ function choose(i) {
       /* 带参数的命令:把命令留在输入框,让用户接着写关键词 */
       text.value = `${cmd.key} `
       closeMenu()
-      nextTick(() => el && el.focus())
+      nextTick(() => { el && el.focus(); grow() })
       return
     }
     text.value = ''
     closeMenu()
+    nextTick(grow)
     if (cmd && cmd.run) cmd.run()
     return
   }
@@ -125,7 +130,7 @@ function choose(i) {
   const after = text.value.slice(pos)
   text.value = `${before.slice(0, idx)}@${it.label} ${after}`
   closeMenu()
-  nextTick(() => el && el.focus())
+  nextTick(() => { el && el.focus(); grow() })
 }
 
 /* 纯命令(不带面板)也要能执行 */
@@ -149,16 +154,37 @@ function submit() {
   if (!t && !chat.attachments.length && !chat.images.length) return
   text.value = ''
   closeMenu()
+  nextTick(grow) /* 清空后回缩到聚焦高度 */
   if (tryCommand(t)) return
   send(t)
 }
 
-/* textarea 自适应 1~4 行,超出内部滚动 */
+/* textarea 高度:聚焦即撑开(约 3 行),内容变多继续长高,到上限才转内部滚动。
+   上限跟视口走,窄屏/高分屏都不会把消息流挤没。 */
+const FOCUS_MIN = 84
+const focused = ref(false)
+function capH() {
+  return Math.max(180, Math.min(340, Math.round(window.innerHeight * 0.42)))
+}
 function grow() {
   const el = ta.value
   if (!el) return
   el.style.height = 'auto'
-  el.style.height = `${Math.min(el.scrollHeight, 112)}px`
+  const need = el.scrollHeight
+  const min = focused.value ? FOCUS_MIN : 0
+  el.style.height = `${Math.min(Math.max(need, min), capH())}px`
+}
+/* blur 时 document.activeElement 已变,不能用它判断,单独跟一个标志 */
+function onFocus() {
+  focused.value = true
+  grow()
+}
+function onBlur() {
+  focused.value = false
+  grow()
+}
+function onResize() {
+  grow()
 }
 
 function onKey(e) {
@@ -240,6 +266,8 @@ function kb(n) {
         placeholder="告诉我你想做什么…  / 命令 · @ 技能 · Enter 发送"
         @keydown="onKey"
         @input="grow"
+        @focus="onFocus"
+        @blur="onBlur"
         @click="syncMenu"
         @keyup="syncMenu"
       />
@@ -301,8 +329,11 @@ textarea {
   font-size: 13px; line-height: 1.6;
   padding: 5px 2px; border: 0; background: none;
   resize: none; overflow-y: auto;
-  max-height: 112px;
+  /* 高度由 grow() 写死具体 px;max-height 只作兜底,避免 JS 失效时无限长高 */
+  max-height: 340px;
+  transition: height 0.14s ease;
 }
+textarea:focus { outline: none; }
 textarea::placeholder { color: var(--faint); }
 
 .send {
