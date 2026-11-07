@@ -24,7 +24,7 @@ function openPlanet() {
 <template>
   <header class="topbar">
     <div class="brand">
-      <div class="logo">H</div>
+      <div class="logo">F</div>
       <h1>Snowfoxclaw</h1>
       <span class="ver">v3.0</span>
     </div>
