@@ -57,8 +57,21 @@ const outline = computed(() => {
         </template>
       </section>
       <section class="sec">
-        <div class="sec-h">办公资料 <em>{{ state.office.length }}</em></div>
-        <div class="empty">办公资料与进度接口在 P2 接入</div>
+        <div class="sec-h">办公 <em>OfficeAgent</em></div>
+        <div class="kpi">
+          <div><b>{{ state.officeStats.waypoints }}</b><span>行程点</span></div>
+          <div><b>{{ state.officeStats.conflicts }}</b><span>行程冲突</span></div>
+          <div><b>{{ state.officeStats.alerts }}</b><span>告警</span></div>
+          <div><b>{{ state.officeStats.active }}</b><span>进行中</span></div>
+        </div>
+        <div class="sub-h">已摄入资料 <em>{{ state.officeDocs.length }}</em></div>
+        <div v-if="state.officeState === 'error'" class="empty">后端未连接</div>
+        <template v-else>
+          <button v-for="(d, i) in state.officeDocs" :key="i" class="row">
+            <b>{{ d.name }}</b><span>{{ d.year }}</span>
+          </button>
+          <div v-if="!state.officeDocs.length" class="empty">知识库还没有已摄入资料</div>
+        </template>
       </section>
     </div>
 
@@ -119,6 +132,12 @@ const outline = computed(() => {
 }
 .kpi b { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .kpi span { font-size: 10px; color: var(--faint); }
+.sub-h {
+  display: flex; justify-content: space-between;
+  padding: 4px 2px 5px;
+  font-size: 10px; color: var(--faint);
+}
+.sub-h em { font-style: normal; font-family: var(--mono); }
 
 .row {
   width: 100%; text-align: left;

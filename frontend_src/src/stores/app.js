@@ -16,10 +16,12 @@ export const state = reactive({
   railOpen: true,
   railMode: 'progress', // 'progress' | 'context'
 
-  /* 学习/办公 进度(学习走真实 /learning/analysis;办公在 P2 接) */
+  /* 学习/办公 进度(学习走 /learning/analysis;办公走 OfficeAgent 的态势与进程) */
   learning: [],
   learnStats: { total: 0, avgMastery: 0, due: 0, risk: 0 },
-  office: [],
+  officeStats: { waypoints: 0, conflicts: 0, alerts: 0, active: 0, total: 0 },
+  officeDocs: [],
+  officeState: 'idle',
   progressState: 'idle',
 })
 
@@ -73,8 +75,32 @@ export async function loadProgress() {
     state.learning = []
     state.progressState = 'error'
   }
-  /* TODO(P2): 办公资料/进度接真实接口,现阶段为空占位,不伪造数据 */
-  state.office = []
+
+  /* 办公 = OfficeAgent(行政职责已并入它)的全局态势 + 进程 + 已摄入资料。
+     三个都是真实端点,单点失败不连坐其它区块。 */
+  state.officeState = 'loading'
+  try {
+    const [sit, proc, src] = await Promise.all([
+      getJSON('/orchestration/situation').catch(() => null),
+      getJSON('/processes?limit=5').catch(() => null),
+      getJSON('/knowledge/sources').catch(() => null),
+    ])
+    state.officeStats = {
+      waypoints: sit?.itinerary?.waypoints ?? 0,
+      conflicts: sit?.itinerary?.conflicts ?? 0,
+      alerts: (sit?.alerts || []).length,
+      active: proc?.stats?.active ?? 0,
+      total: proc?.stats?.total ?? 0,
+    }
+    state.officeDocs = (src?.sources || []).slice(0, 5).map((s) => ({
+      name: s.name || s.source || '未命名资料',
+      year: s.year || '',
+    }))
+    state.officeState = sit || proc || src ? 'ok' : 'error'
+  } catch {
+    state.officeDocs = []
+    state.officeState = 'error'
+  }
 }
 
 export function setModule(id) {
