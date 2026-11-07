@@ -143,5 +143,16 @@ if (-not $staged) { Write-Host "nothing staged."; return }
 
 $msg = if ($Message) { $Message } else { "sync: update from development repo" }
 & git -C $PublicRepo commit --quiet -m $msg
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n[ABORT] commit failed." -ForegroundColor Red
+    exit 1
+}
+
+# 推送失败必须显式报错:此前漏检退出码,网络被重置时脚本照样打印
+# "synced and pushed",而远端其实没收到任何东西。
 & git -C $PublicRepo push origin main
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n[ABORT] push failed; commit is local only. re-run -Apply to retry." -ForegroundColor Red
+    exit 1
+}
 Write-Host "`nsynced and pushed." -ForegroundColor Green
