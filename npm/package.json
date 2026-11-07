@@ -1,7 +1,7 @@
 {
   "name": "foxclaw",
   "version": "0.1.1",
-  "description": "Cognitive agent operating system - a fox living in your device",
+  "description": "A personal agent with memory - a fox living in your device",
   "keywords": [
     "agent",
     "ai",

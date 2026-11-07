@@ -1,6 +1,6 @@
 # foxclaw
 
-Cognitive agent operating system — a fox living in your device.
+A personal agent with memory — a fox living in your device.
 
 The npm package ships the **full project source** under `python/`, the same code
 published on PyPI and hosted on GitHub. The `foxclaw` binary forwards its

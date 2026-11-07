@@ -1,6 +1,6 @@
-# Foxclaw · Cognitive Agent Operating System
+# Foxclaw · A Personal Agent with Memory
 
-A **cognitive agent OS** built on the HMR memory runtime: three collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
+A **personal agent with memory** — to a user, an agent that remembers; to a developer, an agent runtime built on the HMR memory runtime: three collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
 
 ```
 Traditional frameworks:  memory = storage,           agents = stateless execution
@@ -9,7 +9,7 @@ Foxclaw:               memory = living cognitive runtime, agents = reason · lea
 
 ## What it is
 
-Foxclaw is not "yet another agent framework" but an operating system for agents. Its moats are independent of any LLM:
+Foxclaw is not "yet another agent framework" but a personal agent that actually remembers; under the hood, an agent runtime. Its moats are independent of any LLM:
 
 - **ThoughtChain** — each agent's reasoning is an auditable, comparable directed graph, not a log
 - **Harness** — three-dimensional drift detection (semantic / tool / scope) + shadow-mode self-calibration + policy self-learning

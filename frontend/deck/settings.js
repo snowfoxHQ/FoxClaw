@@ -83,7 +83,7 @@ async function renderSettingDetail(key){
     const d=await fetchSysInfo();
     body.innerHTML=`
       <div class="sd-card"><div class="sd-big">Foxclaw <span>v${d?.version||'1.0.0'}</span></div>
-        <div class="sd-desc">认知 Agent 操作系统 · 记忆/认知层与 LLM 解耦</div></div>
+        <div class="sd-desc">有记忆的个人智能体 · 记忆/认知层与 LLM 解耦</div></div>
       <div class="sd-sec">五个 Agent</div>
       <div class="sd-kv"><span>主管 Supervisor</span><b>分诊调度 · 全局态势</b></div>
       <div class="sd-kv"><span>财务 Finance</span><b>理财 · 风控 · 守门人</b></div>
