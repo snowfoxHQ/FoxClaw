@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Foxclaw Knowledge Core</title>
+<script type="module">
+  // 预加载 Three.js（ESM）到全局，供主脚本（普通 script）使用
+  import('./vendor/three.module.min.js')
+    .then(THREE => { window.THREE = THREE; window.dispatchEvent(new Event('three-ready')); })
+    .catch(e => { window.__threeLoadError = String(e); console.error('Three.js 加载失败', e); });
+</script>
+<link rel="stylesheet" href="./planet.css?v=1.0">
+</head>
+<body>
+<div class="layout">
+  <!-- ░░ 左栏：功能区(顶部含品牌栏) ░░ -->
+  <aside class="col col-left">
+    <div class="topbar">
+      <div class="brand">
+        <div class="mark">H</div>
+        <span>Foxclaw Knowledge Core</span>
+        <span class="ver" id="app-ver">v1.0</span>
+      </div>
+    </div>
+    <div class="side-scroll">
+      <!-- 搜索 -->
+      <div class="side-block">
+        <div class="side-label">搜索</div>
+        <div class="search-box">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="search-input" placeholder="搜索知识、概念、观点…" autocomplete="off">
+        </div>
+        <div class="modes" id="modes">
+          <button class="mode-btn on" data-mode="hybrid">混合</button>
+          <button class="mode-btn" data-mode="bm25">关键词</button>
+          <button class="mode-btn" data-mode="vector">语义</button>
+          <button class="mode-btn" data-mode="graph">图谱</button>
+        </div>
+      </div>
+
+      <!-- 主操作 -->
+      <div class="side-block">
+        <div class="side-label">知识录入</div>
+        <button class="btn btn-primary btn-block" id="btn-ingest">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+          摄入知识
+        </button>
+        <button class="btn btn-ghost btn-block" id="btn-books" style="margin-top:8px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+          管理书籍
+        </button>
+      </div>
+
+      <!-- 能力编译(可折叠,默认折叠 —— 把知识编译成 Agent 可调用的能力包 .hkap) -->
+      <div class="side-block side-block-grow collapsible collapsed" id="ability-block">
+        <div class="side-label collapse-head" onclick="toggleCollapse('ability-block')">
+          <span class="collapse-arrow">▸</span>能力编译 <span class="count" id="ability-count">0 项</span>
+        </div>
+        <div id="ability-body"></div>
+      </div>
+
+      <!-- 冲突裁决 -->
+      <div class="side-block">
+        <div class="side-label">冲突裁决 <span class="count count-alert" id="conflict-count">0</span></div>
+        <div id="conflict-body"></div>
+      </div>
+    </div>
+
+    <!-- 底部设置 -->
+    <div class="side-foot">
+      <button class="btn btn-ghost-dark" id="btn-settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        连接设置
+      </button>
+      <div class="conn-pill demo" id="conn-pill">
+        <span class="conn-dot"></span><span id="conn-text">演示模式</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ░░ 中栏：知识图谱 ░░ -->
+  <section class="col col-mid" id="graph-panel">
+    <div id="graph-canvas">
+      <button class="graph-fit" id="btn-fit" title="适应视图（重置相机）">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"/></svg>
+      </button>
+      <div class="graph-hint">点击节点查看详情 · 悬停放大 · 滚轮缩放</div>
+      <div class="graph-legend" id="legend"></div>
+    </div>
+  </section>
+
+  <!-- ░░ 右栏：词条详情 ░░ -->
+  <aside class="col col-right" id="wiki-panel">
+    <div id="wiki-body">
+      <div class="wiki-empty">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <p>点击图谱中的节点<br>查看知识单元详情</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- 摄入模态 -->
+<div class="modal-bg" id="ingest-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>摄入知识</h3>
+      <button class="icon-btn" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>文本内容</label>
+        <textarea id="ingest-text" placeholder="粘贴书籍段落、文章、笔记…&#10;系统会自动拆解为实体、概念、事实、观点，并检测冲突。"></textarea>
+      </div>
+
+      <div class="field">
+        <label>或上传文件 / 文件夹<span style="color:var(--ink-3);font-weight:400">（支持 .pdf .md .txt .epub .mobi .azw3，可多选）</span></label>
+        <div class="upload-row">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-pick-files">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg>
+            选择文件
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-pick-folder">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            选择文件夹
+          </button>
+          <input type="file" id="ingest-files" multiple accept=".pdf,.md,.markdown,.txt,.epub,.mobi,.azw3,.azw" hidden>
+          <input type="file" id="ingest-folder" webkitdirectory directory multiple hidden>
+        </div>
+        <div id="file-list" class="file-list"></div>
+      </div>
+
+      <div class="field">
+        <label>或摄入网页<span style="color:var(--ink-3);font-weight:400">（填网址，自动抓取正文后抽取）</span></label>
+        <input id="ingest-url" placeholder="https://example.com/article">
+      </div>
+
+      <div class="field">
+        <label>来源标题<span style="color:var(--ink-3);font-weight:400">（上传文件时可留空，自动用文件名）</span></label>
+        <input id="ingest-title" placeholder="如：穷查理宝典">
+      </div>
+      <div class="field">
+        <label>领域</label>
+        <select id="ingest-domain">
+          <option value="Investment">投资 Investment</option>
+          <option value="Psychology">心理学 Psychology</option>
+          <option value="Engineering">工程 Engineering</option>
+          <option value="Nutrition">营养 Nutrition</option>
+          <option value="">（不指定）</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <div id="ingest-status" class="ingest-status"></div>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" id="btn-ingest-submit">开始摄入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置模态 -->
+<div class="modal-bg" id="settings-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>连接设置</h3>
+      <button class="icon-btn" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>HKC API 地址</label>
+        <input id="api-url" placeholder="留空=当前站点(同源);或填 http://host:port" value="">
+      </div>
+      <div class="field">
+        <label>API Key<span style="color:var(--ink-3);font-weight:400">（后端设了 FOXCLAW_API_KEY / HKC_API_KEY 时必填，填 .env 里那个鉴权 key）</span></label>
+        <input id="api-key" type="password" placeholder="后端无鉴权可留空；设了鉴权则必填" autocomplete="off">
+      </div>
+
+      <div class="field" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+        <label>知识抽取模型（摄入知识时使用）</label>
+        <select id="llm-provider" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:var(--white);color:var(--ink)">
+          <option value="deepseek">DeepSeek</option>
+          <option value="anthropic">Claude (Anthropic)</option>
+          <option value="openai">OpenAI</option>
+          <option value="openai-compatible">自定义 / 本地模型 (OpenAI 兼容)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>API Key <span style="color:var(--ink-3);font-weight:400">（记在本浏览器，刷新不丢；换设备需重填）</span></label>
+        <input id="llm-key" type="password" placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="field" id="llm-model-field">
+        <label>模型名称 <span style="color:var(--ink-3);font-weight:400">（留空用默认）</span></label>
+        <input id="llm-model" placeholder="deepseek-chat">
+      </div>
+      <div class="field" id="llm-baseurl-field" style="display:none">
+        <label>API 地址 (Base URL)</label>
+        <input id="llm-baseurl" placeholder="http://localhost:11434/v1">
+      </div>
+
+      <p style="font-size:12.5px;color:var(--ink-2);line-height:1.6">
+        填入运行中的 <code style="background:var(--canvas);padding:1px 5px;border-radius:4px">hkc-api</code> 地址并连接，使用真实数据。
+        连接后会把上面的模型配置发送给后端。连接失败或未填写时，界面使用内置演示数据，可离线预览。
+      </p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="btn-use-demo">使用演示数据</button>
+      <button class="btn btn-primary" id="btn-connect">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- 书籍管理模态 -->
+<div class="modal-bg" id="books-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>书籍管理</h3>
+      <button class="icon-btn" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:0 0 12px">
+        列出已摄入的书籍/来源。删除某本书会移除它及其独占知识；与其他书共享的知识只去掉该书的引用，不会被误删。
+      </p>
+      <div id="books-list"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-wrap"></div>
+
+<script src="./planet.js?v=1.0"></script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+# 配置文件(含真实 Key,绝不分发)
+# .env* 覆盖 .env 本体与全部衍生备份(.env.bak-* / .env.<环境> 等);
+# 下一行显式放行配置模板 .env.example(模板不含真实值,需进版本库)。
+.env*
+!.env.example
+
+# 内部开发文档:**公开仓库一律排除**。
+# 私有开发库(HestiaOS-dev)里这些目录默认入库;公开仓库必须忽略,否则一次
+# `git add -A` 就会把内部评审 / 计划 / 审计 / 执行报告推上去。
+docs/internal/
+docs/superpowers/
+docs/reports/
+docs/FIX_EXECUTION_REPORT.md
+docs/REFACTOR_PLAN.md
+docs/SYSTEM_REVIEW_*.md
+
+# 运行数据(测试现已全用系统临时目录,以下为默认运行目录 + 防御历史遗留)
+foxclaw_data/
+test_data/
+*_test_data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# 工程化工具链缓存(S1)
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Python 构建产物(pip install -e . 生成)
+*.egg-info/
+build/
+
+# Harness 学习产物
+*_policy.yaml
+*_learned.yaml
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 归档产物(打包结果不入库;二进制大文件会污染历史)
+/*.zip
+/*.rar
+dist/
+
+# 意外累积的重复副本(含整套项目旧拷贝 + skills-main,已于 2026-09-30 移出至 Foxclaw-private/duplicate-copy/)
+新建文件夹/
+
+# 编辑器/IDE 本机配置(含本机路径,不跨机共享)
+.claude/launch.json
+.vscode/settings.json
+
+# 本地工具缓存/数据(workbuddy 的记忆与临时文件,非源码,不入库)
+.workbuddy/
+
+# 备份文件(bak 冗余文件不入库;确需保留请移出仓库)
+*.bak
+*.bak-*
+
+# run_all.py 失败时落盘的单测完整输出(临时诊断产物,不入库)
+tests/_fail_*.txt
+_uv.out
+_uv.err
+# 本地手工起服务时的 stdout/stderr 重定向文件
+.tmp_srv.out
+.tmp_srv.err
+
+# 前端构建依赖(源码 frontend_src/ 与产物 frontend/v3/ 入库,依赖与缓存不入库)
+frontend_src/node_modules/
+frontend_src/.vite/
+# vite dev/preview 的临时日志
+frontend_src/*.log
+frontend_src/*.err
+
+# npm 发布前由 npm/build.cjs 从仓库根复制生成的源码副本
+npm/python/

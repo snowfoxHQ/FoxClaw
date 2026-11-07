@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+# 合并自占位包仓库的 ci.yml：只取权限最小化与手动触发两项，
+# 其余（3.10/3.13/3.14 矩阵、ruff format 硬门）未并入——
+# 本项目 requires-python>=3.11，且存量 240 个文件未过 ruff format，
+# 直接加会当场红。格式门待单独一轮 format 后再开。
+permissions:
+  contents: read
+
+jobs:
+  toolchain:
+    # S1:工程化安全网 —— ruff(硬门) + mypy(渐进式) + pytest + coverage。
+    # ruff 只保留 F 系列死代码/真 bug 作为硬门,存量风格告警已在 pyproject 显式豁免;
+    # mypy 渐进式,仅报告不阻塞(存量 425 个类型错误);
+    # pytest 只做快速收集检查(S2 已把全部 76 个测试迁为 pytest,无顶层副作用);
+    # 全量执行统一走下方 regression job 的 run_all.py(每文件独立子进程隔离模块级单例)。
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install toolchain
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff (hard gate)
+        run: ruff check foxclaw/
+
+      - name: Mypy (advisory, non-blocking)
+        continue-on-error: true
+        run: mypy foxclaw/ --ignore-missing-imports --check-untyped-defs
+
+      - name: Pytest collect check (all tests migrated)
+        run: python -m pytest --collect-only -q
+
+      - name: Release preflight (version sources)
+        # 版本号漏改一处会让发布物自相对不上,而发出去不能覆盖。这里只查"四处是否一致",
+        # 产物结构检查(需先 build)在 .github/workflows/release.yml 里。
+        run: python tools/release_check.py
+
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip + HF models
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/huggingface
+          key: foxclaw-deps-${{ runner.os }}-py312-v1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # 单源安装:依赖以 pyproject.toml 为唯一来源,避免手写清单与它双份漂移。
+          # HMR/HKC 是 vendor 内嵌、走 sys.path 加载,不是 PyPI 依赖(已在 pyproject 注明)。
+          # dev extra 提供 pytest + openpyxl/python-docx(默认回归 test_file_ingest/test_domain_import 硬依赖)。
+          pip install -e ".[dev]"
+
+      - name: Warm embedding cache
+        # 先联网下好默认 embedding,run_all 会以 HF_HUB_OFFLINE 离线读取(与本地一致)。
+        #
+        # 【纠正】原注释写「下载失败也不致命:Harness 会自动降级 n-gram 哈希嵌入,
+        # 回归仍绿」—— **这句是错的**,且很可能让 M2 缺陷长期潜伏。
+        # 实测(2026-10-05):哈希嵌入对中文几乎无区分度(同域相似度 -0.17、
+        # 跨域 +0.00,差异 <0.17)→ 语义漂移分恒为 1.0 → 所有正常请求一律 BLOCK,
+        # 6 项治理测试全红。降级**不是**安全兜底。
+        #
+        # 现在:预热失败即让 CI 失败(去掉 `|| true`),因为它直接决定治理能力可用性,
+        # 不该被静默吞掉。M2 修复后降级方向已改为 fail-open(停用语义维度、
+        # 保留 tool/scope 确定性判定),回归可绿,但**拦截能力是降级的**,
+        # 不可把降级当作正常路径。
+        run: python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+      - name: Full regression (with coverage)
+        # run_all.py 内部注入 HF_HUB_OFFLINE / 强制 stub LLM / UTF-8,故 CI 无需 LLM key、
+        # 不联网调模型,确定性绿。coverage 用 parallel 模式测所有子进程,最后 combine 出基线数字。
+        run: |
+          coverage run tests/run_all.py
+          coverage combine
+          coverage report
+          coverage xml

@@ -1,0 +1,78 @@
+:root {
+  /* ── 三栏相邻色带:左淡绿(深) → 中淡绿(浅) → 右暖纸 ──
+     只在 .workspace 上铺「一条」渐变,三栏底色透明。
+     若每栏各写一个渐变,接缝处必然断层 —— 一条色带切三段才是真正的"相邻色"。
+     色带右端跟右栏取同一个暖纸色,否则右栏卡片与它周围 14px 的缝会两种白。 */
+  --g-left: #d7e8d0;
+  --g-mid: #eef7e8;
+  --g-right: #f8f3e9;
+  --band: linear-gradient(100deg, var(--g-left) 0%, var(--g-mid) 46%, var(--g-right) 100%);
+
+  /* 栏面玻璃膜:左最薄 → 右最厚,强化「浅 → 更浅」的层次感 */
+  --veil-left: rgba(255, 255, 255, 0.28);
+  --veil-mid: rgba(236, 246, 228, 0.9);
+  --veil-right: rgba(251, 247, 239, 0.92);
+
+  /* 中间主舞台:淡绿;右栏:暖纸 —— 主体是绿的那一块 */
+  --mid-panel: rgba(238, 247, 232, 0.95);
+  --right-panel: #fbf7ef;
+
+  /* 文字 / 分隔线(带一点绿调的墨色,避免暖灰与淡绿打架)
+     三档都过 WCAG AA 4.5:1(底色 #eef7e8 / #fbf7ef 上实测):
+     ink 13:1、dim 8.4:1、faint 4.7:1。
+     原来的 faint #9aa79b 只有 2.4:1 —— 提示文字、计数、二次说明在
+     淡绿底上几乎要凑近看,用户反馈「看不清」。别再往浅了调。 */
+  --ink: #17201a;
+  --dim: #3f4c42;
+  --faint: #65716a;
+  --line: rgba(23, 32, 26, 0.1);
+  --line-soft: rgba(23, 32, 26, 0.06);
+
+  /* ── 右栏的暖墨色(取自 OpenClaw 右栏:纸面底 + 炭墨字 + 极淡暖线) ──
+     只由 .col--right 覆写进去,左/中的绿调墨色不受影响 —— 两个色系各自成套,
+     不要混着用,否则绿灰的浅字压在暖纸上会发脏。 */
+  --w-ink: #211d17;
+  --w-dim: #4a4237;
+  --w-faint: #776d5c;
+  --w-line: rgba(64, 50, 32, 0.12);
+  --w-line-soft: rgba(64, 50, 32, 0.06);
+  --w-surface-2: #f3ede1;
+  --w-surface-3: #e9e1d2;
+
+  /* 强调与状态 */
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.1);
+  --green: #1a9d5f;
+  --amber: #c77400;
+  --red: #e5484d;
+
+  /* 栏内白卡 */
+  --surface: #ffffff;
+  --surface-2: #f1f4ef;
+  --surface-3: #e4eae2;
+  --r-card: 20px;
+  --r-mid: 14px;
+  --r-sm: 10px;
+  --r-pill: 999px;
+  --sh-card: 0 1px 2px rgba(23, 32, 26, 0.04), 0 10px 26px rgba(23, 32, 26, 0.07);
+  --sh-pop: 0 14px 40px rgba(23, 32, 26, 0.18), 0 2px 10px rgba(23, 32, 26, 0.08);
+  --gap: 14px;
+  --pad: 14px;
+
+  /* ── CLI 皮肤:只给「代码正文块」用,不给整栏用 ──
+     整栏反黑会跟三栏渐变链断裂,而且常在的进度面板也得跟着暗,得不偿失。 */
+  --cli-bg: #11160f;
+  --cli-bg-2: #0b0f0a;
+  --cli-ink: #d9e6d2;
+  --cli-dim: #849480;
+  --cli-line: rgba(255, 255, 255, 0.07);
+  --cli-acc: #7fe08c;
+  --cli-warn: #e2c07a;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --serif: "Songti SC", "Noto Serif SC", Georgia, serif;
+
+  --z-menu: 100;
+  --z-top: 500;
+}

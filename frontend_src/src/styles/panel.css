@@ -1,0 +1,117 @@
+/* ── 菜单面板通用样式 ─────────────────────────────────────────
+   7 个模块面板共用一套「KPI 卡 + 行列表 + 区块标题」的骨架,
+   避免每个组件复制一遍同样的 CSS 又各偏几个像素。 */
+
+.pn-sec { margin-bottom: 18px; }
+.pn-sec:last-child { margin-bottom: 0; }
+
+.pn-h {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em;
+  color: var(--dim); text-transform: uppercase;
+}
+/* 标签本身大写,但 em 里的值是状态名/版本,不能被 uppercase 改样 */
+.pn-h em {
+  font-style: normal; font-family: var(--mono);
+  font-size: 11.5px; font-weight: 700; color: var(--ink); text-transform: none;
+}
+
+/* 用 flex 而不是 grid:换行后的最后一行也会等分铺满,
+   grid 的 auto-fit 会让落单的那个卡停在窄宽度上 */
+.pn-kpi {
+  display: flex; flex-wrap: wrap;
+  gap: 8px; margin-bottom: 16px;
+}
+.pn-kpi > div {
+  flex: 1 1 104px;
+  padding: 10px 11px; border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--line-soft);
+}
+.pn-kpi b {
+  display: block; font-size: 18px; font-weight: 650;
+  letter-spacing: -0.02em; line-height: 1.25;
+}
+.pn-kpi span { font-size: 11.5px; font-weight: 500; color: var(--dim); }
+
+.pn-row {
+  width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  transition: background 0.14s, border-color 0.14s;
+}
+.pn-row + .pn-row { margin-top: 2px; }
+.pn-row:hover { background: rgba(255, 255, 255, 0.72); }
+.pn-row.clickable:hover { border-color: var(--line); background: #fff; }
+.pn-row .m { flex: 1; min-width: 0; }
+.pn-row b {
+  display: block; font-size: 13.5px; font-weight: 600; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pn-row span.s { display: block; margin-top: 2px; font-size: 11.5px; color: var(--dim); }
+.pn-row .r { flex-shrink: 0; font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+
+.pn-tag {
+  display: inline-block; flex-shrink: 0;
+  padding: 3px 8px; border-radius: var(--r-pill);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  background: var(--surface-2); color: var(--dim);
+}
+.pn-tag.green { background: rgba(26, 157, 95, 0.12); color: var(--green); }
+.pn-tag.amber { background: rgba(199, 116, 0, 0.13); color: var(--amber); }
+.pn-tag.red { background: rgba(229, 72, 77, 0.12); color: var(--red); }
+
+.pn-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pn-chip {
+  padding: 5px 10px; border-radius: var(--r-pill);
+  font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+  background: rgba(255, 255, 255, 0.78); border: 1px solid var(--line-soft);
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
+}
+/* 可点的 chip(能力清单):原来全是 <span>,点了没反应 */
+button.pn-chip:hover {
+  color: var(--green); background: #fff;
+  border-color: rgba(26, 157, 95, 0.35);
+}
+button.pn-chip.on {
+  color: var(--green); background: rgba(26, 157, 95, 0.1);
+  border-color: rgba(26, 157, 95, 0.4);
+}
+.pn-chip.warn {
+  color: var(--amber); background: rgba(199, 116, 0, 0.09);
+  border-color: rgba(199, 116, 0, 0.24);
+}
+
+.pn-empty {
+  padding: 16px 12px; border-radius: var(--r-sm);
+  font-size: 12px; line-height: 1.7; color: var(--dim);
+  background: rgba(255, 255, 255, 0.6); border: 1px dashed var(--line);
+}
+.pn-st { padding: 14px 4px; font-size: 12px; color: var(--dim); }
+.pn-st.err { color: var(--amber); }
+
+/* 两列布局:宽屏时让列表不拉成一条长带。
+   断点必须看「面板容器宽度」而不是视口 —— 中栏只占视口一半宽,
+   1440 的窗口里中栏也只有 ~560px,按视口判断会永远两列挤成两条窄条。 */
+.pn-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.panel > .pb { container-type: inline-size; }
+@container (max-width: 660px) {
+  .pn-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+/* 极窄(窗口拉到四五百像素、中栏只剩一百多):行内「名字 + 信任标签 + 按钮」横向放不下,
+   flex-shrink:0 的标签会把名字挤成几个字。改成名字独占一行、标签与按钮折到第二行。 */
+@container (max-width: 300px) {
+  .pn-row { flex-wrap: wrap; row-gap: 6px; }
+  .pn-row .m { flex: 1 1 100%; }
+  .pn-h { flex-wrap: wrap; gap: 6px; }
+  .pn-kpi > div { flex: 1 1 76px; }
+}
+
+.pn-note {
+  font-size: 11.5px; line-height: 1.65; color: var(--dim);
+  padding: 8px 10px; border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.6); border: 1px solid var(--line-soft);
+}
+.pn-note code { font-family: var(--mono); font-size: 11px; color: var(--ink); word-break: break-all; }

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Foxclaw Deck · AI 指挥中枢</title>
+<link rel="stylesheet" href="./deck.css?v=5.34">
+</head>
+<body>
+<div class="app">
+
+  <!-- 顶栏 -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">H</div>
+      <h1>Foxclaw</h1><span class="ver">v5.34</span>
+    </div>
+    <!-- Agent 卡片已精简:对话统一走输入框(主管自动分诊);保留「财务/地图/学习」三个有二级面板的入口,移到右侧 -->
+    <div class="topright">
+      <div class="abtn" data-agent="finance" title="打开财务仪表盘">💰 财务</div>
+      <div class="abtn" data-agent="admin" title="打开行程地图">🗺 地图</div>
+      <div class="abtn" data-agent="office" title="打开学习面板 · 录入知识点">📚 学习</div>
+      <div class="sysstat">系统状态 <div class="bar"><i></i></div> <b id="upStat">···</b> <span id="diagTag" style="font-size:10px;color:var(--amber);margin-left:4px;font-family:ui-monospace,monospace">[DIAG?v5.37]</span></div>
+      <div class="model-sel" id="modelSel">
+        <div class="pill" id="modelPill">◈ <span id="modelName">AI 中枢</span> <span style="font-size:9px;opacity:.7">▾</span></div>
+        <div class="model-menu" id="modelMenu"></div>
+      </div>
+      <div class="planet-launch" id="planetLaunch" title="打开 HKC 知识星球">🌐 知识星球</div>
+      <div class="icobtn">◔</div>
+      <div class="icobtn" id="settingsBtn" title="设置">⚙</div>
+      <div class="avatar-sm"></div>
+    </div>
+  </div>
+
+  <!-- 主体 -->
+  <div class="body">
+
+    <!-- 左导航:会话历史是主内容(新会话 → 会话列表),功能视图收进底部「菜单」按钮 -->
+    <div class="nav">
+      <button class="ns-new" id="sessNew" title="开一个新会话(清空上下文)">
+        <span class="ns-plus">＋</span>新会话
+      </button>
+      <div class="ns-head">会话历史 <em id="nsCount">—</em></div>
+      <div class="ns-list" id="nsList"><div class="kp-empty">加载中…</div></div>
+      <button class="nav-menu-btn" id="navMenuBtn" aria-expanded="false" aria-controls="navMenu"
+              title="功能菜单:概览 / 工作台 / 能力 / 知识">
+        <span class="nm-ic"><svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg></span>
+        <b id="navMenuLabel">菜单</b>
+        <span class="nm-caret">▴</span>
+      </button>
+    </div>
+
+    <!-- 功能菜单浮层:原左栏导航整组搬到这里,分组(工作台/能力/知识)原样保留 -->
+    <div class="nav-menu" id="navMenu" aria-hidden="true">
+      <div class="nav-menu-head">功能 <span class="x" id="navMenuClose" title="关闭 (Esc)">✕</span></div>
+      <nav class="nav-list" id="navList">
+        <div class="nav-link on" data-module="overview" title="概览">
+          <span class="ni"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span><b>概览</b>
+        </div>
+        <div class="nav-sec">工作台</div>
+        <div class="nav-link" data-module="activity" title="系统活动/事件流">
+          <span class="ni"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><b>活动</b>
+        </div>
+        <div class="nav-link" data-module="tasks" title="任务与推理">
+          <span class="ni"><svg viewBox="0 0 24 24"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></span><b>任务</b>
+        </div>
+        <div class="nav-link" data-module="agents" title="五个领域 Agent">
+          <span class="ni"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><b>代理</b>
+        </div>
+        <div class="nav-sec">能力</div>
+        <div class="nav-link" data-module="tools" title="技能 / 工具 / 连接器">
+          <span class="ni"><svg viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg></span><b>技能</b>
+        </div>
+        <div class="nav-link" data-module="usage" title="用量与成本">
+          <span class="ni"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></span><b>使用情况</b>
+        </div>
+        <div class="nav-sec">知识</div>
+        <div class="nav-link" data-module="knowledge" title="知识库">
+          <span class="ni"><svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span><b>知识库</b>
+        </div>
+        <div class="nav-link" data-module="memory" title="记忆中心">
+          <span class="ni"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></span><b>记忆中心</b>
+        </div>
+      </nav>
+    </div>
+    <div class="nav-flyout" id="navFlyout"></div>
+
+    <!-- 中央列 -->
+    <div class="center">
+      <canvas id="streamCanvas" class="stream-canvas"></canvas>
+
+      <!-- 全息核心(中央主体) -->
+      <div class="corewrap">
+        <canvas id="coreCanvas"></canvas>
+        <div class="core-label" id="coreLabel" style="display:none"></div>
+        <div class="core-stage" id="coreStage"></div>
+        <div class="core-chat" id="coreChat">
+          <div class="cc-head"><div class="t"><span class="dot"></span><span id="ccAgent">回复</span></div><span class="x" id="ccClose" title="关闭">✕</span></div>
+          <div class="cc-body"><div class="cc-q" id="ccQ"></div><div id="ccReply"></div><div class="cc-status" id="ccStatus"></div></div>
+        </div>
+      </div>
+
+      <!-- 底部带:指令栏(占满) -->
+      <div class="bottomband">
+        <div class="cmdwrap">
+          <div class="slash-menu" id="slashMenu"></div>
+          <div class="slash-menu" id="atMenu"></div>
+          <div class="conn-panel" id="connPanel"></div>
+          <div class="img-strip" id="imgStrip"></div>
+          <div class="file-strip" id="fileStrip"></div>
+          <div class="tool-menu" id="toolMenu"></div>
+          <div class="cmdbar">
+            <div class="cmdbar-inner">
+              <div class="mic" id="cmdMore" title="工具:模式/上传/文件夹/图片/连接器">＋</div>
+              <!-- 模型选择器(下拉式,图1 风格):点击展开 / "+" 弹添加对话框 / 切完即时生效 -->
+              <div class="model-pick" id="chatModelPick" title="选择对话模型(切完即时生效,无需重启)">
+                <div class="mp-pill" id="chatModelPill">
+                  <span class="mp-dot" id="chatModelDot"></span>
+                  <span class="mp-name" id="chatModelName">Auto</span>
+                  <span class="mp-caret">▾</span>
+                </div>
+                <div class="mp-menu" id="chatModelMenu"></div>
+              </div>
+              <input id="cmd" placeholder="告诉我你想做什么…  主管 Agent 将自动调度">
+              <div class="send">➤</div>
+              <!-- 工具按钮收进上方弹窗菜单;这些隐藏保留,菜单项点击它们以复用原有逻辑 -->
+              <div id="cmdTools" style="display:none">
+                <div class="chat-mode" id="chatMode" title="切换:流式对话 / 编排任务">⚡ 流式</div>
+                <div class="mic" id="cmdAttach" title="附加文件摄入知识库">📎</div>
+                <input type="file" id="cmdFile">
+                <div class="mic" id="cmdFolder" title="文件夹摄入">📁</div>
+                <input type="file" id="cmdFolderInput" webkitdirectory directory multiple>
+                <div class="mic" id="cmdImg" title="附加图片(多模态)">🖼</div>
+                <input type="file" id="cmdImgFile" accept="image/*" multiple>
+                <div class="mic" id="cmdAttachFile" title="附件文件(随问题发给 AI)">📄</div>
+                <input type="file" id="cmdFileUpload" multiple>
+                <div class="mic" id="cmdConn" title="连接器/插件">🔌</div>
+              </div>
+            </div>
+          </div>
+          <!-- 快捷指令按钮已移除:它们只是把预设文字塞进输入框再发送,与直接在输入框输入等价,冗余 -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 右栏:记忆 + 知识库(全部真数据;已删写死的假任务流与装饰性画布)-->
+    <div class="right">
+      <div class="panel" id="memPanel">
+        <div class="ph">
+          <div class="pt"><span class="dot"></span>记忆 <em id="memCount">—</em></div>
+          <span class="x" id="memMore" title="打开记忆中心">›</span>
+        </div>
+        <div class="mem-stats" id="memStats">
+          <div class="ms"><b id="msTotal">—</b><span>总数</span></div>
+          <div class="ms"><b id="msPrivate">—</b><span>私有</span></div>
+          <div class="ms"><b id="msShared">—</b><span>共享</span></div>
+          <div class="ms"><b id="msRel">—</b><span>关系</span></div>
+        </div>
+      </div>
+
+      <div class="panel" id="knowPanel">
+        <div class="ph">
+          <div class="pt"><span class="dot" style="background:var(--green)"></span>知识库 <em id="knowCount">—</em></div>
+          <span class="x" id="knowMore" title="打开知识库">›</span>
+        </div>
+        <!-- 知识摄入入口(常驻可见):文件/文件夹进 HKC,或手写知识点 -->
+        <div class="ingest-row">
+          <button class="ing-btn" id="ingFile" title="导入文件到知识星球(HKC)">📄 导入文件</button>
+          <button class="ing-btn" id="ingFolder" title="导入整个文件夹">📁 文件夹</button>
+          <button class="ing-btn" id="ingNote" title="手写一条知识点">＋ 知识点</button>
+        </div>
+        <div class="pb info-list" id="knowList"><div class="kp-empty">加载中…</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 录入表单弹层 -->
+<!-- 设置:级联悬浮玻璃菜单(hover 逐级展开)-->
+<div class="setmenu" id="setMenu">
+  <!-- 一级:三大模块 -->
+  <div class="sm-col sm-l1">
+    <div class="sm-btn" data-group="foxclaw"><span class="gi">◈</span><b>Foxclaw</b><span class="chev">›</span></div>
+    <div class="sm-btn" data-group="agents"><span class="gi">⬡</span><b>Agents</b><span class="chev">›</span></div>
+    <div class="sm-btn" data-group="hmr"><span class="gi">❖</span><b>HMR</b><span class="chev">›</span></div>
+  </div>
+  <!-- 二级:各模块子项(hover 一级时显示对应组)-->
+  <div class="sm-col sm-l2" id="smL2"></div>
+</div>
+
+<!-- 子菜单详情(点二级项后弹出的玻璃浮窗)-->
+<div class="sd-pop" id="sdPop">
+  <div class="sd-pop-head"><b id="sdTitle">详情</b><span class="x" id="sdClose">✕</span></div>
+  <div class="sd-body" id="sdBody"></div>
+</div>
+
+<div class="entry-mask" id="entryMask">
+  <div class="entry-box">
+    <h3 id="entryTitle">录入</h3>
+    <div class="sub" id="entrySub"></div>
+    <div id="entryFields"></div>
+    <div class="entry-msg" id="entryMsg"></div>
+    <div class="entry-btns">
+      <button class="cancel" id="entryCancel">取消</button>
+      <button class="ok" id="entrySubmit">录入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 「添加自定义模型」对话框(图2 风格:需兼容 OpenAI Chat Completion API) -->
+<div class="cm-mask" id="cmAddMask">
+  <div class="cm-modal">
+    <div class="cm-head">
+      <h3 id="cmAddTitle">添加自定义模型</h3>
+      <span class="cm-close" id="cmAddClose" title="关闭 (Esc)">✕</span>
+    </div>
+    <div class="cm-sub">需兼容 OpenAI Chat Completion 接口;BASE URL 通常以 <code>/v1</code> 结尾<span id="cmAddSubHint" style="color:#e0a45c"></span></div>
+    <div class="cm-body">
+      <div class="cm-row">
+        <label>模型名称 <em>*</em></label>
+        <input id="cm_name" placeholder="例:我的 MiniMax-M3" maxlength="40">
+      </div>
+      <div class="cm-row">
+        <label>BASE URL <em>*</em></label>
+        <input id="cm_base_url" placeholder="https://api.example.com/v1">
+      </div>
+      <div class="cm-row cm-pwd">
+        <label>API KEY <em>*</em></label>
+        <input id="cm_api_key" type="password" placeholder="请输入 API Key">
+        <span class="cm-eye" id="cm_eye" title="显示/隐藏">👁</span>
+      </div>
+      <div class="cm-row">
+        <label>模型 ID <em>*</em></label>
+        <input id="cm_model" placeholder="例:MiniMax-Text-01">
+      </div>
+      <details class="cm-extra">
+        <summary>高级设置(双 header 鉴权,如 MiniMax Group ID)</summary>
+        <div class="cm-row">
+          <label>Group ID(可选)</label>
+          <input id="cm_group_id" placeholder="例:1234567890">
+        </div>
+        <div class="cm-row">
+          <label>额外 header(JSON object,可选)</label>
+          <input id="cm_extra_headers" placeholder='例:{"X-Custom": "value"}'>
+        </div>
+        <div class="cm-row">
+          <label>备注(可选)</label>
+          <input id="cm_note" placeholder="例:生产环境 / 备用">
+        </div>
+      </details>
+      <div class="cm-msg" id="cm_msg"></div>
+    </div>
+    <div class="cm-btns">
+      <button class="cm-cancel" id="cm_cancel">取消</button>
+      <button class="cm-test" id="cm_test">测试连通性</button>
+      <button class="cm-save" id="cm_save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 全屏 overlay 浮层 -->
+<div class="ov-mask" id="ovMask">
+  <div class="ov-box">
+    <div class="ov-head">
+      <div class="ov-title"><span class="dot"></span><span id="ovTitle">全屏</span> <em id="ovTag"></em></div>
+      <div class="ov-tools">
+        <label class="ov-auto"><input type="checkbox" id="ovAutoMap"> 地图自动全屏</label>
+        <span class="ov-close" id="ovClose" title="关闭">✕</span>
+      </div>
+    </div>
+    <div class="ov-body" id="ovBody"></div>
+  </div>
+</div>
+
+<!-- 兜底错误捕获:任何 JS 错误 / Promise reject 都打到 #upStat,便于一眼定位卡死点 -->
+<script>
+(function(){
+  function show(msg, color){
+    var el = document.getElementById('upStat');
+    if(!el) return;
+    el.textContent = msg.length>40 ? msg.slice(0,40)+'…' : msg;
+    el.style.color = color || 'var(--amber)';
+  }
+  // 启动超时:3 秒后 loadStatus 还没把 upStat 改成 100%/离线 → 报"启动卡死"
+  setTimeout(function(){
+    var el = document.getElementById('upStat');
+    if(el && el.textContent === '···'){
+      show('启动卡死(>3s)', 'var(--amber)');
+    }
+  }, 3000);
+  // 全局同步错误
+  window.addEventListener('error', function(e){
+    show('JS:' + (e.message||'error').slice(0,32), 'var(--pink)');
+  });
+  // 未捕获的 Promise 拒绝
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e.reason && (e.reason.message || String(e.reason)) || 'reject';
+    show('PR:' + String(r).slice(0,32), 'var(--pink)');
+  });
+  // 暴露手动诊断:控制台跑 statusDiag() 看 main.js / loadStatus / API 实际状态
+  window.statusDiag = function(){
+    return {
+      upStat: document.getElementById('upStat')?.textContent,
+      mainLoaded: typeof loadStatus === 'function',
+      pickerLoaded: typeof window._chatPickerInited !== 'undefined' || !!document.getElementById('chatModelPill'),
+      wsReadyState: (function(){try{return (window._ws||{}).readyState}catch(e){return 'n/a'}})(),
+    };
+  };
+  // DIAG 标记(肉眼可见,确认硬刷是否真生效):注入时间戳。
+  // 看不到这行被替换 → 浏览器/foxclaw 缓存了旧 HTML。
+  var dt = document.getElementById('diagTag');
+  if(dt) dt.textContent = 'DIAG v5.37 @ ' + new Date().toTimeString().slice(0,8);
+})();
+</script>
+<script type="module" src="./deck/main.js?v=5.41"></script>
+
+<!-- HKC 知识星球:点右上角「🌐 知识星球」→ 全屏弹出 HKC 原版整页(iframe /planet/)。首开懒加载,首页保持清爽。 -->
+<div class="planet-ov" id="planetOv" aria-hidden="true">
+  <div class="wrap">
+    <button class="close" id="planetClose" title="关闭 (Esc)">✕</button>
+    <iframe id="planetFrame" src="about:blank" title="HKC 知识星球"></iframe>
+  </div>
+</div>
+<script>
+(function(){
+  const ov=document.getElementById('planetOv'), fr=document.getElementById('planetFrame');
+  function openPlanet(){
+    if(!fr.src || fr.src==='about:blank') fr.src='/planet/?v=5.30';   // 懒加载:首次打开才载 HKC 原版整页(带版本破缓存)
+    ov.classList.add('on'); ov.setAttribute('aria-hidden','false');
+  }
+  function closePlanet(){ ov.classList.remove('on'); ov.setAttribute('aria-hidden','true'); }
+  window.openPlanet=openPlanet; window.closePlanet=closePlanet;
+  document.getElementById('planetClose').addEventListener('click', closePlanet);
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && ov.classList.contains('on')) closePlanet(); });
+  const btn=document.getElementById('planetLaunch'); if(btn) btn.addEventListener('click', openPlanet);
+})();
+</script>
+</body>
+</html>

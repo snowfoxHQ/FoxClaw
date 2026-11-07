@@ -1,0 +1,138 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #app { height: 100%; }
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--g-right);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button { font-family: inherit; border: 0; background: none; color: inherit; cursor: pointer; }
+input, textarea { font-family: inherit; border: 0; background: none; color: inherit; outline: none; }
+em { font-style: normal; }
+
+.app { height: 100vh; display: grid; grid-template-rows: 56px 1fr; min-height: 0; }
+
+/* ═══ 三栏:一条色带 + 三片玻璃膜 ═══ */
+.workspace {
+  --rail-w: 344px;
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr) var(--rail-w);
+  gap: var(--gap);
+  padding: var(--pad);
+  min-height: 0;
+  background: var(--band);
+  transition: grid-template-columns 0.24s ease;
+}
+.workspace.is-collapsed { --rail-w: 0px; }
+
+.col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-radius: var(--r-card);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: var(--veil-left);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--sh-card);
+  overflow: hidden;
+}
+.col--mid { background: var(--veil-mid); }
+.col--right {
+  /* 右栏是纸的那一块,和中间的淡绿形成对比 */
+  background: var(--right-panel);
+  /* 暖纸面上换一套墨色:同一条 --ink/--dim/--faint 变量,右栏内部所有组件
+     (Inspector / QuickIngest / 文档大纲)自动跟着变,不用逐个改色值。 */
+  --ink: var(--w-ink);
+  --dim: var(--w-dim);
+  --faint: var(--w-faint);
+  --line: var(--w-line);
+  --line-soft: var(--w-line-soft);
+  --surface-2: var(--w-surface-2);
+  --surface-3: var(--w-surface-3);
+  transition: opacity 0.18s ease;
+}
+/* 滚动条也换暖灰,否则绿灰的滑块压在纸面上像贴错了一张 */
+.col--right .scroll::-webkit-scrollbar-thumb { background: rgba(64, 50, 32, 0.16); }
+.workspace.is-collapsed .col--right { opacity: 0; pointer-events: none; }
+
+/* 中间栏:上方舞台 + 底部指令条
+   columns 必须显式 minmax(0,1fr):grid 默认列宽是 auto,子项的 min-content(面板里
+   不换行的行内标签/按钮)会把列撑到比栏还宽 —— 420px 窗口实测栏 128px、内容 372px,
+   右侧整块被视口裁掉(技能行的「测试」「删除」根本点不到)。 */
+.mid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+/* 滚动区 */
+.scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+.scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: rgba(23, 32, 26, 0.14); border-radius: 99px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+.empty {
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--faint);
+  line-height: 1.7;
+}
+
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+/* 右栏收合后的拉手 */
+.rail-handle {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: var(--z-menu);
+  padding: 16px 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  box-shadow: var(--sh-card);
+  writing-mode: vertical-rl;
+}
+.rail-handle:hover { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace, .col--right { transition: none; }
+}
+
+/* 窄窗(<1180):右栏从「第三列」改成覆盖式抽屉。
+   三栏时中栏被压到 252px(900px 窗口实测),扣掉 ＋ 与模型胶囊,textarea 只剩 115px,
+   基本没法打字。抽屉默认收起(App.vue 里按同一断点自动设 railOpen=false),
+   点右侧「检视」拉手展开,盖在中栏上而不是把正文列切走。 */
+@media (max-width: 1180px) {
+  .workspace { grid-template-columns: 248px minmax(0, 1fr); }
+
+  .col--right {
+    position: fixed;
+    top: calc(56px + var(--pad));
+    right: var(--pad);
+    bottom: var(--pad);
+    width: 344px;
+    z-index: 60;
+    box-shadow: var(--sh-pop);
+    transition: transform 0.2s ease, opacity 0.18s ease;
+  }
+  .workspace.is-collapsed .col--right { transform: translateX(calc(100% + var(--pad))); }
+}
+
+/* 抽屉展开时的遮罩:点空白处收起 */
+.rail-scrim {
+  position: fixed;
+  inset: 56px 0 0;
+  z-index: 59;
+  background: rgba(23, 32, 26, 0.16);
+}

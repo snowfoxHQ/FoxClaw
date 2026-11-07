@@ -1,0 +1,238 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foxclaw"
+version = "0.1.1"
+description = "Foxclaw - Cognitive Agent Operating System built on HMR"
+requires-python = ">=3.11"
+
+# 依赖以本表为唯一来源(CI 用 `pip install -e .` 安装,不再手写第二份清单)。
+# 注意:HMR 与 HKC 以 vendor/ 内嵌随包分发、走 sys.path 加载,不是 PyPI 依赖,
+# 故此处**不**声明 hmr/hkc —— 此前声明 hmr>=1.0.0 是空转项(永不从 PyPI 安装)。
+dependencies = [
+    # LLM 提供商(未装/未配 key 时模型路由降级 stub,其余功能照常)
+    "anthropic>=0.25.0",
+    "openai>=1.0.0",
+    # 语义嵌入与向量检索(Harness 语义漂移检测 + HKC 语义搜索)
+    "sentence-transformers>=2.7.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+    # HKC 向量索引的硬依赖(不是可选):vendor/hkc/hkc_search/vector_search.py
+    # 的 VectorIndex._init_index() 缺 faiss 时直接 raise ImportError。
+    # 此前只在注释里写「已随本体」而依赖表漏声明 → CI 干净环境装不到,
+    # test_hkc_manifest_reuse 顶层 import 失败(collection error),
+    # Stage B/C 的 vector.size() 断言全红。本机曾手动装过,故一直没暴露。
+    "faiss-cpu>=1.8.0",
+    # API 服务
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+    "websockets>=12.0",
+    "pydantic>=2.0.0",
+    # 内置 MCP 服务器(/api/mcp/)+ Skill MCP 客户端(mcp_server.py / skills/mcp_client.py 顶层硬依赖)
+    # 锁 <2.0：mcp 2.x 是大重构(拆出 mcp_types、改 fastmcp/streamable_http/sse 客户端 API、
+    # 换 httpx2)，与本仓库基于 1.x 的调用不兼容；1.27.x 已在 CI 与本地全量回归验证。
+    "mcp>=1.27.0,<2.0",
+    # HTTP 客户端(渠道适配器 + Web 工具)。沿用既有 <0.28 约束
+    "httpx>=0.24,<0.28",
+    # 飞书加密事件解密
+    "cryptography>=41.0.0",
+    # 配置与终端输出
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+]
+
+[project.scripts]
+# 命令名与包名一致(foxclaw),`pip install` 之后直接可用:
+# `pip install -e .` 之后可直接 `foxclaw serve`。
+foxclaw = "foxclaw.cli:main"
+
+[tool.setuptools]
+# vendor/ 里的 HMR 与 HKC 是内嵌运行时(不是 PyPI 依赖)。此前 packages.find 只收
+# foxclaw*,装完 import 得到的是「记忆/知识子系统全部降级为 None」的占位包。
+# 这里把它们真正打进 wheel,并让 package-data 一并带上 LICENSE/JSON 等非 .py 资源。
+include-package-data = true
+
+[tool.setuptools.packages.find]
+# foxclaw 在仓库根;hmr 在 vendor/ 下;hkc_* 在 vendor/hkc/ 下 —— 三个搜索根都要给。
+where = [".", "vendor", "vendor/hkc"]
+include = ["foxclaw*", "hmr*", "hkc_*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.16",
+    "mypy>=1.10",
+    "coverage>=7.5",
+    # 默认回归硬依赖:test_file_ingest / test_domain_import 顶层 import docx/openpyxl,
+    # 缺失即 ModuleNotFoundError。与下方 knowledge-files 重复声明是刻意的——
+    # 此处是"测试视角"(回归必需),下方是"功能视角"(文件摄入)。放 dev 而非 knowledge-files,
+    # 避免为了两个 docx/xlsx 测试连带拖入 pymupdf/ebooklib/mobi 等 PDF/epub 重依赖。
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+]
+# 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
+# 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
+browser = ["playwright>=1.44.0"]
+# Google Gemini provider。model_router 在 FOXCLAW_PROVIDER=google 时才惰性 import
+# google.generativeai;未装则该分支 ImportError(其余 provider 不受影响)。此前只在
+# 文档里写「pip install google-generativeai」,依赖表无对应声明,属 R1 检测出的缺口。
+gemini = ["google-generativeai>=0.8"]
+# 知识核心(HKC,vendor/hkc)。核心运行时依赖;缺失时 /api/knowledge/* 优雅降级。
+# 真实语义向量另需 sentence-transformers+faiss(已随本体);文件摄入见 knowledge-files。
+knowledge = ["networkx>=3.0", "rank-bm25>=0.2", "aiofiles>=23.0", "requests>=2.31"]
+# HKC 文件摄入(PDF/epub/mobi/docx/xlsx)。仅当要摄入电子书/PDF/Office 文档时需要。
+knowledge-files = ["pymupdf>=1.24", "ebooklib>=0.18", "beautifulsoup4>=4.12", "mobi>=0.3.3", "python-multipart>=0.0.9", "python-docx>=1.1", "openpyxl>=3.1"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 工程化工具链(S1):ruff / mypy / pytest / coverage
+# 策略:首次引入,存量告警显式豁免(只保留死代码/真 bug 硬门),S3 拆分后逐步收紧。
+# ─────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# 只 lint 主包 + 测试;vendor/ 是内嵌第三方,frontend/skills/tools/bench/evals/examples 非 Python 主包。
+extend-exclude = ["vendor/", "frontend/", "skills/", "tools/", "bench/", "evals/", "examples/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+# 存量告警显式豁免(风格/现代化类);F 系列(pyflakes 死代码/未定义名)已清零并作为硬门。
+# S3 拆分大文件后,逐条从 ignore 移除以收紧。
+ignore = [
+    "E501",                                              # line-too-long(862 存量)
+    "E701", "E702", "E731", "E741", "E401", "E402",      # pycodestyle 风格
+    "I001",                                              # import 排序(138 存量)
+    "B008", "B034", "B904", "B905",                      # bugbear 非致命(33 存量)
+    "UP006", "UP015", "UP017", "UP031", "UP035", "UP037", "UP041", "UP042", "UP045",  # pyupgrade(143 存量)
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+# 渐进式:首次引入,存量 425 个类型错误不在 S1 范围,CI 用 warning 级不阻塞。
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# S2 迁移完成:全部 76 个测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
+# 注意:网关/内置MCP/流式限流等少数测试依赖模块级单例(FOXCLAW_GATEWAY、FOXCLAW_MCP_SERVER、
+# _STREAM_LIMITER 均在 import 时按 env 固化),单进程 `pytest tests/` 会让这些单例被首个
+# import 定死、相互污染。故全量执行统一走 tests/run_all.py(每个文件独立子进程
+# `python -m pytest <file> -q` 隔离)。本白名单确保任意单文件可被 pytest 收集/运行。
+python_files = [
+    "test_agent_lifecycle.py",
+    "test_ahs_p2.py",
+    "test_anthropic_tools.py",
+    "test_api.py",
+    "test_api_auth.py",
+    "test_api_host_guard.py",
+    "test_attachments.py",
+    "test_audit_sink.py",
+    "test_browser.py",
+    "test_capabilities.py",
+    "test_channel_signing.py",
+    "test_channel_trust.py",
+    "test_channels.py",
+    "test_cli.py",
+    "test_compaction_toolpair.py",
+    "test_config_layering.py",
+    "test_confirm_nonce.py",
+    "test_context_compaction_wiring.py",
+    "test_dispatch.py",
+    "test_domain_evals.py",
+    "test_domain_import.py",
+    "test_domain_reasoners.py",
+    "test_e2e.py",
+    "test_emb_cache.py",
+    "test_embedding_singleton.py",
+    "test_evals_smoke.py",
+    "test_event_spine.py",
+    "test_evidence_semantic.py",
+    "test_evidence_sse.py",
+    "test_file_ingest.py",
+    "test_finance.py",
+    "test_gateway.py",
+    "test_governance.py",
+    "test_governance_audit.py",
+    "test_governance_middleware.py",
+    "test_hkc.py",
+    "test_hkc_index_build_manager.py",
+    "test_hkc_manifest_reuse.py",
+    "test_hkc_search_event_sync.py",
+    "test_injection_guard.py",
+    "test_integration.py",
+    "test_itinerary.py",
+    "test_kee_semantic.py",
+    "test_kernel.py",
+    "test_learning.py",
+    "test_llm_planner.py",
+    "test_markdown_skills.py",
+    "test_markdown_skills_openclaw.py",
+    "test_mcp_connectors.py",
+    "test_mcp_guardian_discovery.py",
+    "test_mcp_no_memory.py",
+    "test_mcp_server.py",
+    "test_memory_recall.py",
+    "test_metrics.py",
+    "test_multi_chain.py",
+    "test_multimodal.py",
+    "test_negotiation.py",
+    "test_orchestration.py",
+    "test_orchestration_decoupled.py",
+    "test_p3_p5_hardening.py",
+    "test_parallel_dispatch.py",
+    "test_pipeline.py",
+    "test_plan_visible.py",
+    "test_planner.py",
+    "test_policy_gate.py",
+    "test_reasoner.py",
+    "test_release_check.py",
+    "test_resume_checkpoint.py",
+    "test_routing.py",
+    "test_scheduler.py",
+    "test_search.py",
+    "test_semantic.py",
+    "test_sessions.py",
+    "test_settings.py",
+    "test_shadow_learning.py",
+    "test_shared_write.py",
+    "test_skills.py",
+    "test_stats_and_events.py",
+    "test_streaming.py",
+    "test_supervisor_pipeline.py",
+    "test_verify_evidence.py",
+    "test_supervisor_triage.py",
+    "test_taint.py",
+    "test_task_stream.py",
+    "test_thinking_sse.py",
+    "test_thinking_stream.py",
+    "test_tool_center.py",
+    "test_tool_parallel.py",
+    "test_tool_params.py",
+    "test_tool_use.py",
+    "test_toplevel_concurrency.py",
+    "test_tracing.py",
+    "test_truth_crystallizer.py",
+    "test_truth_flow.py",
+    "test_url_policy.py",
+    "test_version_sync.py",
+    "test_web_trigger.py",
+]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["foxclaw"]
+# 全量回归走 run_all.py(每文件独立子进程),coverage 需 parallel 模式:每个子进程各写一份
+# .coverage,最后 `coverage combine` 合并成基线。patch=["subprocess"] 让 coverage run 设置
+# COVERAGE_PROCESS_CONFIG 环境变量,子进程经 coverage 的 sitecustomize(.pth)自动测量,
+# 无需逐个子进程手动包 coverage run(run_all.py 的 subprocess 用 dict(os.environ,...) 继承,链路完整)。
+parallel = true
+patch = ["subprocess"]
+
+[tool.coverage.report]
+show_missing = true

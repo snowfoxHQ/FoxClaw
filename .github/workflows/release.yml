@@ -1,0 +1,177 @@
+name: Release
+
+# 两段式发布。为什么不能"打 tag 就自动上传":
+# PyPI / npm 的版本号**不可撤回** —— 传上去只能 yank(仍占号、仍能被 pin 装到),
+# 不能覆盖重发。所以 CI 的默认行为是「校验 + 构建 + 挂 GitHub Release」,
+# 真正的外发必须人工触发一次 workflow_dispatch,并在 environment 里审批。
+#
+# 阶段一(push tag v*):版本/tag 一致性 → 构建 wheel+sdist+npm tgz → 产物结构校验
+#                        → GitHub Release 附件(可反复重跑,错了删 tag 重来)
+# 阶段二(workflow_dispatch):勾 publish=pypi/npm/both + 填 ref=tag,审批后才上传
+#
+# 需要预先准备(仓库 Settings):
+#   Environments: pypi、npm(各配 Required reviewers → 这就是"审批门")
+#   Secrets:      PYPI_API_TOKEN(npt_... 项目级 token)、NPM_TOKEN(granular,仅 publish)
+# 换 OIDC 时:PyPI 用 pending publisher、npm 用 trusted publishing,
+# 把 publish-* 里的 password/NODE_AUTH_TOKEN 去掉并加 `permissions: id-token: write`。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "上传目标(需对应 environment 审批)"
+        type: choice
+        options: ["none", "pypi", "npm", "both"]
+        default: "none"
+      ref:
+        description: "要构建/发布的 tag(如 v0.1.0;发布时必填)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# 同一 tag 并发跑两次发布 = 两个进程抢同一个版本号
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install release toolchain
+        # 只装构建器,不 `pip install -e .`:构建 wheel 不需要 torch/faiss 那套运行时
+        # 依赖(唯一 import 的 release_check.py 是纯标准库),装了只会把 job 拖成 5 分钟。
+        run: |
+          python -m pip install --upgrade pip
+          pip install "build>=1.2"
+
+      # 发布必须锚定 tag:否则发出去的是分支 HEAD,版本号对不上任何 tag,
+      # 事后连"这版对应哪次提交"都答不上来。
+      - name: Require tag when publishing
+        if: github.event_name == 'workflow_dispatch' && inputs.publish != 'none'
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          if [ -z "$REF" ]; then
+            echo "::error::publish=${{ inputs.publish }} 时必须填 ref(如 v0.1.0),不能发分支 HEAD"
+            exit 1
+          fi
+
+      - name: Version / tag gate
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.ref }}
+        run: |
+          if [ -n "$TAG" ]; then
+            python tools/release_check.py --tag "$TAG"
+          else
+            python tools/release_check.py
+          fi
+
+      - name: Build wheel + sdist
+        run: python -m build --outdir dist
+
+      - name: Pack npm tarball
+        working-directory: npm
+        run: npm pack --pack-destination ../dist
+
+      - name: Artifact gate
+        # 包里出现 .env / docs/internal / 运行期数据 = 停下,不许发(宁可不出包)
+        run: python tools/release_check.py --dist dist --npm-tgz dist/*.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tgz
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  github-release:
+    # 只有 tag 才挂 Release;手工触发构建不建 Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber    # 重跑时覆盖附件,不重建 Release
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes
+          fi
+
+  publish-pypi:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.publish == 'pypi' || inputs.publish == 'both')
+    needs: build
+    runs-on: ubuntu-latest
+    # environment 上配 Required reviewers:这一步停在"等待审批",人点了才动
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist/
+
+  publish-npm:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.publish == 'npm' || inputs.publish == 'both')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tgz
+          path: dist
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./dist/*.tgz --access public

@@ -1,0 +1,35 @@
+# VCS
+.git
+.gitignore
+.github
+
+# 密钥与本地配置（绝不进镜像）
+.env
+.env.*
+!.env.example
+
+# Python 缓存与构建产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 工具缓存
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# 回归失败产物
+tests/_fail_*.txt
+
+# 本地工具/IDE 缓存
+.codebuddy/
+.workbuddy/
+.idea/
+.vscode/
+*.log
+.DS_Store

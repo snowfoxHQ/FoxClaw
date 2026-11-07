@@ -1,0 +1,46 @@
+# ============================================================
+# 换行符与二进制处理 —— 跨平台协作必需
+# ============================================================
+# 背景:本仓库此前只有 core.autocrlf=true,没有 .gitattributes。后果是换行符由**每个
+# 协作者的本地 git 配置**决定:Windows 上 checkout 会把 LF 变 CRLF,于是同一个人换台
+# 机器、或不同人 clone,就会产出「整文件级」的假 diff,让 review 淹没在噪音里。
+# 这里把规则钉进仓库,使行为不再依赖本地配置。
+#
+# 已跟踪文件现状:取样 200 个中 LF=183 / CRLF=5 / 混合=1 —— 主体是 LF,故以 LF 为准。
+# 注意:本次**没有**执行 `git add --renormalize .`(那会一次改动数百文件、无法 review);
+# 少数 CRLF 文件会在各自下次被编辑时自然归一。
+
+# 默认:文本文件以 LF 入库、以 LF 检出
+* text=auto eol=lf
+
+# Windows 专属脚本必须 CRLF —— cmd.exe / PowerShell 对 LF 解析异常
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 二进制:禁止换行符转换与文本 diff
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.7z     binary
+*.docx   binary
+*.xlsx   binary
+*.pptx   binary
+*.ttf    binary
+*.otf    binary
+*.woff   binary
+*.woff2  binary
+*.so     binary
+*.pyd    binary
+*.dll    binary
+*.exe    binary
+
+# 说明:本项目依赖锁定在 pyproject.toml([project].dependencies),当前**无**锁文件
+# (uv.lock / poetry.lock)。若日后引入,建议在此追加 `uv.lock -diff`,避免锁文件
+# 把 diff 高亮占满。
