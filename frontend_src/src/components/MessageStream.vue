@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue'
-import { chat } from '../stores/chat.js'
+import { chat, retry } from '../stores/chat.js'
 
 const box = ref(null)
 let stick = true
@@ -42,6 +42,39 @@ function stepText(s) {
 const SRC_CN = { memory: '记忆', knowledge: '知识', web: '联网', agent: '态势' }
 function srcLabel(s) {
   return SRC_CN[s] || s || '证据'
+}
+
+/* ── 复制 / 重试 ── */
+const copiedKey = ref(-1)
+let copyTimer = 0
+
+async function copy(m, i) {
+  const text = m.content || ''
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    /* 局域网纯 http 不是安全上下文,clipboard 会拒绝 → 退回 textarea 选中法 */
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+    } catch {
+      /* 再失败就只好让用户手动选 */
+    }
+    ta.remove()
+  }
+  copiedKey.value = i
+  clearTimeout(copyTimer)
+  copyTimer = setTimeout(() => (copiedKey.value = -1), 1600)
+}
+
+/* 只有最后一条能重试:往前还有更新的对话时,重发会把后面的记录截掉 */
+function canRetry(i) {
+  return i === chat.messages.length - 1
 }
 </script>
 
@@ -117,6 +150,13 @@ function srcLabel(s) {
               </div>
             </div>
           </details>
+
+          <div v-if="!m.streaming && (m.content || m.error)" class="a-acts">
+            <button v-if="m.content" class="mini" @click="copy(m, i)">
+              {{ copiedKey === i ? '已复制' : '复制' }}
+            </button>
+            <button v-if="canRetry(i)" class="mini" @click="retry(m)">重试</button>
+          </div>
         </div>
       </article>
     </div>
@@ -257,6 +297,27 @@ function srcLabel(s) {
   padding: 6px 10px; border-radius: var(--r-sm);
   font-size: 11.5px; color: var(--amber);
   background: rgba(200, 140, 40, 0.09);
+}
+
+/* 复制 / 重试:平时不占位,鼠标到这条消息才浮出 */
+.a-acts { display: flex; gap: 6px; opacity: 0; transition: opacity 0.13s; }
+.msg:hover .a-acts,
+.a-acts:focus-within { opacity: 1; }
+.mini {
+  font-size: 10.5px; padding: 2px 9px;
+  border-radius: var(--r-pill);
+  color: var(--dim); background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--line-soft);
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
+}
+.mini:hover {
+  color: var(--green); background: #fff;
+  border-color: rgba(26, 157, 95, 0.35);
+}
+
+/* 触屏没有 hover:常显,否则永远点不到 */
+@media (hover: none) {
+  .a-acts { opacity: 1; }
 }
 .err {
   padding: 7px 10px; border-radius: var(--r-sm);

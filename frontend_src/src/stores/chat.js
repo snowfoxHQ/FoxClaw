@@ -1,6 +1,6 @@
 /* 对话与输入区状态:模式 / 附件 / 图片 / 摄入任务 / 消息流 / SSE */
 import { reactive } from 'vue'
-import { API, getJSON, getRaw, postForm, postFormRaw, postJSON } from '../api.js'
+import { API, delJSON, getJSON, getRaw, postForm, postFormRaw, postJSON } from '../api.js'
 import { loadSessions, state as app } from './app.js'
 
 const MODE_KEY = 'sfx.chat.mode'
@@ -18,7 +18,8 @@ export const chat = reactive({
   messages: [], // [{role,content,thinking,evidence,error,ts,streaming,stage,plan}]
   sessionId: null,
   streamState: 'idle', // idle | streaming | done | error
-  lastError: '',
+  /* 错误落在具体那条消息的 m.error 上(界面上能看到 + 能点重试),
+     这里不再留一个没人读的 lastError */
 })
 
 let toastTimer = 0
@@ -157,6 +158,7 @@ export async function bootChat() {
 
 export async function loadSession(id, { quiet = false } = {}) {
   if (!id) return
+  cutStream()
   try {
     const d = await getJSON(`/sessions/${encodeURIComponent(id)}`)
     adoptSession(id)
@@ -226,6 +228,7 @@ export async function runSearch(rawQuery) {
 }
 
 export async function newSession() {
+  cutStream()
   try {
     const d = await postJSON('/sessions', {})
     adoptSession(d.id)
@@ -237,6 +240,56 @@ export async function newSession() {
     say(`新建会话失败:${e.message}`)
     return null
   }
+}
+
+/* 改标题:后端 rename 会把空串兜回「新会话」,这里先挡掉空提交,避免误清标题 */
+export async function renameSession(id, title) {
+  const t = String(title || '').trim().slice(0, 60)
+  if (!id || !t) return
+  try {
+    await postJSON(`/sessions/${encodeURIComponent(id)}/rename`, { title: t })
+    const s = app.sessions.find((x) => x.id === id)
+    if (s) s.title = t
+  } catch (e) {
+    say(`重命名失败:${e.message}`)
+  }
+}
+
+/* 删会话。删的是当前会话时落回列表里的下一条;一条不剩就新开一个 ——
+   否则界面会停在一个已经不存在的 sessionId 上,下一条消息直接 404。 */
+export async function deleteSession(id) {
+  if (!id) return
+  try {
+    await delJSON(`/sessions/${encodeURIComponent(id)}`)
+  } catch (e) {
+    return say(`删除失败:${e.message}`)
+  }
+  app.sessions = app.sessions.filter((s) => s.id !== id)
+  if (chat.sessionId !== id) return
+  const next = app.sessions[0]
+  if (next) await loadSession(next.id)
+  else await newSession()
+}
+
+/* 重发:把这条回复对应的提问找回来,截断到它之前再投一次(附件/图片一起还原) */
+export async function retry(msg) {
+  if (chat.streamState === 'streaming') return say('正在生成,先点停止')
+  const i = chat.messages.indexOf(msg)
+  if (i < 0) return
+  let u = -1
+  for (let k = i; k >= 0; k -= 1) {
+    if (chat.messages[k].role === 'user') {
+      u = k
+      break
+    }
+  }
+  if (u < 0) return say('找不到对应的提问,无法重试')
+  const q = chat.messages[u]
+  const text = q.content
+  chat.messages.splice(u)
+  chat.attachments = (q.attachments || []).map((a) => ({ ...a, kind: 'file' }))
+  chat.images = (q.images || []).map((im) => ({ ...im }))
+  await send(text)
 }
 
 async function ensureSession() {
@@ -257,6 +310,25 @@ async function ensureSession() {
 /* ══════════ 发送 / 流式 ══════════ */
 
 let ctrl = null
+/* 每次 send 领一个代号。切会话 / 新建会话时把代号推进,在跑的那一路回来发现
+   代号变了就不再碰全局状态 —— 否则它会把新会话的 streamState 覆盖掉、还把 ctrl
+   清空,导致新流停不下来,两路 token 同时往不同消息里写。 */
+let gen = 0
+
+/* 掐断在跑的流:切会话、新建会话、重试前都先调一次 */
+function cutStream() {
+  gen += 1
+  if (ctrl) {
+    try {
+      ctrl.abort()
+    } catch {
+      /* 已经收尾了 */
+    }
+    ctrl = null
+  }
+  for (const m of chat.messages) if (m.streaming) m.streaming = false
+  chat.streamState = 'idle'
+}
 
 export function stop() {
   if (ctrl) ctrl.abort()
@@ -285,7 +357,11 @@ export async function send(rawText) {
     .slice(-12)
     .map((m) => ({ role: m.role, content: m.content }))
 
-  chat.messages.push({ role: 'user', content: text, ts: Date.now(), attachments, streaming: false, thinking: '' })
+  chat.messages.push({
+    role: 'user', content: text, ts: Date.now(), attachments, streaming: false, thinking: '',
+    /* 存一份图片快照:重试时 send() 从 chat.images 取图,不带上就丢图了 */
+    images: chat.images.map((im) => ({ ...im })),
+  })
   chat.messages.push({
     role: 'assistant', content: '', thinking: '', evidence: [], error: '', notice: '',
     ts: Date.now(), streaming: true, stage: '', plan: null,
@@ -296,7 +372,6 @@ export async function send(rawText) {
   chat.attachments = []
   chat.images = []
   chat.streamState = 'streaming'
-  chat.lastError = ''
 
   const orchestrate = chat.mode === 'orchestrate'
   const url = orchestrate ? '/task/stream' : '/chat/stream'
@@ -304,6 +379,7 @@ export async function send(rawText) {
     ? { task: text, agent_id: 'supervisor', session_id: sid, context: {} }
     : { task: text, agent_id: 'supervisor', history, session_id: sid, images, attachments }
 
+  const my = ++gen
   ctrl = new AbortController()
   try {
     const r = await fetch(API + url, {
@@ -314,9 +390,11 @@ export async function send(rawText) {
     })
     if (!r.ok) throw new Error(`${url} -> ${r.status}`)
     await readSSE(r, (name, ev) => applyEvent(reply, name, ev))
+    if (my !== gen) return
     reply.streaming = false
     chat.streamState = 'done'
   } catch (e) {
+    if (my !== gen) return // 已被切会话/新请求作废,不要动现在的状态
     reply.streaming = false
     if (e && e.name === 'AbortError') {
       chat.streamState = 'done'
@@ -324,11 +402,12 @@ export async function send(rawText) {
     } else {
       reply.error = (e && e.message) || '请求失败'
       chat.streamState = 'error'
-      chat.lastError = reply.error
     }
   } finally {
-    ctrl = null
-    loadSessions()
+    if (my === gen) {
+      ctrl = null
+      loadSessions()
+    }
   }
 }
 
