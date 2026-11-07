@@ -1,6 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 import DocViewer from './DocViewer.vue'
+import MessageStream from './MessageStream.vue'
+import { chat } from '../stores/chat.js'
 import { state, MODULES, moduleLabel, setModule, closeDoc, openDoc } from '../stores/app.js'
 
 const meta = computed(() => MODULES.find((m) => m.id === state.module) || MODULES[0])
@@ -112,11 +114,14 @@ def rescale(card: Card, ratio: float) -> Card:
       </div>
 
       <div v-else class="core">
-        <div class="orb" />
-        <div class="core-cap">全息核心 · 3D 星核在 P3 挂载(/planet/ iframe 保持不动)</div>
-        <div class="demo">
-          <button @click="openDoc(SAMPLE.text)">看文字版</button>
-          <button class="dark" @click="openDoc(SAMPLE.code)">看 CLI 代码版</button>
+        <MessageStream v-if="chat.messages.length" />
+        <div v-else class="core-empty">
+          <div class="orb" />
+          <div class="core-cap">问我任何事 · 主管 Agent 会按需调度</div>
+          <div class="demo">
+            <button @click="openDoc(SAMPLE.text)">看文字版</button>
+            <button class="dark" @click="openDoc(SAMPLE.code)">看 CLI 代码版</button>
+          </div>
         </div>
       </div>
     </div>
@@ -159,8 +164,9 @@ def rescale(card: Card, ratio: float) -> Card:
   display: flex;
 }
 
-/* ── 核心占位 ── */
-.core {
+/* ── 核心:空态居中,有消息时整块交给消息流 ── */
+.core { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.core-empty {
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 16px;
   position: relative;

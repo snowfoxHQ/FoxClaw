@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import MenuPopover from './MenuPopover.vue'
 import { state, loadSessions, openSession, moduleLabel, setModule } from '../stores/app.js'
+import { loadSession, newSession } from '../stores/chat.js'
 
 const btnRef = ref(null)
 const menuOpen = ref(false)
@@ -30,6 +31,17 @@ function pick(id) {
   menuOpen.value = false
 }
 
+/* 切会话 = 切左侧高亮 + 拉后端历史消息 */
+function pickSession(s) {
+  openSession(s)
+  loadSession(s.id)
+}
+
+async function startNew() {
+  await newSession()
+  setModule('overview')
+}
+
 function fmt(ts) {
   if (!ts) return ''
   return new Date(ts * 1000).toLocaleString('zh-CN', {
@@ -44,7 +56,7 @@ function meta(s) {
 
 <template>
   <aside class="col col--left rail-left">
-    <button class="new-sess" title="开一个新会话">＋ 新会话</button>
+    <button class="new-sess" title="开一个新会话" @click="startNew">＋ 新会话</button>
 
     <div class="sec-head">
       会话历史 <em>{{ count }}</em>
@@ -61,7 +73,7 @@ function meta(s) {
           class="ns-item"
           :class="{ on: s.id === state.sessionId }"
           :title="s.title || '新会话'"
-          @click="openSession(s)"
+          @click="pickSession(s)"
         >
           <b>{{ s.title || '新会话' }}</b>
           <span>{{ meta(s) }}</span>

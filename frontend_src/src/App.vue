@@ -4,7 +4,12 @@ import LeftRail from './components/LeftRail.vue'
 import Stage from './components/Stage.vue'
 import ChatDock from './components/ChatDock.vue'
 import Inspector from './components/Inspector.vue'
+import { onMounted } from 'vue'
 import { state } from './stores/app.js'
+import { bootChat } from './stores/chat.js'
+
+/* 恢复上次会话历史(后端落盘) */
+onMounted(bootChat)
 </script>
 
 <template>
