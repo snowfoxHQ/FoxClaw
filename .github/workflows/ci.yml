@@ -45,6 +45,11 @@ jobs:
       - name: Pytest collect check (all tests migrated)
         run: python -m pytest --collect-only -q
 
+      - name: Release preflight (version sources)
+        # 版本号漏改一处会让发布物自相对不上,而发出去不能覆盖。这里只查"四处是否一致",
+        # 产物结构检查(需先 build)在 .github/workflows/release.yml 里。
+        run: python tools/release_check.py
+
   regression:
     runs-on: ubuntu-latest
     timeout-minutes: 25

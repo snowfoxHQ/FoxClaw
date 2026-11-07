@@ -183,6 +183,7 @@ python_files = [
     "test_planner.py",
     "test_policy_gate.py",
     "test_reasoner.py",
+    "test_release_check.py",
     "test_resume_checkpoint.py",
     "test_routing.py",
     "test_scheduler.py",

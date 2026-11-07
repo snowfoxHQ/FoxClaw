@@ -1,0 +1,90 @@
+# 发布流程
+
+两条发布通道、两种产物,性质完全不同,先说清楚免得误会:
+
+| 产物 | 命令 | 里面有什么 |
+| --- | --- | --- |
+| PyPI `snowfoxclaw` | `pip install snowfoxclaw` | **占位包**:能 import,但 `vendor/`(HKC/HMR)不入包 → 知识/记忆子系统降级为 None |
+| npm `snowfoxclaw` | `npm i snowfoxclaw` | 占位包:`index.js` 只导出 `name` / `version` |
+| GitHub Release | tag 自动 | 上面两个包的文件 + 自动生成的 release notes |
+
+`vendor/` 不入包是设计现状(`packages.find` 只收 `snowfoxclaw*`,HMR/HKC 以 sys.path
+内嵌,运行期按 `Path(__file__)/../../vendor` 找)。发布说明里必须写明"这是占位包",
+不要让人装完以为拿到了完整运行时。
+
+## 1. 本地预检(发布前必须绿)
+
+```bash
+python tools/release_check.py --tag v0.1.0          # 四处版本号一致 + tag 对得上
+python -m build                                      # 出 dist/*.whl + *.tar.gz
+cd npm && npm pack --pack-destination ../dist && cd ..
+python tools/release_check.py --dist dist --npm-tgz dist/*.tgz
+```
+
+第二道检查会做这些事,任一 `[ERROR]` 都不许发布:
+
+- `dist/` 里恰好一个 wheel + 一个 sdist,文件名与版本号一致;
+- wheel 的 `METADATA` 里 `Name` / `Version` 与 `pyproject.toml` 一致;
+- 归档内**不得**出现 `.env`(除 `.env.example`)、`docs/internal/`、`snowfoxclaw_data/`、
+  `__pycache__`、嵌套压缩包、`.venv`;
+- npm tgz 文件名与 `package/package.json` 的 `name@version` 一致;
+- 缺 `vendor/` 只报 `[WARN]`(见上表),不会拦发布。
+
+版本号的唯一来源是 `pyproject.toml`,另外三处(`snowfoxclaw/__init__.py`、
+`npm/package.json`、`npm/index.js`)由 `tests/test_version_sync.py` 盯着必须相等。
+改版本时**四处一起改**,只改一处会在第一道检查里挂掉。
+
+## 2. 打 tag(自动构建 + 挂 Release,不外发)
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` 的 `build` job 会:校验版本/tag → 构建 → npm pack →
+产物结构校验 → 上传 `python-dist` / `npm-tgz` 两个 artifact;`github-release` job 把它们
+挂成 Release 附件(重跑用 `--clobber` 覆盖附件,不重建 Release)。
+
+这一步**不会**上传到 PyPI / npm,打错了删 tag 重来即可。
+
+## 3. 上传到 PyPI / npm(需要人工审批)
+
+Actions → Release → Run workflow:
+
+- `publish`:选 `pypi` / `npm` / `both`
+- `ref`:填**同一个 tag**(如 `v0.1.0`;不填会直接失败——不允许发分支 HEAD)
+
+然后经由 environment 审批:
+
+| environment | 审批后执行 | 用的 secret |
+| --- | --- | --- |
+| `pypi` | `pypa/gh-action-pypi-publish` | `PYPI_API_TOKEN`(项目级 `pypi-`/`npt_` token) |
+| `npm` | `npm publish` | `NPM_TOKEN`(granular,仅 `snowfoxclaw` 的 publish 权限) |
+
+需要在仓库 Settings → Environments 里先建 `pypi`、`npm` 两个环境并配 Required reviewers,
+否则"审批门"不存在,勾了就直接发。
+
+## 4. 发错了怎么办
+
+**PyPI / npm 的版本号不可撤回**。能做的只有:
+
+- PyPI:`yank`(`twine`/网页)→ 该版本不再被新装选中,但**仍然占着号**,不能重发同号;
+  修好后必须 `0.1.1`。
+- npm:`npm unpublish snowfoxclaw@0.1.0` 只在发布后 72 小时内、且无其他包依赖时可用;
+  过了就只能 `npm deprecate` + 发新号。
+
+所以"先构建、再审批上传"不是流程洁癖,是这两个 registry 的规则逼出来的。
+
+## 5. 切到 OIDC(零长期密钥)
+
+当前用 token,因为上传已有人工审批兜底。想彻底去掉长期密钥时:
+
+- PyPI:项目页 → Publishing → 加 GitHub publisher(owner/repo/workflow/environment
+  必须与实际一致),首次发布用 "pending publisher";然后删掉 secret,给 job 加
+  `permissions: id-token: write`。
+- npm:npm ≥ 11.5 支持 trusted publishing,同样加 `id-token: write` 并去掉 `NODE_AUTH_TOKEN`。
+
+## 待决:仓库名
+
+`git remote` 是 `snowfoxHQ/HestiaOS-dev`,但 `npm/package.json` 的 `homepage` /
+`repository` 写的是 `snowfoxHQ/SnowFoxClaw`。OIDC 的 publisher 要求仓库名精确匹配,
+所以切 OIDC 之前必须先统一这两处。
