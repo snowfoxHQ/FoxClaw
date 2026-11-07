@@ -35,7 +35,9 @@ def test_reasoner_base_order():
 
 def _policy():
     from snowfoxclaw.finance import FinanceRuntime
-    p = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml")).policy
+    # data_path 显式隔离:默认落在 policy 同目录(系统 Temp),会与其他测试共用一份数据文件
+    p = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
+                       data_path=tempfile.mktemp(suffix=".json")).policy
     # 显式锁定本测试的前提阈值(200,模糊带 [140,200)),**不依赖产品默认值** ——
     # 默认阈值是给用户按自己实际调的可调项,不该让调它就牵动这些验证推理逻辑的测试。
     for r in p.rules:
@@ -66,7 +68,8 @@ def test_context_evidence_no_decision_change():
     from snowfoxclaw.finance import FinanceRuntime
     from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
     from snowfoxclaw.finance.models import Transaction
-    rt = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"))
+    rt = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
+                        data_path=tempfile.mktemp(suffix=".json"))
     rt.set_budget("travel", 3000); rt.set_balance("default", 5000)
     for _ in range(3):   # 3 笔历史同类交易(同对手方)
         rt.add_transaction(Transaction(amount=-100, category="travel", entity="高铁",

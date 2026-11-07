@@ -27,7 +27,10 @@ def test_domain_evals():
 
     def _policy():
         # 用产品**默认**规则集评测 —— 评的就是"开箱默认够不够好"
-        return FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml")).policy
+        # data_path 必须独立:默认落在 policy 同目录,而 mktemp 的父目录是**系统 Temp**,
+        # 不显式隔离就会和别的测试共用一个 finance_data.json(顺序一变就互相污染)。
+        return FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
+                              data_path=tempfile.mktemp(suffix=".json")).policy
 
 
     # ── 标注案例集:(说明, 金额, 类别, 余额, 该不该被拦) ───────────────────
@@ -298,7 +301,8 @@ def test_domain_evals():
     print("[16] 校准不污染模块级出厂默认/出厂快照 OK")
 
     # [17] 校准必须**对用户可见**(阈值自己变了还不吭声 = 偷偷改用户的设置)
-    rt = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"))
+    rt = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
+                        data_path=tempfile.mktemp(suffix=".json"))
     for t in _real():
         rt.add_transaction(t, run_gatekeeper=False)
     rep = rt.analyze()
@@ -365,7 +369,8 @@ def test_domain_evals():
     #     线程并发调 → apply_calibration 并发改规则+写盘。写锁 + 原子 rename 保证安全。
     import threading as _th
     from snowfoxclaw.finance.policy import FinancePolicyEngine
-    rt21 = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"))
+    rt21 = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
+                          data_path=tempfile.mktemp(suffix=".json"))
     for t in _real():
         rt21.add_transaction(t, run_gatekeeper=False)
     errs21, seen_to = [], []

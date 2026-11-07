@@ -46,8 +46,11 @@ async def finance_import(p: ImportPayload):
             from snowfoxclaw.finance import Transaction
             n = 0
             for row in p.rows:
-                rt.add_transaction(Transaction(**row), run_gatekeeper=False)
+                # save=False:整批导完再落盘一次,别在循环里做 N 次磁盘 IO
+                rt.add_transaction(Transaction(**row), run_gatekeeper=False, save=False)
                 n += 1
+            if n:
+                rt.save()
         else:
             return {"imported": 0, "note": "未提供数据"}
         return {"imported": n, "status": rt.status()}
