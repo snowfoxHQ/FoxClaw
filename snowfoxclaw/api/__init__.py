@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
               "仅本地回环安全;对外暴露前务必设置。")
     _os_instance = Snowfoxclaw(
         data_dir=os.environ.get("SNOWFOXCLAW_DATA_DIR", "./snowfoxclaw_data"),
-        shadow_rounds=int(os.environ.get("SNOWFOXCLAW_SHADOW_ROUNDS", "20")),
+        shadow_rounds=settings.get_int("SNOWFOXCLAW_SHADOW_ROUNDS"),
     )
     _register_spine_projection(_os_instance)
     # trace 落库(与其它 SQLite 同放 data_dir):内存环只留最近若干条且重启即失,
@@ -240,6 +240,7 @@ from .routes import llm_admin  # noqa: F401
 from .routes.task import _sanitize_images, _sanitize_attachments, _MAX_IMAGES, _MAX_IMG_B64, _STREAM_LIMITER  # noqa: F401
 from .routes.domain import _parse_import_rows  # noqa: F401
 from .routes.knowledge import knowledge_ability as knowledge_ability, _HKCInsuffCov as _HKCInsuffCov  # noqa: F401
+from ..core import settings
 
 
 # ── HKC 星球数据面:实现已移至 app.py ─────────────────────
@@ -257,7 +258,7 @@ if __name__ == "__main__":
     # 否则该端口上任何可达者都能读写记忆、执行技能、摄入文件(这些端点全部无鉴权)。
     # 用 `python -m uvicorn snowfoxclaw.api:app --host ...` 启动时会绕过本检查,故 lifespan 另有软提醒。
     _host = os.environ.get("SNOWFOXCLAW_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    _port = int(os.environ.get("SNOWFOXCLAW_PORT", "8000"))
+    _port = settings.get_int("SNOWFOXCLAW_PORT")
     _LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
     if _host not in _LOOPBACK and not os.environ.get("SNOWFOXCLAW_API_KEY", "").strip():
         print(

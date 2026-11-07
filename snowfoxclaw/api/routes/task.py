@@ -5,7 +5,6 @@
 模块级单例,`__init__.py` 会 re-export(测试复位其桶容量)。
 """
 
-import os
 import json
 import asyncio
 import threading as _threading
@@ -17,6 +16,7 @@ from pydantic import BaseModel
 import snowfoxclaw.api as _api
 from .. import app
 from ...mcp_server import _RateLimiter as _RL
+from ...core import settings
 
 
 # ── 请求模型 ───────────────────────────────────────────────
@@ -62,8 +62,8 @@ async def run_task(req: TaskRequest):
 
 
 # 流式限流 + 并发上限(防刷爆/资源耗尽;env 可配)
-_STREAM_LIMITER = _RL(int(os.environ.get("SNOWFOXCLAW_STREAM_RATE", "60")))          # 次/分
-_STREAM_SEM = _threading.Semaphore(int(os.environ.get("SNOWFOXCLAW_STREAM_CONCURRENCY", "4")))
+_STREAM_LIMITER = _RL(settings.get_int("SNOWFOXCLAW_STREAM_RATE"))                   # 次/分
+_STREAM_SEM = _threading.Semaphore(settings.get_int("SNOWFOXCLAW_STREAM_CONCURRENCY"))
 
 
 _MAX_IMAGES = 6

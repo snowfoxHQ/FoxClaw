@@ -20,6 +20,7 @@ import re
 import json
 import urllib.request
 import urllib.error
+from . import settings
 
 
 # 触发联网搜索的关键词:问到实时/时效性信息时才搜
@@ -112,10 +113,7 @@ def _base() -> str:
 
 def _timeout() -> int:
     """读取超时(秒)。深度搜索较慢,默认 45s;可经 BAIDU_SEARCH_TIMEOUT 调。"""
-    try:
-        return max(5, int(os.environ.get("BAIDU_SEARCH_TIMEOUT", "45")))
-    except ValueError:
-        return 45
+    return max(5, int(settings.get_safe("BAIDU_SEARCH_TIMEOUT")))
 
 
 def _deep() -> bool:

@@ -9,22 +9,23 @@
 - 每个工具调用跑在守护线程里,带单工具硬超时;只读且声明 parallel_safe 的工具同轮并发。
 - 会话污点在 worker 线程里只收集、回主线程合并(contextvar 按线程隔离,直接 set 会丢)。
 """
-import os
 import threading
 import time
 
 from ._context import _taint_get, _taint_raise
+from ...core import settings
 
 #: 同轮最多并发几个工具(再多也是网络等待,收益递减;避免打爆 provider/搜索服务)
 MAX_PARALLEL = 4
 
 
 def _tool_timeout() -> float:
-    """单工具硬超时(秒),SNOWFOXCLAW_TOOL_TIMEOUT 可调;默认 45s。"""
-    try:
-        v = float(os.environ.get("SNOWFOXCLAW_TOOL_TIMEOUT", "45"))
-    except (TypeError, ValueError):
-        v = 45.0
+    """单工具硬超时(秒),SNOWFOXCLAW_TOOL_TIMEOUT 可调;默认 45s。
+
+    值写错不拖垮工具执行(退默认),但会 WARN 一次指出是哪个变量错了 ——
+    此前是 try/except 静默退默认,用户的设置有错也永远不知道。
+    """
+    v = float(settings.get_safe("SNOWFOXCLAW_TOOL_TIMEOUT"))
     return v if v > 0 else 45.0
 
 

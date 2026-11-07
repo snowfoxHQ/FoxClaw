@@ -28,6 +28,7 @@ import threading
 import contextvars
 from collections import deque
 from contextlib import contextmanager
+from . import settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,24 +38,15 @@ logger = logging.getLogger(__name__)
 # 正常请求的 trace 数量大、价值低。故:**慢的 / 出错的必存**(那才是你要查的),
 # 其余按采样率(默认 0 —— 个人 OS 留下的每条都值得看)。
 def _slow_ms() -> float:
-    try:
-        return float(os.environ.get("SNOWFOXCLAW_TRACE_SLOW_MS", "1000"))
-    except ValueError:
-        return 1000.0
+    return float(settings.get_safe("SNOWFOXCLAW_TRACE_SLOW_MS"))
 
 
 def _sample_rate() -> float:
-    try:
-        return max(0.0, min(1.0, float(os.environ.get("SNOWFOXCLAW_TRACE_SAMPLE", "0"))))
-    except ValueError:
-        return 0.0
+    return max(0.0, min(1.0, float(settings.get_safe("SNOWFOXCLAW_TRACE_SAMPLE"))))
 
 
 def _retain() -> int:
-    try:
-        return max(100, int(os.environ.get("SNOWFOXCLAW_TRACE_RETAIN", "5000")))
-    except ValueError:
-        return 5000
+    return max(100, int(settings.get_safe("SNOWFOXCLAW_TRACE_RETAIN")))
 
 _current: contextvars.ContextVar = contextvars.ContextVar("snowfoxclaw_trace", default=None)
 

@@ -8,6 +8,7 @@
 import os
 
 from ..core.gateway import Gateway
+from ..core import settings
 
 
 def _constant_time_eq(a: str, b: str) -> bool:
@@ -165,12 +166,12 @@ async def _api_key_guard(request, call_next):
 
 # ── 统一 API 网关:per-client 限流 + 配额(把散落的单点限流收敛成一层)──────────
 _GATEWAY = Gateway(
-    rate_per_min=int(os.environ.get("SNOWFOXCLAW_GATEWAY_RATE", "600")),
-    quota_per_hour=int(os.environ.get("SNOWFOXCLAW_GATEWAY_QUOTA", "20000")),
+    rate_per_min=settings.get_int("SNOWFOXCLAW_GATEWAY_RATE"),
+    quota_per_hour=settings.get_int("SNOWFOXCLAW_GATEWAY_QUOTA"),
 )
 # 请求体硬顶(始终生效,不依赖限流开关):防超大 body 在解析/sanitize 前就吃满内存。
 # 最大合法体是文件摄入(路由内 20MB 上限),故 32MB 顶对正常流量无感。
-_MAX_BODY = int(os.environ.get("SNOWFOXCLAW_MAX_BODY_MB", "32")) * 1024 * 1024
+_MAX_BODY = settings.get_int("SNOWFOXCLAW_MAX_BODY_MB") * 1024 * 1024
 
 
 def _gateway_on() -> bool:

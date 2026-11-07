@@ -16,6 +16,7 @@ from snowfoxclaw import __version__
 import snowfoxclaw.api as _api
 from .. import app
 from ..middleware import _gateway_on, _GATEWAY
+from ...core import settings
 
 
 # ── 系统状态 ───────────────────────────────────────────────
@@ -84,7 +85,7 @@ async def get_system_info():
     return {
         "version": __version__,
         "data_dir": os.environ.get("SNOWFOXCLAW_DATA_DIR", "./snowfoxclaw_data"),
-        "shadow_rounds": int(os.environ.get("SNOWFOXCLAW_SHADOW_ROUNDS", "20")),
+        "shadow_rounds": settings.get_int("SNOWFOXCLAW_SHADOW_ROUNDS"),
         "model": _api._os_instance.router.info(),
         "amap": {
             "web_key": bool(os.environ.get("AMAP_MAPS_API_KEY")),

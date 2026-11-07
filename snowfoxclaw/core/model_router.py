@@ -179,9 +179,10 @@ def _chunk_text(text, size: int = 8):
 # 下面用指数退避 + **全抖动**(full jitter,sleep=random(0,min(cap,base*2^n))):
 # 上限保证不会无限等待,抖动保证多实例不会同步重试。
 import random as _rnd   # noqa: E402  (供下方 _backoff_delay 与冷却抖动使用)
+from . import settings
 
 # 冷却基准秒(乘抖动系数后使用)。可经 SNOWFOXCLAW_LLM_COOLDOWN 覆盖,线上调参不必改代码。
-_COOLDOWN_BASE = float(os.environ.get("SNOWFOXCLAW_LLM_COOLDOWN", "20"))
+_COOLDOWN_BASE = float(settings.get_float("SNOWFOXCLAW_LLM_COOLDOWN"))
 
 
 def _backoff_delay(attempt: int, base: float = 0.5, cap: float = 8.0) -> float:
