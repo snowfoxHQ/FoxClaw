@@ -1,10 +1,11 @@
 /**
- * FoxClaw — 占位实现。
+ * FoxClaw - cognitive agent operating system.
  *
- * 0.1.0 仅用于在 npm 上保留 `foxclaw` 包名，功能尚未实现。
+ * The npm package bundles the full Python project under `python/`; the CLI
+ * (`npx foxclaw`) forwards to it. This module exposes the package metadata for
+ * programs that only need the name/version.
  */
-
 export const name = "foxclaw";
-export const version = "0.1.0";
+export const version = "0.1.1";
 
 export default { name, version };

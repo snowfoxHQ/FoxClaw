@@ -77,3 +77,6 @@ frontend_src/.vite/
 # vite dev/preview 的临时日志
 frontend_src/*.log
 frontend_src/*.err
+
+# npm 发布前由 npm/build.cjs 从仓库根复制生成的源码副本
+npm/python/

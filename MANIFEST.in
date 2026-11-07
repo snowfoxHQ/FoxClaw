@@ -1,0 +1,9 @@
+# sdist 必须自带 vendor/ 下的 HMR 与 HKC —— 它们是内嵌运行时,不是 PyPI 依赖。
+# 缺了它们,pip install 装出来的包记忆/知识子系统会整体降级为 None。
+graft vendor
+graft foxclaw
+
+prune vendor/__pycache__
+prune foxclaw/__pycache__
+global-exclude *.pyc
+global-exclude *.pyo

@@ -1,29 +1,54 @@
 # foxclaw
 
-Personal AI agent — a fox living in your device.
+Cognitive agent operating system — a fox living in your device.
 
-> **0.1.0 is a placeholder release.** This package currently only reserves the
-> `foxclaw` name on npm. The actual agent will be shipped in a later version.
+The npm package ships the **full project source** under `python/`, the same code
+published on PyPI and hosted on GitHub. The `foxclaw` binary forwards its
+arguments to the bundled Python CLI.
+
+## Requirements
+
+- Node.js >= 18
+- Python >= 3.11 (for running the agent)
+- Python dependencies: `pip install fastapi uvicorn pydantic httpx pyyaml`
 
 ## Install
 
 ```bash
-npm install foxclaw
+npm install -g foxclaw
+```
+
+Or, if you prefer the Python package (recommended, pulls dependencies for you):
+
+```bash
+pip install foxclaw
 ```
 
 ## Usage
 
-```js
-import { version } from "foxclaw";
-
-console.log(version); // 0.1.0
+```bash
+foxclaw --help
+foxclaw serve --port 8000     # start the HTTP API
+foxclaw config                # show resolved config
 ```
 
-## Related
+Point at a specific interpreter when several Pythons are installed:
 
-- Python package: [foxclaw on PyPI](https://pypi.org/project/foxclaw/)
-- Source: [github.com/snowfoxHQ/FoxClaw](https://github.com/snowfoxHQ/FoxClaw)
+```bash
+FOXCLAW_PYTHON=/usr/bin/python3.12 foxclaw serve
+```
 
-## License
+## Layout
 
-MIT
+| Path | Contents |
+|---|---|
+| `python/foxclaw/` | Agent source |
+| `python/vendor/hmr/` | Embedded memory runtime |
+| `python/vendor/hkc/` | Embedded knowledge core |
+| `bin/foxclaw.cjs` | CLI launcher |
+
+## Links
+
+- Homepage: <https://github.com/snowfoxHQ/FoxClaw>
+- Python package: <https://pypi.org/project/foxclaw/>
+- Issues: <https://github.com/snowfoxHQ/FoxClaw/issues>

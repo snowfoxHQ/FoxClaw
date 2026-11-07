@@ -19,13 +19,22 @@ from pathlib import Path
 
 
 def _ensure_hkc_importable() -> bool:
-    """把 vendor/hkc 加入 sys.path,使内嵌的 hkc_* 包可导入(与 HMR 的 vendor 机制一致)。"""
+    """让内嵌的 hkc_* 包可被导入(与 HMR 的 vendor 机制一致)。
+
+    两种布局:
+    - 源码仓: vendor/hkc 在项目根下,需注入 sys.path;
+    - wheel 安装: hkc_* 已作为顶层包装进 site-packages,直接可导入,无需注入。
+    """
     vendor_hkc = Path(__file__).resolve().parents[2] / "vendor" / "hkc"
-    if not vendor_hkc.exists():
+    if vendor_hkc.exists():
+        p = str(vendor_hkc)
+        if p not in sys.path:
+            sys.path.insert(0, p)
+        return True
+    try:
+        import hkc_api  # noqa: F401
+    except ImportError:
         return False
-    p = str(vendor_hkc)
-    if p not in sys.path:
-        sys.path.insert(0, p)
     return True
 
 

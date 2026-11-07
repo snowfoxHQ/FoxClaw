@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxclaw"
-version = "0.1.0"
+version = "0.1.1"
 description = "Foxclaw - Cognitive Agent Operating System built on HMR"
 requires-python = ">=3.11"
 
@@ -49,9 +49,16 @@ dependencies = [
 # `pip install -e .` 之后可直接 `foxclaw serve`。
 foxclaw = "foxclaw.cli:main"
 
+[tool.setuptools]
+# vendor/ 里的 HMR 与 HKC 是内嵌运行时(不是 PyPI 依赖)。此前 packages.find 只收
+# foxclaw*,装完 import 得到的是「记忆/知识子系统全部降级为 None」的占位包。
+# 这里把它们真正打进 wheel,并让 package-data 一并带上 LICENSE/JSON 等非 .py 资源。
+include-package-data = true
+
 [tool.setuptools.packages.find]
-# 只把主包 foxclaw 纳入安装;vendor/、tests/、frontend/ 等以仓库相对路径使用,不入包。
-include = ["foxclaw*"]
+# foxclaw 在仓库根;hmr 在 vendor/ 下;hkc_* 在 vendor/hkc/ 下 —— 三个搜索根都要给。
+where = [".", "vendor", "vendor/hkc"]
+include = ["foxclaw*", "hmr*", "hkc_*"]
 
 [project.optional-dependencies]
 dev = [
