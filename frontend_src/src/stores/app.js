@@ -23,16 +23,26 @@ export const state = reactive({
 export const MODULES = [
   { id: 'overview', label: '概览', tag: 'Overview', group: '' },
   { id: 'activity', label: '活动', tag: 'Activity', group: '工作台' },
-  { id: 'tasks', label: '任务', tag: 'Tasks', group: '工作台' },
-  { id: 'agents', label: '代理', tag: 'Agents', group: '工作台' },
-  { id: 'tools', label: '技能', tag: 'Tools', group: '能力' },
+  { id: 'tasks', label: '定时任务', tag: 'Tasks', group: '工作台', icon: 'clock' },
+  { id: 'agents', label: '代理', tag: 'Agents', group: '工作台', icon: 'bot', beta: true },
+  { id: 'tools', label: '技能·连接器', tag: 'Tools', group: '能力', icon: 'plug' },
   { id: 'usage', label: '使用情况', tag: 'Usage', group: '能力' },
-  { id: 'knowledge', label: '知识库', tag: 'Knowledge', group: '知识' },
-  { id: 'review', label: '复习', tag: 'Review', group: '知识' },
-  { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识' },
+  /* 学习库 = 办公/学习的汇总表:知识库里有什么、哪些到期该复习、记了什么,一份数据的三个视图。
+     所以它只有一个入口,hover 出「复习 / 记忆」两个快捷 —— 平级摆三行会让同一份数据看着像三份。 */
+  { id: 'knowledge', label: '学习库', tag: 'Knowledge', group: '知识', icon: 'book', quick: ['review', 'memory'] },
+  { id: 'review', label: '复习', tag: 'Review', group: '知识', icon: 'review' },
+  { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识', icon: 'memory' },
 ]
 
+/* 左栏常驻的功能入口(顺序即渲染顺序)。不进这个数组的模块全部落进底部「更多」浮层。
+   常驻项恒可见 = 不用先点开菜单才知道有什么功能;代价是列高固定,所以只放四个。 */
+export const RAIL = ['knowledge', 'tasks', 'tools', 'agents']
+
+export const railItems = () => RAIL.map((id) => MODULES.find((m) => m.id === id)).filter(Boolean)
+export const moreItems = () => MODULES.filter((m) => !RAIL.includes(m.id))
+
 export const moduleLabel = (id) => MODULES.find((m) => m.id === id)?.label ?? id
+export const moduleIcon = (id) => MODULES.find((m) => m.id === id)?.icon ?? 'dot'
 
 export async function loadSessions() {
   state.sessionsState = 'loading'

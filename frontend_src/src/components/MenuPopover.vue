@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { MODULES } from '../stores/app.js'
+import { moreItems } from '../stores/app.js'
 
 const props = defineProps({
   anchor: { type: Object, default: null },
@@ -8,11 +8,12 @@ const props = defineProps({
 })
 const emit = defineEmits(['pick', 'close'])
 
-/* 按 group 切块,保留「概览 / 工作台 / 能力 / 知识」的分段节奏 */
+/* 只剩常驻入口之外的功能(概览 / 活动 / 使用情况 / 复习 / 记忆中心)。
+   常驻项不在这里重复出现 —— 「更多」的语义是「别处放不下的」,不是「全部重列一遍」。 */
 const groups = computed(() => {
   const out = []
   let cur = null
-  for (const m of MODULES) {
+  for (const m of moreItems()) {
     if (!m.group) {
       out.push({ title: '', items: [m] })
       continue
@@ -26,34 +27,41 @@ const groups = computed(() => {
   return out
 })
 
+/* 入口在栏顶 → 浮层向下展开。left 直接对齐按钮左沿;宽度固定,左栏只有 296px,不会溢出视口右侧。 */
 const style = computed(() => {
-  const a = props.anchor || { left: 16, top: 700 }
-  return { left: `${a.left}px`, bottom: `${window.innerHeight - a.top + 8}px` }
+  const a = props.anchor
+  if (!a) return { left: '16px', top: '120px' }
+  const top = (a.bottom ?? 0) + 6
+  return { left: `${a.left}px`, top: `${top}px` }
 })
 
 function onDocDown(e) {
-  if (e.target.closest('.nav-pop') || e.target.closest('.menu-btn')) return
+  if (e.target.closest('.nav-pop') || e.target.closest('.rail-anchor')) return
   emit('close')
 }
 function onKey(e) {
   if (e.key === 'Escape') emit('close')
 }
+function onResize() {
+  emit('close')
+}
 
 onMounted(() => {
   document.addEventListener('mousedown', onDocDown, true)
   document.addEventListener('keydown', onKey)
-  window.addEventListener('resize', () => emit('close'))
+  window.addEventListener('resize', onResize)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocDown, true)
   document.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', onResize)
 })
 </script>
 
 <template>
   <Teleport to="body">
     <div class="nav-pop" :style="style">
-      <div class="pop-head">功能 <span class="x" title="关闭 (Esc)" @click="$emit('close')">✕</span></div>
+      <div class="pop-head">更多功能 <span class="x" title="关闭 (Esc)" @click="$emit('close')">✕</span></div>
       <div class="pop-body">
         <template v-for="(g, gi) in groups" :key="gi">
           <div v-if="g.title" class="pop-sec">{{ g.title }}</div>
@@ -78,7 +86,7 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: var(--z-menu);
   width: 214px;
-  max-height: 64vh;
+  max-height: min(64vh, 420px);
   display: flex;
   flex-direction: column;
   border-radius: var(--r-mid);
@@ -91,7 +99,7 @@ onBeforeUnmount(() => {
   animation: pop-in 0.16s ease;
 }
 @keyframes pop-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
 }
 .pop-head {
   display: flex; align-items: center; justify-content: space-between;

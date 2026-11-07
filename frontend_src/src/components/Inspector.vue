@@ -103,9 +103,9 @@ const outline = computed(() => {
             <b>{{ k.name }}</b><span>{{ k.ku_type }} · {{ fmtTime(k.created_at) }}</span>
           </button>
           <div v-if="!recentKb.length" class="empty">
-            还没有录入知识。到「知识库」写一句就能收录,长文档走知识星球。
+            还没有录入知识。到「学习库」写一句就能收录,长文档走知识星球。
           </div>
-          <button v-if="kbMore" class="more" title="到知识库看全部" @click="moreKb">
+          <button v-if="kbMore" class="more" title="到学习库看全部" @click="moreKb">
             <span class="bars"><i /><i /><i /></span>更多 {{ kb.recentTotal }} 条
           </button>
         </template>

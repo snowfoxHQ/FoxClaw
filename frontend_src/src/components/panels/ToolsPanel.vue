@@ -2,12 +2,24 @@
 import { computed, onMounted, ref } from 'vue'
 import PanelBox from './PanelBox.vue'
 import { panels, loadPanel, refreshPanel, openMdSkill, toggleMdSkill } from '../../stores/panels.js'
+import { getJSON } from '../../api.js'
 import { clip } from '../../lib/fmt.js'
 
 const p = panels.tools
 const busy = ref('')
 const err = ref('')
-onMounted(() => loadPanel('tools'))
+/* 连接器 = MCP 服务。左栏入口叫「技能·连接器」,这一节就得在面板里真的存在,
+   否则用户点进来找不到「外部应用」。目前为空,是因为还没有注册任何 MCP 服务。 */
+const mcp = ref([])
+onMounted(async () => {
+  loadPanel('tools')
+  try {
+    const d = await getJSON('/ahs/mcp/servers')
+    mcp.value = d.servers || []
+  } catch {
+    mcp.value = []
+  }
+})
 
 const ready = computed(() => p.skills.length > 0 || p.md.length > 0)
 const blocked = computed(() =>
@@ -17,6 +29,10 @@ const breakerN = computed(() => Object.keys(p.breakers || {}).length)
 
 const TRUST = { high: 'green', medium: 'amber', low: 'red' }
 const trustCN = (t) => ({ high: '高信任', medium: '中信任', low: '低信任' }[t] || t || '—')
+
+/* MCP 服务的信任档位用的是 high/mid/low,和技能那套 high/medium/low 不是一套词 */
+const MCP_TRUST = { high: 'green', mid: 'amber', low: 'red' }
+const mcpTrustCN = (t) => ({ high: '高信任', mid: '中信任', low: '低信任' }[t] || '中信任')
 
 async function pickMd(s) {
   err.value = ''
@@ -84,9 +100,24 @@ async function flip(s) {
       </div>
     </div>
 
+    <div class="pn-sec">
+      <div class="pn-h">连接器 <em>{{ mcp.length }}</em></div>
+      <div v-if="!mcp.length" class="pn-empty">
+        还没接入外部应用。邮箱、你自己的另一个知识库这类需要授权的,会作为 MCP 服务出现在这一节。
+      </div>
+      <div v-for="s in mcp" :key="s.name" class="pn-row">
+        <span class="m">
+          <b>{{ s.name }}</b>
+          <span class="s">{{ (s.tools || []).length }} 个工具<template v-if="s.transport"> · {{ s.transport }}</template></span>
+        </span>
+        <span class="pn-tag" :class="MCP_TRUST[s.trust || 'mid']">{{ mcpTrustCN(s.trust) }}</span>
+      </div>
+    </div>
+
     <div class="pn-note">
       指令技能点开即读 <code>/api/ahs/md-skills/{id}</code> 的正文,在中间舞台按文字版打开;
       开关走 <code>PATCH /api/ahs/md-skills/{id}</code>,与后端注册表同步。
+      连接器走 <code>/api/ahs/mcp/servers</code>,与输入框 ⚙ 里那份是同一份数据。
     </div>
   </PanelBox>
 </template>

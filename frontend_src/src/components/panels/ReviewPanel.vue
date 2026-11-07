@@ -143,7 +143,7 @@ async function grade(g) {
             今日待办:<b>{{ st.due }}</b> 张到期 + <b>{{ st.fresh }}</b> 张新卡
           </p>
           <p v-else-if="!st.cards" class="dim">
-            还没有复习卡。在右栏上部或知识库录一句知识,抽取出的知识单元会自动变成卡。
+            还没有复习卡。在右栏上部或学习库录一句知识,抽取出的知识单元会自动变成卡。
           </p>
           <p v-else class="dim">今天的卡都过完了。明天再来,间隔会按 SM-2 自然拉长。</p>
           <button v-if="todo" class="act" @click="startReview()">

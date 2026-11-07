@@ -37,7 +37,7 @@ async function submit() {
 
 <template>
   <PanelBox
-    title="知识库"
+    title="学习库"
     tag="Knowledge"
     :state="p.state"
     :ready="ready"
