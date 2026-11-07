@@ -14,8 +14,10 @@ Snowfoxclaw 负责认知处理。两者通过 HTTP 桥接:
 注意:这是一个对接层,不是渠道本身。真正的渠道(微信等)由 OpenClaw 侧负责。
 """
 from __future__ import annotations
+import json
 from typing import Optional
 from . import ChannelAdapter, InboundMessage, OutboundMessage, SendResult
+from . import signing as _signing
 
 
 class OpenClawBridgeAdapter(ChannelAdapter):
@@ -24,15 +26,19 @@ class OpenClawBridgeAdapter(ChannelAdapter):
     CHANNEL = "openclaw"
 
     def __init__(self, gateway_url: str, api_token: str = "",
-                 on_message=None, timeout: float = 30.0):
+                 on_message=None, timeout: float = 30.0, signer=None):
         """
         gateway_url: OpenClaw 网关地址(如 http://127.0.0.1:8080)
         api_token:   调 OpenClaw API 的鉴权 token(若 OpenClaw 配置了)
+        signer:      出站签名器(`signing.OutboundSigner`)。None → 读环境变量
+                     SNOWFOXCLAW_CHANNEL_SIGNING_SECRET;两者都空 → 不签(opt-in)。
+                     启用后签名失败**不发**(fail-closed),不静默降级成明文。
         """
         super().__init__(on_message=on_message)
         self.gateway_url = gateway_url.rstrip("/")
         self.api_token = api_token
         self.timeout = timeout
+        self.signer = signer if signer is not None else _signing.from_env()
 
     def normalize(self, raw: dict) -> Optional[InboundMessage]:
         """OpenClaw 转发来的消息 → 标准 InboundMessage。
@@ -86,10 +92,24 @@ class OpenClawBridgeAdapter(ChannelAdapter):
         headers = {}
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
+        # 先序列化成 bytes 再发:签名必须覆盖**实际发出去的字节**,否则网关侧
+        # 重新序列化(键序/转义差异)会导致验签失败。content= 而非 json=,
+        # 就是为了保证"签的就是发的"。
+        try:
+            body = json.dumps(payload, ensure_ascii=False,
+                              sort_keys=True).encode("utf-8")
+        except Exception as e:
+            return SendResult(False, error=f"出站 payload 序列化失败: {e}")
+        headers["Content-Type"] = "application/json"   # content= 不走 httpx 的 json= 推断
+        if self.signer is not None and self.signer.enabled:
+            try:
+                headers.update(self.signer.headers(body))
+            except Exception as e:
+                return SendResult(False, error=f"出站签名失败(未发送): {e}")
         try:
             with httpx.Client() as client:
                 resp = client.post(f"{self.gateway_url}/api/message/send",
-                                   json=payload, headers=headers, timeout=self.timeout)
+                                   content=body, headers=headers, timeout=self.timeout)
         except Exception as e:
             return SendResult(False, error=f"对接 OpenClaw 发送失败: {e}")
         if resp.status_code >= 400:
@@ -107,6 +127,18 @@ class OpenClawBridgeAdapter(ChannelAdapter):
             conversation_id=inbound.conversation_id, text=text,
             reply_to=inbound.message_id,
             extra={"upstream_channel": upstream} if upstream else {}))
+
+    def verify_webhook(self, headers, body: bytes,
+                       tolerance: float = _signing.DEFAULT_TOLERANCE,
+                       replay: "_signing.ReplayGuard" = None):
+        """验 OpenClaw 转发来的 webhook 签名,返回 (是否通过, 原因码)。
+
+        与出站签名同一套 canonical 结构、同一个共享密钥(`signing.verify`)。
+        未配置密钥 → 直接 (False, "missing_secret"):**fail-closed**,
+        调用方据此拒收,而不是"没配就默认信"。
+        """
+        secret = self.signer.secret if (self.signer is not None and self.signer.enabled) else ""
+        return _signing.verify(headers, body, secret, tolerance=tolerance, replay=replay)
 
     def verify(self) -> SendResult:
         """探测 OpenClaw 网关是否可达。"""

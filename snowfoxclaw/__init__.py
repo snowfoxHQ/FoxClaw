@@ -266,9 +266,14 @@ class Snowfoxclaw:
         from .skills.store import SkillStore
         self.skill_store = SkillStore(self.data_dir)
         self.skill_store.load(self.skill_registry)   # 恢复用户安装的技能 + 内置启停覆盖
+        # 关键操作(send/pay/destructive)二次确认:HTTP 入口经此签发/校验一次性 nonce。
+        # 事件循环里也走同一实例(asyncio.to_thread 复制 contextvars,不含本对象但没关系:
+        # broker 自身线程安全)。
+        from .core.confirm_nonce import ConfirmationBroker
+        self.confirm_broker = ConfirmationBroker()
         self.skill_adapter = SkillAdapter(
             self.skill_registry, mcp_clients={}, policy_gate=self.policy_gate,
-            sentinel=self.sentinel)
+            sentinel=self.sentinel, confirms=self.confirm_broker)
         # MCP 连接器(第2期):把连上的 MCP 客户端接到 SkillAdapter.mcp_clients
         from .skills.mcp_client import McpManager
         from .skills.mcp_store import McpStore

@@ -13,6 +13,7 @@ permission.py + lifecycle.py;contract 复用 SkillResult。
 """
 from __future__ import annotations
 import asyncio
+import inspect
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -192,6 +193,24 @@ def _rollback(executed, registry, res: CompositionResult):
             res.needs_manual.append(sid)
 
 
+def _invoke(adapter, skill, args: dict, confirmed: bool, confirm_nonce: str):
+    """调 `adapter.invoke`,老 adapter 自动降级为 4 参旧签名。
+
+    测试/第三方 adapter 常只实现 `invoke(skill, args, confirmed=, mode=)`;用签名探测
+    而不是 try/except TypeError —— 后者会把 invoke 内部真正的 TypeError 当"签名不兼容"吞掉。
+    """
+    fn = adapter.invoke
+    try:
+        params = inspect.signature(fn).parameters
+        accepts = ("confirm_nonce" in params
+                   or any(p.kind is p.VAR_KEYWORD for p in params.values()))
+    except (TypeError, ValueError):
+        accepts = False
+    if accepts:
+        return fn(skill, args, confirmed=confirmed, confirm_nonce=confirm_nonce)
+    return fn(skill, args, confirmed=confirmed)
+
+
 def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
             resume_state: dict = None) -> CompositionResult:
     """skill-composition:按计划顺序执行各 skill。
@@ -232,7 +251,9 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
             res.failed.append(t.id); continue
         skill = registry.get(sid)
         call_args = _build_args(skill, t.name, upstream)
-        out = adapter.invoke(skill, call_args, confirmed=confirmed)
+        # 关键操作二次确认码随 resume_state 回灌:同一 nonce 只能在原动作+原参数上用一次
+        _nonce = (resume_state or {}).get("confirm_nonce", "") or ""
+        out = _invoke(adapter, skill, call_args, confirmed, _nonce)
         res.stages.append(StageResult(stage=i, skill_id=sid, result=out.to_dict()))
         if out.success:
             upstream[sid] = out.output
@@ -248,6 +269,10 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
                 "args": call_args,
                 "completed_steps": list(res.completed_steps),
                 "resume_at": t.id,
+                # 关键操作:一次性确认码(绑定 skill + 本次 args,过期即废)。
+                # 续跑时把它塞回 resume_state 一起传,才能通过 adapter 的二次确认校验。
+                "confirm_nonce": getattr(out, "confirm_nonce", "") or "",
+                "confirm_expires_at": getattr(out, "confirm_expires_at", 0.0) or 0.0,
             }
             res.final_output = {
                 "pending": True,
@@ -295,9 +320,15 @@ class AHSPipeline:
         self.adapter = adapter
 
     def run(self, task: str, confirmed: bool = False,
-            resume_state: dict = None) -> PipelineResult:
+            resume_state: dict = None, confirm_nonce: str = "") -> PipelineResult:
         """同步执行。【P2-2】resume_state 用于从待确认状态断点续跑
-        (传上次返回的 pending_confirmation;确认后调 run(task, confirmed=True, resume_state=...))。"""
+        (传上次返回的 pending_confirmation;确认后调 run(task, confirmed=True, resume_state=...))。
+
+        `confirm_nonce`(关键操作):compose 会把它并进 resume_state 传给 adapter 校验;
+        也可以直接放在 resume_state 里(pending_confirmation 已带出该字段)。
+        """
+        if confirm_nonce:
+            resume_state = {**(resume_state or {}), "confirm_nonce": confirm_nonce}
         # session_start 钩子
         self.adapter.hooks.fire("session_start", "", {"task": task})
 
@@ -342,7 +373,8 @@ class AHSPipeline:
             success=success, summary=summary)
 
     async def run_async(self, task: str, confirmed: bool = False,
-                        resume_state: dict = None) -> PipelineResult:
+                        resume_state: dict = None,
+                        confirm_nonce: str = "") -> PipelineResult:
         """【P2-1】异步入口:把同步 run 放到线程池,避免阻塞事件循环。
 
         内部用 asyncio.to_thread 包装,故 run 里的同步 IO(MCP/Web API/本地 handler)
@@ -350,4 +382,5 @@ class AHSPipeline:
         注意:asyncio.to_thread 会复制当前 contextvars 到子线程(如 skill actor),
         子线程异常原样抛回 await 处——两者都是想要的行为。
         """
-        return await asyncio.to_thread(self.run, task, confirmed, resume_state)
+        return await asyncio.to_thread(self.run, task, confirmed, resume_state,
+                                       confirm_nonce)

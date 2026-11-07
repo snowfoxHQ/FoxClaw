@@ -95,6 +95,9 @@ class SkillResult:
     status: str = "done"                              # done / needs_confirmation / blocked
     message: str = ""
     loop_warning: dict = None                         # 循环检测告警(卡死时填充)
+    # 关键操作二次确认:status=needs_confirmation 时携带一次性确认码(绑定本次动作+参数)
+    confirm_nonce: str = ""
+    confirm_expires_at: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -169,8 +172,13 @@ class SkillAdapter:
     """统一调用器 + 守门人。"""
 
     def __init__(self, registry: SkillRegistry, mcp_clients: dict = None,
-                 rules=None, breaker=None, hooks=None, policy_gate=None, sentinel=None):
+                 rules=None, breaker=None, hooks=None, policy_gate=None, sentinel=None,
+                 confirms=None):
         self.registry = registry
+        # 关键操作(send/pay/destructive)的会话 nonce 二次确认器(core.confirm_nonce)。
+        # None → 不启用:confirmed=True 直通(既有语义,进程内调用/测试不受影响)。
+        # 外部入口(HTTP)应注入,否则「确认」只是可重放的布尔。
+        self.confirms = confirms
         self.mcp_clients = mcp_clients or {}   # server名 -> 客户端(本地配)
         self.policy_gate = policy_gate         # 【Step4】统一准入门(可空:standalone 直接 evaluate)
         self.sentinel = sentinel               # 【P-Muse】守门人客户端(可空):非空且 skill.secret_ref 时,web_api 走代执行
@@ -207,13 +215,20 @@ class SkillAdapter:
             return d
 
     def invoke(self, skill: SkillSpec, args: dict,
-               confirmed: bool = False, mode: str = "strict") -> SkillResult:
-        """调用 skill:pre钩子 → 权限管线 → 断路器 → 执行 → 记账 → post/error钩子。"""
+               confirmed: bool = False, mode: str = "strict",
+               confirm_nonce: str = "") -> SkillResult:
+        """调用 skill:pre钩子 → 权限管线 → 断路器 → 执行 → 记账 → post/error钩子。
+
+        `confirm_nonce`:关键操作(send/pay/destructive)的二次确认码。注入了
+        `confirms` 时,`confirmed=True` **必须**配一个有效 nonce 才放行;缺/错/过期
+        → 退回 needs_confirmation 并签发新码(见 core.confirm_nonce)。
+        """
         from .permission import evaluate
         from snowfoxclaw.core.tracing import span as _span
         args = args or {}
         with _span("skill.invoke", id=skill.id, kind=skill.kind):
-            return self._invoke_inner(skill, args, confirmed, mode, evaluate)
+            return self._invoke_inner(skill, args, confirmed, mode, evaluate,
+                                      confirm_nonce=confirm_nonce)
 
     def _audit_terminal(self, skill: SkillSpec, verdict, outcome: str,
                         reason: str, detail: dict = None) -> None:
@@ -233,7 +248,8 @@ class SkillAdapter:
                        correlation_id=(verdict.decision_id if verdict is not None else None))
 
     def _invoke_inner(self, skill: SkillSpec, args: dict,
-                      confirmed: bool, mode: str, evaluate) -> SkillResult:
+                      confirmed: bool, mode: str, evaluate,
+                      confirm_nonce: str = "") -> SkillResult:
 
         # —— 全局封杀策略(deny 压倒一切,kill-switch:所有结构化技能执行的唯一咽喉)——
         pol = self.skill_policy
@@ -252,6 +268,22 @@ class SkillAdapter:
         if pre.modified_args is not None:
             args = pre.modified_args
 
+        # —— 关键操作会话 nonce 二次确认(必须在权限裁决**之前**)——
+        # `confirmed=True` 只说明"调用方说确认了",对 send/pay/destructive 还不够:确认码
+        # 绑定 (会话, 动作, 参数) 且单次使用 → 堵住「确认了 A 却执行 B」和「同一个 true 反复重放」。
+        # 无效/缺失 → 降级为**未确认**,走 ask 并签发新码(绝不静默放行)。
+        from ..core.confirm_nonce import is_critical as _is_critical
+        _session = _loop_session.get() or ""
+        _critical = _is_critical(getattr(skill, "side_effect", "read"),
+                                 bool(getattr(skill, "destructive", False)))
+        _nonce_reject = ""
+        if self.confirms is not None and _critical and confirmed:
+            _ok, _why = self.confirms.consume(
+                _session, confirm_nonce, action=f"skill:{skill.id}", args=args)
+            if not _ok:
+                confirmed = False
+                _nonce_reject = _why
+
         # —— 四阶段权限管线(先判权限,再占断路器探针)。经统一 PolicyGate(Step4);
         #    拿到的仍是同一 PermissionDecision(行为一致),门面额外发统一 policy.decision 事件。——
         # 【P3-4】保留整个 Verdict:decision_id 要作为本层执行审计的 correlation_id,
@@ -268,8 +300,18 @@ class SkillAdapter:
             return SkillResult(skill.id, False, status="blocked",
                 message=f"权限拒绝(阶段{decision.stage}): {decision.reason}")
         if decision.decision == "ask":
+            _msg = f"需确认(阶段{decision.stage}): {decision.reason}"
+            _extra: dict = {}
+            if self.confirms is not None and _critical:
+                ch = self.confirms.issue(_session, f"skill:{skill.id}", args)
+                _extra = {"confirm_nonce": ch["nonce"],
+                          "confirm_expires_at": ch["expires_at"]}
+                _msg += (f"。确认码 {ch['nonce']}({int(ch['ttl'])} 秒内有效,"
+                         f"仅限本次「{skill.name}」+ 当前参数,用后即废)")
+                if _nonce_reject:
+                    _msg += f"[上次确认码未通过:{_nonce_reject}]"
             return SkillResult(skill.id, False, status="needs_confirmation",
-                message=f"需确认(阶段{decision.stage}): {decision.reason}")
+                               message=_msg, **_extra)
         _downgrade = decision.trust_downgrade
 
         # —— 断路器:open 且未过冷却 → 走降级,不调用 ——

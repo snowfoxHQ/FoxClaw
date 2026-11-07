@@ -23,6 +23,9 @@ class AHSRunPayload(BaseModel):
     # 【P2-2】断点续跑:传上次响应里的 pending_confirmation(确认后连 confirmed=True 一起传)。
     # Optional:pydantic v2 下 dict=None 字段收到显式 null 会 422,必须 Optional。
     resume_state: Optional[dict] = None
+    # 【P1】关键操作(send/pay/destructive)二次确认码:上次响应 pending_confirmation.confirm_nonce。
+    # 单次使用、绑定 skill+参数、默认 5 分钟过期。也可直接放在 resume_state 里,二者等价。
+    confirm_nonce: str = ""
 
 
 @app.get("/api/ahs/skills")
@@ -370,7 +373,9 @@ async def ahs_run(payload: AHSRunPayload):
     """跑一遍 AHS 执行链:router→planner→composition,全程过 guard+breaker+hooks。
     【P3-2】用 run_async 把同步 compose 放到线程池,避免阻塞事件循环。
     【P2-2】暴露 pending_confirmation/is_pending,供前端识别"待确认"并断点续跑
-    (确认后带 confirmed=True + resume_state 重发本接口)。"""
+    (确认后带 confirmed=True + resume_state 重发本接口)。
+    【P1】关键操作还需带 confirm_nonce(响应里的 pending_confirmation.confirm_nonce);
+    缺/错/过期 → 仍返回 pending_confirmation 并换发新码,不会执行。"""
     from snowfoxclaw.skills import set_loop_session, reset_loop_session
     # 循环检测按执行链分槽:断点续跑复用同一 task_id,否则每次请求独立(消除跨请求污染)
     sid = (payload.resume_state or {}).get("task_id") or f"ahs_{uuid.uuid4().hex[:8]}"
@@ -378,7 +383,8 @@ async def ahs_run(payload: AHSRunPayload):
     try:
         res = await _api._os_instance.ahs_pipeline.run_async(
             payload.task, confirmed=payload.confirmed,
-            resume_state=payload.resume_state)
+            resume_state=payload.resume_state,
+            confirm_nonce=payload.confirm_nonce)
         return {
             "task": res.task, "route": res.route, "plan": res.plan,
             "composition": res.composition, "success": res.success,
