@@ -542,8 +542,8 @@ async function delMcp(s) {
 
 <style scoped>
 .sw {
-  flex-shrink: 0; padding: 3px 9px; border-radius: var(--r-pill);
-  font-size: 10px; font-family: var(--mono);
+  flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-family: var(--mono);
   background: var(--surface-2); color: var(--faint);
   border: 1px solid transparent;
 }
@@ -552,8 +552,8 @@ async function delMcp(s) {
 
 /* 行内小按钮:测试 / 删除 / 新增 —— 原来「执行技能」整行是死的,点了没反应 */
 .mbtn {
-  flex-shrink: 0; padding: 3px 9px; border-radius: var(--r-pill);
-  font-size: 10px; font-family: var(--mono); color: var(--dim);
+  flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-family: var(--mono); color: var(--dim);
   background: rgba(255, 255, 255, 0.8); border: 1px solid var(--line-soft);
   transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
@@ -572,7 +572,7 @@ async function delMcp(s) {
 }
 .tk-test { display: flex; flex-direction: column; gap: 7px; }
 .tk-test .f span em {
-  font-style: normal; font-family: var(--mono); font-size: 9.5px; color: var(--faint);
+  font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--faint);
 }
 
 .frow { display: flex; gap: 8px; }
@@ -582,12 +582,12 @@ async function delMcp(s) {
 .f { display: block; margin-bottom: 7px; }
 .f > span {
   display: block; margin-bottom: 3px;
-  font-size: 10px; color: var(--faint);
+  font-size: 11px; color: var(--faint);
 }
 .f input, .f select, .f textarea {
   display: block; width: 100%;
   padding: 5px 8px; border-radius: 6px;
-  font-family: inherit; font-size: 11.5px; color: var(--ink);
+  font-family: inherit; font-size: 12.5px; color: var(--ink);
   background: rgba(23, 32, 26, 0.04);
   border: 1px solid transparent; outline: none;
   transition: border-color 0.14s, background 0.14s;
@@ -598,14 +598,14 @@ async function delMcp(s) {
 
 .chk {
   display: flex; align-items: center; gap: 6px;
-  margin-bottom: 6px; font-size: 11px; color: var(--dim);
+  margin-bottom: 6px; font-size: 12px; color: var(--dim);
 }
 .chk input { accent-color: var(--green); }
 
 .fbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
 .go {
-  flex-shrink: 0; padding: 5px 14px; border-radius: var(--r-pill);
-  font-size: 11.5px; font-weight: 600; color: #fff; background: var(--green);
+  flex-shrink: 0; padding: 6px 15px; border-radius: var(--r-pill);
+  font-size: 12.5px; font-weight: 600; color: #fff; background: var(--green);
   transition: opacity 0.15s, transform 0.12s;
 }
 .go:hover:not(:disabled) { opacity: 0.9; }
@@ -615,7 +615,7 @@ async function delMcp(s) {
 
 .tip {
   flex: 1 1 auto; min-width: 0;
-  font-size: 10.5px; color: var(--dim);
+  font-size: 11.5px; color: var(--dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tip.dim { color: var(--faint); }
@@ -627,12 +627,12 @@ async function delMcp(s) {
   margin-top: 4px; padding: 8px 10px; border-radius: var(--r-sm);
   background: rgba(23, 32, 26, 0.03); border: 1px solid var(--line-soft);
 }
-.tk-res .r-h { display: flex; gap: 6px; font-size: 11px; color: var(--dim); }
-.tk-res .r-h b { font-family: var(--mono); font-size: 10.5px; color: var(--ink); }
+.tk-res .r-h { display: flex; gap: 6px; font-size: 12px; color: var(--dim); }
+.tk-res .r-h b { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
 .tk-res.bad .r-h b { color: var(--amber); }
 .tk-res pre {
   margin: 6px 0 0; max-height: 220px; overflow: auto;
-  font-family: var(--mono); font-size: 10.5px; line-height: 1.6; color: var(--dim);
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--dim);
   white-space: pre-wrap; word-break: break-word;
 }
 .pn-note.meta { margin-top: 6px; }

@@ -8,11 +8,11 @@
 .pn-h {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px;
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em;
   color: var(--faint); text-transform: uppercase;
 }
 /* 标签本身大写,但 em 里的值是状态名/版本,不能被 uppercase 改样 */
-.pn-h em { font-style: normal; font-family: var(--mono); font-size: 10px; text-transform: none; }
+.pn-h em { font-style: normal; font-family: var(--mono); font-size: 11px; text-transform: none; }
 
 /* 用 flex 而不是 grid:换行后的最后一行也会等分铺满,
    grid 的 auto-fit 会让落单的那个卡停在窄宽度上 */
@@ -30,7 +30,7 @@
   display: block; font-size: 18px; font-weight: 650;
   letter-spacing: -0.02em; line-height: 1.25;
 }
-.pn-kpi span { font-size: 10.5px; color: var(--faint); }
+.pn-kpi span { font-size: 11.5px; color: var(--faint); }
 
 .pn-row {
   width: 100%; text-align: left;
@@ -44,16 +44,16 @@
 .pn-row.clickable:hover { border-color: var(--line); background: #fff; }
 .pn-row .m { flex: 1; min-width: 0; }
 .pn-row b {
-  display: block; font-size: 12.5px; font-weight: 500; color: var(--ink);
+  display: block; font-size: 13.5px; font-weight: 500; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pn-row span.s { display: block; margin-top: 2px; font-size: 10.5px; color: var(--faint); }
-.pn-row .r { flex-shrink: 0; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.pn-row span.s { display: block; margin-top: 2px; font-size: 11.5px; color: var(--faint); }
+.pn-row .r { flex-shrink: 0; font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
 
 .pn-tag {
   display: inline-block; flex-shrink: 0;
-  padding: 2px 7px; border-radius: var(--r-pill);
-  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em;
+  padding: 3px 8px; border-radius: var(--r-pill);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
   background: var(--surface-2); color: var(--dim);
 }
 .pn-tag.green { background: rgba(26, 157, 95, 0.12); color: var(--green); }
@@ -62,8 +62,8 @@
 
 .pn-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pn-chip {
-  padding: 4px 9px; border-radius: var(--r-pill);
-  font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+  padding: 5px 10px; border-radius: var(--r-pill);
+  font-family: var(--mono); font-size: 11.5px; color: var(--dim);
   background: rgba(255, 255, 255, 0.78); border: 1px solid var(--line-soft);
   transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
@@ -83,10 +83,10 @@ button.pn-chip.on {
 
 .pn-empty {
   padding: 16px 12px; border-radius: var(--r-sm);
-  font-size: 11.5px; line-height: 1.7; color: var(--faint);
+  font-size: 12px; line-height: 1.7; color: var(--faint);
   background: rgba(255, 255, 255, 0.5); border: 1px dashed var(--line);
 }
-.pn-st { padding: 14px 4px; font-size: 11.5px; color: var(--faint); }
+.pn-st { padding: 14px 4px; font-size: 12px; color: var(--faint); }
 .pn-st.err { color: var(--amber); }
 
 /* 两列布局:宽屏时让列表不拉成一条长带。
@@ -97,10 +97,18 @@ button.pn-chip.on {
 @container (max-width: 660px) {
   .pn-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
+/* 极窄(窗口拉到四五百像素、中栏只剩一百多):行内「名字 + 信任标签 + 按钮」横向放不下,
+   flex-shrink:0 的标签会把名字挤成几个字。改成名字独占一行、标签与按钮折到第二行。 */
+@container (max-width: 300px) {
+  .pn-row { flex-wrap: wrap; row-gap: 6px; }
+  .pn-row .m { flex: 1 1 100%; }
+  .pn-h { flex-wrap: wrap; gap: 6px; }
+  .pn-kpi > div { flex: 1 1 76px; }
+}
 
 .pn-note {
-  font-size: 10.5px; line-height: 1.65; color: var(--faint);
+  font-size: 11.5px; line-height: 1.65; color: var(--faint);
   padding: 8px 10px; border-radius: var(--r-sm);
   background: rgba(255, 255, 255, 0.55); border: 1px solid var(--line-soft);
 }
-.pn-note code { font-family: var(--mono); font-size: 10px; color: var(--dim); word-break: break-all; }
+.pn-note code { font-family: var(--mono); font-size: 11px; color: var(--dim); word-break: break-all; }

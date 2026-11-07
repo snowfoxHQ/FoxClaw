@@ -59,8 +59,15 @@ em { font-style: normal; }
 .col--right .scroll::-webkit-scrollbar-thumb { background: rgba(64, 50, 32, 0.16); }
 .workspace.is-collapsed .col--right { opacity: 0; pointer-events: none; }
 
-/* 中间栏:上方舞台 + 底部指令条 */
-.mid { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+/* 中间栏:上方舞台 + 底部指令条
+   columns 必须显式 minmax(0,1fr):grid 默认列宽是 auto,子项的 min-content(面板里
+   不换行的行内标签/按钮)会把列撑到比栏还宽 —— 420px 窗口实测栏 128px、内容 372px,
+   右侧整块被视口裁掉(技能行的「测试」「删除」根本点不到)。 */
+.mid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
 
 /* 滚动区 */
 .scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }

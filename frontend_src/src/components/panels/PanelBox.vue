@@ -29,7 +29,9 @@ defineEmits(['refresh'])
 </template>
 
 <style scoped>
-.panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* min-width: 0 让面板能被父级 flex 压窄 —— 否则 flex item 的 min-width:auto 会把它按
+   min-content 撑开,窗口拉到 420px 时面板比中栏还宽,右侧内容直接落到视口外。 */
+.panel { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ph {
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
   padding: 11px 16px 10px; border-bottom: 1px solid var(--line-soft);
@@ -38,8 +40,8 @@ defineEmits(['refresh'])
 .tt h2 { font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); }
 .rf {
   margin-left: auto; flex-shrink: 0;
-  padding: 4px 10px; border-radius: var(--r-pill);
-  font-size: 11px; color: var(--dim);
+  padding: 5px 11px; border-radius: var(--r-pill);
+  font-size: 11.5px; color: var(--dim);
   background: rgba(255, 255, 255, 0.72); border: 1px solid var(--line-soft);
   transition: color 0.14s, background 0.14s;
 }
