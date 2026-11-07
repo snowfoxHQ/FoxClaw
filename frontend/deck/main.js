@@ -1038,6 +1038,30 @@ function renderChatThread(currentQ, agent, attachments){
   Center.chat();
   body.scrollTop=body.scrollHeight;
 }
+/* 执行证据渲染:把后端每步的核验结论摊开给人看。
+   三态有意不做成"全部打勾"——unverified 显示为「未核验」,failed 显示为「未完成」,
+   因为把没凭据的步骤画成绿色,正是这套机制要消灭的东西。 */
+function renderEvidence(items){
+  const wrap=document.getElementById('ccEvidence'); if(!wrap)return;
+  if(!items||!items.length){ wrap.hidden=true; wrap.innerHTML=''; return; }
+  const STAT={verified:['✓','已验证','ev-ok'],unverified:['?','未核验','ev-warn'],failed:['✕','未完成','ev-bad']};
+  const rows=items.map(it=>{
+    const s=STAT[it.status]||STAT.unverified;
+    const chips=(it.evidence||[]).map(e=>{
+      const label=escapeHtml(e.label||e.ref||'');
+      const tip=escapeHtml(e.ref||'');
+      return e.kind==='url'
+        ? `<a class="ev-item" href="${encodeURI(e.ref)}" target="_blank" rel="noopener" title="${tip}">${label}</a>`
+        : `<span class="ev-item" title="${tip}">${label}</span>`;
+    }).join('');
+    const why=it.reason?`<span class="ev-why">${escapeHtml(it.reason)}</span>`:'';
+    return `<div class="ev-row"><span class="ev-chip ${s[2]}">${s[0]} ${s[1]}</span>`
+         + `<span class="ev-tool">${escapeHtml(it.tool||'')}</span>${why}${chips}</div>`;
+  }).join('');
+  wrap.innerHTML=`<div class="ev-head">执行凭据 <span class="ev-count">${items.length}</span></div>${rows}`;
+  wrap.hidden=false;
+}
+
 async function transmitStream(task, agent, images, attachments){
   renderChatThread(task, agent, attachments);   // 先把历史+当前问(含附件卡片)渲染成对话线程,再流式写入答案槽
   const _ccBody=document.querySelector('#coreChat .cc-body');   // 注意:下方请求体也叫 body,故这里另起名避免遮蔽
@@ -1056,6 +1080,16 @@ async function transmitStream(task, agent, images, attachments){
   const _thinkBody=document.getElementById('ccThinkBody');
   if(_thinkBody) _thinkBody.textContent='';
   if(_thinkWrap){ _thinkWrap.hidden=true; _thinkWrap.open=false; }
+  // 执行证据:工具轮每步「核验到没到位」+ 可点开的凭据(来源链接 / 真实文件)。
+  // 挂在答案**下方**——正文是给用户读的结论,这里是给人查的凭据,两回事。
+  let _evWrap=document.getElementById('ccEvidence');
+  if(!_evWrap && rp.parentNode){
+    _evWrap=document.createElement('div');
+    _evWrap.id='ccEvidence'; _evWrap.className='cc-ev'; _evWrap.hidden=true;
+    rp.parentNode.insertBefore(_evWrap, rp.nextSibling);
+  }
+  if(_evWrap){ _evWrap.hidden=true; _evWrap.innerHTML=''; }
+  let _evs=[];
   try{
     if(!_sessionId) await ensureSession();          // 保证本轮问答有会话归属(否则落不了盘)
     const body={task, agent_id:agent, history:_chatHistory.slice(-12), session_id:_sessionId};
@@ -1078,6 +1112,10 @@ async function transmitStream(task, agent, images, attachments){
         if(evName==='thinking'||ev.thinking){          // 推理增量 → 折叠区,不进正文
           const t=ev.thinking||'';
           if(t){ if(_thinkWrap) _thinkWrap.hidden=false; if(_thinkBody) _thinkBody.textContent+=t; }
+          continue;
+        }
+        if(evName==='evidence'||ev.evidence){          // 执行证据 → 答案下方核对区
+          if(Array.isArray(ev.evidence)){ _evs=ev.evidence; renderEvidence(_evs); }
           continue;
         }
         if(ev.delta){ acc+=ev.delta; rp.textContent=acc; if(_ccBody) _ccBody.scrollTop=_ccBody.scrollHeight; }

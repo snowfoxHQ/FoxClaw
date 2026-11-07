@@ -202,6 +202,21 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
 .cc-plan summary:hover{color:var(--ink)}
 .cc-plan .cc-plan-body{margin:6px 0 0;padding-left:18px;line-height:1.7;opacity:.9}
 .cc-plan .cc-plan-body li{margin:2px 0}
+/* 执行凭据:答案下方的核对区。三态用颜色区分,但"未核验"绝不画成成功色 ——
+   这里的意义就是不把没有凭据的步骤伪装成做完了。 */
+.cc-ev{margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:12px}
+.cc-ev .ev-head{color:var(--dim);letter-spacing:.02em;margin-bottom:6px;display:flex;gap:6px;align-items:center}
+.cc-ev .ev-count{color:var(--faint);font-size:11px}
+.cc-ev .ev-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:3px 0;border-top:1px dashed var(--line)}
+.cc-ev .ev-row:first-of-type{border-top:none}
+.ev-chip{font-size:11px;padding:1px 6px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+.ev-chip.ev-ok{color:#0a7d3f;background:rgba(10,125,63,.10);border-color:rgba(10,125,63,.25)}
+.ev-chip.ev-warn{color:#8a6100;background:rgba(196,138,0,.12);border-color:rgba(196,138,0,.28)}
+.ev-chip.ev-bad{color:#b3261e;background:rgba(179,38,30,.10);border-color:rgba(179,38,30,.25)}
+.ev-tool{color:var(--dim);font-family:var(--mono,ui-monospace,monospace);font-size:11px}
+.ev-why{color:var(--faint);font-size:11px}
+.ev-item{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-soft);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-item:hover{border-bottom-color:var(--accent)}
 /* 对话线程:双方对称气泡(助手左/用户右),各自独立圆角框;cc-body 可滚动=下拉浏览历史 */
 .chat-row{display:flex;gap:10px;margin:16px 0;align-items:flex-start}
 .chat-row:first-child{margin-top:2px}

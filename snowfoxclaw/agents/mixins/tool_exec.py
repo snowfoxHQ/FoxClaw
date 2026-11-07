@@ -288,10 +288,67 @@ def _record_step(agent, call: dict, result: str) -> None:
         pass
 
 
+def _apply_failure_policy(agent, call: dict, result: str) -> tuple[str, str]:
+    """按策略表决定「这次失败怎么处理」,返回 (回注文本, 失败类型)。
+
+    · 只读工具遇到超时/网络/异常 → **自动重试一次**(读操作重复执行无副作用);
+    · 写/发送/支付类一律不重试(重试 = 可能重复扣款/重复发消息),交人;
+    · 其余(未配置/参数错/红线)只注入动作提示,不重试。
+    重试只是把「要不要再来一次」从模型手里拿走,并不隐瞒失败:两次都失败时文本里
+    仍写明未完成。
+    """
+    from ...core import failure_policy as _policy
+    from ...core import tools as _tools
+    name = call.get("name", "")
+    cap = _tools.tool_capability(name)
+    d = _policy.decide(result, tool=name, capability=cap, attempt=1)
+    if d.action == _policy.RETRY:
+        try:
+            retry = _run_tools_batch(agent, [call])[0]
+        except Exception:
+            retry = result
+        d2 = _policy.decide(retry, tool=name, capability=cap, attempt=2)
+        return _policy.annotate(retry, d2), d2.kind
+    return _policy.annotate(result, d), d.kind
+
+
+def _settle(agent, call: dict, result: str) -> str:
+    """一个工具步的收尾:核验 → 记账证据 → 只把「真的可用」的步写进 checkpoint。
+
+    返回回注给模型的最终文本(失败时附动作提示,成功时原样返回)。
+    """
+    from ...core import tools as _tools
+    from ...core import verify as _verify
+    from ._context import _evidence_add
+    name = call.get("name", "")
+    args = call.get("args") or {}
+    text, kind = _apply_failure_policy(agent, call, result)
+    try:
+        cap = _tools.tool_capability(name)
+        # 核验看的是**工具原始返回**,不是我们追加过提示的文本 —— 否则提示里的
+        # "超时/未完成"字样会反过来影响判定。
+        v = _verify.verify(name, args, result, cap)
+        note = _verify.note_for_model(v, read_only=bool(cap.get("read_only")))
+        if note:
+            text = f"{text}\n{note}"
+        _evidence_add(agent, {
+            "tool": name, "kind": kind, "status": v.status,
+            "reason": v.reason, "evidence": [e.to_dict() for e in v.evidence],
+        })
+        # 判定"可复用"以核验结论为准,而不是文本开头是不是 "(" ——
+        # 失败文本追加提示后就不再以 "(" 开头,靠形态判会把它当成功存进断点。
+        if v.status != _verify.FAILED and _step_ok(result):
+            _record_step(agent, call, result)
+    except Exception:
+        pass                              # 核验/记账失败不影响工具结果本身
+    return text
+
+
 def _run_tool_calls(agent, calls: list) -> list:
     """执行一批 tool_calls,并按断点续跑语义处理(返回与 calls 同序的结果文本):
       · 命中 `_resume_steps` 里的同指纹步骤 → 复用上次结果,不再执行(断连/崩溃后重跑不重复);
-      · 其余照常执行(只读并发 / 写串行,单工具带超时),成功的步写一条 checkpoint。
+      · 其余照常执行(只读并发 / 写串行,单工具带超时);
+      · 每个结果过一遍失败策略表(只读可重试一次)+ 后置核验,证据挂到会话槽。
     """
     from ._context import _resume_steps
     cache = _resume_steps.get() or {}
@@ -307,9 +364,7 @@ def _run_tool_calls(agent, calls: list) -> list:
     if todo:
         results = _run_tools_batch(agent, [calls[i] for i in todo])
         for i, r in zip(todo, results):
-            out[i] = r
-            if _step_ok(r):
-                _record_step(agent, calls[i], r)
+            out[i] = _settle(agent, calls[i], r)
     return out
 
 

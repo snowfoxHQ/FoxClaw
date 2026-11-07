@@ -102,6 +102,8 @@ TESTS = [
     ("test_anthropic_tools.py",        "P0-2·Anthropic tool_use 原生接入(格式转换/解析/回灌/降级)"),
     ("test_taint.py",                  "数据污点追踪+动态审批门槛(污点分级/传播/TAINT_CONFIRM)"),
     ("test_mcp_guardian_discovery.py", "MCP 发现进守门人(凭证不出主进程·代发现·序列化)"),
+    ("test_verify_evidence.py",        "三个薄点·失败策略表/执行后核验/执行证据(重试只限只读)"),
+    ("test_evidence_sse.py",           "执行凭据 SSE 命名事件(与正文分离·纯对话不发)"),
 ]
 
 # S2 迁移完成:全部测试均已迁移为 pytest(见 pyproject [tool.pytest.ini_options] 白名单)。

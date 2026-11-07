@@ -26,7 +26,7 @@ def test_chat_stream_emits_named_thinking_event():
     from snowfoxclaw.api import app
 
     def _fake_stream(self, task, stop_event=None, images=None, history=None,
-                     attachments=None, on_thinking=None):
+                     attachments=None, on_thinking=None, on_evidence=None):
         if on_thinking is not None:
             on_thinking("先分析一下用户意图")
         yield "好的"

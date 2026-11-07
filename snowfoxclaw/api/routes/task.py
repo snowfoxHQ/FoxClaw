@@ -161,10 +161,16 @@ async def chat_stream(req: TaskRequest, request: Request):
                 # 推理走独立事件,不混进正文:前端折叠展示,正文仍只收 {"delta"}。
                 loop.call_soon_threadsafe(q.put_nowait, {"thinking": delta})
 
+            def _on_evidence(evs: list) -> None:
+                # 执行证据(核验结论 + 来源链接/文件)整块送:前端挂在答案下方供核对,
+                # 不进正文(正文是给用户读的答案,证据是给人查的凭据)。
+                loop.call_soon_threadsafe(q.put_nowait, {"evidence": evs})
+
             try:
                 for chunk in agent.stream_reply(req.task, stop_event=stop, images=imgs,
                                                 history=req.history, attachments=atts,
-                                                on_thinking=_on_thinking):
+                                                on_thinking=_on_thinking,
+                                                on_evidence=_on_evidence):
                     _parts.append(chunk)
                     loop.call_soon_threadsafe(q.put_nowait, {"delta": chunk})
                 loop.call_soon_threadsafe(q.put_nowait, {"done": True})
@@ -198,6 +204,13 @@ async def chat_stream(req: TaskRequest, request: Request):
                     # 误导成正文(delta 字段不存在);新前端按事件名折叠展示。
                     yield ("event: thinking\ndata: "
                            + json.dumps({"thinking": item["thinking"]}, ensure_ascii=False)
+                           + "\n\n")
+                    continue
+                if "evidence" in item:
+                    # 与 thinking 同理走命名事件:老客户端拿不到这个事件名也不会把凭据
+                    # 当成正文拼进回答。
+                    yield ("event: evidence\ndata: "
+                           + json.dumps({"evidence": item["evidence"]}, ensure_ascii=False)
                            + "\n\n")
                     continue
                 yield "data: " + json.dumps(item, ensure_ascii=False) + "\n\n"

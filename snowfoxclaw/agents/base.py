@@ -29,6 +29,8 @@ from .mixins._context import (
     _taint_get,
     _taint_raise,
     _taint_reset,
+    _evidence_reset,
+    _evidence_take,
     _suppress_memory,
     _act_stream,
     _reasoning_inject,
@@ -197,6 +199,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         self._session_id = f"sess_{uuid.uuid4().hex[:10]}"
         self._parent_node_id = None
         _taint_reset(self)   # 新会话从无污点起算(数据敏感度清零)
+        _evidence_reset(self)  # 新会话不继承上一个任务的执行证据(否则证据串台)
 
         # 注册 Harness 目标基线
         self.harness.register_goal(
@@ -355,7 +358,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         return "\n\n" + "\n\n".join(parts) if parts else ""
 
     def stream_reply(self, task: str, stop_event=None, images: list = None, history: list = None,
-                     attachments: list = None, on_thinking=None):
+                     attachments: list = None, on_thinking=None, on_evidence=None):
         """流式直答路径(方案A):对话/问答/分析,不做多步编排(那走 run_task)。同步生成器,
         由端点在线程池迭代成 SSE。stop_event 置位(客户端断连)则提前终止,省 token。
         images(可选)= 多模态图片,随问题发给视觉模型(模型无关,非视觉模型 router 层降级)。
@@ -364,6 +367,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
           供 LLM 阅读;text 为空的(二进制/图片)降级为「文件名 + 元数据」提示。
         on_thinking(可选)= 推理增量回调。模型的原生 reasoning 与正文内嵌 <think> 块都经此
           出去,由端点作为独立 SSE `thinking` 事件送前端折叠显示;正文 (yield) 仍走净化。
+        on_evidence(可选)= 执行证据回调。工具轮的每步核验结论(verified/unverified/failed)
+          + 可核对凭据(来源链接、真实存在的文件)在本轮结束时一次性送出,由端点作为
+          SSE `evidence` 事件给前端展示 —— 「做成了」这句话从此可以点开看凭什么。
 
         两条路径(单一决策源之争,见 TOOL_USE_PLAN.md):
           ① SNOWFOXCLAW_TOOL_USE=1 且 provider 支持 tools 且无图 → **LLM 自主工具循环**(_reply_with_tools),
@@ -373,6 +379,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         from ..core import injection_guard as _ig
         from ..core.model_router import _chunk_text
         task = str(task or "")
+        _evidence_reset(self)      # 每轮从零开账:上一轮的证据不能冒充这一轮
         if attachments:
             ctx = self._attachments_context(attachments)
             if ctx:
@@ -457,6 +464,15 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 yield _notice
         reply = "".join(parts)
         stopped = stop_event is not None and stop_event.is_set()
+        # 执行证据在正文之后一次性上报(晚于 delta、早于 done):前端拿到时答案已完整,
+        # 可以挂在答案下方供人核对;没有工具步的纯对话不产生任何证据事件。
+        if on_evidence is not None:
+            try:
+                _evs = _evidence_take(self)
+                if _evs:
+                    on_evidence(_evs)
+            except Exception:
+                pass                       # 证据上报失败不得影响已生成的回答
         # 落库前最终兜底(仅 fallback 路径需要):fallback 增量检查(无 kernel、只抓明显 dump)可能漏过
         # 逐字复现的系统提示,这里用 kernel 逐字串比对再判一次,命中则不落库(防污染回流),不影响已流给
         # 用户的内容。工具路径在流出前已 guard_output(kernel) 完整防护,无需重复扫(消冗余)。

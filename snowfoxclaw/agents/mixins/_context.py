@@ -42,6 +42,47 @@ _reasoning_inject: contextvars.ContextVar = contextvars.ContextVar(
     "snowfoxclaw_reasoning_inject", default=None)
 
 
+# 执行证据(存在会话槽里,与污点同寿命):每次工具轮把「这一步有没有凭据」记下来,
+# 最终由 stream_reply 一次性交给端点做 SSE `event: evidence`,前端展示给人核对。
+# 放会话槽而非实例属性:同一 Agent 并发两个任务时证据不得串台。
+
+
+def _evidence_reset(agent) -> None:
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        _agent_ctx_set(tok, evidence=[])
+    else:
+        agent._evidence_list = []
+
+
+def _evidence_add(agent, record: dict) -> None:
+    """追加一条步骤证据(fail-safe:证据记账失败绝不影响工具执行)。"""
+    if not isinstance(record, dict):
+        return
+    try:
+        tok = getattr(agent, "_ctx_token", None)
+        if tok is not None:
+            cur = _agent_ctx_get(tok).get("evidence") or []
+            _agent_ctx_set(tok, evidence=list(cur) + [record])
+        else:
+            cur = getattr(agent, "_evidence_list", None) or []
+            agent._evidence_list = list(cur) + [record]
+    except Exception:
+        pass
+
+
+def _evidence_take(agent) -> list:
+    """取走并清空(每次回复只上报一次,避免下一轮重复展示上一轮的证据)。"""
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        cur = list(_agent_ctx_get(tok).get("evidence") or [])
+        _agent_ctx_set(tok, evidence=[])
+        return cur
+    cur = list(getattr(agent, "_evidence_list", None) or [])
+    agent._evidence_list = []
+    return cur
+
+
 def _agent_ctx_get(token: str) -> dict:
     return (_agent_ctx.get() or {}).get(token) or {}
 
