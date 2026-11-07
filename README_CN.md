@@ -126,8 +126,8 @@ notepad $PROFILE
 function restart-foxclaw {
   $p=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess
   if($p){Stop-Process -Id $p -Force; Start-Sleep 1}
-  Set-Location C:\Users\snow\projects\Foxclaw
-  python -m uvicorn foxclaw.api:app --port 8000
+  Set-Location <你的项目目录>
+  foxclaw serve
 }
 
 # ③ 重开 PowerShell 让配置生效(只在改了 $PROFILE 后需要)

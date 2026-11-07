@@ -450,7 +450,7 @@ function browseIfRelevant(task,agentId){
   const webKeywords=['学习','搜索','查','论文','新闻','网','资料','了解','调研'];
   if(webKeywords.some(k=>task.includes(k))){
     const q=encodeURIComponent(task.slice(0,20));
-    ctx.browseTo(`https://search.hestia.ai/?q=${q}`);
+    ctx.browseTo(`https://www.bing.com/search?q=${q}`);
   }
 }
 function termExec(task,agentId){

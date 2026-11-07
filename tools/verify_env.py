@@ -1,7 +1,9 @@
-from dotenv import load_dotenv
 import os
+from pathlib import Path
 
-p = r"C:\Users\snow\projects\Foxclaw\.env"
+from dotenv import load_dotenv
+
+p = str(Path(__file__).resolve().parents[1] / ".env")
 try:
     load_dotenv(p)
     print("DOTENV_OK")

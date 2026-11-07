@@ -102,8 +102,8 @@ Actions → Release → Run workflow:
 | 仓库 | 可见性 | 用途 |
 |---|---|---|
 | `snowfoxHQ/FoxClaw` | public | 对外发布。PyPI/npm 的 `homepage`/`repository` 都指它,OIDC publisher 也填它 |
-| `snowfoxHQ/HestiaOS-dev` | private | 本地 `git remote origin` 指向的开发备份 |
+| 私有开发库(名称不对外) | private | 本地 `git remote origin` 指向的开发备份 |
 
 公开仓库原名 `SnowFoxClaw`,已于 2026-11-08 改名为 `FoxClaw`(GitHub 对旧名自动 301,
-老链接不会 404)。切 OIDC 时 publisher 的 repo 必须写成 `FoxClaw`——不是 `HestiaOS-dev`,
+老链接不会 404)。切 OIDC 时 publisher 的 repo 必须写成 `FoxClaw`——不是私有开发库的名字,
 也不是小写 `foxclaw`(registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配)。
