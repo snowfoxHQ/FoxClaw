@@ -1,0 +1,58 @@
+:root {
+  /* ── 三栏相邻色带:左淡绿(深) → 中淡绿(浅) → 右淡白 ──
+     只在 .workspace 上铺「一条」渐变,三栏底色透明。
+     若每栏各写一个渐变,接缝处必然断层 —— 一条色带切三段才是真正的"相邻色"。 */
+  --g-left: #d7e8d0;
+  --g-mid: #eef7e8;
+  --g-right: #fbfdfa;
+  --band: linear-gradient(100deg, var(--g-left) 0%, var(--g-mid) 48%, var(--g-right) 100%);
+
+  /* 栏面玻璃膜:左最薄 → 右最厚,强化「浅 → 更浅」的层次感 */
+  --veil-left: rgba(255, 255, 255, 0.28);
+  --veil-mid: rgba(255, 255, 255, 0.44);
+  --veil-right: rgba(255, 255, 255, 0.62);
+
+  /* 文字 / 分隔线(带一点绿调的墨色,避免暖灰与淡绿打架) */
+  --ink: #17201a;
+  --dim: #5f6b60;
+  --faint: #9aa79b;
+  --line: rgba(23, 32, 26, 0.09);
+  --line-soft: rgba(23, 32, 26, 0.055);
+
+  /* 强调与状态 */
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.1);
+  --green: #1a9d5f;
+  --amber: #c77400;
+  --red: #e5484d;
+
+  /* 栏内白卡 */
+  --surface: #ffffff;
+  --surface-2: #f1f4ef;
+  --surface-3: #e4eae2;
+  --r-card: 20px;
+  --r-mid: 14px;
+  --r-sm: 10px;
+  --r-pill: 999px;
+  --sh-card: 0 1px 2px rgba(23, 32, 26, 0.04), 0 10px 26px rgba(23, 32, 26, 0.07);
+  --sh-pop: 0 14px 40px rgba(23, 32, 26, 0.18), 0 2px 10px rgba(23, 32, 26, 0.08);
+  --gap: 14px;
+  --pad: 14px;
+
+  /* ── CLI 皮肤:只给「代码正文块」用,不给整栏用 ──
+     整栏反黑会跟三栏渐变链断裂,而且常在的进度面板也得跟着暗,得不偿失。 */
+  --cli-bg: #11160f;
+  --cli-bg-2: #0b0f0a;
+  --cli-ink: #d9e6d2;
+  --cli-dim: #849480;
+  --cli-line: rgba(255, 255, 255, 0.07);
+  --cli-acc: #7fe08c;
+  --cli-warn: #e2c07a;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --serif: "Songti SC", "Noto Serif SC", Georgia, serif;
+
+  --z-menu: 100;
+  --z-top: 500;
+}
