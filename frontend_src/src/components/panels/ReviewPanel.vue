@@ -168,6 +168,10 @@ async function grade(g) {
           排期规则:答「忘记」重置为 1 天;答「记得 / 轻松」按 1 → 6 → 16 天递进,
           EF 每次 ±0.1 微调,间隔随熟练度拉长。
         </p>
+        <p class="note warn">
+          进度存在知识单元自身,和知识星球共用同一个库。所以在星球里「按来源删除」删掉的
+          卡片,进度会一起消失;清库接口会清空全部知识与进度。
+        </p>
 
         <div class="pn-h" style="margin-top: 16px">
           未来 7 天 <em>{{ st.load7?.total_due || 0 }} 张</em>
@@ -280,6 +284,12 @@ async function grade(g) {
 .axis .dim { font-family: var(--mono); font-size: 9.5px; }
 .note {
   margin-top: 8px; font-size: 9.5px; line-height: 1.75; color: var(--faint);
+}
+.note.warn {
+  padding: 7px 9px; border-radius: var(--r-sm);
+  background: rgba(196, 138, 26, 0.07);
+  border-left: 2px solid rgba(196, 138, 26, 0.45);
+  color: #8a6a24;
 }
 
 /* ── 7 天负荷 ── */

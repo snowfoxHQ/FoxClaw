@@ -204,8 +204,19 @@ class KnowledgeDeduplicator:
         if added > 0:
             conf = getattr(existing_ku, "confidence", None)
             if conf is not None and not _is_fixed_confidence(existing_ku):
-                existing_ku.confidence = min(0.98, conf + added * 0.02)
-            self.store.put(existing_ku)
+                # 加证据只该「抬高」置信度。原来的 min(0.98, conf+..) 在本就 1.0 的
+                # KU 上会把它**降**到 0.98 —— 多一条证据反而变不确定,明显是笔误。
+                existing_ku.confidence = max(conf, min(0.98, conf + added * 0.02))
+            # 只写「被合并改动的那几处」,不整行回写:existing_ku 是几微秒前读出来的
+            # 快照,整行 put() 会把期间别人写进 extra 的东西(如复习进度 review)按旧快照
+            # 覆盖掉。这里 sources/confidence 是普通列,supports 在 extra 里。
+            cols = {"sources": list(existing_ku.sources or []),
+                    "confidence": existing_ku.confidence}
+            ext = {}
+            if new_supports:
+                ext["supports"] = list(existing_ku.supports or [])
+            if self.store.patch_ku(existing_ku.ku_id, columns=cols, extra=ext or None) == 0:
+                self.store.put(existing_ku)   # 行已不在:退回插入语义
 
         return added > 0
 

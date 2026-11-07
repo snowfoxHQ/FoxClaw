@@ -23,6 +23,11 @@ _SR = SpacedRepetition()
 
 _CARD_TYPES = {"Concept", "Fact", "Claim", "Entity"}
 
+# 扫描上限(每种卡片类型)。之前统一 query_all(4000),一是把 Evidence 这种绝对不会
+# 成卡的原文出处也一起拉出来(大文档导入后它是绝大多数行),二是 4000 之后的部分
+# 会被静默截断 → 复习统计少算。这里只查四种卡片类型,上限给到实际用不满的量级。
+_SCAN_LIMIT = 50000
+
 # ReviewState.to_dict() 会额外塞 mastery / is_due,读回来时必须剔掉才能重建
 _STATE_FIELDS = ("repetitions", "interval", "ease_factor", "due_date",
                  "last_review", "total_reviews", "lapses")
@@ -79,10 +84,25 @@ def _load7(learned) -> dict:
             "overdue": sum(1 for s in learned if s.is_due)}
 
 
-def _state_of(ku) -> ReviewState:
-    raw = (ku.extra or {}).get("review") or {}
-    return ReviewState(item_id=ku.ku_id,
+def _status_of(ku) -> str:
+    """KU.status 是**普通字符串列**(enums 里没有 KUStatus),不是枚举。
+
+    踩过的坑:写成 ``getattr(ku.status, "value", "active")`` 时,因为 str 没有
+    ``.value`` 属性,getattr 会静默回落成默认值 "active" —— 于是「已软删的卡」也能
+    通过校验被评分,复习进度写进一条已经消失的知识里。
+    """
+    s = getattr(ku, "status", None)
+    return str(getattr(s, "value", s) or "").lower()
+
+
+def _state_from(extra, ku_id: str) -> ReviewState:
+    raw = (extra or {}).get("review") or {}
+    return ReviewState(item_id=ku_id,
                        **{k: raw[k] for k in _STATE_FIELDS if k in raw})
+
+
+def _state_of(ku) -> ReviewState:
+    return _state_from(ku.extra, ku.ku_id)
 
 
 def _card(ku, state) -> dict:
@@ -109,11 +129,36 @@ def _card(ku, state) -> dict:
     }
 
 
+def _card_ku_types():
+    """四种卡片类型的 KUType 枚举;拿不到(未 vendor / 未加 sys.path)返回 None。"""
+    try:
+        from hkc_core.models.enums import KUType
+        return [t for t in KUType if t.value in _CARD_TYPES]
+    except Exception:
+        return None
+
+
 def _pairs(store):
-    out = []
-    for ku in store.query_all(4000):
+    """所有可当复习卡的 KU + 它们当前的复习状态。
+
+    只查四类卡片:Evidence(原文出处)单看没有回忆价值,Ability 是 ACE 编译产物,
+    两者都不进队列。之前用 query_all 会把它们一起拉出来再丢掉。
+    """
+    types = _card_ku_types()
+    if types is None:
+        raws = store.query_all(_SCAN_LIMIT)
+    else:
+        raws = []
+        for t in types:
+            raws.extend(store.query_by_type(t, status="active", limit=_SCAN_LIMIT))
+
+    out, seen = [], set()
+    for ku in raws:
+        if ku.ku_id in seen or _status_of(ku) != "active":
+            continue
         if ku.ku_type.value not in _CARD_TYPES:
             continue
+        seen.add(ku.ku_id)
         out.append((ku, _state_of(ku)))
     return out
 
@@ -203,15 +248,28 @@ async def review_grade(body: GradeIn):
 
     def _do():
         ku = store.get(body.ku_id)
-        if ku is None or getattr(getattr(ku, "status", None), "value", "active") == "deleted":
+        if ku is None or _status_of(ku) != "active":
             raise HTTPException(404, f"没有这条知识:{body.ku_id}")
-        state = _state_of(ku)
-        _SR.review(state, body.grade)
-        extra = dict(ku.extra or {})
-        extra["review"] = asdict(state)
-        ku.extra = extra
-        store.put(ku)
-        return {"ok": True, "ku_id": ku.ku_id, "name": ku.name,
+
+        # 关键:只更新 extra 这一列,而且「读 extra → SM-2 推演 → 写回」整段在
+        # graph_store 的锁里完成。走 put() 是整行 UPSERT,会把整行其它列按写入前的
+        # 快照回写 —— 知识星球正在摄入时,KEE 刚合并进去的 sources / confidence /
+        # supports 会被这次评分悄悄冲掉(反向亦然:复习进度被 KEE 写回覆盖)。
+        # 锁内做还有个好处:连点两次评分不会两次都基于同一份旧状态推演。
+        graded: list[ReviewState] = []
+
+        def _apply(extra: dict) -> dict:
+            state = _state_from(extra, body.ku_id)
+            _SR.review(state, body.grade)
+            extra["review"] = asdict(state)
+            graded.append(state)
+            return extra
+
+        new_extra = store.update_extra(body.ku_id, _apply)
+        if new_extra is None:
+            raise HTTPException(404, f"没有这条知识:{body.ku_id}")
+        state = graded[0]
+        return {"ok": True, "ku_id": body.ku_id, "name": ku.name,
                 "next_in_days": state.interval, "review": state.to_dict()}
 
     return await asyncio.to_thread(_do)

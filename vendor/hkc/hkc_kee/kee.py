@@ -296,7 +296,13 @@ class KnowledgeEvolutionEngine:
         if new_status != new_claim.claim_status:
             old_status = new_claim.claim_status
             new_claim.claim_status = new_status
-            self.store.put(new_claim)
+            # claim_status 落在 extra 里 → 只合并这一个键,别整行回写(会冲掉并发的
+            # extra 写入,如复习进度)。行已不在则退回 put 的插入语义。
+            if self.store.patch_ku(
+                new_claim.ku_id,
+                extra={"claim_status": new_claim.claim_status.value},
+            ) == 0:
+                self.store.put(new_claim)
 
             self.bus.publish({
                 "event":   KEPEvents.CLAIM_STATUS_CHANGED,
@@ -387,11 +393,14 @@ class KnowledgeEvolutionEngine:
         winner = claim_a if claim_a.confidence >= claim_b.confidence else claim_b
         loser  = claim_b if winner.ku_id == claim_a.ku_id else claim_a
 
-        # 更新状态
+        # 更新状态(只合并 extra.claim_status,不整行回写)
         winner.claim_status = ClaimStatus.ACTIVE
         loser.claim_status  = ClaimStatus.SUPERSEDED
-        self.store.put(winner)
-        self.store.put(loser)
+        for c in (winner, loser):
+            if self.store.patch_ku(
+                c.ku_id, extra={"claim_status": c.claim_status.value}
+            ) == 0:
+                self.store.put(c)
         # 阶段 B:winner(→active)/loser(→superseded)状态都变了,发 UPDATED 让 _sync_ku
         # 同步 vector:loser 必须从 vector 移除,否则检索仍召回已废弃 Claim。
         self.bus.publish({
@@ -434,9 +443,19 @@ class KnowledgeEvolutionEngine:
         if not added:
             return
         old_claim.supports.extend(added)
-        # 每多一条 Evidence，置信度 +0.02，上限 0.98
-        old_claim.confidence = min(0.98, old_claim.confidence + len(added) * 0.02)
-        self.store.put(old_claim)
+        # 每多一条 Evidence，置信度 +0.02，上限 0.98;只能是「抬高」,不能把本来
+        # 1.0 的置信度因为多一条证据降到 0.98。
+        old_claim.confidence = max(
+            old_claim.confidence,
+            min(0.98, old_claim.confidence + len(added) * 0.02),
+        )
+        # supports 在 extra、confidence 是普通列 → 只写这两处,别整行回写
+        if self.store.patch_ku(
+            old_claim.ku_id,
+            columns={"confidence": old_claim.confidence},
+            extra={"supports": list(old_claim.supports)},
+        ) == 0:
+            self.store.put(old_claim)
         # 阶段 B:置信度/supports 变了,虽然向量文本没变(text_hash 同),仍 publish UPDATED
         # 让 _sync_ku 走 (5b) 同 hash 跳过 encode,只是保证检索侧能拿到最新 confidence
         # 注:_sync_ku 五分支不返回 confidence;但显式发 UPDATED 让审计日志完整。
@@ -487,8 +506,11 @@ class KnowledgeEvolutionEngine:
 
         winner.claim_status = ClaimStatus.ACTIVE
         loser.claim_status  = ClaimStatus.SUPERSEDED
-        self.store.put(winner)
-        self.store.put(loser)
+        for c in (winner, loser):
+            if self.store.patch_ku(
+                c.ku_id, extra={"claim_status": c.claim_status.value}
+            ) == 0:
+                self.store.put(c)
         # 阶段 B:同自动裁决,loser 变 superseded 必须从 vector 移除。
         self.bus.publish({
             "event":   KEPEvents.KNOWLEDGE_UPDATED,

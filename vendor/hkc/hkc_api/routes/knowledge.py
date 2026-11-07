@@ -401,7 +401,18 @@ def _delete_source_cascade(c: HKCContainer, source: str) -> dict:
                and not (getattr(ku, "contradicts", []) or []):
                 to_delete.add(ku.ku_id)
             else:
-                store.put(ku)
+                # 只写「被清掉引用」的那几处,不整行回写:整行 put() 会把期间别人
+                # 写进 extra 的内容(如复习进度 extra.review)按旧快照覆盖掉。
+                ext = {}
+                if ku.ku_type in (KUType.CONCEPT, KUType.FACT):
+                    ext["source_ref"] = getattr(ku, "source_ref", "")
+                if ku.ku_type == KUType.CLAIM:
+                    ext["supports"]    = list(ku.supports or [])
+                    ext["contradicts"] = list(ku.contradicts or [])
+                if store.patch_ku(
+                    ku.ku_id, columns={"sources": list(ku.sources or [])}, extra=ext or None
+                ) == 0:
+                    store.put(ku)
 
     # 3. 实体:删掉本书来的 MENTIONS 关系;无其它来源的实体软删
     for evd in evds:

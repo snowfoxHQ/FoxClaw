@@ -25,6 +25,20 @@ from ..models.ku import (
 
 # ── 序列化 / 反序列化 ────────────────────────────────────────
 
+def _loads_dict(raw) -> dict:
+    """extra 列容错解析:坏 JSON / 非 dict 一律当空字典,不抛异常打断写入。"""
+    try:
+        val = json.loads(raw) if raw else {}
+    except Exception:
+        return {}
+    return val if isinstance(val, dict) else {}
+
+
+def _dump(value):
+    """JSON 列(list/dict)写库前序列化,标量原样返回。"""
+    return json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else value
+
+
 def _ku_to_row(ku: KU) -> tuple:
     d = ku.to_dict()
     # Column order: ku_id, name, ku_type, summary, confidence, status,
@@ -273,6 +287,13 @@ class SQLiteGraphStore(GraphStore):
 
     # ── 单个 KU ──────────────────────────────────────────────
 
+    # patch_ku 允许直接写的普通列(JSON 列会按 list/dict 自动序列化)。
+    # 刻意不含 ku_id / created_at / updated_at:前者是主键,后者由存储层维护。
+    _PATCH_COLUMNS = frozenset({
+        "name", "summary", "confidence", "status", "domain",
+        "version", "tags", "sources", "relations",
+    })
+
     def get(self, ku_id: str) -> Optional[KU]:
         with self._lock:
             row = self._db.execute(
@@ -304,6 +325,94 @@ class SQLiteGraphStore(GraphStore):
                 (ku.ku_id, ku.name, ku.summary, ku.domain)
             )
             self._db.commit()
+
+    def patch_ku(
+        self,
+        ku_id:   str,
+        columns: Optional[dict] = None,
+        extra:   Optional[dict] = None,
+    ) -> int:
+        """只写「指定的列」和「extra 里指定的键」,**其余列一个字节都不动**。
+
+        为什么需要:``put()`` 是整行 UPSERT。复习评分只改 ``extra["review"]``,走 put()
+        会把整行其它列按「写入前的快照」回写 —— KEE 在同一个窗口里刚合并进去的
+        sources / confidence / supports 会被悄悄冲掉;反过来,KEE 的整行写也会把复习
+        进度冲掉。``extra`` 是 review / supports / claim_status / source_text 共用的
+        JSON 列,所以「只改其中一两个键」的写入必须走这里,而不是 put()。
+
+        返回受影响行数:0 表示该 KU 不存在,调用方应回退到 ``put()``(那是插入语义)。
+        """
+        cols = {k: v for k, v in (columns or {}).items() if k in self._PATCH_COLUMNS}
+        with self._lock:
+            if not cols and not extra:
+                return 1 if self._db.execute(
+                    "SELECT 1 FROM knowledge_units WHERE ku_id=?", (ku_id,)
+                ).fetchone() else 0
+
+            sets: list[str] = []
+            args: list = []
+            for k, v in cols.items():
+                sets.append(f"{k}=?")
+                args.append(_dump(v))
+            if extra:
+                row = self._db.execute(
+                    "SELECT extra FROM knowledge_units WHERE ku_id=?", (ku_id,)
+                ).fetchone()
+                if row is None:
+                    return 0
+                cur = _loads_dict(row["extra"])
+                cur.update(extra)
+                sets.append("extra=?")
+                args.append(json.dumps(cur, ensure_ascii=False))
+            sets.append("updated_at=?")
+            args.append(datetime.now(timezone.utc).isoformat())
+            args.append(ku_id)
+
+            cur2 = self._db.execute(
+                f"UPDATE knowledge_units SET {', '.join(sets)} WHERE ku_id=?", args
+            )
+            self._db.commit()
+            n = cur2.rowcount
+            # 改了 FTS 索引覆盖的三列才需要同步,否则多一次写纯属浪费
+            if n and any(k in cols for k in ("name", "summary", "domain")):
+                row2 = self._db.execute(
+                    "SELECT name, summary, domain FROM knowledge_units WHERE ku_id=?", (ku_id,)
+                ).fetchone()
+                if row2 is not None:
+                    self._db.execute("DELETE FROM ku_fts WHERE ku_id=?", (ku_id,))
+                    self._db.execute(
+                        "INSERT INTO ku_fts(ku_id,name,summary,domain) VALUES (?,?,?,?)",
+                        (ku_id, row2["name"] or "", row2["summary"] or "", row2["domain"] or ""),
+                    )
+                    self._db.commit()
+            return n if n > 0 else 0
+
+    def update_extra(self, ku_id: str, fn) -> Optional[dict]:
+        """在锁内「读 extra → 交给 fn 算 → 写回 extra」,整段原子。
+
+        给「读-改-写必须无竞态」的场景用(复习评分:读 review 状态 → SM-2 推演 →
+        写回)。``fn(extra)`` 返回新 dict 则落盘,返回 None 表示不改。
+        返回落盘后的 extra;None 表示该 KU 已不存在。
+        """
+        with self._lock:
+            row = self._db.execute(
+                "SELECT extra FROM knowledge_units WHERE ku_id=?", (ku_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            extra = _loads_dict(row["extra"])
+            new_extra = fn(extra)
+            if new_extra is None:
+                return extra
+            if not isinstance(new_extra, dict):
+                raise TypeError("update_extra 的回调必须返回 dict 或 None")
+            self._db.execute(
+                "UPDATE knowledge_units SET extra=?, updated_at=? WHERE ku_id=?",
+                (json.dumps(new_extra, ensure_ascii=False),
+                 datetime.now(timezone.utc).isoformat(), ku_id),
+            )
+            self._db.commit()
+            return new_extra
 
     def delete(self, ku_id: str) -> bool:
         """软删除(将状态置为 deleted,保留行供审计)。不级联。

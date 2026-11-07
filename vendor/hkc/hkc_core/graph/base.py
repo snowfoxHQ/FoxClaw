@@ -30,6 +30,44 @@ class GraphStore(ABC):
         """软删除：把 status 改为 'deleted'。"""
         ...
 
+    # ── 局部写入（默认实现退化为整行 put）─────────
+    #
+    # put() 是整行写。当两个子系统各自只关心 KU 的不同部分时(复习状态在
+    # extra["review"],KEE 演化改 sources / confidence / supports),整行读改写会
+    # 互相覆盖 —— 谁后写谁赢,前一个的改动静默丢失。存储实现应覆盖这两个方法,
+    # 只写属于自己的那几列/那几个键。
+
+    def patch_ku(
+        self,
+        ku_id:   str,
+        columns: Optional[dict] = None,
+        extra:   Optional[dict] = None,
+    ) -> int:
+        """只写指定列 + 合并 extra 的指定键。返回受影响行数(0 = KU 不存在)。
+        默认实现:get → 改 → put(等价的整行写,不解决覆盖问题,仅保证接口可用)。"""
+        ku = self.get(ku_id)
+        if ku is None:
+            return 0
+        for k, v in (columns or {}).items():
+            setattr(ku, k, v)
+        if extra:
+            ku.extra = {**(ku.extra or {}), **extra}
+        self.put(ku)
+        return 1
+
+    def update_extra(self, ku_id: str, fn) -> Optional[dict]:
+        """锁内「读 extra → fn(extra) → 写回」。返回写后的 extra;None = KU 不存在。
+        默认实现不加锁,仅保证接口可用。"""
+        ku = self.get(ku_id)
+        if ku is None:
+            return None
+        new_extra = fn({**(ku.extra or {})})
+        if new_extra is None:
+            return ku.extra
+        ku.extra = new_extra
+        self.put(ku)
+        return new_extra
+
     # ── 批量操作 ─────────────────────────────
 
     @abstractmethod
