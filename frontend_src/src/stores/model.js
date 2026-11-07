@@ -1,6 +1,6 @@
 /* 模型选择:全部走 /api/llm/*(llm_admin.py),切换后服务端立即生效,无需重启。 */
 import { reactive } from 'vue'
-import { delJSON, getJSON, postJSON } from '../api.js'
+import { delJSON, getJSON, postJSON, putJSON } from '../api.js'
 
 export const model = reactive({
   providers: [],
@@ -78,6 +78,22 @@ export function modelOptions() {
 
 export async function addCustom(payload) {
   await postJSON('/llm/custom/add', payload)
+  await loadModels(true)
+}
+
+/* 连通性测试:后端发一个 "hi" 走真实客户端,失败时 **不抛** 而是返回 {ok:false,error}
+   —— 那正是要显示给用户看的东西,别当异常吞掉。 */
+export async function testModel(payload) {
+  return postJSON('/llm/test', payload)
+}
+
+/* 单个自定义模型详情:api_key 永不出网,只回 has_key(编辑表单里留空即保留原值) */
+export async function getCustom(name) {
+  return getJSON(`/llm/custom/${encodeURIComponent(name)}`)
+}
+
+export async function updateCustom(name, payload) {
+  await putJSON(`/llm/custom/${encodeURIComponent(name)}`, payload)
   await loadModels(true)
 }
 

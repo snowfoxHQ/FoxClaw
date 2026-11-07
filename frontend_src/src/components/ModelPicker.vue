@@ -1,6 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { addCustom, currentLabel, loadModels, model, removeCustom, selectModel } from '../stores/model.js'
+import {
+  addCustom, currentLabel, getCustom, loadModels, model, removeCustom, selectModel,
+  testModel, updateCustom,
+} from '../stores/model.js'
 import { say } from '../stores/chat.js'
 
 const open = ref(false)
@@ -40,23 +43,78 @@ async function pick(payload) {
 }
 
 function startAdd() {
-  form.value = { name: '', base_url: '', api_key: '', model: '', note: '' }
+  form.value = { edit: false, name: '', base_url: '', api_key: '', model: '', note: '' }
 }
 
-async function submitAdd() {
-  const f = form.value
-  if (!f.name.trim() || !f.base_url.trim() || !f.api_key.trim() || !f.model.trim()) {
-    return say('名称 / Base URL / Key / 模型 ID 都必填')
-  }
+/* 编辑:先 GET 详情预填(key 只回 has_key,输入框留空 = 保留原值,后端语义一致) */
+async function startEdit(m) {
   busy.value = true
   try {
-    await addCustom({ ...f, name: f.name.trim() })
-    form.value = null
-    say('已添加自定义模型')
+    const d = await getCustom(m.name)
+    form.value = {
+      edit: true, original: d.name || m.name, name: d.name || m.name,
+      base_url: d.base_url || '', api_key: '', model: d.model || '', note: d.note || '',
+      has_key: !!d.has_key,
+    }
   } catch (e) {
-    say(`添加失败:${e.message}`)
+    say(`读取失败:${e.message}`)
   } finally {
     busy.value = false
+  }
+}
+
+async function submit() {
+  const f = form.value
+  if (!f.name.trim() || !f.base_url.trim() || !f.model.trim()) {
+    return say('名称 / Base URL / 模型 ID 都必填')
+  }
+  if (!f.edit && !f.api_key.trim()) return say('Key 必填')
+  busy.value = true
+  try {
+    if (f.edit) {
+      const payload = { base_url: f.base_url.trim(), model: f.model.trim(), note: f.note || '' }
+      if (f.api_key.trim()) payload.api_key = f.api_key.trim()
+      await updateCustom(f.original, payload)
+      say('已保存修改')
+    } else {
+      await addCustom({
+        name: f.name.trim(), base_url: f.base_url.trim(),
+        api_key: f.api_key.trim(), model: f.model.trim(), note: f.note || '',
+      })
+      say('已添加自定义模型')
+    }
+    form.value = null
+  } catch (e) {
+    say(`${f.edit ? '保存' : '添加'}失败:${e.message}`)
+  } finally {
+    busy.value = false
+  }
+}
+
+/* 连通性测试:POST /llm/test,后端失败也返回 200 + {ok:false,error},原样显示原因 */
+const tState = ref('idle')   // idle | busy | ok | err
+const tKey = ref('')
+const tMsg = ref('')
+
+async function test(source, key) {
+  if (tState.value === 'busy') return
+  tState.value = 'busy'
+  tKey.value = `${source}:${key || ''}`
+  tMsg.value = ''
+  try {
+    const d = source === 'custom'
+      ? await testModel({ source: 'custom', name: key })
+      : await testModel({ source: 'preset', provider: key })
+    if (d.ok) {
+      tState.value = 'ok'
+      tMsg.value = `${d.latency_ms ?? '?'}ms · ${d.model || key}${d.reply ? ` · ${String(d.reply).slice(0, 40)}` : ''}`
+    } else {
+      tState.value = 'err'
+      tMsg.value = d.error || '测试失败'
+    }
+  } catch (e) {
+    tState.value = 'err'
+    tMsg.value = String(e.message || e)
   }
 }
 
@@ -97,31 +155,58 @@ function isCur(source, key) {
         <div class="sep">预置</div>
         <div v-if="model.state === 'loading'" class="empty">加载中…</div>
         <div v-else-if="model.state === 'error'" class="empty">读取失败:{{ model.err }}</div>
-        <button
+        <div
           v-for="p in model.providers"
           v-else
           :key="p.provider"
           class="it"
           :class="{ on: isCur('preset', p.provider), dis: !p.configured }"
-          @click="p.configured ? pick({ source: 'preset', provider: p.provider }) : say(`${p.provider} 未在 .env 配置 Key`)"
         >
           <span class="dot" :style="{ background: p.color, boxShadow: `0 0 6px ${p.color}` }" />
-          <span class="tx"><b>{{ p.label }}</b><span>{{ p.provider }}</span></span>
+          <button
+            class="tx plain"
+            @click="p.configured ? pick({ source: 'preset', provider: p.provider }) : say(`${p.provider} 未在 .env 配置 Key`)"
+          >
+            <b>{{ p.label }}</b><span>{{ p.provider }}</span>
+          </button>
           <span v-if="isCur('preset', p.provider)" class="tg">当前</span>
           <span v-else-if="!p.configured" class="tg warn">未配置</span>
-        </button>
+          <button
+            class="x"
+            :disabled="!p.configured || tState === 'busy'"
+            title="连通性测试"
+            @click.stop="test('preset', p.provider)"
+          >
+            {{ tState === 'busy' && tKey === `preset:${p.provider}` ? '…' : '测' }}
+          </button>
+        </div>
 
         <template v-if="model.custom.length">
           <div class="sep">自定义</div>
           <div v-for="m in model.custom" :key="m.name" class="it" :class="{ on: isCur('custom', m.name) }">
             <span class="dot" style="background: #a78bfa; box-shadow: 0 0 6px #a78bfa" />
             <button class="tx plain" @click="pick({ source: 'custom', name: m.name })">
-              <b>{{ m.name }}</b><span>{{ m.model }}</span>
+              <b>{{ m.name }}</b>
+              <span>{{ m.model }}<template v-if="m.note"> · {{ m.note }}</template></span>
             </button>
             <span v-if="isCur('custom', m.name)" class="tg">当前</span>
+            <button
+              class="x"
+              :disabled="tState === 'busy'"
+              title="连通性测试"
+              @click.stop="test('custom', m.name)"
+            >
+              {{ tState === 'busy' && tKey === `custom:${m.name}` ? '…' : '测' }}
+            </button>
+            <button class="x" title="编辑" @click.stop="startEdit(m)">编</button>
             <span class="x" title="删除" @click="del(m)">✕</span>
           </div>
         </template>
+
+        <div v-if="tState === 'busy'" class="tres">测试中…</div>
+        <div v-else-if="tMsg" class="tres" :class="tState">
+          {{ tState === 'ok' ? '✓' : '✕' }} {{ tMsg }}
+        </div>
 
         <div class="foot">
           <button class="fbtn" @click="startAdd">＋ 添加自定义模型</button>
@@ -129,13 +214,27 @@ function isCur(source, key) {
         </div>
       </template>
 
-      <form v-else class="form" @submit.prevent="submitAdd">
-        <div class="fhead">添加自定义模型 <span class="x" @click="form = null">✕</span></div>
-        <label>名称<input v-model="form.name" placeholder="我的 DeepSeek" /></label>
+      <form v-else class="form" @submit.prevent="submit">
+        <div class="fhead">
+          {{ form.edit ? '编辑自定义模型' : '添加自定义模型' }}
+          <span class="x" @click="form = null">✕</span>
+        </div>
+        <label>名称
+          <input v-model="form.name" :disabled="form.edit" placeholder="我的 DeepSeek" />
+        </label>
         <label>Base URL<input v-model="form.base_url" placeholder="https://api.deepseek.com/v1" /></label>
-        <label>API Key<input v-model="form.api_key" type="password" placeholder="sk-…" /></label>
+        <label>API Key
+          <input
+            v-model="form.api_key"
+            type="password"
+            :placeholder="form.edit ? (form.has_key ? '留空 = 保留原 Key' : '尚未设置,请填写') : 'sk-…'"
+          />
+        </label>
         <label>模型 ID<input v-model="form.model" placeholder="deepseek-chat" /></label>
-        <button class="submit" :disabled="busy">{{ busy ? '保存中…' : '保存并保持未选中' }}</button>
+        <label>备注<input v-model="form.note" placeholder="可选:这个模型用在哪 / 限速多少" /></label>
+        <button class="submit" :disabled="busy">
+          {{ busy ? '保存中…' : (form.edit ? '保存修改' : '保存并保持未选中') }}
+        </button>
       </form>
     </div>
   </div>
@@ -196,6 +295,20 @@ function isCur(source, key) {
 .tg.warn { color: var(--amber); background: rgba(200, 140, 40, 0.13); }
 .it .x { flex-shrink: 0; font-size: 10px; color: var(--faint); padding: 2px 4px; }
 .it .x:hover { color: var(--red); }
+/* 测 / 编 是 button,去掉按钮底框,和 ✕ 同一个观感 */
+button.x { background: none; border: 0; font-family: inherit; cursor: pointer; }
+button.x:hover:not(:disabled) { color: var(--accent); }
+button.x:disabled { opacity: 0.4; cursor: default; }
+
+/* 连通性测试结果条:失败原因原样显示(常见是 key 错 / base_url 多一层 /v1) */
+.tres {
+  margin-top: 5px; padding: 6px 8px; border-radius: var(--r-sm);
+  font-size: 10.5px; line-height: 1.55; color: var(--faint);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.tres.ok { color: var(--green); background: rgba(26, 157, 95, 0.08); }
+.tres.err { color: var(--red); background: rgba(229, 72, 77, 0.07); }
 
 .sep {
   padding: 8px 7px 3px;
@@ -233,6 +346,7 @@ function isCur(source, key) {
   background: #fff; border: 1px solid var(--line);
 }
 .form input:focus { border-color: rgba(26, 157, 95, 0.45); }
+.form input:disabled { color: var(--faint); background: var(--surface-2); }
 .submit {
   margin-top: 3px; padding: 7px; border-radius: var(--r-sm);
   font-size: 12px; font-weight: 600; color: #fff; background: var(--green);

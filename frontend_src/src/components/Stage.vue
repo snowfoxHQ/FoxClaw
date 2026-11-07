@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import DocViewer from './DocViewer.vue'
 import MessageStream from './MessageStream.vue'
 import ActivityPanel from './panels/ActivityPanel.vue'
@@ -11,8 +11,11 @@ import KnowledgePanel from './panels/KnowledgePanel.vue'
 import ReviewPanel from './panels/ReviewPanel.vue'
 import MemoryPanel from './panels/MemoryPanel.vue'
 import SettingsPanel from './panels/SettingsPanel.vue'
-import { chat } from '../stores/chat.js'
-import { state, moduleLabel, closeDoc } from '../stores/app.js'
+import { chat, loadSession, send } from '../stores/chat.js'
+import { state, moduleLabel, closeDoc, loadSessions, openSession } from '../stores/app.js'
+import { openKu } from '../stores/panels.js'
+import { getJSON } from '../api.js'
+import { clip } from '../lib/fmt.js'
 
 /* 菜单 8 项 → 真实面板。overview 是核心对话视图,不在这里。 */
 const PANELS = {
@@ -31,6 +34,37 @@ const panel = computed(() => PANELS[state.module] || null)
 /* 标签条只在打开文档时需要(文档 + 回到面板)。
    没文档时面板头部已经写着模块名,再挂一条同名 tab 就是重复。 */
 const hasTabs = computed(() => !!state.doc)
+
+/* ── 空态引导 ──
+   一块空白 + 一句「问我任何事」等于让用户自己想问题。给三条真实可用的起点:
+   示例提问(点了直接发)、继续上次会话、最近知识(点了开正文)。
+   数据各自 .catch:任何一条挂了都只是少一块引导,不该让空态变成报错页。 */
+const EXAMPLES = [
+  '现在系统里有哪些技能可以用?',
+  '帮我把今天要做的事排个优先级',
+  '用一句话说清你能帮我做什么',
+]
+
+const recent = ref([])
+onMounted(async () => {
+  if (!state.sessions.length) loadSessions().catch(() => {})
+  const d = await getJSON('/knowledge/recent?limit=5').catch(() => null)
+  recent.value = d?.kus || []
+})
+
+/* 「继续上次」:取列表里最新一条**真的有消息**的会话。
+   不能只看 sessions[0] —— 那个常常是刚建的空会话(count=0),跳过它才能拿到上次聊的。 */
+const lastSession = computed(() => {
+  const cur = chat.messages.length ? state.sessionId : ''
+  return state.sessions.find((s) => s.id !== cur && (s.message_count || 0) > 0) || null
+})
+
+function resume() {
+  const s = lastSession.value
+  if (!s) return
+  openSession(s)
+  loadSession(s.id)
+}
 </script>
 
 <template>
@@ -58,7 +92,31 @@ const hasTabs = computed(() => !!state.doc)
       <div v-else class="core">
         <MessageStream v-if="chat.messages.length" />
         <div v-else class="core-empty">
-          <div class="core-cap">问我任何事 · 主管 Agent 会按需调度</div>
+          <div class="hero">
+            <div class="hero-t">问我任何事</div>
+            <div class="core-cap">主管 Agent 会按需调度子 Agent;想让它读你的知识库,直接问就行</div>
+          </div>
+
+          <div class="tries">
+            <button v-for="q in EXAMPLES" :key="q" class="try" @click="send(q)">
+              <span class="arrow">→</span>{{ q }}
+            </button>
+          </div>
+
+          <button v-if="lastSession" class="resume" @click="resume">
+            <span class="rl">继续上次</span>
+            <b>{{ clip(lastSession.title || '未命名会话', 28) }}</b>
+            <span class="rm">{{ lastSession.message_count }} 条消息</span>
+          </button>
+
+          <div v-if="recent.length" class="recent">
+            <div class="rh">最近知识</div>
+            <div class="rk-list">
+              <button v-for="k in recent" :key="k.ku_id" class="rk" :title="k.summary || k.name" @click="openKu(k.ku_id)">
+                {{ clip(k.name || k.ku_id, 30) }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -107,8 +165,62 @@ const hasTabs = computed(() => !!state.doc)
 .core { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .core-empty {
   flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 16px;
+  align-items: center; justify-content: center; gap: 18px;
   position: relative;
+  padding: 24px 18px;
+  overflow-y: auto;
 }
-.core-cap { font-size: 11.5px; color: var(--faint); }
+.core-cap { font-size: 11.5px; color: var(--faint); line-height: 1.7; text-align: center; }
+
+.hero { text-align: center; }
+.hero-t {
+  font-size: 19px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--ink); margin-bottom: 6px;
+}
+
+/* 示例提问:原来空态只有一句提示,用户不知道从哪开口 */
+.tries { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 420px; }
+.try {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 12px; border-radius: var(--r-sm);
+  font-size: 12px; color: var(--dim); text-align: left;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--line-soft);
+  transition: color 0.14s, border-color 0.14s, background 0.14s, transform 0.12s;
+}
+.try:hover { color: var(--ink); background: #fff; border-color: rgba(26, 157, 95, 0.32); }
+.try:active { transform: scale(0.99); }
+.try .arrow { font-size: 11px; color: var(--green); flex-shrink: 0; }
+
+.resume {
+  display: flex; align-items: center; gap: 7px;
+  max-width: 420px; padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2); color: var(--dim);
+  transition: background 0.14s, color 0.14s;
+}
+.resume:hover { background: var(--surface-3); color: var(--ink); }
+.resume .rl { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.07em; }
+.resume b {
+  font-size: 11.5px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.resume .rm { font-size: 10px; color: var(--faint); flex-shrink: 0; }
+
+.recent { width: 100%; max-width: 420px; }
+.recent .rh {
+  margin-bottom: 5px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--faint); text-transform: uppercase;
+}
+.rk-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.rk {
+  max-width: 190px; padding: 4px 9px; border-radius: var(--r-pill);
+  font-size: 10.5px; color: var(--dim);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--line-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
+}
+.rk:hover { color: var(--green); background: #fff; border-color: rgba(26, 157, 95, 0.35); }
 </style>

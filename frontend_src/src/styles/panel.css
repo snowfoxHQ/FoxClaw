@@ -65,6 +65,20 @@
   padding: 4px 9px; border-radius: var(--r-pill);
   font-family: var(--mono); font-size: 10.5px; color: var(--dim);
   background: rgba(255, 255, 255, 0.78); border: 1px solid var(--line-soft);
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
+}
+/* 可点的 chip(能力清单):原来全是 <span>,点了没反应 */
+button.pn-chip:hover {
+  color: var(--green); background: #fff;
+  border-color: rgba(26, 157, 95, 0.35);
+}
+button.pn-chip.on {
+  color: var(--green); background: rgba(26, 157, 95, 0.1);
+  border-color: rgba(26, 157, 95, 0.4);
+}
+.pn-chip.warn {
+  color: var(--amber); background: rgba(199, 116, 0, 0.09);
+  border-color: rgba(199, 116, 0, 0.24);
 }
 
 .pn-empty {

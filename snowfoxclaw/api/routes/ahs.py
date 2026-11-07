@@ -98,6 +98,10 @@ class SkillTestPayload(BaseModel):
     args: dict = {}
     confirmed: bool = False
     mode: str = "strict"
+    # 关键操作(send/pay/destructive)的二次确认码:上次响应里的 confirm_nonce。
+    # 宿主注入了 confirms(见 snowfoxclaw/__init__.py)时,confirmed=True 只有配有效 nonce
+    # 才放行 —— 原先这个端点收不到 nonce,界面上点「确认」永远退回 needs_confirmation。
+    confirm_nonce: str = ""
 
 
 _SKILL_KINDS = {"web_api", "mcp"}
@@ -179,7 +183,9 @@ async def ahs_test_skill(skill_id: str, p: SkillTestPayload):
     if sp is None:
         raise HTTPException(404, "技能不存在")
     # 阻塞 I/O(web_api httpx / mcp 桥,最长数十秒)放线程池,勿堵死事件循环(否则慢工具冻全站)
-    res = await asyncio.to_thread(_api._os_instance.skill_adapter.invoke, sp, p.args, p.confirmed, p.mode)
+    res = await asyncio.to_thread(_api._os_instance.skill_adapter.invoke,
+                                  sp, p.args, p.confirmed, p.mode,
+                                  confirm_nonce=p.confirm_nonce)
     return res.to_dict()
 
 

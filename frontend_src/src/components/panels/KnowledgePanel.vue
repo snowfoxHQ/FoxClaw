@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import PanelBox from './PanelBox.vue'
 import { panels, loadPanel, refreshPanel, ingestKnowledge, openKu } from '../../stores/panels.js'
+import { getJSON, postJSON } from '../../api.js'
 import { fmtNum, fmtTime, clip } from '../../lib/fmt.js'
 
 const p = panels.knowledge
@@ -32,6 +33,86 @@ async function submit() {
   } catch {
     /* 错误已写进 store,模板里显示 */
   }
+}
+
+/* ── 检索:POST /api/knowledge/search ──
+   后端一直有这条混合检索,界面却只给「最近录入」,想按关键词翻库只能去知识星球。 */
+const q = ref('')
+const mode = ref('hybrid')
+const MODES = [
+  { v: 'hybrid', label: '混合' },
+  { v: 'bm25', label: '关键词' },
+  { v: 'vector', label: '语义' },
+  { v: 'graph', label: '图谱' },
+]
+const sState = ref('idle') // idle | busy | ok | err
+const sErr = ref('')
+const hits = ref([])
+
+async function doSearch() {
+  const text = q.value.trim()
+  if (!text || sState.value === 'busy') return
+  sState.value = 'busy'
+  sErr.value = ''
+  try {
+    const d = await postJSON('/knowledge/search', {
+      query: text,
+      mode: mode.value,
+      top_k: 12,
+    })
+    hits.value = d.hits || []
+    if (d.available === false) {
+      sState.value = 'err'
+      sErr.value = 'HKC 未启用(未 vendor 或缺依赖)'
+    } else if (d.error) {
+      sState.value = 'err'
+      sErr.value = d.error
+    } else {
+      sState.value = 'ok'
+    }
+  } catch (e) {
+    hits.value = []
+    sState.value = 'err'
+    sErr.value = e.message
+  }
+}
+
+/* ── 能力详情:GET /api/knowledge/ability/{key} ──
+   能力 chip 以前是死的,点了没反应 —— 而这条接口正是"这个能力到底够不够"的答案。 */
+const abKey = ref('')
+const abState = ref('idle') // idle | busy | ok | err
+const abErr = ref('')
+const ab = ref(null)
+
+async function showAbility(k) {
+  if (abKey.value === k && ab.value) {
+    abKey.value = ''
+    ab.value = null
+    abState.value = 'idle'
+    return
+  }
+  abKey.value = k
+  abState.value = 'busy'
+  abErr.value = ''
+  ab.value = null
+  try {
+    ab.value = await getJSON(`/knowledge/ability/${encodeURIComponent(k)}`)
+    abState.value = 'ok'
+  } catch (e) {
+    abState.value = 'err'
+    abErr.value = e.message
+  }
+}
+
+/* coverage 在不同能力下是数字或对象,取几个常见键;取不到就显示 '—',不猜格式 */
+function covText(c) {
+  if (c == null) return ''
+  if (typeof c === 'number') return `${Math.round(c * 100)}%`
+  if (typeof c === 'object') {
+    const n = c.overall ?? c.score ?? c.value ?? c.ratio
+    if (typeof n === 'number') return `${Math.round(n * 100)}%`
+  }
+  return ''
 }
 </script>
 
@@ -71,6 +152,40 @@ async function submit() {
       <div><b>{{ fmtNum(p.stats.graph_nodes ?? 0) }}</b><span>图谱节点</span></div>
       <div><b>{{ fmtNum(p.stats.open_conflicts ?? 0) }}</b><span>待裁决冲突</span></div>
       <div><b>{{ fmtNum(p.stats.vector_size ?? 0) }}</b><span>向量条目</span></div>
+    </div>
+
+    <div class="pn-sec">
+      <div class="pn-h">检索 <em>{{ hits.length }}</em></div>
+      <div class="kb-find">
+        <input
+          v-model="q"
+          placeholder="按关键词 / 语义检索整个知识库…"
+          @keydown.enter="doSearch"
+        />
+        <select v-model="mode" aria-label="检索模式">
+          <option v-for="m in MODES" :key="m.v" :value="m.v">{{ m.label }}</option>
+        </select>
+        <button class="go" :disabled="!q.trim() || sState === 'busy'" @click="doSearch">
+          {{ sState === 'busy' ? '检索中…' : '检索' }}
+        </button>
+      </div>
+      <div v-if="sState === 'err'" class="pn-note meta bad">{{ sErr }}</div>
+      <div v-else-if="hits.length" class="kb-hits">
+        <button
+          v-for="h in hits"
+          :key="h.ku_id"
+          class="kb-hit"
+          :title="h.summary || h.name"
+          @click="openKu(h.ku_id)"
+        >
+          <span class="m">
+            <b>{{ clip(h.name || h.ku_id, 52) }}</b>
+            <span class="s">{{ h.ku_type || 'KU' }} · {{ h.mode || mode }}</span>
+          </span>
+          <span class="r">{{ h.score != null ? Number(h.score).toFixed(2) : '' }}</span>
+        </button>
+      </div>
+      <div v-else-if="sState === 'ok'" class="pn-empty">没有命中,换个词或换模式试试。</div>
     </div>
 
     <div class="pn-sec">
@@ -140,7 +255,52 @@ async function submit() {
       <div class="pn-h">能力清单 <em>{{ p.abilities.length }}</em></div>
       <div v-if="!p.abilities.length" class="pn-empty">后端没有返回能力清单。</div>
       <div v-else class="pn-chips">
-        <span v-for="a in p.abilities" :key="a" class="pn-chip">{{ a }}</span>
+        <button
+          v-for="a in p.abilities"
+          :key="a"
+          class="pn-chip"
+          :class="{ on: abKey === a }"
+          @click="showAbility(a)"
+        >
+          {{ a }}
+        </button>
+      </div>
+
+      <div v-if="abState === 'busy'" class="pn-note meta">编译中…</div>
+      <div v-else-if="abState === 'err'" class="pn-note meta bad">编译失败:{{ abErr }}</div>
+      <div v-else-if="ab" class="kb-ab">
+        <template v-if="ab.available === false">
+          <div class="pn-note meta">HKC 未启用,无法编译能力。</div>
+        </template>
+
+        <!-- 覆盖不足不是错误,是"知识还不足以具备该能力"(证据驱动 gate) -->
+        <template v-else-if="ab.sufficient === false">
+          <div class="kb-ab-h">{{ abKey }}<span class="v">知识不足</span></div>
+          <div class="pn-note meta">{{ ab.reason || '覆盖不足,暂不授予该能力。' }}</div>
+          <div v-if="(ab.missing_skills || []).length" class="pn-chips gap">
+            <span v-for="m in ab.missing_skills" :key="m" class="pn-chip warn">{{ m }}</span>
+          </div>
+        </template>
+
+        <template v-else-if="ab.ability">
+          <div class="kb-ab-h">
+            {{ ab.ability.display_name || abKey }}
+            <span class="v">{{ ab.ability.version || '' }}</span>
+          </div>
+          <div class="pn-note meta">
+            {{ ab.ability.domain || '未分域' }} · 覆盖 {{ covText(ab.ability.coverage) || '—' }}
+          </div>
+          <div v-for="s in ab.ability.skills || []" :key="s.skill_key" class="pn-row">
+            <span class="m">
+              <b>{{ s.display_name || s.skill_key }}</b>
+              <span class="s">{{ s.concept_hits ?? 0 }} 个概念命中</span>
+            </span>
+            <span class="r">{{ covText(s.coverage) }}</span>
+          </div>
+          <div v-for="(w, i) in ab.ability.workflows || []" :key="'w' + i" class="pn-row">
+            <span class="m"><b>{{ w }}</b></span>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -213,4 +373,64 @@ async function submit() {
 
 .meta { margin-top: 8px; }
 .sec-gap { margin-top: 14px; }
+.pn-note.meta.bad { color: var(--red); }
+
+/* ── 检索条 ── */
+.kb-find {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 8px;
+}
+.kb-find input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 7px 10px; border-radius: var(--r-sm);
+  font-size: 12.5px; color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line-soft);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.kb-find input:focus { border-color: rgba(26, 157, 95, 0.45); }
+.kb-find input::placeholder { color: var(--faint); }
+.kb-find select {
+  padding: 6px 8px; border-radius: var(--r-sm);
+  font-size: 11.5px; color: var(--dim);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line-soft);
+  outline: none;
+}
+.kb-find .go { padding: 6px 13px; }
+
+.kb-hits { display: flex; flex-direction: column; gap: 2px; }
+.kb-hit {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 9px; border-radius: var(--r-sm);
+  text-align: left;
+  transition: background 0.13s;
+}
+.kb-hit:hover { background: rgba(255, 255, 255, 0.75); }
+.kb-hit .m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.kb-hit .m b {
+  font-size: 12.5px; font-weight: 500; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kb-hit .m .s { font-size: 10.5px; color: var(--faint); }
+.kb-hit .r {
+  flex-shrink: 0; font-size: 11px; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 能力详情 ── */
+.pn-chips.gap { margin-top: 8px; }
+.kb-ab {
+  margin-top: 10px; padding: 10px 12px;
+  border-radius: var(--r-mid);
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--line-soft);
+}
+.kb-ab-h {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  margin-bottom: 5px;
+}
+.kb-ab-h .v { font-size: 10.5px; font-weight: 400; color: var(--faint); }
 </style>
