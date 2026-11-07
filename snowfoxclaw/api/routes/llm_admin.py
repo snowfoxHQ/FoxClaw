@@ -84,6 +84,30 @@ def _save_custom(models: list):
     )
 
 
+def _sync_hkc_llm() -> None:
+    """把「界面当前选中的模型」推给知识抽取(HKC KDE extractor)。
+
+    病根:``init_hkc`` 只在启动时 ``_detect_llm()`` 一次,extractor 拿的是那一刻的快照。
+    用户在界面切了模型(或换掉失效的 key)→ 主对话走 mtime lazy reload 立刻生效,
+    知识抽取却还用旧的失效 key,于是摄入永远 401 → 0 条 KU → 复习板块永远 0 卡。
+    extractor 自带 ``reconfigure``(HKC 自己的界面也用它),这里复用同一条路径。
+    """
+    try:
+        hkc = _api._os_instance.hkc if _api._os_instance else None
+        if hkc is None or not getattr(hkc, "available", False):
+            return
+        from snowfoxclaw.knowledge import _detect_llm
+        provider, key, base, model = _detect_llm()
+        hkc.container.kde.extractor.reconfigure(
+            provider=provider,
+            api_key=key or None,
+            model=model or None,
+            base_url=base or None,
+        )
+    except Exception as e:      # 同步失败绝不影响"切模型"这个主操作
+        print(f"[llm_admin] 同步知识抽取(HKC)配置失败: {e}")
+
+
 # ── 端点 ─────────────────────────────────────────────────
 
 @app.get("/api/llm/models")
@@ -132,6 +156,7 @@ async def select_model(req: _SelectReq):
             CURRENT_MODEL_PATH.unlink()
         if router is not None:
             router._maybe_reload_selection()
+        _sync_hkc_llm()
         return {"ok": True, "current": None}
     if req.source == "preset":
         if not req.provider or req.provider not in _PROVIDER_KEY_ENV:
@@ -158,6 +183,7 @@ async def select_model(req: _SelectReq):
     # 立即 reload(mtime 变了);正常聊天路径也会 lazy reload,这里只是让 /runtime 立刻正确
     if router is not None:
         router._maybe_reload_selection()
+    _sync_hkc_llm()      # 知识抽取跟着切,别让它继续用旧 key
     return {"ok": True, "current": data,
             "runtime": ({"provider": router.provider,
                          "model": getattr(router, "model", ""),

@@ -103,6 +103,8 @@ class Extractor:
         """
         self._apply_config(provider, api_key, model, base_url)
         self._client = None
+        # 最后一次抽取异常:全段失败时由 _run_pipeline 抛出,供上层显示真实原因
+        self._last_error = None
 
     def _apply_config(self, provider, api_key, model, base_url):
         """应用 LLM 配置(init 和运行时 reconfigure 共用)。"""
@@ -228,10 +230,19 @@ class Extractor:
 
         # 全部 chunk 都抽取失败 → 很可能是 LLM 配置问题(没 key / key 错 / 网络不通),
         # 明确报错,避免"摄入成功但 0 知识"的静默失败让用户困惑。
+        # 必须抛,不能只 log:API 层拿到 ku_count=0 会返回 200,用户以为录进去了,
+        # 实际库还是空的(复习板块永远 0 卡)。
         if fail_count == len(chunks) and len(chunks) > 0:
+            reason = self._last_error
             logger.error(
                 "知识抽取全部失败 (%d/%d chunks)。请检查 LLM 配置:provider=%s, model=%s, "
-                "是否已正确填写 API Key。", fail_count, len(chunks), self.provider, self.model
+                "是否已正确填写 API Key。最后错误: %s",
+                fail_count, len(chunks), self.provider, self.model, reason,
+            )
+            raise RuntimeError(
+                f"知识抽取失败:所有 {len(chunks)} 段都没能抽出内容。"
+                f"当前 provider={self.provider} model={self.model}。"
+                f"最后错误: {reason or '未知(模型返回为空或解析失败)'}"
             )
 
         return ExtractionResult(doc_id=doc_id, source=source, items=items)
@@ -350,6 +361,9 @@ class Extractor:
 
         except Exception as e:
             logger.error("Chunk 提取失败 (chunk_id=%s): %s", chunk.chunk_id, e)
+            # 留给 _run_pipeline:全部失败时把真实原因(401/超时/模型不存在)带出去,
+            # 而不是只回一句"0 条"。
+            self._last_error = e
             return None
 
     def _extract_batched(self, chunks, workers, llm_timeout, batch_size, progress_cb):

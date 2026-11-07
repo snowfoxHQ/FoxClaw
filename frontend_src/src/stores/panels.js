@@ -197,9 +197,9 @@ export async function ingestKnowledge({ text, title = '', domain = '' }) {
     const n = d?.ku_count ?? 0
     p.ingestMsg = n
       ? `已抽取 ${n} 条知识单元${counts ? ` · ${counts}` : ''}`
-      /* 0 条不是「成功但没内容」:KDE 是 LLM 抽取,没配模型时它会 0 条返回。
-         这里必须说清楚,否则看起来像录入按钮坏了。 */
-      : '抽取 0 条 —— 后端没有可用的大模型,先把 LLM key 配好再录'
+      /* 走到这里说明 LLM 调用是成功的(全失败会 502 进 catch),只是这段文字里
+         没抽出 Concept/Fact/Claim/Entity。别提示"没配模型"误导用户去改 key。 */
+      : '模型没从这段文字里抽出知识条目 —— 试试写得更具体(谁 / 是什么 / 为什么)'
     try { await LOADERS.knowledge(p); p.state = 'ok' } catch {}
     return d
   } catch (e) {

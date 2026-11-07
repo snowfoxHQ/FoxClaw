@@ -76,7 +76,11 @@ async def knowledge_ingest(p: KnowledgeIngestPayload):
             hkc.client.ingest_text, p.text, p.source_title, p.domain)
         return {"ku_count": res.ku_count, "ku_ids": res.ku_ids, "counts": res.counts}
     except Exception as e:
-        raise HTTPException(500, f"摄入失败(通常因未配置 LLM): {e}")
+        # 抽取全段失败时 KDE 现在会抛错(带 provider/model/最后一次 LLM 报错原文)。
+        # 不能像旧版那样返回 ku_count=0 + 200 —— 那会让「库里其实什么都没有」看起来
+        # 像「录入成功只是没内容」,复习板块于是永远 0 卡。
+        msg = str(e).strip() or e.__class__.__name__
+        raise HTTPException(502, f"摄入失败:{msg}")
 
 
 @app.get("/api/knowledge/recent")

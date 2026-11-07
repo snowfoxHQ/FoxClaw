@@ -42,14 +42,49 @@ def _to_hkc_provider(name: str) -> str:
     return "openai-compatible"
 
 
+def _read_custom_model(data_dir, name):
+    """从 ``custom_models.json`` 取一项,解出 ``(key, base_url, model)``;取不到或 key 为空 → None。
+
+    base_url 必须和主对话走同一个规范化(缺 path 补 /v1),否则 SDK 拼出
+    https://api.deepseek.com/chat/completions 而主对话用 /v1/chat/completions。
+    """
+    try:
+        models = json.loads((data_dir / "custom_models.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    match = next((m for m in models if m.get("name") == name), None)
+    if not match:
+        return None
+    key = ""
+    obf = match.get("api_key_obf") or ""
+    if obf:
+        try:
+            key = base64.b64decode(obf.encode()).decode()
+        except Exception:
+            key = ""
+    key = key or (match.get("api_key") or "")
+    if not key.strip():
+        return None
+    base = match.get("base_url") or ""
+    try:
+        from ..core.model_router import normalize_base_url
+        base = normalize_base_url(base)
+    except Exception:
+        pass
+    return key.strip(), base, (match.get("model") or "").strip()
+
+
 def _selected_llm():
     """读前端「LLM 管理」里当前选中的模型,返回 ``(provider, key, base_url, model)`` 或 None。
 
     这是**用户在界面上显式做过的选择**(SNOWFOXCLAW_DATA_DIR/.current_model),比任何
     env 默认值都更能代表"现在真实在用的那个模型",所以排在 LLM_* 之前。
 
-    病根:此前 HKC 只看 env。用户在界面里配好 custom(deepseek-flash)后主对话正常,
-    但知识抽取仍读环境里那个早已失效的 DEEPSEEK_API_KEY,每次摄入都是 401 → 0 条 KU。
+    两个踩过的坑:
+      1. preset 写的字段是 ``provider``,不是 ``name`` —— 只读 name 会让 preset 选择被
+         整个忽略,HKC 于是退回 .env(里面可能躺着一份早就换掉的旧 key)。
+      2. preset 的 key 名义上来自 .env,但用户往往同时在「自定义模型」里配过同一个
+         provider(名字相同、key 更新)。界面里填的比 .env 默认新,所以优先它。
     """
     try:
         data_dir = Path(os.environ.get("SNOWFOXCLAW_DATA_DIR", "./snowfoxclaw_data"))
@@ -61,36 +96,23 @@ def _selected_llm():
         return None
 
     source = (sel.get("source") or "").strip().lower()
-    name = (sel.get("name") or "").strip()
+    # preset 落盘的是 provider;custom 落盘的是 name。两者都当"选中的名字"用。
+    name = (sel.get("name") or sel.get("provider") or "").strip()
     model = (sel.get("model_id") or sel.get("model") or "").strip()
 
     if source == "custom" and name:
-        try:
-            models = json.loads((data_dir / "custom_models.json").read_text(encoding="utf-8"))
-            match = next((m for m in models if m.get("name") == name), None)
-        except Exception:
-            match = None
-        if not match:
+        got = _read_custom_model(data_dir, name)
+        if not got:
             return None
-        key = ""
-        obf = match.get("api_key_obf") or ""
-        if obf:
-            try:
-                key = base64.b64decode(obf.encode()).decode()
-            except Exception:
-                key = ""
-        key = key or (match.get("api_key") or "")
-        # base_url 必须和主对话走同一个规范化(缺 path 补 /v1),否则 SDK 拼出
-        # https://api.deepseek.com/chat/completions 而主对话用 /v1/chat/completions
-        base = match.get("base_url") or ""
-        try:
-            from ..core.model_router import normalize_base_url
-            base = normalize_base_url(base)
-        except Exception:
-            pass
-        return _to_hkc_provider("generic"), key, base, model or match.get("model") or ""
+        key, base, custom_model = got
+        return _to_hkc_provider("generic"), key, base, model or custom_model
 
     if source == "preset" and name:
+        # 界面里配过的同名自定义项(更新的 key)优先,env 只作最后兜底
+        got = _read_custom_model(data_dir, name)
+        if got:
+            key, base, custom_model = got
+            return _to_hkc_provider("generic"), key, base, model or custom_model
         env_name = ""
         try:
             from ..core.model_router import PROVIDER_ENV
