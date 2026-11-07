@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Snowfoxclaw Deck · AI 指挥中枢</title>
-<link rel="stylesheet" href="./deck.css?v=5.32">
+<link rel="stylesheet" href="./deck.css?v=5.34">
 </head>
 <body>
 <div class="app">
@@ -13,7 +13,7 @@
   <div class="topbar">
     <div class="brand">
       <div class="logo">H</div>
-      <h1>Snowfoxclaw</h1><span class="ver">v5.32</span>
+      <h1>Snowfoxclaw</h1><span class="ver">v5.34</span>
     </div>
     <!-- Agent 卡片已精简:对话统一走输入框(主管自动分诊);保留「财务/地图/学习」三个有二级面板的入口,移到右侧 -->
     <div class="topright">
@@ -35,8 +35,24 @@
   <!-- 主体 -->
   <div class="body">
 
-    <!-- 左导航:OpenClaw 式垂直导航列表(点击 → 中央大屏显示对应视图)-->
+    <!-- 左导航:会话历史是主内容(新会话 → 会话列表),功能视图收进底部「菜单」按钮 -->
     <div class="nav">
+      <button class="ns-new" id="sessNew" title="开一个新会话(清空上下文)">
+        <span class="ns-plus">＋</span>新会话
+      </button>
+      <div class="ns-head">会话历史 <em id="nsCount">—</em></div>
+      <div class="ns-list" id="nsList"><div class="kp-empty">加载中…</div></div>
+      <button class="nav-menu-btn" id="navMenuBtn" aria-expanded="false" aria-controls="navMenu"
+              title="功能菜单:概览 / 工作台 / 能力 / 知识">
+        <span class="nm-ic"><svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg></span>
+        <b id="navMenuLabel">菜单</b>
+        <span class="nm-caret">▴</span>
+      </button>
+    </div>
+
+    <!-- 功能菜单浮层:原左栏导航整组搬到这里,分组(工作台/能力/知识)原样保留 -->
+    <div class="nav-menu" id="navMenu" aria-hidden="true">
+      <div class="nav-menu-head">功能 <span class="x" id="navMenuClose" title="关闭 (Esc)">✕</span></div>
       <nav class="nav-list" id="navList">
         <div class="nav-link on" data-module="overview" title="概览">
           <span class="ni"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span><b>概览</b>
@@ -66,11 +82,6 @@
           <span class="ni"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></span><b>记忆中心</b>
         </div>
       </nav>
-      <div class="nav-sessions">
-        <button class="ns-new" id="sessNew" title="开一个新会话(清空上下文)">
-          <span class="ns-plus">＋</span>新会话
-        </button>
-      </div>
     </div>
     <div class="nav-flyout" id="navFlyout"></div>
 
@@ -146,8 +157,6 @@
           <div class="ms"><b id="msShared">—</b><span>共享</span></div>
           <div class="ms"><b id="msRel">—</b><span>关系</span></div>
         </div>
-        <div class="mem-sub">会话历史</div>
-        <div class="pb info-list" id="sessList"><div class="kp-empty">加载中…</div></div>
       </div>
 
       <div class="panel" id="knowPanel">
@@ -305,7 +314,7 @@
   if(dt) dt.textContent = 'DIAG v5.37 @ ' + new Date().toTimeString().slice(0,8);
 })();
 </script>
-<script type="module" src="./deck/main.js?v=5.38"></script>
+<script type="module" src="./deck/main.js?v=5.41"></script>
 
 <!-- HKC 知识星球:点右上角「🌐 知识星球」→ 全屏弹出 HKC 原版整页(iframe /planet/)。首开懒加载,首页保持清爽。 -->
 <div class="planet-ov" id="planetOv" aria-hidden="true">

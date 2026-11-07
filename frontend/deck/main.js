@@ -154,7 +154,7 @@ const Center = {
     this.mode='home';
   }
 };
-function clearCore(){ Center.home(); }   // 兼容旧调用名(9 处)→ 统一走中枢
+function clearCore(){ Center.home(); _syncNav('overview'); }   // 兼容旧调用名(9 处)→ 统一走中枢
 async function showInCore(agent){
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
   // 打开中间栏面板前先关掉对话浮层(core-chat z5 会盖住 core-stage z3,否则点侧栏"像没反应")
@@ -970,24 +970,26 @@ function renderSessionThread(agent){
   Center.chat();
   body.scrollTop=body.scrollHeight;
 }
-/* 会话列表:渲染进右栏「记忆」面板下的 #sessList,用 .info-item 卡片样式与该栏一致。
+/* 会话列表:渲染进左栏 #nsList(会话历史是这个界面的主体内容)。
    每条 → openSession(id) 真实打开对应会话;✕ → 删除。 */
 async function loadSessions(){
-  const list=document.getElementById('sessList'); if(!list)return;
+  const list=document.getElementById('nsList'); if(!list)return;
+  const cnt=document.getElementById('nsCount');
   try{
     const d=await fetch(`${API}/sessions?limit=50`).then(r=>r.json());
     const ss=d.sessions||[];
+    if(cnt) cnt.textContent=ss.length||'0';
     if(!ss.length){ list.innerHTML='<div class="kp-empty">还没有会话 · 发一条消息即开始</div>'; return; }
     list.innerHTML=ss.map(s=>{
+      const title=s.title||'新会话';
       const when=s.updated_at?new Date(s.updated_at*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}):'';
-      return `<div class="info-item${s.id===_sessionId?' on':''}" data-sid="${escapeHtml(s.id)}">
-        <div class="it-h"><b>${escapeHtml(s.title||'新会话')}</b>
-          <span class="it-tag">${s.message_count||0} 条</span></div>
-        ${s.last?`<div class="it-sum">${escapeHtml(s.last)}</div>`:''}
-        <div class="it-meta">${escapeHtml(when)}</div>
-        <span class="it-del" data-del="${escapeHtml(s.id)}" title="删除会话">✕</span></div>`;
+      const meta=[when, s.message_count?`${s.message_count} 条`:''].filter(Boolean).join(' · ');
+      return `<div class="ns-item${s.id===_sessionId?' on':''}" data-sid="${escapeHtml(s.id)}" title="${escapeHtml(title)}">
+        <b>${escapeHtml(title)}</b>
+        <span>${escapeHtml(meta)}</span>
+        <span class="ns-del" data-del="${escapeHtml(s.id)}" title="删除会话">✕</span></div>`;
     }).join('');
-    list.querySelectorAll('.info-item').forEach(el=>{
+    list.querySelectorAll('.ns-item').forEach(el=>{
       el.onclick=(ev)=>{
         if(ev.target.dataset.del){ ev.stopPropagation(); delSession(ev.target.dataset.del); return; }
         openSession(el.dataset.sid);
@@ -1459,6 +1461,7 @@ async function showKnowledgeFull(){
   if(!wrap||!stage)return;
   document.getElementById('coreChat')?.classList.remove('show');   // 开面板前关对话浮层(否则被 z5 盖住)
   Center.panel();
+  _syncNav('knowledge');
   stage.innerHTML=`<div class="cs-head"><div class="t"><span class="dot"></span>知识库 <em>Knowledge</em></div><span class="x" id="csClose" title="返回">✕</span></div><div class="cs-body" id="csBody"><div class="kp-empty" style="padding:30px 0">加载中…</div></div>`;
   document.getElementById('csClose').onclick=clearCore;
   const body=document.getElementById('csBody');
@@ -1469,12 +1472,54 @@ async function showKnowledgeFull(){
     _renderKnowList(body, items, showKnowledgeFull);
   }catch(e){ body.innerHTML='<div class="kp-empty" style="padding:30px 0">后端未连接</div>'; }
 }
+/* 左栏「菜单」按钮:把原来平铺的八项功能收进一个分类菜单(浮层贴着按钮右侧展开)。
+   靠按钮的实时位置定位,不写死坐标 —— 窗口缩放 / 侧栏宽度变化都不会错位。 */
+const _navMenu=document.getElementById('navMenu');
+const _navMenuBtn=document.getElementById('navMenuBtn');
+function setNavMenu(open){
+  if(!_navMenu||!_navMenuBtn)return;
+  const show=open===undefined?!_navMenu.classList.contains('show'):open;
+  if(show){
+    const r=_navMenuBtn.getBoundingClientRect();
+    _navMenu.style.left=Math.round(r.right+10)+'px';
+    _navMenu.style.bottom=Math.round(Math.max(10,window.innerHeight-r.bottom))+'px';
+    _navMenu.classList.add('show'); _navMenu.setAttribute('aria-hidden','false');
+    _navMenuBtn.classList.add('open'); _navMenuBtn.setAttribute('aria-expanded','true');
+  }else{
+    _navMenu.classList.remove('show'); _navMenu.setAttribute('aria-hidden','true');
+    _navMenuBtn.classList.remove('open'); _navMenuBtn.setAttribute('aria-expanded','false');
+  }
+}
+_navMenuBtn?.addEventListener('click',e=>{ e.stopPropagation(); setNavMenu(); });
+document.getElementById('navMenuClose')?.addEventListener('click',()=>setNavMenu(false));
+document.addEventListener('click',e=>{
+  if(!_navMenu||!_navMenu.classList.contains('show'))return;
+  if(_navMenu.contains(e.target)||_navMenuBtn.contains(e.target))return;
+  setNavMenu(false);
+});
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') setNavMenu(false); });
+window.addEventListener('resize',()=>setNavMenu(false));
+
+/* 当前视图 → 菜单按钮文案 + 菜单内高亮(视图可能从菜单、右栏 ›、slash 命令等多处打开,
+   统一在这里同步,免得各处各写一份 active 状态) */
+function _syncNav(mod){
+  let name='';
+  document.querySelectorAll('#navList .nav-link').forEach(x=>{
+    const hit=x.dataset.module===mod;
+    x.classList.toggle('on',hit);
+    if(hit) name=x.querySelector('b')?.textContent||'';
+  });
+  const lbl=document.getElementById('navMenuLabel');
+  // 回显成「菜单 · 任务」:既保留"这是个菜单"的语义,又能一眼看出在哪一屏
+  if(lbl) lbl.textContent=(name&&mod!=='overview')?`菜单 · ${name}`:'菜单';
+}
+
 // 左栏导航:点击 → 中央大屏显示对应视图(overview 回核心;knowledge 走全屏知识视图)
-document.querySelectorAll('.nav-link').forEach(el=>{
+document.querySelectorAll('#navList .nav-link').forEach(el=>{
   el.addEventListener('click',()=>{
     const mod=el.dataset.module;
-    document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('on'));
-    el.classList.add('on');
+    _syncNav(mod);
+    setNavMenu(false);                                   // 选完就收起菜单,把屏幕还给内容
     if(mod==='overview') clearCore();
     else if(mod==='knowledge') showKnowledgeFull();
     else showModuleInCore(mod);
@@ -1487,6 +1532,7 @@ async function showModuleInCore(mod){
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
   document.getElementById('coreChat')?.classList.remove('show');   // 开面板前关对话浮层(否则被 z5 盖住)
   Center.panel();
+  _syncNav(mod);
   stage.innerHTML=`<div class="cs-head"><div class="t"><span class="dot"></span>${meta.title} <em>${meta.tag}</em></div>
     <span class="x" id="csClose" title="返回核心">✕</span></div>
     <div class="cs-body" id="csBody"><div class="kp-empty" style="padding:30px 0">加载中…</div></div>`;

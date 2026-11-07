@@ -118,11 +118,8 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
 .nav-link:active{transform:scale(.985)}
 .nav-link:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
-/* 左栏底部:只剩「＋新会话」按钮(会话列表已移到右栏记忆面板下) */
-.nav{gap:12px}
-.nav-list{flex:1;min-height:0;overflow:auto}
-.nav-sessions{display:flex;flex-direction:column;flex-shrink:0;
-  border-top:1px solid var(--line-soft);padding-top:10px}
+/* 左栏:会话历史为主体(新会话 → 会话列表 → 底部功能菜单按钮) */
+.nav{gap:10px}
 .ns-new{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;flex-shrink:0;
   font-family:var(--font);font-size:13px;font-weight:600;color:var(--accent);
   background:var(--accent-soft);border:0;border-radius:var(--r-sm);padding:10px 12px;
@@ -130,18 +127,56 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
 .ns-new .ns-plus{font-size:15px;line-height:1;font-weight:400}
 .ns-new:hover{background:rgba(10,132,255,.18)}
 .ns-new:active{transform:scale(.985)}
+.ns-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
+  font-size:10.5px;font-weight:700;letter-spacing:.09em;color:var(--faint);
+  text-transform:uppercase;padding:4px 2px 0;user-select:none}
+.ns-head em{font-style:normal;letter-spacing:.06em}
 .ns-list{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:3px}
 .ns-item{padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;
   transition:background .16s,color .16s;position:relative}
 .ns-item:hover{background:var(--surface-2)}
-.ns-item.on{background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.ns-item.on{background:var(--surface);
+  box-shadow:0 1px 3px rgba(0,0,0,.08),inset 0 0 0 1px rgba(10,132,255,.28)}
 .ns-item b{display:block;font-size:13px;font-weight:600;line-height:1.35;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px}
-.ns-item span{font-size:10.5px;color:var(--faint)}
+.ns-item span{display:block;font-size:10.5px;color:var(--faint);line-height:1.5;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:16px}
 .ns-item .ns-del{position:absolute;right:8px;top:8px;color:var(--faint);font-size:13px;
   opacity:0;transition:opacity .14s;padding:0 2px;line-height:1}
 .ns-item:hover .ns-del{opacity:1}
 .ns-item .ns-del:hover{color:var(--red)}
+
+/* 左栏底部:功能菜单按钮(把原来平铺的八项收进一个分类菜单) */
+.nav-menu-btn{display:flex;align-items:center;gap:9px;width:100%;flex-shrink:0;
+  font-family:var(--font);font-size:13px;font-weight:600;color:var(--dim);
+  background:var(--surface-2);border:0;border-radius:var(--r-sm);padding:10px 12px;
+  cursor:pointer;transition:background .16s,color .16s,transform .1s}
+.nav-menu-btn:hover{background:var(--surface);color:var(--ink)}
+.nav-menu-btn:active{transform:scale(.985)}
+.nav-menu-btn.open{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.nav-menu-btn.open .nm-ic{color:var(--accent)}
+.nav-menu-btn .nm-ic{width:17px;height:17px;flex-shrink:0;display:grid;place-items:center;color:currentColor}
+.nav-menu-btn .nm-ic svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+.nav-menu-btn b{flex:1;text-align:left;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-menu-btn .nm-caret{font-size:10px;color:var(--faint);transition:transform .18s}
+.nav-menu-btn.open .nm-caret{transform:rotate(180deg)}
+
+/* 功能菜单浮层(分类菜单:工作台 / 能力 / 知识) */
+.nav-menu{position:fixed;z-index:var(--z-menu);display:none;width:248px;max-height:72vh;overflow:auto;
+  padding:8px;border-radius:18px;background:var(--glass-strong);
+  backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);
+  border:1px solid var(--line-soft);box-shadow:var(--sh-pop)}
+.nav-menu.show{display:block;animation:rise .18s ease-out}
+.nav-menu-head{display:flex;align-items:center;justify-content:space-between;
+  padding:6px 10px 8px;font-size:10.5px;font-weight:700;letter-spacing:.09em;
+  color:var(--faint);text-transform:uppercase;user-select:none}
+.nav-menu-head .x{color:var(--faint);cursor:pointer;font-size:13px;line-height:1}
+.nav-menu-head .x:hover{color:var(--ink)}
+.nav-menu .nav-list{flex:none;overflow:visible}
+.nav-menu .nav-sec{padding:11px 10px 3px}
+.nav-menu .nav-link{min-height:38px;padding:8px 10px;font-size:13px}
+.nav-menu .nav-link.on{background:var(--accent-soft);box-shadow:none}
 
 .feed-box{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
 .feed-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 2px}
@@ -359,8 +394,9 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
 .panel>.pb{overflow:auto;flex:1}
 
 /* ═══ 右栏:记忆 + 知识 信息条 ═══ */
-#memPanel{flex:1 1 52%;min-height:0}
-#knowPanel{flex:1 1 48%;min-height:0}
+/* 会话历史搬到左栏后,记忆面板只剩四联统计 → 高度回到内容,剩余空间给知识库 */
+#memPanel{flex:0 0 auto}
+#knowPanel{flex:1 1 auto;min-height:0}
 /* 记忆四联统计 */
 .mem-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;flex-shrink:0}
 .mem-stats .ms{background:var(--surface);border-radius:var(--r-sm);padding:9px 4px;text-align:center;
@@ -376,10 +412,6 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
   transition:background .16s,border-color .16s,transform .1s}
 .ing-btn:hover{background:#fff;border-color:var(--line);box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .ing-btn:active{transform:scale(.97)}
-
-/* 记忆面板内的分节小标题(如"会话历史") */
-.mem-sub{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--faint);
-  text-transform:uppercase;padding:2px 2px 8px;flex-shrink:0}
 
 /* 信息条列表 */
 .info-list{display:flex;flex-direction:column;gap:7px}
@@ -815,7 +847,7 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
   .feed-track.rolling{animation:none!important}.feed-scroll{overflow:auto!important}
 }
 @media (prefers-reduced-transparency:reduce){
-  .topbar,.sm-btn,.sd-pop,.model-menu,.slash-menu,.tool-menu,.conn-panel,.core-chat,.core-stage,.reply-pop,.nav-flyout,.map-search input,.map-search-results,.planet-ov .close{
+  .topbar,.sm-btn,.sd-pop,.model-menu,.slash-menu,.tool-menu,.conn-panel,.core-chat,.core-stage,.reply-pop,.nav-flyout,.nav-menu,.map-search input,.map-search-results,.planet-ov .close{
     backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:#fff!important}
 }
 @media (prefers-contrast:more){
