@@ -42,7 +42,8 @@ em { font-style: normal; }
 }
 .col--mid { background: var(--veil-mid); }
 .col--right {
-  background: var(--veil-right);
+  /* 右栏是白的那一块,和中间的淡绿形成对比 */
+  background: var(--right-panel);
   transition: opacity 0.18s ease;
 }
 .workspace.is-collapsed .col--right { opacity: 0; pointer-events: none; }
