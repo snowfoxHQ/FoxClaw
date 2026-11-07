@@ -10,7 +10,7 @@ param(
 )
 $ErrorActionPreference = "Continue"
 
-$logDir = "C:\Users\snow\projects\Foxclaw\foxclaw_data"
+$logDir = Join-Path (Split-Path -Parent $PSScriptRoot) "foxclaw_data"
 $log    = if ($which -eq "err") { "$logDir\uvicorn.err.log" } else { "$logDir\uvicorn.log" }
 
 if (-not (Test-Path $log)) {
