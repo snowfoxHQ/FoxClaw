@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue'
 import { chat, retry } from '../stores/chat.js'
+import { mdToHTML } from '../lib/md.js'
 
 const box = ref(null)
 let stick = true
@@ -128,7 +129,12 @@ function canRetry(i) {
             </div>
           </div>
 
-          <p v-if="m.content" class="a-text">{{ m.content }}<span v-if="m.streaming" class="caret" /></p>
+          <div
+            v-if="m.content"
+            class="a-text"
+            :class="{ streaming: m.streaming }"
+            v-html="mdToHTML(m.content)"
+          />
           <p v-else-if="m.streaming" class="a-text waiting"><span class="dots">···</span></p>
 
           <div v-if="m.notice" class="notice">{{ m.notice }}</div>
@@ -207,16 +213,82 @@ function canRetry(i) {
 .a-head .live-tag { color: var(--green); font-size: 9.5px; }
 .a-time { margin-left: auto; font-family: var(--mono); }
 
+/* 正文由 lib/md.js 渲染成 HTML(见 v-html),所以子元素都是 :deep —— 
+   块级元素自己带 margin,这里整体压紧,避免气泡被撑得很松。 */
 .a-text {
   font-size: 13.5px; line-height: 1.8; color: var(--ink);
-  white-space: pre-wrap; word-break: break-word;
+  word-break: break-word;
+  /* 渲染出来的 HTML 里没有裸换行(段落内用 <br>),pre-wrap 只负责保住连续空格 ——
+     /帮助 之类的对齐文本原来靠它,去掉就会被折叠成单个空格。 */
+  white-space: pre-wrap;
 }
+.a-text :deep(pre),
+.a-text :deep(pre code) { white-space: pre; }
 .a-text.waiting { color: var(--faint); }
-.caret {
-  display: inline-block; width: 6px; height: 14px; margin-left: 2px;
+
+.a-text :deep(p) { margin: 0 0 8px; }
+.a-text :deep(p:last-child) { margin-bottom: 0; }
+.a-text :deep(h2),
+.a-text :deep(h3),
+.a-text :deep(h4),
+.a-text :deep(h5) {
+  font-family: var(--serif); color: var(--ink);
+  line-height: 1.5; margin: 14px 0 6px;
+}
+.a-text :deep(h2) { font-size: 16.5px; font-weight: 650; }
+.a-text :deep(h3) { font-size: 15px; font-weight: 650; }
+.a-text :deep(h4),
+.a-text :deep(h5) { font-size: 13.5px; font-weight: 650; }
+.a-text :deep(ul),
+.a-text :deep(ol) { margin: 0 0 8px; padding-left: 20px; }
+.a-text :deep(li) { margin-bottom: 3px; }
+.a-text :deep(li::marker) { color: var(--faint); }
+.a-text :deep(blockquote) {
+  margin: 0 0 8px; padding: 3px 10px;
+  border-left: 2px solid var(--line);
+  color: var(--dim);
+}
+.a-text :deep(hr) { margin: 12px 0; border: 0; border-top: 1px solid var(--line-soft); }
+.a-text :deep(strong) { font-weight: 650; color: var(--ink); }
+.a-text :deep(del) { color: var(--faint); }
+.a-text :deep(code) {
+  font-family: var(--mono); font-size: 12px;
+  padding: 1px 5px; border-radius: 4px;
+  background: rgba(26, 157, 95, 0.09); color: var(--green);
+  white-space: pre-wrap;
+}
+.a-text :deep(pre) {
+  margin: 8px 0; padding: 10px 12px;
+  background: #17211c; border-radius: var(--r-sm);
+  overflow-x: auto;
+}
+.a-text :deep(pre code) {
+  padding: 0; background: none;
+  color: #dfe9e2; font-size: 12px; line-height: 1.7;
+  white-space: pre;
+}
+.a-text :deep(table) {
+  display: block; overflow-x: auto;
+  border-collapse: collapse; margin: 8px 0;
+  font-size: 12.5px;
+}
+.a-text :deep(th),
+.a-text :deep(td) {
+  padding: 4px 9px; border-bottom: 1px solid var(--line-soft);
+  text-align: left; vertical-align: top;
+}
+.a-text :deep(th) { color: var(--dim); font-size: 11.5px; }
+.a-text :deep(a) { color: var(--green); border-bottom: 1px solid rgba(26, 157, 95, 0.3); }
+
+/* 流式光标挂在最后一个块级元素的末尾 —— 原来是一个 <span>,现在内容是 HTML 了,
+   放在外面会掉到下一行开头。 */
+.a-text.streaming > :last-child::after {
+  content: '';
+  display: inline-block; width: 6px; height: 13px; margin-left: 3px;
   vertical-align: -2px; background: var(--green);
   animation: blink 1s step-end infinite;
 }
+
 @keyframes blink { 50% { opacity: 0; } }
 .dots { animation: blink 1.2s step-end infinite; letter-spacing: 2px; }
 

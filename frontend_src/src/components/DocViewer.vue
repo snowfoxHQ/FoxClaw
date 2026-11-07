@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { mdToHTML } from '../lib/md.js'
 
 const props = defineProps({
   doc: { type: Object, required: true },
@@ -9,57 +10,9 @@ const lines = computed(() =>
   (props.doc.content || '').replace(/\n$/, '').split('\n')
 )
 
-/* 文字版正文:极简 Markdown → HTML。
-   技能 SKILL.md 与记忆摘要都带 # / ** / - / >,原样倒出来很难读。
-   为了能用 v-html 又不引入 XSS 面,先全量转义,再只把识别到的标记换成标签 ——
-   渲染出来的标签全部由这里生成,正文里的任何 < > 都已被转义成实体。 */
-const esc = (s) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-const inl = (s) =>
-  esc(s)
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-
-const readHTML = computed(() => {
-  const src = (props.doc.content || '').replace(/\n$/, '')
-  const out = []
-  let para = []
-  let list = null
-  const flushP = () => {
-    if (para.length) { out.push(`<p>${inl(para.join(' '))}</p>`); para = [] }
-  }
-  const flushL = () => {
-    if (list) { out.push(`<ul>${list.map((t) => `<li>${inl(t)}</li>`).join('')}</ul>`); list = null }
-  }
-  const flush = () => { flushP(); flushL() }
-
-  for (const raw of src.split('\n')) {
-    const line = raw.replace(/\s+$/, '')
-    if (!line.trim()) { flush(); continue }
-
-    const h = /^(#{1,6})\s+(.*)$/.exec(line)
-    if (h) {
-      flush()
-      const lv = Math.min(h[1].length + 2, 5) /* # → h3, #### → h5,不再往下掉 */
-      out.push(`<h${lv}>${inl(h[2])}</h${lv}>`)
-      continue
-    }
-    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { flush(); out.push('<hr />'); continue }
-
-    const li = /^\s*(?:[-*+]|\d+\.)\s+(.*)$/.exec(line)
-    if (li) { flushP(); (list = list || []).push(li[1]); continue }
-
-    const q = /^>\s?(.*)$/.exec(line)
-    if (q) { flush(); out.push(`<blockquote>${inl(q[1])}</blockquote>`); continue }
-
-    flushL()
-    para.push(line.trim())
-  }
-  flush()
-  return out.join('')
-})
+/* 文字版正文走 lib/md.js 的共用渲染器:技能 SKILL.md 与记忆摘要都带
+   # / ** / - / > / ```,这里原来自带一套只认前四样,代码块原样倒出来。 */
+const readHTML = computed(() => mdToHTML(props.doc.content))
 </script>
 
 <template>
@@ -188,4 +141,31 @@ const readHTML = computed(() => {
   background: rgba(26, 157, 95, 0.09); color: var(--green);
 }
 .read-body :deep(a) { color: var(--green); border-bottom: 1px solid rgba(26, 157, 95, 0.3); }
+.read-body :deep(ol) { margin: 0 0 15px; padding-left: 20px; }
+.read-body :deep(h2) {
+  font-family: var(--serif);
+  font-size: 20px; font-weight: 650; line-height: 1.5;
+  color: var(--ink);
+  margin: 26px 0 10px;
+}
+
+/* 代码块:md.js 现在真会把 ``` 渲染成 <pre><code>,以前是整段原样倒出来 */
+.read-body :deep(pre) {
+  margin: 0 0 15px; padding: 11px 13px;
+  background: var(--cli-bg); border-radius: var(--r-sm);
+  overflow-x: auto;
+}
+.read-body :deep(pre code) {
+  padding: 0; background: none; color: var(--cli-ink);
+  font-size: 12px; line-height: 1.72;
+}
+
+/* 表格 */
+.read-body :deep(table) { width: 100%; border-collapse: collapse; margin: 0 0 15px; }
+.read-body :deep(th),
+.read-body :deep(td) {
+  padding: 6px 10px; border-bottom: 1px solid var(--line-soft);
+  font-size: 13px; text-align: left; vertical-align: top;
+}
+.read-body :deep(th) { font-size: 11.5px; font-weight: 600; color: var(--dim); }
 </style>
