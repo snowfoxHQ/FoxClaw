@@ -118,7 +118,7 @@ def test_multimodal():
     from fastapi.testclient import TestClient
     from snowfoxclaw.api import app
     with TestClient(app) as c:
-        body = {"task": "看图说话", "agent_id": "assistant",
+        body = {"task": "看图说话", "agent_id": "supervisor",
                 "images": [{"media_type": "image/png", "data": "iVBORw0KGgo="},
                            {"media_type": "image/tiff", "data": "bad"},          # 类型不合法→被剔
                            {"media_type": "image/png", "data": "y" * (_MAX_IMG_B64 + 1)}]}  # 超大→被剔

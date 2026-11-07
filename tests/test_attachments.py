@@ -144,7 +144,7 @@ def test_chat_stream_with_attachments():
         sid = _api._os_instance.sessions.create()["id"]
         payload = {
             "task": "帮我总结要点",
-            "agent_id": "assistant",
+            "agent_id": "supervisor",
             "session_id": sid,
             "attachments": [{"name": att["name"], "size": att["size"], "mime": att["mime"],
                              "url": att["url"], "text": att["text"]}],

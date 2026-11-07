@@ -35,7 +35,7 @@ def test_chat_stream_emits_named_thinking_event():
     CognitiveAgent.stream_reply = _fake_stream
     try:
         with TestClient(app) as c:
-            resp = c.post("/api/chat/stream", json={"task": "hi", "agent_id": "assistant"})
+            resp = c.post("/api/chat/stream", json={"task": "hi", "agent_id": "supervisor"})
             assert resp.status_code == 200, resp.status_code
             body = resp.text
     finally:

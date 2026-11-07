@@ -26,7 +26,7 @@ trust_level: high
 | 否定词检测 | `is_negated`(统一原语);主管另有 `_is_meta` 判元问题 | `planning/planner.py`、`agents.py: _is_meta` |
 | 触发词匹配 | 候选的 triggers 命中(skill 侧)/ `ROUTING_KEYWORDS`(Agent 侧) | `planning/planner.py`、`agents.py` |
 | 选 skill(A 方案) | 管线内 `stage_route` 用 `skills.pipeline.route` 选主 skill 写 `ctx.route` | `pipeline/cognitive_pipeline.py: stage_route` |
-| 兜底 fallback | 无法归类 → 助手 Agent 兜底 | `agents.py: AssistantAgent` |
+| 兜底 fallback | 无法归类 → 主管自答(助手/行政已下放为 `general-assistant` / `schedule-itinerary` 技能) | `pipeline/supervisor_stages.py: sv_route / sv_dispatch` |
 | 实际分派 | 主管 `subagents[target].run_task()` | `agents.py: SupervisorAgent.run_task` |
 
 ## 关键差异

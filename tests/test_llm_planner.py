@@ -112,12 +112,12 @@ def test_llm_plan_parse():
         _plan_args("sequential", [
             {"name": "查支出", "agent": "finance", "depends_on": []},
             {"name": "定预算", "agent": "finance", "depends_on": [0]},
-            {"name": "发邮件", "agent": "assistant", "depends_on": [1]},
+            {"name": "发邮件", "agent": "office", "depends_on": [1]},
         ])]})
     out = llm_plan(r, "查支出再定预算再发邮件", _catalog())
     assert out["flow"] == "sequential"
     assert [s["name"] for s in out["steps"]] == ["查支出", "定预算", "发邮件"]
-    assert [s["agent"] for s in out["steps"]] == ["finance", "finance", "assistant"]
+    assert [s["agent"] for s in out["steps"]] == ["finance", "finance", "office"]
     assert out["steps"][1]["depends_on"] == [0]
 
     # 单步 → flow 强制 single
@@ -126,11 +126,11 @@ def test_llm_plan_parse():
     out2 = llm_plan(r2, "查天气", _catalog())
     assert out2["flow"] == "single" and len(out2["steps"]) == 1
 
-    # 非法 agent 兜底 assistant
+    # 非法 agent(含已下放的 assistant/admin)兜底 office
     r3 = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("single", [{"name": "x", "agent": "不存在的Agent"}])]})
     out3 = llm_plan(r3, "x", _catalog())
-    assert out3["steps"][0]["agent"] == "assistant"
+    assert out3["steps"][0]["agent"] == "office"
     print("  ✓ 解析 / 单步single / 非法agent兜底 正确")
 
 
@@ -138,7 +138,7 @@ def test_supervisor_llm_plan():
     print("\n【5】SupervisorAgent._llm_plan:开关 + 路由链路")
     from snowfoxclaw.agents.agents import SupervisorAgent
     D = type("D", (), {"AGENT_NAME": "dummy"})
-    sub = {"finance": D(), "office": D(), "admin": D(), "assistant": D()}
+    sub = {"finance": D(), "office": D()}
 
     # 未开启 → None
     os.environ.pop("SNOWFOXCLAW_LLM_PLAN", None)
@@ -153,13 +153,13 @@ def test_supervisor_llm_plan():
     a2.router = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [
             {"name": "查支出", "agent": "finance"},
-            {"name": "发邮件", "agent": "assistant"},
+            {"name": "发邮件", "agent": "office"},
         ])]})
     a2._subagents = sub
     plan, routes = a2._llm_plan("查支出再发邮件")
     assert plan is not None and plan.flow_type == "sequential"
     assert len(plan.tasks) == 2
-    assert routes == [("查支出", "finance"), ("发邮件", "assistant")]
+    assert routes == [("查支出", "finance"), ("发邮件", "office")]
 
     # 单步 → None(交回关键词路由,不改变单步行为)
     a3 = SupervisorAgent.__new__(SupervisorAgent)
@@ -191,15 +191,15 @@ def test_replan_enabled_switch():
 def test_llm_replan_parse():
     print("\n【7】llm_replan:修正计划 + 空 steps 放弃 + fail-safe")
     prior = [{"subtask": "查支出", "agent": "finance", "output": "超时", "blocked": True},
-             {"subtask": "发邮件", "agent": "assistant", "output": "未执行", "blocked": False}]
+             {"subtask": "发邮件", "agent": "office", "output": "未执行", "blocked": False}]
     # 正常:换 agent 重排失败步骤
     r = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [
             {"name": "查支出(重试)", "agent": "finance"},
-            {"name": "发邮件", "agent": "assistant"},
+            {"name": "发邮件", "agent": "office"},
         ])]})
     out = llm_replan(r, "查支出再发邮件", prior, _catalog())
-    assert out is not None and [s["agent"] for s in out["steps"]] == ["finance", "assistant"]
+    assert out is not None and [s["agent"] for s in out["steps"]] == ["finance", "office"]
     # 空 steps = 模型判定放弃 → 返回 {"steps": []} 而非 None
     r2 = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [])]})
@@ -233,13 +233,13 @@ def test_replan_and_redo():
     from snowfoxclaw.agents.agents import SupervisorAgent
     os.environ["SNOWFOXCLAW_LLM_REPLAN"] = "1"
     D = type("D", (), {"AGENT_NAME": "dummy"})
-    sub = {"finance": D(), "office": D(), "admin": D(), "assistant": D()}
+    sub = {"finance": D(), "office": D()}
 
     # 反思时返回修正计划(重试失败步骤)
     router = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [
             {"name": "查支出(重试)", "agent": "finance"},
-            {"name": "发邮件", "agent": "assistant"},
+            {"name": "发邮件", "agent": "office"},
         ])]})
     a = SupervisorAgent.__new__(SupervisorAgent)
     a.router = router

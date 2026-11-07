@@ -337,10 +337,8 @@ html,body{height:100%;width:100%;background:var(--void);color:var(--txt);font-fa
   <div class="console">
     <div class="flow-viz" id="flowViz">
       <div class="flow-node" data-flow="supervisor" title="主管">🏢</div><span class="flow-arrow">›</span>
-      <div class="flow-node" data-flow="assistant" title="助手">🤝</div><span class="flow-arrow">›</span>
       <div class="flow-node" data-flow="finance" title="财务">💰</div><span class="flow-arrow">›</span>
-      <div class="flow-node" data-flow="admin" title="行政">📅</div><span class="flow-arrow">›</span>
-      <div class="flow-node" data-flow="office" title="办公">📚</div>
+      <div class="flow-node" data-flow="office" title="办公学习 · 日程">📚</div>
     </div>
     <div class="cmd-divider"></div>
     <div class="console-input-wrap">
@@ -354,8 +352,8 @@ html,body{height:100%;width:100%;background:var(--void);color:var(--txt);font-fa
       <input class="console-input" id="consoleInput" placeholder="下达指令... 主管 Agent 将自动调度" onkeydown="handleKey(event)">
     </div>
     <select class="agent-target" id="agentTarget">
-      <option value="supervisor">◈ 主管</option><option value="assistant">◈ 助手</option>
-      <option value="finance">◈ 财务</option><option value="admin">◈ 行政</option><option value="office">◈ 办公</option>
+      <option value="supervisor">◈ 主管</option>
+      <option value="finance">◈ 财务</option><option value="office">◈ 办公学习</option>
     </select>
     <button class="transmit-btn" id="transmitBtn" onclick="transmit()"><span>传输</span> ❯❯</button>
   </div>
@@ -383,11 +381,9 @@ const _origin = (location.protocol === 'http:' || location.protocol === 'https:'
 const API = _origin + '/api';
 const WS  = (_origin.replace(/^http/, 'ws')) + '/ws/harness';
 const AGENTS=[
-  {id:'supervisor',name:'主管',code:'SUPERVISOR',role:'全局协调',emoji:'🏢',color:'#1de9ff',tasks:0},
-  {id:'assistant', name:'助手',code:'ASSISTANT', role:'日常协助',emoji:'🤝',color:'#4d9fff',tasks:0},
-  {id:'finance',   name:'财务',code:'FINANCE',   role:'财务管理',emoji:'💰',color:'#ffb347',tasks:0},
-  {id:'admin',     name:'行政',code:'OPS',       role:'行程任务',emoji:'📅',color:'#ff5e9c',tasks:0},
-  {id:'office',    name:'办公',code:'KNOWLEDGE', role:'知识学习',emoji:'📚',color:'#1dffa6',tasks:0},
+  {id:'supervisor',name:'主管',code:'SUPERVISOR',role:'全局统筹',emoji:'🏢',color:'#1de9ff',tasks:0},
+  {id:'finance',   name:'财务',code:'FINANCE',   role:'财务专业',emoji:'💰',color:'#ffb347',tasks:0},
+  {id:'office',    name:'办公学习',code:'OFFICE', role:'办公·学习·日程',emoji:'📚',color:'#1dffa6',tasks:0},
 ];
 const AG=id=>AGENTS.find(a=>a.id===id);
 let activeAgent='supervisor',editMode=false,online=false,ws=null,taskSeq=0;

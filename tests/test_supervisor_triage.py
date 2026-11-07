@@ -74,14 +74,14 @@ def main():
     check(d2 == "finance", f"命中'预算' → 直接 finance(实为 {d2})")
     check(not any(CLASSIFY_MARK in c for c in calls), "关键词命中时不发出分诊 prompt")
 
-    print("\n【3】stub + 关键词未命中 → 派发兜底(离线确定性)")
+    print("\n【3】stub + 关键词未命中 → 主管自处理(离线确定性)")
     os_.router.provider = "stub"
     os_.router._client = None
     calls.clear()
     r3 = asyncio.run(os_.supervisor.run_task("解释一下什么是航天器"))   # 无关键词
     check(os_.router.is_stub is True, "router 回到 stub")
     d3 = r3["result"].get("dispatched_to")
-    check(d3 == "assistant", f"stub 下未命中 → 兜底派发 assistant(实为 {d3})")
+    check(d3 == "supervisor", f"stub 下未命中 → 主管自身处理(实为 {d3})")
     check(not r3["result"].get("self_answered"), "stub 下走派发路径,而非主管自答")
     check(not any(CLASSIFY_MARK in c for c in calls), "stub 下不发出分诊 prompt")
 

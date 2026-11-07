@@ -32,8 +32,9 @@ async def main():
     routing_cases = [
         ("分析本月家庭支出预算", "finance"),
         ("学习一篇关于 RAG 的论文", "office"),
-        ("安排周三下午的项目会议", "admin"),
-        ("帮我整理今天的邮件要点", "assistant"),
+        # 行政并入办公(日程/会议走 office);"整理邮件"不再有助手 Agent,归办公
+        ("安排周三下午的项目会议", "office"),
+        ("帮我整理今天的邮件要点", "office"),
     ]
     bad_routes = []
     for task, expected in routing_cases:
@@ -60,7 +61,7 @@ async def main():
     # 3. 共享记忆:其他 Agent 能召回主管的调度记录
     print("\n【3】共享记忆层(所有 Agent 可见)")
     empty_shared = []
-    for viewer in ["office", "admin", "assistant"]:
+    for viewer in ["office", "finance", "supervisor"]:
         shared = os_.hmr.recall(query="支出 预算 投资", agent_id=viewer, top_k=5)
         shared_hits = [m for m in shared if m.get("shared")]
         if not shared_hits:

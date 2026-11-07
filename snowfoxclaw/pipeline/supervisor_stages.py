@@ -30,11 +30,10 @@ async def sv_meta_check(ctx: PipelineContext) -> None:
         node_type="decision", conf=0.92,
     )
     subagents = getattr(agent, "_subagents", {})
+    # 拓扑 5 → 3:助手/行政已下放为指令技能,不再出现在团队介绍里。
     sub_names = {
         "finance": "财务 Agent(理财、收支、预算、风控)",
-        "admin": "行政 Agent(日程、行程、出差、地图规划)",
-        "office": "办公 Agent(学习、知识管理、研究、写作)",
-        "assistant": "助手 Agent(通用任务、整理、沟通协助)",
+        "office": "办公学习 Agent(学习、知识管理、研究、写作、日程与行程)",
     }
     available = [v for k, v in sub_names.items() if k in subagents]
     team = "\n".join(f"· {x}" for x in available) if available else "(子 Agent 尚未注册)"

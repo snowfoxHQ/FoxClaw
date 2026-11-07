@@ -23,7 +23,7 @@ def test_metrics():
     with TestClient(app) as c:
         # 产生一些请求 + 一次任务(触发 LLM 埋点,stub)
         c.get("/api/status"); c.get("/api/ahs/skills"); c.get("/health")
-        c.post("/api/task", json={"task": "测试", "agent_id": "assistant"})
+        c.post("/api/task", json={"task": "测试", "agent_id": "supervisor"})
 
         # [1] 深度健康:逐子系统(开放路径,探针无需鉴权;不泄露 provider 名)
         hd = c.get("/health/ready")

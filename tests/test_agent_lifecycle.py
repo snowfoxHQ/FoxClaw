@@ -16,12 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from snowfoxclaw.agents.base import CognitiveAgent, HarnessBlockedError
 from snowfoxclaw.agents.agents import (
-    FinanceAgent, AdminAgent, OfficeAgent, AssistantAgent, SupervisorAgent)
+    FinanceAgent, OfficeAgent, SupervisorAgent)
 
 
 def test_structural_convergence():
     print("\n【1】结构收敛:全部 Agent 复用模板 run_task(主管经 P1-1 pipeline 化收敛)")
-    for A in (FinanceAgent, AdminAgent, OfficeAgent, AssistantAgent):
+    for A in (FinanceAgent, OfficeAgent):
         assert A.run_task is CognitiveAgent.run_task, f"{A.__name__} 不应重写 run_task"
         assert A._execute is not CognitiveAgent._execute, f"{A.__name__} 应实现 _execute"
     # 【P1-1】主管也不再重写 run_task:路由分发拆成 SUPERVISOR_STAGES 七个 pipeline
@@ -40,11 +40,11 @@ def test_domain_hooks():
     # 钩子是纯函数,可脱离实例校验(lambda(self,task))
     assert FinanceAgent._task_entities(None, "x") == ["财务", "收支", "储蓄"]
     assert FinanceAgent._recall_query(None, "买车") == "财务 买车"
-    assert AdminAgent._recall_query(None, "开会") == "行程 日程 开会"
-    assert AdminAgent._task_entities(None, "x") == ["日历", "行程", "会议"]
-    assert OfficeAgent._task_entities(None, "x") == ["学习", "知识", "文档"]
-    assert OfficeAgent._recall_topk == 8, "办公 Agent 覆盖为广泛召回 8"
-    assert AssistantAgent._recall_topk == 5 and CognitiveAgent._recall_topk == 5
+    # 行政并入办公:同一 Agent 同时覆盖学习 + 日程两个域
+    assert OfficeAgent._recall_query(None, "开会") == "学习 知识 日程 行程 开会"
+    assert OfficeAgent._task_entities(None, "x") == ["学习", "知识", "文档", "日程", "行程", "会议"]
+    assert OfficeAgent._recall_topk == 8, "办公学习 Agent 覆盖为广泛召回 8"
+    assert CognitiveAgent._recall_topk == 5, "基类默认仍是 5"
     print("  ✓ finance/admin/office 的 entities、recall 前缀、top_k 均按覆盖生效")
 
 
@@ -115,7 +115,9 @@ def test_run_task_stream():
     try:
         from snowfoxclaw import Snowfoxclaw
         os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
-        ag = os_.assistant
+        # 单 Agent 认知管线(7 stage)用领域 Agent 验证:主管走的是 meta/schedule/dispatch
+        # 另一条管线,不能拿它当"标准 stage 序列"的样本。
+        ag = os_.office
         ag.router.provider = "stub"  # 强制 stub(is_stub = provider=='stub'):离线确定性(不受本机
                                      # 是否配了 LLM key 影响),且 stub 的 router.stream 走 _chunk_text
                                      # 无损分块 → 可断言"流式 token 拼接 == 最终答案"
@@ -183,7 +185,7 @@ def test_interrupted_task_not_sunk():
         import threading as _th
         from snowfoxclaw import Snowfoxclaw
         os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
-        ag = os_.assistant
+        ag = os_.supervisor
         ag.router.provider = "stub"
         captured = {}
         orig = ag._emit_execution
@@ -218,7 +220,7 @@ def test_reasoning_lifecycle_hooks():
     try:
         from snowfoxclaw import Snowfoxclaw
         os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
-        ag = os_.assistant
+        ag = os_.office          # 单 Agent 认知管线(见上一条注释)
         ag.router.provider = "stub"
         seen = {}
         def _cap_complete(system, messages, max_tokens, agent_id):
@@ -272,7 +274,7 @@ def test_preference_priority_recall():
     try:
         from snowfoxclaw import Snowfoxclaw
         os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
-        ag = os_.assistant
+        ag = os_.office          # 单 Agent 认知管线(见上一条注释)
         ag.router.provider = "stub"
         seen = {}
         def _cap(system, messages, max_tokens, agent_id):
@@ -281,7 +283,7 @@ def test_preference_priority_recall():
 
         # (a) 明确偏好表达 → 存成带 preference tag(shared)
         asyncio.run(ag.run_task("我喜欢简洁直接的回答，不要长篇大论"))
-        prefs = ag.hmr.recall_by_tag(agent_id="assistant", tag="preference", limit=8)
+        prefs = ag.hmr.recall_by_tag(agent_id="supervisor", tag="preference", limit=8)
         assert any("简洁" in p.get("content", "") for p in prefs), f"偏好应带 preference tag 存下,实得 {prefs}"
 
         # (b) 发**语义完全不相关**的任务 → 偏好仍注入 prompt(纯语义召回此时召不到)

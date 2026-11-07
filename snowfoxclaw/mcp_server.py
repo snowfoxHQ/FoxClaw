@@ -105,7 +105,7 @@ def build_snowfoxclaw_mcp(os_getter, expose_agents: bool = False) -> FastMCP:
             hmr = getattr(os_getter(), "hmr", None)
             if hmr is None:
                 return []
-            res = hmr.recall(query=_clean_query(query), agent_id="assistant", top_k=_clamp_top_k(top_k))
+            res = hmr.recall(query=_clean_query(query), agent_id="supervisor", top_k=_clamp_top_k(top_k))
             return [{"id": r.get("id", ""), "content": r.get("content", ""),
                      "type": r.get("type", "")} for r in (res or [])]
         except Exception:

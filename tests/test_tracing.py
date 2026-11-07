@@ -87,7 +87,8 @@ def test_tracing():
 
     with TestClient(app) as c:
         # [7] 数据面请求 → 带 X-Trace-Id + 可查详情;链路里能看到 LLM span
-        r = c.post("/api/task", json={"task": "追踪自测", "agent_id": "assistant"})
+        #     (用 office:主管走路由管线,不经过 act/verify,埋点覆盖要用领域 Agent 验)
+        r = c.post("/api/task", json={"task": "追踪自测", "agent_id": "office"})
         assert r.status_code == 200, r.status_code
         tid = r.headers.get("X-Trace-Id")
         assert tid, "响应应带 X-Trace-Id"
@@ -193,11 +194,11 @@ def test_tracing():
 
     # [17] 入站接链:带 traceparent 的请求应**复用**其 trace_id(两边链路对齐)
     with TestClient(app) as c:
-        r = c.post("/api/task", json={"task": "接链自测", "agent_id": "assistant"},
+        r = c.post("/api/task", json={"task": "接链自测", "agent_id": "supervisor"},
                    headers={"traceparent": good})
         assert r.headers.get("X-Trace-Id") == "4bf92f3577b34da6a3ce929d0e0e4736", r.headers.get("X-Trace-Id")
         # 非法 traceparent → 不采信,自开一条
-        r2 = c.post("/api/task", json={"task": "非法头", "agent_id": "assistant"},
+        r2 = c.post("/api/task", json={"task": "非法头", "agent_id": "supervisor"},
                     headers={"traceparent": "garbage"})
         assert r2.headers.get("X-Trace-Id") and r2.headers["X-Trace-Id"] != "garbage"
     print("[17] 入站接链(合法 traceparent 复用其 trace_id;非法则自开)OK")

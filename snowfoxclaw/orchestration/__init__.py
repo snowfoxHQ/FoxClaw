@@ -85,9 +85,17 @@ class Orchestrator:
                 continue
             if not s:
                 continue
-            domain = s.get("domain")
-            if domain and hasattr(sit, domain):     # finance/learning/itinerary
-                setattr(sit, domain, s.get("status", {}) or {})
+            # 一个 Agent 可以自报**多个**领域(拓扑 5→3 后,办公学习 Agent 同时覆盖
+            # learning 与 itinerary),故 `domains: {name: status}` 与旧的单 `domain` 都收。
+            doms = s.get("domains")
+            if isinstance(doms, dict) and doms:
+                for d, st in doms.items():
+                    if d and hasattr(sit, d):       # finance/learning/itinerary
+                        setattr(sit, d, st or {})
+            else:
+                domain = s.get("domain")
+                if domain and hasattr(sit, domain):
+                    setattr(sit, domain, s.get("status", {}) or {})
             alerts += s.get("alerts", []) or []
         sit.alerts = sorted(alerts,
                             key=lambda a: {"critical": 0, "warn": 1, "info": 2}

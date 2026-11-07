@@ -77,13 +77,13 @@ async def get_recent_memories(limit: int = 20):
 @app.get("/api/preferences")
 async def list_preferences():
     """列出已记住的用户偏好(供查看/清理误存)。偏好是 shared,任一 Agent 视角一致,
-    这里用 assistant 取全量。返回 [{id, content, ...}]。"""
-    ag = _api._os_instance.assistant
+    这里用主管取全量(偏好是 shared,任一 Agent 视角一致)。返回 [{id, content, ...}]。"""
+    ag = _api._os_instance.supervisor
     return {"preferences": ag.list_preferences()}
 
 
 @app.delete("/api/preferences/{pref_id}")
 async def delete_preference(pref_id: str):
     """删一条误存的用户偏好(F3:防误报偏好持久注入污染)。返回 {ok}。"""
-    ag = _api._os_instance.assistant
+    ag = _api._os_instance.supervisor
     return {"ok": ag.delete_preference(pref_id)}

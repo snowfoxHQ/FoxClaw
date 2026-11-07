@@ -82,11 +82,11 @@ def main():
     check(r["plan"].get("multi_step") is False, "单步任务 plan.multi_step=False")
     check(res.get("blocked") is False, "正常分发 blocked=False")
 
-    print("\n【4】stub 兜底:无关键词命中 + stub → 派发 assistant(不经自答)")
+    print("\n【4】stub 兜底:无关键词命中 + stub → 主管自处理(助手已下放为技能)")
     r = asyncio.run(sup.run_task("解释一下什么是航天器"))
     res = r["result"]
-    check(res.get("dispatched_to") == "assistant" and not res.get("self_answered"),
-          f"stub 下未命中 → 兜底派发 assistant(实为 {res.get('dispatched_to')})")
+    check(res.get("dispatched_to") == "supervisor" and not res.get("self_answered"),
+          f"stub 下未命中 → 主管自身处理(实为 {res.get('dispatched_to')})")
 
     print("\n【5】统一 execution.completed(文稿 Step 4)")
     spine = os_.event_spine

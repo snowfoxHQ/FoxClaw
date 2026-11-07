@@ -1,6 +1,6 @@
 # Snowfoxclaw · Cognitive Agent Operating System
 
-A **cognitive agent OS** built on the HMR memory runtime: five collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
+A **cognitive agent OS** built on the HMR memory runtime: three collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
 
 ```
 Traditional frameworks:  memory = storage,           agents = stateless execution
@@ -16,15 +16,15 @@ Snowfoxclaw is not "yet another agent framework" but an operating system for age
 - **Evolution** — every harness truncation teaches the policy; the system gets sharper with use
 - **Runtime governance** — idempotency, crash recovery, loop detection, etc., keeping the system reliable under real-world operation
 
-Five agents: Supervisor (coordination), Assistant (general), Finance, Admin (itinerary), Office (learning). Each has isolated memory and policy evolution, mounts external ecosystems via the Skill layer, and connects to mainstream messaging platforms via the channel layer.
+Three agents: Supervisor (coordination), Finance, Office (learning + itinerary). Each has isolated memory and policy evolution, mounts external ecosystems via the Skill layer, and connects to mainstream messaging platforms via the channel layer. The former Assistant and Admin responsibilities are now **instruction skills** (`skills/general-assistant`, `skills/schedule-itinerary`) mounted on demand, not separate agents.
 
 ## Domain kernels
 
-Finance / Office / Admin each mount an isomorphic kernel (pure-algorithm layer + external tool interface + gatekeeper):
+Finance / Office each mount an isomorphic kernel (pure-algorithm layer + external tool interface + gatekeeper):
 
 - **Finance** — budget reasoning, MAD anomaly detection, cash-flow forecast; gatekeeper with four permissions, emits approval requests rather than moving money. **Advanced trio**: structured evidence chains (explainable risk), financial data graph (trace who caused an overspend), reconciliation (3-tier matching + suspicious-charge detection).
 - **Office** — SM-2 spaced repetition (mastery + forgetting risk) + knowledge graph (cluster discovery).
-- **Admin** — TSP routing, reachability ("won't make it") detection, time conflicts, geo-clustering; integrates Amap.
+- **Office · itinerary** — TSP routing, reachability ("won't make it") detection, time conflicts, geo-clustering; integrates Amap.
 
 ## Messaging platforms
 

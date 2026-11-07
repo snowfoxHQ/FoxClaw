@@ -41,7 +41,7 @@ class ItineraryRuntime:
             try:
                 self.hmr.ingest(content=f"行程:{name} @ {address or wp.coord_str} "
                                         f"{start_time or ''}",
-                                type="task", agent_id="admin",
+                                type="task", agent_id="office",
                                 title=f"行程_{name}", tags=["itinerary"])
             except Exception:
                 pass

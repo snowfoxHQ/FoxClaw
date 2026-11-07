@@ -34,10 +34,10 @@ def test_structural_decoupling():
 
 def test_domain_logic_in_agents():
     print("\n【2】领域逻辑归属 Agent(situation / handle_cross_request)")
-    from snowfoxclaw.agents.agents import FinanceAgent, AdminAgent, OfficeAgent
+    from snowfoxclaw.agents.agents import FinanceAgent, OfficeAgent
     from snowfoxclaw.agents.base import CognitiveAgent
     assert FinanceAgent.handle_cross_request is not CognitiveAgent.handle_cross_request
-    assert AdminAgent.handle_cross_request is not CognitiveAgent.handle_cross_request
+    assert OfficeAgent.handle_cross_request is not CognitiveAgent.handle_cross_request
     assert FinanceAgent.situation is not CognitiveAgent.situation
     assert OfficeAgent.situation is not CognitiveAgent.situation
     print("  ✓ finance/admin 覆盖 handle_cross_request;finance/admin/office 覆盖 situation")

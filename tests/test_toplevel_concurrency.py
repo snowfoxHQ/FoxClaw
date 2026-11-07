@@ -91,13 +91,13 @@ def test_supervisor_concurrent(os_):
     async def run():
         return await asyncio.gather(
             sup.run_task("分析本月理财预算"),      # → finance
-            sup.run_task("总结这篇论文的要点"),    # → office
-            sup.run_task("安排明天的会议日程"),    # → admin
+            sup.run_task("总结这篇论文的要点"),    # → office(学习)
+            sup.run_task("你能做什么"),            # 元问题 → supervisor 自答
         )
     res = asyncio.run(run())
     routed = [r["result"].get("dispatched_to") for r in res]
     sids = [r["session_id"] for r in res]
-    check(routed == ["finance", "office", "admin"], f"三个并发任务分诊各就各位: {routed}")
+    check(routed == ["finance", "office", "supervisor"], f"三个并发任务分诊各就各位: {routed}")
     check(len(set(sids)) == 3, "三个任务会话 id 互不相同(未串会话)")
 
 

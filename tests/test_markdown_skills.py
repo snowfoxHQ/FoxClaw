@@ -49,7 +49,7 @@ def test_markdown_skills():
     from snowfoxclaw import Snowfoxclaw
     os2 = Snowfoxclaw(data_dir=_DATA)
     assert os2.md_skills.get(sid) is not None, "重启后指令技能丢失(持久化)"
-    ag = os2.assistant
+    ag = os2.supervisor
     out = ag._skill_augment("帮我写周报", [{"role": "user", "content": "帮我写周报"}])
     assert "先列本周成果" in out[-1]["content"] and "帮我写周报" in out[-1]["content"]
     assert sum(1 for i in range(len(out) - 1) if out[i]["role"] == out[i + 1]["role"] == "user") == 0  # 无连续 user

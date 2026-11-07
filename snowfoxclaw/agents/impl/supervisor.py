@@ -21,7 +21,7 @@ class SupervisorAgent(CognitiveAgent):
 
 你的核心职责：
 1. 理解用户的整体目标，将复杂任务分解为子任务
-2. 根据任务性质，决定分配给哪个子 Agent（财务/行政/办公）
+2. 根据任务性质，决定分配给哪个子 Agent（财务 / 办公学习）
 3. 整合各 Agent 的返回结果，向用户呈现统一的答案
 4. 维护全局状态，感知各 Agent 的工作进展
 
@@ -87,20 +87,21 @@ class SupervisorAgent(CognitiveAgent):
         )
         return result.to_dict()
 
-    # 路由关键词表:无 LLM 时也能基于关键词分发
+    # 路由关键词表:无 LLM 时也能基于关键词分发。
+    # 拓扑 5 → 3 后:原行政(日程/行程)关键词并入办公;"助手"那组(整理/汇总/沟通)
+    # 不再有归属 —— 它们正是主管自己该干的兜底活,未命中 → 主管自答。
     ROUTING_KEYWORDS = {
         "finance": ["收支", "支出", "预算", "理财", "投资", "储蓄", "财务", "消费", "报销", "账"],
-        "admin":   ["日程", "行程", "会议", "安排", "提醒", "出差", "预约", "日历", "计划表"],
-        "office":  ["学习", "论文", "知识", "总结", "研究", "文档", "写作", "资料", "搜索", "查"],
-        "assistant": ["整理", "汇总", "邮件", "协助", "沟通", "联系"],
+        "office":  ["学习", "论文", "知识", "总结", "研究", "文档", "写作", "资料", "搜索", "查",
+                    "日程", "行程", "会议", "出差", "预约", "日历", "计划表", "提醒",
+                    # 原助手的"整理/汇总/邮件"归办公:那是内容活,主管只兜底通用与协调
+                    "整理", "汇总", "邮件", "纪要"],
     }
 
     # 子 Agent 职责描述(P0-1 LLM 规划用):喂给 submit_plan 工具做 agent 枚举约束
     SUBAGENT_DESC = {
         "finance": "财务 Agent：理财、收支、预算、风控、对账",
-        "admin": "行政 Agent：日程、行程、出差、地图规划",
-        "office": "办公 Agent：学习、知识管理、研究、写作",
-        "assistant": "助手 Agent：通用任务、整理、沟通协助",
+        "office": "办公学习 Agent：学习、知识管理、研究、写作、日程与行程安排",
     }
 
     # 元问题关键词:这类"系统级/自我介绍"问题由主管自己回答,不分派
@@ -122,7 +123,7 @@ class SupervisorAgent(CognitiveAgent):
         综合决策:关键词命中(主)+ 调度意图(辅)。
         - 关键词明确命中 → 直接采用(领域词最可靠)
         - 关键词不明 + 调度意图为 memory/reasoning → 倾向 office(知识/研究)
-        - 都不明 → 助手兜底
+        - 都不明 → "supervisor"(主管自答;助手已下放为技能,不再有兜底 Agent)
         """
         # 关键词命中计数走统一原语(negation=False,与原计数逐字一致)
         scores = {aid: P.keyword_hits(task, kws)
@@ -135,9 +136,19 @@ class SupervisorAgent(CognitiveAgent):
             intent = getattr(getattr(sched, "intent", None), "category", None)
             if intent in ("reasoning", "memory"):
                 return "office"     # 推理/记忆类 → 知识研究 Agent
-            if intent == "workflow":
-                return "assistant"  # 工作流类 → 助手统筹
-        return "assistant"          # 无明确归属 → 助手兜底
+        # 无明确归属 → 主管自答(dispatch 见 target 不在 subagents 即走 _dispatch_fallback)
+        return "supervisor"
+
+    def _coerce_agent(self, ag: str, subtask: str, subagents: dict) -> str:
+        """把 planner 给出的未知 agent 名收敛到一个真实存在的子 Agent。
+
+        拓扑收缩后旧名字(assistant/admin)可能仍出现在 LLM 的计划里 —— 直接按子任务重新
+        分诊一次;仍不命中就交给"办公学习"(通用性最强),绝不留一个 `subagents[ag]` 会
+        KeyError 的名字。"""
+        re_routed = self._route(subtask)
+        if re_routed in subagents:
+            return re_routed
+        return "office" if "office" in subagents else next(iter(subagents), "")
 
     def _has_keyword_hit(self, task: str) -> bool:
         """任务是否命中任一领域关键词(命中 = 关键词路由可信,不必再问 LLM)。"""
@@ -297,7 +308,7 @@ class SupervisorAgent(CognitiveAgent):
         any_blocked = False
         for idx, (subtask, ag) in enumerate(step_routes, 1):
             if ag not in subagents:
-                ag = "assistant"
+                ag = self._coerce_agent(ag, subtask, subagents)
             proc = pm.create(subtask, agent_id=ag, schedule=sched.to_dict()) if pm else None
             self._think(
                 content=f"多步执行 第{idx}步:「{subtask}」→ {ag}",
@@ -401,7 +412,7 @@ class SupervisorAgent(CognitiveAgent):
         groups: dict[str, list] = {}
         for idx, (subtask, ag) in enumerate(step_routes):
             if ag not in subagents:
-                ag = "assistant"
+                ag = self._coerce_agent(ag, subtask, subagents)
             groups.setdefault(ag, []).append((idx, subtask))
 
         async def run_group(ag, items):

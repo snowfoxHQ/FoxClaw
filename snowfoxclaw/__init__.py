@@ -1,6 +1,6 @@
 """
 Snowfoxclaw — 系统入口
-统一初始化：HMR + ThoughtChain + Harness + 五个 Agent
+统一初始化：HMR + ThoughtChain + Harness + 三个 Agent
 """
 
 import os
@@ -196,8 +196,7 @@ class Snowfoxclaw:
             self.event_spine, self.data_dir)
 
         # 五个 Agent（惰性导入:仅在真正构造系统时才拉入 Agent 框架及其重依赖）
-        from .agents.agents import (
-            SupervisorAgent, AssistantAgent, FinanceAgent, AdminAgent, OfficeAgent)
+        from .agents.agents import SupervisorAgent, FinanceAgent, OfficeAgent
         agent_kwargs = dict(
             hmr=self.hmr,
             thought_chain=self.thought_chain,
@@ -209,25 +208,21 @@ class Snowfoxclaw:
             caps=self.capabilities,
         )
         self.supervisor = SupervisorAgent(**agent_kwargs)
-        self.assistant  = AssistantAgent(**agent_kwargs)
         self.finance    = FinanceAgent(**agent_kwargs)
-        self.admin      = AdminAgent(**agent_kwargs)
         self.office     = OfficeAgent(**agent_kwargs)
 
+        # Agent 拓扑 5 → 3:assistant/admin 已下放为指令技能(skills/general-assistant、
+        # skills/schedule-itinerary),不再常驻;行政的行程内核并入办公学习 Agent。
         self._agents = {
             "supervisor": self.supervisor,
-            "assistant":  self.assistant,
             "finance":    self.finance,
-            "admin":      self.admin,
             "office":     self.office,
         }
         self.capabilities.register("agents", self._agents)   # 供 orchestrator/agent_port 惰性解析
 
         # 给主管注入子 Agent 登记表,使其能真实调度(D 阶段)
         self.supervisor.register_subagents({
-            "assistant": self.assistant,
             "finance":   self.finance,
-            "admin":     self.admin,
             "office":    self.office,
         })
 
@@ -246,11 +241,12 @@ class Snowfoxclaw:
             persist_path=str(self.data_dir / "learning.json"))
         self.office.attach_runtime(self.learning_runtime)
 
-        # 给行政 Agent 挂载行程内核(B 阶段:路线优化 + 可达性 + 守门人 + 高德接口)
+        # 行程内核(路线优化 + 可达性 + 守门人 + 高德接口)现在挂在办公学习 Agent 上 ——
+        # 行政 Agent 下放后,领域内核仍归"离内核最近"的 Agent,编排层不直接读它。
         from .itinerary import ItineraryRuntime
         self.itinerary_runtime = ItineraryRuntime(
             amap_key=os.environ.get("AMAP_MAPS_API_KEY"), hmr=self.hmr)
-        self.admin.attach_runtime(self.itinerary_runtime)
+        self.office.attach_itinerary(self.itinerary_runtime)
 
         # 给主管挂载编排引擎(全局态势 + 跨 Agent 编排)
         # 【P1-3】编排器经注册中枢惰性解析 agents,不再直接持有含主管的 agents 字典;
@@ -297,12 +293,18 @@ class Snowfoxclaw:
         self.md_skills.policy = self.skill_policy
         self.md_store = MarkdownStore(self.data_dir)
         self.md_store.load(self.md_skills)
+        # 随包分发的内置指令技能(frontmatter builtin: true):general-assistant /
+        # schedule-itinerary —— 原 assistant / admin 两个 Agent 的"新家"。
+        # 用户已安装同 id 技能优先,内置只是缺省值;仓库不在(wheel 安装)时静默跳过。
+        from .skills.markdown_skill import load_builtin_dir
+        load_builtin_dir(self.md_skills, Path(__file__).resolve().parent.parent / "skills")
         for _ag in self._agents.values():
             _ag.md_skills = self.md_skills
             # E2:统一 HookManager(skill_adapter 持有的单例)注入所有 Agent → run_task 的认知管线
             # 能 fire pre_reasoning(agent_start)/task_complete(agent_end)钩子。全 Agent 共享同一套。
             _ag.hooks = self.skill_adapter.hooks
-        self.assistant.attach_skills(self.skill_registry, self.skill_adapter)
+            # 技能工具箱已上移基类:三个 Agent 都能挂载并调用 skill
+            _ag.attach_skills(self.skill_registry, self.skill_adapter)
         # 主管也持有 skill 注册表(供 planner 判断任务是否需要拆解)
         self.supervisor.skill_registry = self.skill_registry
         # AHS 执行链编排器(router→planner→composition,全程过 guard+breaker+hooks)
@@ -373,7 +375,7 @@ class Snowfoxclaw:
         self.capabilities.register_lazy("search_runtime", self._build_search_runtime)
 
         print(f"[Snowfoxclaw] ✓ 系统启动完成，数据目录: {self.data_dir}")
-        print(f"[Snowfoxclaw] ✓ 五个 Agent 已就绪: {list(self._agents.keys())}")
+        print(f"[Snowfoxclaw] ✓ 三个 Agent 已就绪: {list(self._agents.keys())}")
         if self.interrupted_tasks:
             print(f"[Snowfoxclaw] ⚠ 检测到 {len(self.interrupted_tasks)} 个上次被中断的任务"
                   f"(进程崩溃/重启)——恢复计划:可重试 {len(self.recovery_plan.retryable)},"

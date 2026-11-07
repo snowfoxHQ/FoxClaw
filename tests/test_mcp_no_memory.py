@@ -25,14 +25,14 @@ def test_mcp_no_memory():
             from snowfoxclaw.agents.base import _suppress_memory
             _suppress_memory.set(True)
             async def _t():
-                o.assistant._store_memory("外部驱动任务的内容(应被抑制)")
+                o.supervisor._store_memory("外部驱动任务的内容(应被抑制)")
             return o.scheduler.run(lambda: asyncio.run(_t()), agent_id="assistant", task="t")
         return await asyncio.to_thread(_work)
 
 
     asyncio.run(dispatch_suppressed())
     suppressed = len(calls)
-    o.assistant._store_memory("正常任务内容(应写入)")
+    o.supervisor._store_memory("正常任务内容(应写入)")
     normal = len(calls) - suppressed
 
     assert suppressed == 0, f"污染!MCP 外部任务写了 {suppressed} 条记忆"

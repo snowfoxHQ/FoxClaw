@@ -32,8 +32,10 @@ def test_task_stream():
 
     with TestClient(app) as c:
         # 1) 正常流式:SSE 收到 stage 进度 + act delta + 恰一个 result,无 error
+        #    拓扑 5 → 3:领域 Agent 才走 DEFAULT_STAGES(含 act),主管走路由管线
+        #    (recall→route→dispatch→aggregate),不会产出 act —— 故此处用 office。
         with c.stream("POST", "/api/task/stream",
-                      json={"task": "帮我分析一下本月开销", "agent_id": "assistant"}) as resp:
+                      json={"task": "帮我分析一下本月开销", "agent_id": "office"}) as resp:
             assert resp.status_code == 200, resp.status_code
             stages, deltas, results, errors = [], [], [], []
             for line in resp.iter_lines():
@@ -48,12 +50,12 @@ def test_task_stream():
             assert "act" in stages, f"应有 stage 进度事件(含 act): {stages}"
             assert len(deltas) > 0, "应有 act 逐 token delta 事件(证明流式透传经端点打通)"
             assert len(results) == 1, f"应恰有一个最终 result 事件,实得 {len(results)}"
-            assert results[0].get("agent") == "assistant" and "result" in results[0], results[0]
+            assert results[0].get("agent") == "office" and "result" in results[0], results[0]
         print(f"[1] /api/task/stream SSE(stage={len(stages)} delta={len(deltas)} result=1) OK")
 
-        # 2) 【P3-3】主管不再回落 assistant:P1-1 pipeline 化后主管自身支持流式,
+        # 2) 【P3-3】主管不再回落领域 Agent:P1-1 pipeline 化后主管自身支持流式,
         #    stage 事件是主管管线七阶段,result.agent=supervisor,路由结论照常(stub 无关键词
-        #    → 兜底派发 assistant),子 Agent 的 act token 随 contextvar 传播流出。
+        #    → 主管自身处理)。
         with c.stream("POST", "/api/task/stream",
                       json={"task": "随便问问", "agent_id": "supervisor"}) as resp:
             assert resp.status_code == 200, resp.status_code
@@ -72,8 +74,8 @@ def test_task_stream():
                 f"P3-3:主管走自身 pipeline,不再回落 assistant(实为 {r0.get('agent')})"
             assert "dispatch" in stages and "route" in stages, \
                 f"应见主管管线 stage(route/dispatch): {stages}"
-            assert r0["result"].get("dispatched_to") == "assistant", \
-                f"stub 无关键词 → 主管路由照常兜底派发 assistant(实为 {r0['result'].get('dispatched_to')})"
+            assert r0["result"].get("dispatched_to") == "supervisor", \
+                f"stub 无关键词 → 主管自身处理(实为 {r0['result'].get('dispatched_to')})"
         print("[2] agent_id=supervisor → 主管自身流式管线(P3-3,不再回落) OK")
 
     print("\nD1 /api/task/stream 验证通过")

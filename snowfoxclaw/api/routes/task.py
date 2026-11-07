@@ -142,7 +142,7 @@ async def chat_stream(req: TaskRequest, request: Request):
             yield "data: " + json.dumps({"error": "rate limited"}) + "\n\n"
         return StreamingResponse(_rl(), media_type="text/event-stream")
 
-    agent = _api._os_instance._agents.get(req.agent_id) or _api._os_instance.assistant
+    agent = _api._os_instance._agents.get(req.agent_id) or _api._os_instance.supervisor
     imgs = _sanitize_images(req.images)
     atts = _sanitize_attachments(req.attachments)
 
@@ -237,10 +237,11 @@ async def task_stream(req: TaskRequest, request: Request):
 
     agent = _api._os_instance._agents.get(req.agent_id)
     # 【P3-3】P1-1 落地后主管走统一 pipeline(supervisor_stages),支持 run_task_stream,
-    # 不再回落 assistant。未知 agent_id 仍回落 assistant 兼容旧客户端,但打 warning 不静默。
+    # 不再回落 assistant(助手已下放为技能)。未知 agent_id 仍回落主管兼容旧客户端
+    # (旧前端可能还传 "assistant"/"admin"),但打 warning 不静默。
     if agent is None:
-        print(f"[Snowfoxclaw API] ⚠ /api/task/stream 收到未知 agent_id={req.agent_id},回落 assistant")
-        agent = _api._os_instance.assistant
+        print(f"[Snowfoxclaw API] ⚠ /api/task/stream 收到未知 agent_id={req.agent_id},回落 supervisor")
+        agent = _api._os_instance.supervisor
 
     async def async_sse():
         if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)

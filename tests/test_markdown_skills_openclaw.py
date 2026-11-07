@@ -48,7 +48,7 @@ def test_markdown_skills_openclaw():
     from snowfoxclaw import Snowfoxclaw
     os3 = Snowfoxclaw(data_dir=_DATA)
     assert os3.md_skills.get("skill-vetter-zip") is not None   # 持久化含 zip 装的
-    ag3 = os3.assistant
+    ag3 = os3.supervisor
     hit = ag3._skill_augment("please vet this skill before install", [{"role": "user", "content": "please vet this skill before install"}])
     assert "Check red flags" in hit[-1]["content"]             # 描述相关命中注入
     miss = ag3._skill_augment("订一张机票", [{"role": "user", "content": "订一张机票"}])
@@ -60,7 +60,7 @@ def test_markdown_skills_openclaw():
         r = c.patch("/api/ahs/md-skills/skill-vetter-zip", json={"triggers": ["审核", "搜索"]})
         assert r.status_code == 200 and r.json()["skill"]["triggers"] == ["审核", "搜索"], r.text
     os4 = Snowfoxclaw(data_dir=_DATA)
-    ag4 = os4.assistant
+    ag4 = os4.supervisor
     hit = ag4._skill_augment("帮我审核这个技能", [{"role": "user", "content": "帮我审核这个技能"}])
     assert "Check red flags" in hit[-1]["content"]   # 加了中文 triggers → 中文任务命中
     print("[12] 编辑触发词 → 中文任务触发 OK")

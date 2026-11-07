@@ -55,9 +55,9 @@ DEFAULT_SHARED_WRITE_ALLOWED = {
     "supervisor": {"*"},      # 主管:分发/协调记录,语义上允许任意
     "system":     {"*"},      # 系统(真值管线、后台任务)
     "finance":    {"finance.*"},
-    "office":     {"learning.*"},
-    "admin":      {"itinerary.*"},
-    "assistant":  set(),      # 助手默认不写共享层(需要时再显式开)
+    # 行政并入办公后,办公学习 Agent 同时拥有学习与行程两个写域;
+    # 助手已下放为技能(不再有独立 agent_id),不再单列 ACL 条目。
+    "office":     {"learning.*", "itinerary.*", "schedule.*"},
 }
 
 

@@ -30,7 +30,7 @@ def test_streaming():
     from snowfoxclaw.api import app
     with TestClient(app) as c:
         with c.stream("POST", "/api/chat/stream",
-                      json={"task": "简单介绍一下你自己", "agent_id": "assistant"}) as resp:
+                      json={"task": "简单介绍一下你自己", "agent_id": "supervisor"}) as resp:
             assert resp.status_code == 200, resp.status_code
             deltas, done = [], False
             for line in resp.iter_lines():
@@ -48,7 +48,7 @@ def test_streaming():
 
         # 3) 限流:桶=1,上面 [2] 已消耗 → 再请求被限流
         with c.stream("POST", "/api/chat/stream",
-                      json={"task": "再来一次", "agent_id": "assistant"}) as resp:
+                      json={"task": "再来一次", "agent_id": "supervisor"}) as resp:
             txt = "".join(resp.iter_text())
             assert "rate limited" in txt, f"限流未生效: {txt[:120]}"
         print("[3] /api/chat/stream 令牌桶限流 OK")

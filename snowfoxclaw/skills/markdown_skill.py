@@ -16,6 +16,7 @@ class MarkdownSkill:
     enabled: bool = True
     source: str = "user"
     version: str = ""                                  # OpenClaw 包的版本(_meta.json/frontmatter),可空
+    builtin: bool = False                              # 随包分发的内置技能(repo skills/*/SKILL.md)
 
     def to_dict(self) -> dict:
         d = asdict(self); d["trust"] = "low"; return d   # 指令注入=提示词操纵面,信任=低
@@ -48,9 +49,39 @@ def parse_skill_md(text: str, id: str = None) -> MarkdownSkill:
     if isinstance(trig, str):
         trig = [t.strip() for t in trig.split(",") if t.strip()]
     trig = [str(t) for t in trig]
+    builtin = bool(fm.get("builtin", False))
     return MarkdownSkill(id=id or _slug(name), name=name, description=desc,
-                         triggers=trig, body=m.group(2).strip(), source="user",
-                         version=str(fm.get("version") or "").strip())
+                         triggers=trig, body=m.group(2).strip(),
+                         source="builtin" if builtin else "user",
+                         version=str(fm.get("version") or "").strip(),
+                         builtin=builtin)
+
+
+def load_builtin_dir(reg: MarkdownSkillRegistry, root) -> list:
+    """加载随包分发的指令技能:`<root>/<name>/SKILL.md` 中 **frontmatter 标了 builtin: true** 的。
+
+    为什么只认 builtin 标记:仓库 `skills/` 下还有 `execution-contract` 之类的**开发者文档**,
+    全量注入会把每轮 prompt 撑肿。显式标记 = 只把"真给模型执行的指令"注入。
+    用户已安装的同 id 技能优先(不覆盖),内置只是缺省值。
+    """
+    from pathlib import Path
+    loaded = []
+    try:
+        base = Path(root)
+        if not base.is_dir():
+            return loaded
+        for p in sorted(base.glob("*/SKILL.md")):
+            try:
+                s = parse_skill_md(p.read_text(encoding="utf-8", errors="replace"))
+            except Exception:
+                continue                   # 单个技能坏掉不影响其余
+            if not s.builtin or reg.get(s.id) is not None:
+                continue
+            reg.register(s)
+            loaded.append(s.id)
+    except Exception:
+        pass
+    return loaded
 
 
 class MarkdownSkillRegistry:

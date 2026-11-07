@@ -23,7 +23,7 @@ async def main():
     print("=" * 60)
     _data = tempfile.mkdtemp(prefix="snowfoxclaw_skill_")   # 系统临时目录,不污染仓库根
     os_ = Snowfoxclaw(data_dir=_data, shadow_rounds=50)
-    asst = os_.assistant
+    asst = os_.supervisor
 
     # 1. 列出可用 skill
     print("\n【1】助手可用 skill 目录")

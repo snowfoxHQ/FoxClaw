@@ -82,7 +82,7 @@ def test_integration_skill_path():
         seen = []
         os_.event_spine.project(lambda e: seen.append(e.topic))
         # 发邮件是副作用 skill → 需确认 → 经 PolicyGate 发 policy.decision.confirm
-        os_.assistant.use_skill("帮我发邮件给客户",
+        os_.supervisor.use_skill("帮我发邮件给客户",
                                 args={"to": "a@b.com", "subject": "x", "body": "y"})
         assert any(t.startswith("policy.decision") for t in seen), \
             f"技能准入应发 policy.decision,实得 {[t for t in seen if 'policy' in t]}"

@@ -166,9 +166,9 @@ def _invoke_plan_tool(router, system: str, user_content: str, agent_catalog: dic
         name = str(s.get("name") or "").strip()
         if not name:
             continue
-        agent = str(s.get("agent") or "assistant").strip()
+        agent = str(s.get("agent") or "office").strip()
         if agent not in agent_catalog:
-            agent = "assistant"          # 幻觉出不存在的 Agent → 兜底助手
+            agent = "office"             # 幻觉出不存在的 Agent(含已下放的 assistant/admin)→ 兜底办公学习
         dep = s.get("depends_on") or []
         if not isinstance(dep, list):
             dep = []

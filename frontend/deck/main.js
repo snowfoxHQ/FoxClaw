@@ -13,7 +13,8 @@ import './chat_model_picker.js?v=1.3';   // chat 输入框旁的下拉式模型�
 
 
 let activeAgent='supervisor';
-const AGENT_CN={supervisor:'主管',assistant:'助手',finance:'财务',admin:'行政',office:'办公'};
+// 三个 Agent(supervisor/finance/office) + 一个**视图** admin(行程地图,已不是 Agent)
+const AGENT_CN={supervisor:'主管',finance:'财务',office:'办公学习',admin:'行程'};
 
 /* 在线状态 */
 function setUplink(on){
@@ -158,9 +159,9 @@ async function showInCore(agent){
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
   // 打开中间栏面板前先关掉对话浮层(core-chat z5 会盖住 core-stage z3,否则点侧栏"像没反应")
   document.getElementById('coreChat')?.classList.remove('show');
-  const m=KP_META[agent]||KP_META.assistant;
-  // 主管/助手空闲态:回到全息球(它们没有"专属任务画面")
-  if(agent==='supervisor'||agent==='assistant'){ clearCore(); return; }
+  const m=KP_META[agent]||KP_META.office;
+  // 主管空闲态:回到全息球(它没有"专属任务画面")
+  if(agent==='supervisor'){ clearCore(); return; }
   Center.panel();
   stage.innerHTML=`<div class="cs-head"><div class="t"><span class="dot"></span>${m.title} <em>${m.tag}</em></div>
     <span class="x" id="csClose" title="返回核心">✕</span></div>
@@ -197,14 +198,13 @@ async function showInCore(agent){
 /* 3b. 内核详情面板:随 Agent 切换展示对应内核数据 */
 const KP_META={
   supervisor:{title:'全局态势',tag:'Situation'},
-  assistant:{title:'实时任务流',tag:'Live'},
   finance:{title:'财务驾驶舱',tag:'Finance'},
-  admin:{title:'行程规划',tag:'Ops'},
+  admin:{title:'行程规划',tag:'Itinerary'},   // 视图,不是 Agent
   office:{title:'知识与学习',tag:'Knowledge'},
 };
 
 async function loadKernel(agent){
-  const m=KP_META[agent]||KP_META.assistant;
+  const m=KP_META[agent]||KP_META.office;
   try{
     // 每个分支独立容错:数据请求失败(如首次 HKC 装配慢/500)→ 用空数据 {} 渲染面板,
     // **保留录入/导入入口**(它们不依赖数据),而不是抛到外层 catch 把整个面板变成"后端未连接"。
@@ -1240,7 +1240,7 @@ function flashCmd(c){
 
 /* ===== 全屏 overlay 浮层 ===== */
 function openOverlay(agent){
-  const m=KP_META[agent]||KP_META.assistant;
+  const m=KP_META[agent]||KP_META.office;
   document.getElementById('ovTitle').textContent=m.title;
   document.getElementById('ovTag').textContent=m.tag;
   const body=document.getElementById('ovBody');
@@ -1330,7 +1330,7 @@ async function fetchModuleBrief(mod){
   try{
     if(mod==='tasks'){
       const out=[];
-      for(const a of ['supervisor','finance','admin','office','assistant']){
+      for(const a of ['supervisor','finance','office']){
         const r=await fetch(`${API}/thoughtchain/${a}/summary`).then(x=>x.json()).catch(()=>null);
         if(r&&r.total_nodes){ out.push({title:`${AGENT_CN[a]||a} Agent`, sub:`${r.total_nodes} 节点 · ${r.blocked_nodes||0} 拦截`}); }
       }
@@ -1512,7 +1512,7 @@ function wirePrefDelete(body){
 async function renderModuleBig(mod){
   if(mod==='tasks'){
     let h='<div class="big-grid">';
-    for(const a of ['supervisor','finance','admin','office','assistant']){
+    for(const a of ['supervisor','finance','office']){
       const r=await fetch(`${API}/thoughtchain/${a}/summary`).then(x=>x.json()).catch(()=>null);
       h+=`<div class="big-card"><div class="bc-head">${AGENT_CN[a]||a} Agent</div>
         <div class="bc-row"><span>推理节点</span><b>${r?.total_nodes??0}</b></div>
@@ -1540,8 +1540,8 @@ async function renderModuleBig(mod){
     }).join('')+'</div>';
   }
   if(mod==='agents'){
-    const AG=[['supervisor','主管','总协调与任务分派'],['assistant','助手','信息整理·跨 Agent 协调'],
-      ['finance','财务','收支·预算·理财'],['admin','行政','日程·行程·提醒'],['office','办公','学习·知识·写作']];
+    const AG=[['supervisor','主管','全局统筹·任务分派'],
+      ['finance','财务','收支·预算·理财'],['office','办公学习','学习·知识·写作·日程行程']];
     const stats=await fetch(`${API}/memory/stats`).then(x=>x.json()).catch(()=>({}));
     const ba=stats.by_agent||{};
     let h='<div class="big-grid">';

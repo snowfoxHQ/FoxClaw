@@ -109,7 +109,7 @@ AHS 标准里的每个抽象概念,在 Snowfoxclaw 里都有一个**真实模块
 ## 一句话总结
 
 > **公用版 AHS 定义"Agent Harness 的 skill 层应该长什么样"(抽象规范);
-> Snowfoxclaw 版把它落到"用 HMR 做记忆、用 Harness 三维漂移做守门、用五 Agent 做路由编排、
+> Snowfoxclaw 版把它落到"用 HMR 做记忆、用 Harness 三维漂移做守门、用三 Agent(主管/财务/办公学习)做路由编排、
 > 用 ThoughtChain 做审计"的真实实现上。**
 >
 > Snowfoxclaw 实现不仅满足标准,还在 guard 维度**超出标准**(增加了认知漂移检测这一护城河)。

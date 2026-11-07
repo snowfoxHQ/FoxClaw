@@ -72,8 +72,8 @@ def test_chat_stream_evidence_event_contract():
     CognitiveAgent.stream_reply = _fake_stream
     try:
         with TestClient(app) as c:
-            with_tools = c.post("/api/chat/stream", json={"task": "use-tools", "agent_id": "assistant"})
-            plain = c.post("/api/chat/stream", json={"task": "plain", "agent_id": "assistant"})
+            with_tools = c.post("/api/chat/stream", json={"task": "use-tools", "agent_id": "supervisor"})
+            plain = c.post("/api/chat/stream", json={"task": "plain", "agent_id": "supervisor"})
             assert with_tools.status_code == 200 and plain.status_code == 200
             body, plain_body = with_tools.text, plain.text
     finally:

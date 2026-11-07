@@ -115,11 +115,11 @@ def test_negotiation():
     assert any("concede_error" in x for x in req6.negotiation)
     print("[7] 让步逻辑崩溃 → 维持 rejected + 记录错误 OK")
 
-    # ── 真 AdminAgent 的让步策略(领域逻辑归领域 Agent)──
-    from snowfoxclaw.agents.agents import AdminAgent
-    adm = AdminAgent.__new__(AdminAgent)
+    # ── 真 OfficeAgent 的让步策略(行政并入办公,领域逻辑仍归领域 Agent)──
+    from snowfoxclaw.agents.agents import OfficeAgent
+    adm = OfficeAgent.__new__(OfficeAgent)
 
-    # [8] AdminAgent:逐轮降档 → 夹到下限(600)→ 到底认输。全程单调下降、必然终止
+    # [8] OfficeAgent(原 AdminAgent):逐轮降档 → 夹到下限(600)→ 到底认输。全程单调下降、必然终止
     p = adm.concede(_req(1000), "预算不足")
     assert p and p["amount"] == 750 and "降标准" in p["_concession"], p
     seq, cur = [1000], _req(1000).payload
@@ -132,9 +132,9 @@ def test_negotiation():
         cur = nxt; seq.append(cur["amount"])
         assert len(seq) < 20, "让步链必须终止"
     assert seq[-1] == 600, f"应走到下限 600(原始 1000 的 60%),实际 {seq}"
-    print(f"[8] AdminAgent 让步链 {seq} → 到下限认输(单调下降·必然终止)OK")
+    print(f"[8] OfficeAgent 让步链 {seq} → 到下限认输(单调下降·必然终止)OK")
 
-    # [9] AdminAgent:非预算请求不插手(回退默认不让步)
+    # [9] OfficeAgent:非预算请求不插手(回退默认不让步)
     other = CrossAgentRequest(from_agent="admin", to_agent="office",
                               request_type="knowledge_request", payload={"q": "x"})
     assert adm.concede(other, "拒") is None

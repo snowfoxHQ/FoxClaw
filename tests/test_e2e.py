@@ -30,9 +30,9 @@ async def main():
 
     print("\n【1】系统初始化")
     print(f"  Harness 嵌入模式: {os_.finance.harness.sem_drift.mode}")
-    print(f"  五 Agent: {list(os_._agents.keys())}")
-    check(set(os_._agents.keys()) == {"supervisor", "assistant", "finance", "admin", "office"},
-          f"五个 Agent 全部就绪({sorted(os_._agents.keys())})")
+    print(f"  三个 Agent: {list(os_._agents.keys())}")
+    check(set(os_._agents.keys()) == {"supervisor", "finance", "office"},
+          f"三个 Agent 全部就绪({sorted(os_._agents.keys())})")
     check(os_.finance.harness.sem_drift.mode != "", "Harness 语义漂移器已定模式")
 
     print("\n【2】连续跑任务,触发 Shadow 校准")
@@ -95,14 +95,14 @@ async def main():
 
     print("\n【5】跨 Agent 隔离验证(各自独立 ThoughtChain)")
     await os_.office.run_task("学习 AI 论文")
-    await os_.admin.run_task("安排明天的会议")
+    await os_.office.run_task("安排明天的会议")
     per_agent = {}
-    for aid in ["finance", "office", "admin", "supervisor"]:
+    for aid in ["finance", "office", "supervisor"]:
         s = os_.thought_chain.get_summary(aid)
         per_agent[aid] = s["total_nodes"]
         print(f"  {aid:<12} 节点={s['total_nodes']:<3} 置信度={s['avg_confidence']}")
-    check(per_agent["finance"] > 0 and per_agent["office"] > 0 and per_agent["admin"] > 0,
-          "跑过任务的三个 Agent 各有独立 ThoughtChain 记录")
+    check(per_agent["finance"] > 0 and per_agent["office"] > 0,
+          "跑过任务的两个领域 Agent 各有独立 ThoughtChain 记录")
     # 隔离的硬证据:supervisor **从未跑过领域任务**,它的链应当纹丝不动。
     # 若这里 > 0,说明某个 Agent 的推理被错记到了别的 Agent 名下(链串了)。
     check(per_agent["supervisor"] == 0,

@@ -40,6 +40,7 @@ from .mixins._context import (
 from .mixins.augment import AugmentMixin
 from .mixins.llm import LlmMixin
 from .mixins.memory import MemoryMixin
+from .mixins.skillbox import SkillBoxMixin
 from .mixins.preference import PreferenceMixin
 from .mixins.prompt import PromptMixin, KERNEL_PROMPT
 from .mixins.tool_exec import ToolExecMixin
@@ -79,7 +80,7 @@ def _plan_payload(ctx) -> dict | None:
 
 
 class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
-                     PreferenceMixin, PromptMixin, ToolExecMixin):
+                     PreferenceMixin, PromptMixin, ToolExecMixin, SkillBoxMixin):
     """
     所有 Snowfoxclaw Agent 的基类
     子类只需实现：_role_prompt、allowed_tools、run_task
