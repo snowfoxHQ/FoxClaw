@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { getJSON, getRaw } from '../api.js'
+import { getJSON } from '../api.js'
 
 /* 单一状态源:所有栏只读这一份,不再有 _syncNav 那类「三个入口各改一遍」的补丁。 */
 export const state = reactive({
@@ -20,8 +20,6 @@ export const state = reactive({
   learning: [],
   learnStats: { total: 0, avgMastery: 0, due: 0, risk: 0 },
   officeStats: { waypoints: 0, conflicts: 0, alerts: 0, active: 0, total: 0 },
-  officeDocs: [],
-  officeState: 'idle',
   progressState: 'idle',
 })
 
@@ -76,31 +74,19 @@ export async function loadProgress() {
     state.progressState = 'error'
   }
 
-  /* 办公 = OfficeAgent(行政职责已并入它)的全局态势 + 进程 + 已摄入资料。
-     三个都是真实端点,单点失败不连坐其它区块。 */
-  state.officeState = 'loading'
-  try {
-    const [sit, proc, src] = await Promise.all([
-      getJSON('/orchestration/situation').catch(() => null),
-      getJSON('/processes?limit=5').catch(() => null),
-      /* 根路径:/knowledge/* 是 vendor/hkc 的 router(app.include_router 无 /api 前缀) */
-      getRaw('/knowledge/sources').catch(() => null),
-    ])
-    state.officeStats = {
-      waypoints: sit?.itinerary?.waypoints ?? 0,
-      conflicts: sit?.itinerary?.conflicts ?? 0,
-      alerts: (sit?.alerts || []).length,
-      active: proc?.stats?.active ?? 0,
-      total: proc?.stats?.total ?? 0,
-    }
-    state.officeDocs = (src?.sources || []).slice(0, 5).map((s) => ({
-      name: s.name || s.source || '未命名资料',
-      year: s.year || '',
-    }))
-    state.officeState = sit || proc || src ? 'ok' : 'error'
-  } catch {
-    state.officeDocs = []
-    state.officeState = 'error'
+  /* 办公 = OfficeAgent(行政职责已并入它)的全局态势 + 进程。
+     「已摄入资料」已挪到右栏的「最近知识」(读 /api/knowledge/recent),
+     书籍级列表留在知识库面板,这里不再重复拉 /knowledge/sources。 */
+  const [sit, proc] = await Promise.all([
+    getJSON('/orchestration/situation').catch(() => null),
+    getJSON('/processes?limit=5').catch(() => null),
+  ])
+  state.officeStats = {
+    waypoints: sit?.itinerary?.waypoints ?? 0,
+    conflicts: sit?.itinerary?.conflicts ?? 0,
+    alerts: (sit?.alerts || []).length,
+    active: proc?.stats?.active ?? 0,
+    total: proc?.stats?.total ?? 0,
   }
 }
 

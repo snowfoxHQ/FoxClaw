@@ -1,10 +1,27 @@
 <script setup>
 import { computed, onMounted } from 'vue'
-import { state, loadProgress, closeDoc } from '../stores/app.js'
+import { state, loadProgress, closeDoc, setModule } from '../stores/app.js'
+import { panels, loadPanel, openKu } from '../stores/panels.js'
+import { fmtTime } from '../lib/fmt.js'
 
-onMounted(loadProgress)
+/* 右栏「最近知识」与知识库面板共用同一份数据,进来就保证它已加载 */
+onMounted(() => {
+  loadProgress()
+  loadPanel('knowledge')
+})
 
 const doc = computed(() => state.doc)
+const kb = panels.knowledge
+
+/* 右栏只留 10 条,多的走「更多」到知识库面板看全量 */
+const LIMIT = 10
+const recentKb = computed(() => kb.recent.slice(0, LIMIT))
+const kbMore = computed(() => kb.recentTotal > recentKb.value.length)
+
+function moreKb() {
+  state.railMode = 'progress'
+  setModule('knowledge')
+}
 
 /* 大纲:代码取顶层定义,文字取段落首句。P2 换成真解析 */
 const outline = computed(() => {
@@ -64,13 +81,18 @@ const outline = computed(() => {
           <div><b>{{ state.officeStats.alerts }}</b><span>告警</span></div>
           <div><b>{{ state.officeStats.active }}</b><span>进行中</span></div>
         </div>
-        <div class="sub-h">已摄入资料 <em>{{ state.officeDocs.length }}</em></div>
-        <div v-if="state.officeState === 'error'" class="empty">后端未连接</div>
+        <div class="sub-h">最近知识 <em>{{ kb.recentTotal }}</em></div>
+        <div v-if="kb.state === 'error'" class="empty">后端未连接</div>
         <template v-else>
-          <button v-for="(d, i) in state.officeDocs" :key="i" class="row">
-            <b>{{ d.name }}</b><span>{{ d.year }}</span>
+          <button v-for="k in recentKb" :key="k.ku_id" class="row" :title="k.summary || k.name" @click="openKu(k.ku_id)">
+            <b>{{ k.name }}</b><span>{{ k.ku_type }} · {{ fmtTime(k.created_at) }}</span>
           </button>
-          <div v-if="!state.officeDocs.length" class="empty">知识库还没有已摄入资料</div>
+          <div v-if="!recentKb.length" class="empty">
+            还没有录入知识。到「知识库」写一句就能收录,长文档走知识星球。
+          </div>
+          <button v-if="kbMore" class="more" title="到知识库看全部" @click="moreKb">
+            <span class="bars"><i /><i /><i /></span>更多 {{ kb.recentTotal }} 条
+          </button>
         </template>
       </section>
     </div>
@@ -148,6 +170,22 @@ const outline = computed(() => {
 .row:hover { background: rgba(255, 255, 255, 0.75); }
 .row b { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row span { font-size: 10.5px; color: var(--faint); }
+
+/* 「更多」:三条杠 + 文字,点进知识库看全量 */
+.more {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-top: 4px; padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font-size: 11px; color: var(--dim);
+  border: 1px dashed var(--line-soft);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.more:hover {
+  color: var(--green); border-color: rgba(26, 157, 95, 0.32);
+  background: rgba(26, 157, 95, 0.05);
+}
+.bars { display: flex; flex-direction: column; gap: 2px; }
+.bars i { display: block; width: 10px; height: 1.5px; border-radius: 1px; background: currentColor; opacity: 0.75; }
 
 .doc-head { padding: 0 4px 12px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; }
 .kind {

@@ -2,7 +2,7 @@
    一项一个 loader,内部每个端点单独 .catch —— 某个子系统挂了只让对应区块空着,
    不让整个面板变「后端未连接」。组件只负责渲染,不各自写 fetch。 */
 import { reactive } from 'vue'
-import { getJSON, getRaw, delJSON, patchJSON } from '../api.js'
+import { getJSON, getRaw, delJSON, patchJSON, postJSON } from '../api.js'
 import { openDoc } from './app.js'
 
 const safe = (p) => p.then((v) => v, () => null)
@@ -13,7 +13,14 @@ export const panels = reactive({
   agents: { state: 'idle', list: [], info: null },
   tools: { state: 'idle', skills: [], md: [], breakers: {} },
   usage: { state: 'idle', tokens: null, gateway: {}, metrics: null, slow: [] },
-  knowledge: { state: 'idle', stats: {}, index: {}, sources: [], abilities: [] },
+  knowledge: {
+    state: 'idle', stats: {}, index: {}, sources: [], abilities: [],
+    /* 最近录入的知识单元:右栏只读前 10 条,面板看全量 */
+    recent: [], recentTotal: 0,
+    /* 录入是同步 LLM 抽取,可能几十秒 —— 状态提到 store 里,
+       切到别的面板再回来时不会以为「没提交过」 */
+    ingest: 'idle', ingestMsg: '', ingestErr: '',
+  },
   memory: { state: 'idle', stats: {}, recent: [], prefs: [] },
 })
 
@@ -84,18 +91,22 @@ const LOADERS = {
     return !!(tk || gw || mt)
   },
 
-  /* 知识库 = HKC 根路径 /stats 与 /knowledge/sources,加 Snowfoxclaw 侧能力清单 */
+  /* 知识库 = HKC 根路径 /stats 与 /knowledge/sources,加 Snowfoxclaw 侧能力清单
+     与最近录入的 KU(右栏和面板共用这一份) */
   async knowledge(p) {
-    const [st, src, ab] = await Promise.all([
+    const [st, src, ab, rc] = await Promise.all([
       safe(getRaw('/stats')),
       safe(getRaw('/knowledge/sources')),
       safe(getJSON('/knowledge/abilities')),
+      safe(getJSON('/knowledge/recent?limit=50')),
     ])
     p.stats = st || {}
     p.index = st?.index_build || {}
     p.sources = src?.sources || []
     p.abilities = ab?.abilities || []
-    return !!(st || src || ab)
+    p.recent = rc?.kus || []
+    p.recentTotal = rc?.total ?? p.recent.length
+    return !!(st || src || ab || rc)
   },
 
   /* 记忆中心 = HMR 统计 + 最近记忆 + 用户偏好 */
@@ -133,6 +144,43 @@ export async function toggleMdSkill(id, enabled) {
   await refreshPanel('tools')
 }
 
+/* 录入一段短知识:POST /knowledge/ingest → KDE 抽取成 KU → KEE 演化。
+   同步 LLM 抽取,可能几十秒,所以状态挂在 store 上而不是组件里。
+   成功后**静默重拉**:走 refreshPanel 会把 state 置回 loading,整面板闪骨架,
+   而这里只想要新数据。 */
+export async function ingestKnowledge({ text, title = '', domain = '' }) {
+  const p = panels.knowledge
+  const body = (text || '').trim()
+  if (!body) throw new Error('先写点内容再收录')
+
+  p.ingest = 'busy'
+  p.ingestMsg = ''
+  p.ingestErr = ''
+  try {
+    const d = await postJSON('/knowledge/ingest', {
+      text: body,
+      source_title: (title || '').trim(),
+      domain: (domain || '').trim(),
+    })
+    const counts = Object.entries(d?.counts || {})
+      .map(([k, v]) => `${k} ${v}`)
+      .join(' · ')
+    p.ingest = 'ok'
+    const n = d?.ku_count ?? 0
+    p.ingestMsg = n
+      ? `已抽取 ${n} 条知识单元${counts ? ` · ${counts}` : ''}`
+      /* 0 条不是「成功但没内容」:KDE 是 LLM 抽取,没配模型时它会 0 条返回。
+         这里必须说清楚,否则看起来像录入按钮坏了。 */
+      : '抽取 0 条 —— 后端没有可用的大模型,先把 LLM key 配好再录'
+    try { await LOADERS.knowledge(p); p.state = 'ok' } catch {}
+    return d
+  } catch (e) {
+    p.ingest = 'error'
+    p.ingestErr = String(e?.message || e)
+    throw e
+  }
+}
+
 /* 删除一条误存的偏好:DELETE /preferences/{id} */
 export async function dropPreference(id) {
   await delJSON(`/preferences/${encodeURIComponent(id)}`)
@@ -150,6 +198,58 @@ export async function openMdSkill(id) {
     path: `skills/${d.id}/SKILL.md`,
     meta: `指令技能 · v${d.version || '—'} · trust ${d.trust || '—'}`,
     content: d.body || d.description || '(正文为空)',
+  })
+}
+
+/* extra 里的业务字段逐类型不同(Fact 有 statement、Evidence 有 source、Entity 有 aliases),
+   按类型硬编码会漏;这里统一按「有值就列出来」处理,任何 KU 打开都有内容可读。 */
+const KU_FIELDS = [
+  ['statement', '陈述'],
+  ['definition', '定义'],
+  ['summary', '摘要'],
+  ['description', '描述'],
+  ['aliases', '别名'],
+  ['verifiable', '可验证'],
+  ['source', '来源'],
+  ['source_type', '来源类型'],
+  ['author', '作者'],
+  ['year', '年份'],
+  ['page', '页码'],
+  ['quote', '原文引用'],
+  ['supports', '支持'],
+  ['contradicts', '矛盾'],
+]
+
+const kuVal = (v) => {
+  if (Array.isArray(v)) return v.length ? v.join('、') : ''
+  if (typeof v === 'boolean') return v ? '是' : '否'
+  return v === 0 || v === '' || v == null ? '' : String(v)
+}
+
+/* 单个 KU 的正文 → 中间舞台。走 HKC 根路径 /knowledge/ku/{id}
+   (那条路径带 source_text,列表/图谱的响应为了瘦身把它剔掉了) */
+export async function openKu(id) {
+  const d = await getRaw(`/knowledge/ku/${encodeURIComponent(id)}`)
+  const extra = d.extra || {}
+
+  const rows = KU_FIELDS
+    .map(([k, label]) => [label, kuVal(extra[k])])
+    .filter(([, v]) => v)
+  /* statement 已经在标题下一行重复过一次,正文里不再复读 */
+  const body = rows.filter(([, v]) => v !== d.summary && v !== d.name)
+
+  const parts = []
+  if (body.length) parts.push(body.map(([k, v]) => `- **${k}**: ${v}`).join('\n'))
+  if (extra.source_text) parts.push(`### 出处原文\n\n${extra.source_text}`)
+
+  openDoc({
+    id: `ku:${d.ku_id}`,
+    kind: 'text',
+    lang: 'markdown',
+    title: d.name || d.ku_id,
+    path: `knowledge/${d.ku_type}/${d.ku_id}`,
+    meta: `${d.ku_type} · ${d.domain || '未分域'} · 置信度 ${Math.round((d.confidence || 0) * 100)}%`,
+    content: parts.join('\n\n') || '这条知识单元没有附带正文,只有一个名称。',
   })
 }
 
