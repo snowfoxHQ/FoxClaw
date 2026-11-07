@@ -20,6 +20,8 @@ NodeType = Literal[
     "reasoning",   # 推理步骤
     "memory_retrieval",  # 记忆检索
     "tool_intent", # 工具意图
+    "tool_use",    # 工具实际调用（augment.py 已在用；此前漏登记，类型面是欠账）
+    "plan",        # 显式计划（steps/flow 落在 metadata，供回显与审计）
     "decision",    # 行动决策
     "policy_update",  # Policy 候选更新
     "consolidation",  # 记忆巩固写回

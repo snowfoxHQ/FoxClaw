@@ -48,6 +48,33 @@ __all__ = [
 ]
 
 
+def _plan_payload(ctx) -> dict | None:
+    """从管线 ctx 提取计划负载:{steps, flow, multi_step};没有计划 → None。
+
+    领域管线把计划写 `ctx.plan`(pipeline.stage_plan),主管管线写 `ctx.plan_obj`
+    (pipeline.supervisor_stages.sv_plan),两种形态都兼容 → 两条链路都能回显计划。
+    纯只读、不抛异常(坏了就当没有计划,不拖垮任务)。
+    """
+    for attr in ("plan", "plan_obj"):
+        p = getattr(ctx, attr, None)
+        if p is None:
+            continue
+        try:
+            steps = p.get("steps") if isinstance(p, dict) else getattr(p, "steps", None)
+            if not steps:
+                continue
+            steps = [str(s) for s in steps]
+            flow = (p.get("flow", "single") if isinstance(p, dict)
+                    else getattr(p, "flow", "single")) or "single"
+            multi = (p.get("multi_step") if isinstance(p, dict)
+                     else getattr(p, "multi_step", False))
+            return {"steps": steps, "flow": flow,
+                    "multi_step": bool(multi) or len(steps) > 1}
+        except Exception:
+            continue
+    return None
+
+
 class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                      PreferenceMixin, PromptMixin, ToolExecMixin):
     """
@@ -221,6 +248,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         mem_refs: list[str] = None,
         tool_name: str = None,
         entities: list[str] = None,
+        metadata: dict = None,
     ) -> tuple[ThoughtNode, HarnessResult]:
         """
         记录一个推理步骤，经过 Harness 校验
@@ -236,6 +264,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             parent_ids=[self._parent_node_id] if self._parent_node_id else [],
             tool_name=tool_name,
             entities=entities or [],
+            metadata=metadata,
         )
         # 锁只护「链插入 + 父指针挪动」这两步共享状态;Harness 判定在锁外,避免钩子阻塞并发工具。
         with _THINK_LOCK:
@@ -566,6 +595,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
                 **(ctx.extra or {}),
             }
+            _plan = _plan_payload(ctx)   # 计划可见:阻塞路径也回传,客户端无需再猜步骤
+            if _plan:
+                resp["plan"] = _plan
             if ctx.interrupted:      # P3:被 stop_event 提前中断 → 让调用方识别"部分完成"
                 resp["interrupted"] = True
             # 【A·Step3·确认闸提升】act 若经 skill dispatch 且未成功(needs_confirmation/blocked/
@@ -622,8 +654,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         """流式任务执行(D1):**同步 generator**,逐 stage 吐进度 + act 逐 token 出字 + 最终结果。
         产出事件(dict,逐条给 SSE):
           {"stage": name}   每完成一个认知 stage(perceive→…→reflect)
+          {"plan": {...}}   紧跟 plan stage:显式计划 {steps, flow, multi_step}(计划可见)
           {"delta": text}   act 的 LLM 逐 token(仅纯 LLM 路径;skill dispatch 路径无 token)
-          {"result": {...}} 最终 run_task 返回体(含 interrupted/status/pending_action 等)
+          {"result": {...}} 最终 run_task 返回体(含 interrupted/status/pending_action/plan 等)
           {"error": msg}    HarnessBlock 之外的异常(HarnessBlock 已被核心兜底进 result)
 
         与 `stream_reply` 同构(同步 generator,由 SSE 端点在后台线程迭代),复用共享的
@@ -641,6 +674,10 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
 
         def _on_stage(name, _ctx):
             bridge.put({"stage": name})
+            if name == "plan":               # 计划显式化:steps 随事件送给前端/调用方
+                _plan = _plan_payload(_ctx)
+                if _plan:
+                    bridge.put({"plan": _plan})
 
         def _on_token(chunk):
             bridge.put({"delta": chunk})

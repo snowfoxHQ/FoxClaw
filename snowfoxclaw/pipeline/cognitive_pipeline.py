@@ -139,11 +139,36 @@ async def stage_recall(ctx: PipelineContext) -> None:
 stage_recall.stage_name = "recall"
 
 
+def _plan_text(plan: dict) -> str:
+    steps = plan.get("steps") or []
+    body = " → ".join(f"{i + 1}){s}" for i, s in enumerate(steps))
+    return f"计划[{plan.get('flow', 'single')}/{len(steps)}步]:{body}"[:400]
+
+
+def _record_plan_node(ctx: PipelineContext) -> None:
+    """把计划落成 thought-chain 的 `plan` 节点(steps/flow 进 metadata),供回显与审计。
+
+    纯观测、fail-safe:任何失败(含 Harness 对计划节点的 BLOCK)都**不影响执行**——
+    计划节点不参与准入裁决,也不被 act 读取(见下方「informational」边界说明)。
+    """
+    agent = getattr(ctx, "agent", None)
+    think = getattr(agent, "_think", None)      # 轻量替身/测试 Agent 可能没有 _think
+    if think is None:
+        return
+    try:
+        think(content=_plan_text(ctx.plan), node_type="plan", conf=0.8,
+              metadata=dict(ctx.plan))
+    except Exception:
+        pass
+
+
 def stage_plan(ctx: PipelineContext) -> None:
     """结构规划:用 **P1-2 统一规划引擎** 分析任务结构(是否多步/并行),记录到 ctx.plan。
 
     **诚实边界(2026-07-08 审计校正)**:本 stage 纯 **informational**——写入 `ctx.plan` 供
     观测/审计,但**没有任何 `_execute` 读取 ctx.plan**,故当前不改变执行(act 整段交 LLM)。
+    (2026-11-07 起额外落一条 `plan` 推理节点并经 SSE `{"plan":…}` 事件送前端:计划**可见**,
+     但仍不驱动执行——「按 plan 逐步执行」是行为改变,仍需 opt-in + confirm 挂起,不在此做。)
     它与主管的实际分派**共用同一 P1-2 引擎**(engine 层已统一),但主管的分派在 SupervisorAgent
     自己的流程里、不经本管线。
     **它不做 skill 规划/dispatch**——skills 目前走独立治理面(`use_skill` / `ahs_pipeline`,
@@ -161,6 +186,7 @@ def stage_plan(ctx: PipelineContext) -> None:
     if len(steps) <= 1:
         steps, flow = [task], "single"
     ctx.plan = {"steps": steps, "flow": flow, "multi_step": len(steps) > 1}
+    _record_plan_node(ctx)
 stage_plan.stage_name = "plan"
 # ⚠【预留·informational,不驱动执行】(2026-07-17 V3·B1 审核标注)
 # stage_plan 写 ctx.plan 供观测/审计,但**没有任何 _execute 读取它**,故不改变执行

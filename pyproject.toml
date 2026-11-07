@@ -177,6 +177,7 @@ python_files = [
     "test_p3_p5_hardening.py",
     "test_parallel_dispatch.py",
     "test_pipeline.py",
+    "test_plan_visible.py",
     "test_planner.py",
     "test_policy_gate.py",
     "test_reasoner.py",

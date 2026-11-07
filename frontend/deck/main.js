@@ -1105,6 +1105,18 @@ async function transmitTaskStream(task, agent){
   rp.textContent=''; rp.style.color='var(--ink)'; st.style.color='var(--ink-dim)'; st.textContent='◌ 认知管线启动…';
   let acc='', stages=[];
   const STAGE_CN={perceive:'感知',recall:'召回',plan:'规划',route:'路由',act:'执行',verify:'校验',reflect:'反思'};
+  // 显式计划块:后端在 plan stage 之后补发 {"plan":{steps,flow,multi_step}} → 列出计划步骤,
+  // 让"它打算怎么做"在执行前就可见(此前只在跑完后才能从 thought chain 里翻)。
+  let _planWrap=document.getElementById('ccPlan');
+  if(!_planWrap && rp.parentNode){
+    _planWrap=document.createElement('details');
+    _planWrap.id='ccPlan'; _planWrap.className='cc-plan'; _planWrap.hidden=true;
+    _planWrap.innerHTML='<summary>执行计划</summary><ol class="cc-plan-body" id="ccPlanBody"></ol>';
+    rp.parentNode.insertBefore(_planWrap, rp);
+  }
+  const _planBody=document.getElementById('ccPlanBody');
+  if(_planBody) _planBody.innerHTML='';
+  if(_planWrap){ _planWrap.hidden=true; _planWrap.open=true; }
   try{
     const r=await fetch(`${API}/task/stream`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({task, agent_id:agent})});
@@ -1119,6 +1131,12 @@ async function transmitTaskStream(task, agent){
         if(!line.startsWith('data:'))continue;
         let ev; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
         if(ev.stage){ stages.push(STAGE_CN[ev.stage]||ev.stage); st.textContent='◌ '+stages.join(' → '); }
+        if(ev.plan && ev.plan.steps && ev.plan.steps.length){   // 计划:整轮固定展示,供用户先看步骤
+          if(_planBody) _planBody.innerHTML=ev.plan.steps.map(s=>`<li>${escapeHtml(String(s))}</li>`).join('');
+          if(_planWrap) _planWrap.hidden=false;
+          const _flow={parallel:'并行',sequential:'顺序',single:'单步'}[ev.plan.flow]||ev.plan.flow||'';
+          st.textContent='◌ 计划('+_flow+' · '+ev.plan.steps.length+' 步)';
+        }
         if(ev.delta){ acc+=ev.delta; rp.textContent=acc; rp.scrollTop=rp.scrollHeight; }
         if(ev.error){ st.textContent='⚠ '+ev.error; st.style.color='var(--pink)'; markTask(task,'blocked'); }
         if(ev.result){

@@ -211,7 +211,7 @@ async def chat_stream(req: TaskRequest, request: Request):
 @app.post("/api/task/stream")
 async def task_stream(req: TaskRequest, request: Request):
     """流式任务执行(D1):SSE 逐 stage 进度 + act 逐 token + 最终结果。用于任务/分析等走**完整
-    认知管线**的场景(对话直答走 /api/chat/stream)。事件:`{stage}`/`{delta}`/`{result}`/`{error}`。
+    认知管线**的场景(对话直答走 /api/chat/stream)。事件:`{stage}`/`{plan}`/`{delta}`/`{result}`/`{error}`。
     【P3-3】主管(P1-1 pipeline 化后)同样可走本端点:stage 事件为主管管线的
     recall/meta_check/schedule/route/plan/dispatch/aggregate;分发场景下子 Agent 的 act
     token 随 contextvar 传播一并流出。
