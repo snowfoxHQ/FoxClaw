@@ -227,6 +227,9 @@ from .routes import browser  # noqa: F401
 # ── 知识核心(HKC):routes/knowledge.py(import 即注册) ────────────────
 from .routes import knowledge  # noqa: F401
 
+# ── SM-2 复习面:routes/review.py(import 即注册) ────────────────
+from .routes import review  # noqa: F401
+
 # ── 认知搜索(HSR):routes/search.py(import 即注册) ────────────────
 from .routes import search  # noqa: F401
 

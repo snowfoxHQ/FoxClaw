@@ -1,17 +1,30 @@
 <script setup>
 import { computed, onMounted } from 'vue'
+import QuickIngest from './QuickIngest.vue'
 import { state, loadProgress, closeDoc, setModule } from '../stores/app.js'
-import { panels, loadPanel, openKu } from '../stores/panels.js'
+import { panels, loadPanel, openKu, startReview } from '../stores/panels.js'
 import { fmtTime } from '../lib/fmt.js'
 
-/* 右栏「最近知识」与知识库面板共用同一份数据,进来就保证它已加载 */
+/* 右栏三块数据与对应面板共用同一份,进来就保证已加载 */
 onMounted(() => {
   loadProgress()
   loadPanel('knowledge')
+  loadPanel('review')
 })
 
 const doc = computed(() => state.doc)
 const kb = panels.knowledge
+const rv = panels.review
+
+/* 今日待办 = 到期 + 新卡(SM-2 队列就是这个口径) */
+const reviewTodo = computed(() => (rv.stats.due || 0) + (rv.stats.fresh || 0))
+const masteryPct = computed(() => Math.round((rv.stats.avg_mastery || 0) * 100))
+
+function goReview() {
+  state.railMode = 'progress'
+  setModule('review')
+  startReview()
+}
 
 /* 右栏只留 10 条,多的走「更多」到知识库面板看全量 */
 const LIMIT = 10
@@ -57,20 +70,22 @@ const outline = computed(() => {
     </div>
 
     <div v-if="state.railMode === 'progress'" class="body scroll">
+      <QuickIngest />
+
       <section class="sec">
-        <div class="sec-h">学习 <em>{{ state.learnStats.total }} 条</em></div>
+        <div class="sec-h">学习 <em>SM-2</em></div>
         <div class="kpi">
-          <div><b>{{ state.learnStats.total }}</b><span>条目</span></div>
-          <div><b>{{ state.learnStats.avgMastery }}%</b><span>平均掌握</span></div>
-          <div><b>{{ state.learnStats.due }}</b><span>今日到期</span></div>
-          <div><b>{{ state.learnStats.risk }}</b><span>遗忘风险</span></div>
+          <div><b>{{ rv.stats.due }}</b><span>今日到期</span></div>
+          <div><b>{{ rv.stats.fresh }}</b><span>新卡</span></div>
+          <div><b>{{ masteryPct }}%</b><span>平均掌握</span></div>
+          <div><b>{{ rv.stats.risk.length }}</b><span>遗忘风险</span></div>
         </div>
-        <div v-if="state.progressState === 'error'" class="empty">后端未连接</div>
+        <div v-if="rv.state === 'error'" class="empty">后端未连接</div>
         <template v-else>
-          <button v-for="(k, i) in state.learning" :key="i" class="row">
-            <b>{{ k.title }}</b><span>{{ k.tag }}</span>
+          <button class="go" :disabled="!reviewTodo" @click="goReview">
+            {{ reviewTodo ? `开始复习 ${reviewTodo} 张` : '今天没有要复习的' }}
           </button>
-          <div v-if="!state.learning.length" class="empty">还没有学习记录</div>
+          <div v-if="!rv.stats.cards" class="empty">录入的知识会自动变成复习卡</div>
         </template>
       </section>
       <section class="sec">
@@ -154,6 +169,15 @@ const outline = computed(() => {
 }
 .kpi b { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .kpi span { font-size: 10px; color: var(--faint); }
+.go {
+  width: 100%; padding: 7px; border-radius: var(--r-sm);
+  font-size: 11.5px; font-weight: 600; color: #fff;
+  background: var(--green);
+  transition: opacity 0.15s;
+}
+.go:disabled { color: var(--faint); background: rgba(23, 32, 26, 0.05); font-weight: 400; }
+.go:not(:disabled):hover { opacity: 0.9; }
+
 .sub-h {
   display: flex; justify-content: space-between;
   padding: 4px 2px 5px;

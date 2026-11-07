@@ -16,11 +16,8 @@ export const state = reactive({
   railOpen: true,
   railMode: 'progress', // 'progress' | 'context'
 
-  /* 学习/办公 进度(学习走 /learning/analysis;办公走 OfficeAgent 的态势与进程) */
-  learning: [],
-  learnStats: { total: 0, avgMastery: 0, due: 0, risk: 0 },
+  /* 办公进度(OfficeAgent 的态势与进程);学习账本在 panels.review 里 */
   officeStats: { waypoints: 0, conflicts: 0, alerts: 0, active: 0, total: 0 },
-  progressState: 'idle',
 })
 
 export const MODULES = [
@@ -31,6 +28,7 @@ export const MODULES = [
   { id: 'tools', label: '技能', tag: 'Tools', group: '能力' },
   { id: 'usage', label: '使用情况', tag: 'Usage', group: '能力' },
   { id: 'knowledge', label: '知识库', tag: 'Knowledge', group: '知识' },
+  { id: 'review', label: '复习', tag: 'Review', group: '知识' },
   { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识' },
 ]
 
@@ -55,24 +53,9 @@ export function openSession(s) {
 }
 
 export async function loadProgress() {
-  state.progressState = 'loading'
-  try {
-    const d = await getJSON('/learning/analysis')
-    state.learning = (d.items || []).slice(0, 5).map((k) => ({
-      title: k.title || k.name || '知识条目',
-      tag: k.topic || k.tag || '学习',
-    }))
-    state.learnStats = {
-      total: d.total_items || 0,
-      avgMastery: Math.round((d.avg_mastery || 0) * 100),
-      due: d.due_today || 0,
-      risk: (d.forgetting_risk || []).length,
-    }
-    state.progressState = 'ok'
-  } catch {
-    state.learning = []
-    state.progressState = 'error'
-  }
+  /* 学习账本已改由 panels.review(/api/review/*)提供 —— SM-2 状态写在 KU.extra 里,
+     和知识库是同一份数据;/learning/analysis 只统计 learning_note 一类条目,
+     两套口径并存会让右栏数字和复习面板对不上。 */
 
   /* 办公 = OfficeAgent(行政职责已并入它)的全局态势 + 进程。
      「已摄入资料」已挪到右栏的「最近知识」(读 /api/knowledge/recent),

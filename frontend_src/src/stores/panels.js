@@ -22,6 +22,17 @@ export const panels = reactive({
     ingest: 'idle', ingestMsg: '', ingestErr: '',
   },
   memory: { state: 'idle', stats: {}, recent: [], prefs: [] },
+  /* SM-2 复习:stats 是全局账本,queue 是「今天这一轮要过的卡」。
+     session 放 store 是因为复习到一半点开文档再回来,不能让进度归零。 */
+  review: {
+    state: 'idle',
+    stats: { cards: 0, learned: 0, fresh: 0, due: 0, avg_mastery: 0, load7: {}, risk: [] },
+    queue: [],
+    index: 0,
+    revealed: false,
+    session: 'idle',
+    lastMsg: '',
+  },
 })
 
 const LOADERS = {
@@ -109,6 +120,23 @@ const LOADERS = {
     return !!(st || src || ab || rc)
   },
 
+  /* 复习 = SM-2 账本 + 今日队列。会话进行中只更新账本,不动队列 ——
+     否则右栏刷新一次就把当前卡片换掉了。 */
+  async review(p) {
+    const [st, q] = await Promise.all([
+      safe(getJSON('/review/stats')),
+      safe(getJSON('/review/queue?limit=20&fresh_limit=10')),
+    ])
+    if (st) p.stats = { ...p.stats, ...st }
+    if (q?.cards && p.session !== 'running') {
+      p.queue = q.cards
+      p.index = 0
+      p.revealed = false
+      if (p.session === 'done') p.session = 'idle'
+    }
+    return !!(st || q)
+  },
+
   /* 记忆中心 = HMR 统计 + 最近记忆 + 用户偏好 */
   async memory(p) {
     const [st, rc, pf] = await Promise.all([
@@ -179,6 +207,41 @@ export async function ingestKnowledge({ text, title = '', domain = '' }) {
     p.ingestErr = String(e?.message || e)
     throw e
   }
+}
+
+/* ── SM-2 复习会话 ── */
+
+/* 开一轮:队列空了就先拉一次。会话状态在 store 里,点开文档再回来不丢进度。 */
+export async function startReview() {
+  const p = panels.review
+  if (!p.queue.length) await loadPanel('review', true)
+  if (!p.queue.length) return
+  p.session = 'running'
+  p.index = 0
+  p.revealed = false
+  p.lastMsg = ''
+}
+
+export function revealCard() {
+  panels.review.revealed = true
+}
+
+/* 评分 → 服务端按 SM-2 算下一次间隔 → 翻到下一张。
+   四档对应 SM-2 的 0/3/4/5:0 完全忘记(重置)、3 勉强、4 记住、5 轻松。
+   只更新账本不动队列 —— 队列是这一轮的现场。 */
+export async function gradeCard(grade) {
+  const p = panels.review
+  const card = p.queue[p.index]
+  if (!card) return null
+  const d = await postJSON('/review/grade', { ku_id: card.ku_id, grade })
+  const nd = d?.next_in_days ?? 1
+  p.lastMsg = `${card.name} → ${nd > 1 ? `${nd} 天后` : '明天'}再复习`
+  p.index += 1
+  p.revealed = false
+  if (p.index >= p.queue.length) p.session = 'done'
+  const st = await getJSON('/review/stats').catch(() => null)
+  if (st) p.stats = { ...p.stats, ...st }
+  return d
 }
 
 /* 删除一条误存的偏好:DELETE /preferences/{id} */
