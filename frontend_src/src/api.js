@@ -29,6 +29,14 @@ export async function delJSON(path) {
   return getJSON(path, { method: 'DELETE' })
 }
 
+export async function patchJSON(path, body) {
+  return getJSON(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export async function postForm(path, form) {
   const r = await fetch(API + path, { method: 'POST', body: form })
   if (!r.ok) throw await toError(r, path)

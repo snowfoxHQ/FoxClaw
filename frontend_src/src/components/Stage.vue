@@ -2,13 +2,31 @@
 import { computed } from 'vue'
 import DocViewer from './DocViewer.vue'
 import MessageStream from './MessageStream.vue'
+import ActivityPanel from './panels/ActivityPanel.vue'
+import TasksPanel from './panels/TasksPanel.vue'
+import AgentsPanel from './panels/AgentsPanel.vue'
+import ToolsPanel from './panels/ToolsPanel.vue'
+import UsagePanel from './panels/UsagePanel.vue'
+import KnowledgePanel from './panels/KnowledgePanel.vue'
+import MemoryPanel from './panels/MemoryPanel.vue'
 import { chat } from '../stores/chat.js'
-import { state, MODULES, moduleLabel, closeDoc } from '../stores/app.js'
+import { state, moduleLabel, closeDoc } from '../stores/app.js'
 
-const meta = computed(() => MODULES.find((m) => m.id === state.module) || MODULES[0])
+/* 菜单 8 项 → 真实面板。overview 是核心对话视图,不在这里。 */
+const PANELS = {
+  activity: ActivityPanel,
+  tasks: TasksPanel,
+  agents: AgentsPanel,
+  tools: ToolsPanel,
+  usage: UsagePanel,
+  knowledge: KnowledgePanel,
+  memory: MemoryPanel,
+}
+const panel = computed(() => PANELS[state.module] || null)
 
-/* 没有文档、也在核心视图时不渲染标签条 —— 不留一条空壳 */
-const hasTabs = computed(() => !!state.doc || state.module !== 'overview')
+/* 标签条只在打开文档时需要(文档 + 回到面板)。
+   没文档时面板头部已经写着模块名,再挂一条同名 tab 就是重复。 */
+const hasTabs = computed(() => !!state.doc)
 </script>
 
 <template>
@@ -31,16 +49,7 @@ const hasTabs = computed(() => !!state.doc || state.module !== 'overview')
     <div class="stage-body" :class="{ bare: !hasTabs }">
       <DocViewer v-if="state.doc" :doc="state.doc" />
 
-      <div v-else-if="state.module !== 'overview'" class="mod-ph">
-        <div class="ph-head">
-          <h2>{{ meta.label }}</h2>
-          <span class="tag">{{ meta.tag }}</span>
-        </div>
-        <p class="note">{{ meta.label }} 面板在 P2 从 deck/main.js 迁入,接口契约不变。</p>
-        <div class="sk">
-          <i v-for="n in 4" :key="n" :style="{ width: 92 - n * 12 + '%' }" />
-        </div>
-      </div>
+      <component :is="panel" v-else-if="panel" :key="state.module" />
 
       <div v-else class="core">
         <MessageStream v-if="chat.messages.length" />
@@ -98,14 +107,4 @@ const hasTabs = computed(() => !!state.doc || state.module !== 'overview')
   position: relative;
 }
 .core-cap { font-size: 11.5px; color: var(--faint); }
-
-/* ── 模块占位 ── */
-.mod-ph { flex: 1; padding: 20px 22px; overflow-y: auto; }
-.ph-head { display: flex; align-items: baseline; gap: 9px; }
-.ph-head h2 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
-.ph-head .tag { font-size: 10.5px; color: var(--faint); font-family: var(--mono); }
-.note { margin-top: 8px; font-size: 12px; color: var(--dim); }
-.sk { margin-top: 20px; display: flex; flex-direction: column; gap: 9px; }
-.sk i { display: block; height: 34px; border-radius: var(--r-sm); background: var(--surface-2); }
-.sk i:nth-child(2n) { opacity: 0.6; }
 </style>
