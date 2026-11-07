@@ -505,20 +505,8 @@ class SupervisorAgent(CognitiveAgent):
         """主管的目标基线实体(旧 run_task 用 _extract_entities 开会话,逐字保留)。"""
         return self._extract_entities(task)
 
-    # 崩溃/重启恢复记账(与生命周期正交的横切关注点;_recovery 由 Snowfoxclaw 装配注入,
-    # standalone/测试无此属性 → 跳过)。经 base 生命周期钩子接入,run_task 与
-    # run_task_stream 两条路径都会被记账。
-    def _on_session_started(self, session_id: str, task: str, context: dict) -> None:
-        _recovery = getattr(self, "_recovery", None)
-        if _recovery is not None:
-            _recovery.task_started(
-                task_id=session_id, description=task,
-                session_id=session_id, channel=(context or {}).get("channel", ""))
-
-    def _on_task_settled(self, session_id: str, status: str) -> None:
-        _recovery = getattr(self, "_recovery", None)
-        if _recovery is not None:
-            _recovery.task_finished(session_id, status=status)
+    # 崩溃/重启恢复记账已上移到 base 生命周期钩子(领域 Agent 此前完全没接线,跑一半崩掉
+    # 在恢复扫描里不可见);主管只是"恰好也装着 _recovery",无需再覆盖。
 
     async def _dispatch_single(self, task, target, sched, session_id,
                                subagents, context, memories, plan_obj) -> dict:

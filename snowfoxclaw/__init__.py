@@ -338,7 +338,10 @@ class Snowfoxclaw:
         self.recovery = RestartRecovery(
             log_path=str(self.data_dir / "task_log.jsonl"),
             spine=self.event_spine)              # 【P2-4】注入审计脊柱(recovery.plan 事件)
-        self._agents["supervisor"]._recovery = self.recovery
+        # 恢复记账注入**所有** Agent(不只主管):此前只有主管接线,领域 Agent 跑一半
+        # 崩溃在恢复扫描里不可见,也没有步骤级 checkpoint 可供断点续跑复用。
+        for _a in self._agents.values():
+            _a._recovery = self.recovery
         self.interrupted_tasks = self.recovery.scan_interrupted()
         # 【P2-4】生成恢复计划(retryable/notify_user/needs_manual),供 API 层/前端消费
         self.recovery_plan = self.recovery.plan_recovery(self.interrupted_tasks)
@@ -459,15 +462,19 @@ class Snowfoxclaw:
             for agent_id, agent in self._agents.items()
         }
 
-    async def run(self, task: str, agent_id: str = "supervisor") -> dict:
+    async def run(self, task: str, agent_id: str = "supervisor",
+                  context: dict = None) -> dict:
         """
         快捷运行接口
         默认由主管 Agent 处理，它会根据任务类型决定路由
+
+        context 现在透传给 Agent(此前 API 层收了 context 但这里丢掉,导致调用方
+        无法传 `_resume_task_id` 之类控制项):`{"_resume_task_id": ...}` 即断点续跑。
         """
         agent = self._agents.get(agent_id)
         if not agent:
             return {"error": f"未知 Agent: {agent_id}"}
-        return await agent.run_task(task)
+        return await agent.run_task(task, context=context)
 
     async def aclose(self):
         """系统级异步 teardown:释放持有原生资源的子系统(浏览器专用线程/会话)。

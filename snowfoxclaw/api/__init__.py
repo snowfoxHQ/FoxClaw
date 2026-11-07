@@ -215,6 +215,9 @@ from .routes import task  # noqa: F401
 # ── 领域内核(财务/学习/行程):routes/domain.py(import 即注册) ────────────────
 from .routes import domain  # noqa: F401
 
+# ── 断点续跑现场:routes/recovery.py(import 即注册) ────────────────
+from .routes import recovery  # noqa: F401
+
 # ── 主管编排:routes/orchestration.py(import 即注册) ────────────────
 from .routes import orchestration  # noqa: F401
 

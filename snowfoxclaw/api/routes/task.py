@@ -55,7 +55,8 @@ async def run_task(req: TaskRequest):
     def _work():
         # 经微内核调度器准入(默认无上限=直通;设了 SNOWFOXCLAW_MAX_CONCURRENCY 才背压)+ 生命周期事件
         return _api._os_instance.scheduler.run(
-            lambda: asyncio.run(_api._os_instance.run(req.task, req.agent_id)),
+            lambda: asyncio.run(_api._os_instance.run(req.task, req.agent_id,
+                                                      context=req.context)),
             agent_id=req.agent_id, task=req.task)
     return await asyncio.to_thread(_work)
 
@@ -238,7 +239,8 @@ async def task_stream(req: TaskRequest, request: Request):
 
         def _producer():
             try:
-                for evt in agent.run_task_stream(req.task, stop_event=stop):
+                for evt in agent.run_task_stream(req.task, context=req.context,
+                                                 stop_event=stop):
                     loop.call_soon_threadsafe(q.put_nowait, evt)
             except Exception as e:
                 loop.call_soon_threadsafe(q.put_nowait, {"error": str(e)})

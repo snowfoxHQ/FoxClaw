@@ -32,6 +32,7 @@ from .mixins._context import (
     _suppress_memory,
     _act_stream,
     _reasoning_inject,
+    _resume_steps,
     HarnessBlockedError,
 )
 from .mixins.augment import AugmentMixin
@@ -525,18 +526,64 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         """记忆召回查询(领域 Agent 可加前缀,如财务/行程)。默认用原任务。"""
         return task
 
-    # ── 【P1-1】任务生命周期钩子(默认 no-op)────────────────────
-    # 供有"跨任务横切关注点"的 Agent 挂载:主管用它们做崩溃/重启恢复记账
-    # (RestartRecovery)。会话开启后、管线执行前触发 started;任务终结时触发 settled
-    # (done=正常终态含 Harness 兜底/中断;failed=未兜底异常)。run_task 与
+    # ── 【P1-1】任务生命周期钩子 ────────────────────────────────
+    # 崩溃/重启恢复记账(RestartRecovery)。会话开启后、管线执行前触发 started;任务终结时
+    # 触发 settled(done=正常终态含 Harness 兜底/中断;failed=未兜底异常)。run_task 与
     # run_task_stream 共用 _run_task_core,故两条路径都会触发。
+    # 实现放在基类(而不是只让主管覆盖):P1-1 时只有主管接了线,领域 Agent 跑一半崩掉
+    # 在恢复扫描里根本不可见。没有 _recovery 的 standalone/测试 Agent → 直接跳过。
     def _on_session_started(self, session_id: str, task: str, context: dict) -> None:
-        """会话已开、管线未跑。默认 no-op;主管覆盖为 recovery.task_started。"""
-        return
+        """会话已开、管线未跑:落 task_started(崩溃后才认得出"上次跑到一半")。"""
+        rec = getattr(self, "_recovery", None)
+        if rec is None:
+            return
+        try:
+            rec.task_started(task_id=session_id, description=task,
+                             session_id=session_id,
+                             channel=(context or {}).get("channel", ""))
+        except Exception:
+            pass
 
     def _on_task_settled(self, session_id: str, status: str) -> None:
-        """任务终结(done/failed)。默认 no-op;主管覆盖为 recovery.task_finished。"""
-        return
+        """任务终结(done/failed):落 task_finished,把该 task 从"进行中"摘掉。"""
+        rec = getattr(self, "_recovery", None)
+        if rec is None:
+            return
+        try:
+            rec.task_finished(session_id, status=status)
+        except Exception:
+            pass
+
+    def _record_stage(self, session_id: str, stage: str) -> None:
+        """管线 stage 级 checkpoint(fail-safe):断连/崩溃后能回答"跑到哪一步"。"""
+        rec = getattr(self, "_recovery", None)
+        if rec is None or not session_id:
+            return
+        try:
+            rec.record_step(session_id, {"kind": "stage", "name": stage})
+        except Exception:
+            pass
+
+    def _load_resume_cache(self, task_id: str) -> dict:
+        """装载上次运行已完成的工具步骤 → {步骤指纹: {"name", "result"}}。
+
+        只收「成功 + 未被截断」的步:失败步复用了等于把失败当完成,截断结果复用了等于
+        喂给模型半份事实 —— 宁可不复用(重跑),也不给错的上下文。
+        """
+        rec = getattr(self, "_recovery", None)
+        if rec is None or not task_id:
+            return {}
+        cache: dict = {}
+        try:
+            for st in rec.steps_of(task_id):
+                if st.get("kind") != "tool" or not st.get("key") or st.get("truncated"):
+                    continue
+                res = st.get("result")
+                if isinstance(res, str) and res.strip():
+                    cache[st["key"]] = {"name": st.get("name", ""), "result": res}
+        except Exception:
+            return {}
+        return cache
 
     def _cognitive_pipeline(self):
         """本 Agent 的认知管线(v2 ②)。默认 recall→act 两个 stage;领域 Agent 可覆盖以
@@ -556,7 +603,11 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
 
         stop_event(P3,opt-in,与 stream_reply 同一约定):threading/asyncio.Event,置位则让
         认知管线在下一 stage 边界 / reflect 重试前优雅停止;默认 None → 永不停,行为逐字不变。
-        中断时返回体带 `"interrupted": True`,result 为已完成 stage 的部分产物。"""
+        中断时返回体带 `"interrupted": True`,result 为已完成 stage 的部分产物。
+
+        断点续跑(P1,opt-in):`context={"_resume_task_id": <上次 task_id>}` → 装载上次已完成
+        的工具步骤,命中即复用结果不再重复执行;返回体带 `resumed_from` / `resumed_steps`
+        说明续了哪一次、复用了多少步。"""
         return await self._run_task_core(task, context, stop_event=stop_event, on_stage=None)
 
     async def _run_task_core(self, task: str, context: dict = None,
@@ -584,10 +635,23 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             _inject_parts.append(_pref)
         # 偏好 + agent_start 钩子上下文合并进同一 _reasoning_inject → _call_llm 前插(复用 E2 机制)
         _inject_tok = _reasoning_inject.set("\n\n".join(_inject_parts)) if _inject_parts else None
+        # 【P1 断点续跑】context={"_resume_task_id": <上次的 task_id/session_id>} 时,把上次
+        # 已完成的工具步骤装进 contextvar(root_key→结果):工具轮命中同指纹步骤直接复用结果、
+        # 不再重复执行。opt-in——不带该键 → 不装载、行为逐字不变。
+        _resume_tid = str(context.get("_resume_task_id") or "").strip()
+        _resume_cache = self._load_resume_cache(_resume_tid) if _resume_tid else {}
+        _resume_tok = _resume_steps.set(_resume_cache) if _resume_cache else None
         ctx = PipelineContext(agent=self, task=task, context=context,
                               session_id=session_id, stop_event=stop_event)
+
+        def _stage_hook(name, _ctx):
+            """stage 边界:记一条 checkpoint(跑到哪一步),再转发给调用方的流式回调。"""
+            self._record_stage(session_id, name)
+            if on_stage is not None:
+                on_stage(name, _ctx)
+
         try:
-            await self._cognitive_pipeline().run(ctx, on_stage=on_stage)
+            await self._cognitive_pipeline().run(ctx, on_stage=_stage_hook)
             resp = {
                 "result": ctx.result,
                 "session_id": session_id,
@@ -598,6 +662,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             _plan = _plan_payload(ctx)   # 计划可见:阻塞路径也回传,客户端无需再猜步骤
             if _plan:
                 resp["plan"] = _plan
+            if _resume_cache:        # 续跑透明化:告诉调用方"用了几个已完成步骤、从哪续的"
+                resp["resumed_from"] = _resume_tid
+                resp["resumed_steps"] = len(_resume_cache)
             if ctx.interrupted:      # P3:被 stop_event 提前中断 → 让调用方识别"部分完成"
                 resp["interrupted"] = True
             # 【A·Step3·确认闸提升】act 若经 skill dispatch 且未成功(needs_confirmation/blocked/
@@ -649,6 +716,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         finally:
             if _inject_tok is not None:
                 _reasoning_inject.reset(_inject_tok)   # 复位注入 contextvar,不泄漏到后续任务
+            if _resume_tok is not None:
+                _resume_steps.reset(_resume_tok)       # 续跑缓存不泄漏到后续任务
 
     def run_task_stream(self, task: str, context: dict = None, stop_event=None):
         """流式任务执行(D1):**同步 generator**,逐 stage 吐进度 + act 逐 token 出字 + 最终结果。

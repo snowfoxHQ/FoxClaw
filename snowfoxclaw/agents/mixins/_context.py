@@ -29,6 +29,12 @@ _suppress_memory: contextvars.ContextVar = contextvars.ContextVar(
 _act_stream: contextvars.ContextVar = contextvars.ContextVar(
     "snowfoxclaw_act_stream", default=None)
 
+# 断点续跑(P1):{步骤指纹: {"name": 工具名, "result": 上次结果}}。run_task 带
+# `context={"_resume_task_id": ...}` 时由 _run_task_core 从 recovery 日志装载,工具轮命中
+# 同指纹步骤则复用结果、不再重复执行(避免重跑联网/副作用)。默认 None = 正常执行,行为不变。
+_resume_steps: contextvars.ContextVar = contextvars.ContextVar(
+    "snowfoxclaw_resume_steps", default=None)
+
 # E2 推理上下文注入(随 to_thread/asyncio.run 上下文复制传播):pre_reasoning(agent_start)钩子
 # 返回的 additional_context 存这里,_call_llm 前插为一条 user 消息注入推理。默认 None = 不注入
 # (无钩子/钩子未返回上下文时行为逐字不变)。

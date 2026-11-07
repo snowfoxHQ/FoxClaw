@@ -142,6 +142,43 @@ class RestartRecovery:
                       "status": status, "pid": self.current_pid,
                       "finished": time.time()})
 
+    # ── 步骤级 checkpoint(P1 断点可续)─────────────────────
+    def record_step(self, task_id: str, step: dict) -> None:
+        """记一条「已完成的步骤」。管线每完成一个 stage、工具轮每完成一个工具调用各落一条,
+        崩溃/断连后 `steps_of()` 能回答「跑到哪一步」,也让续跑知道哪些步骤不必重做。
+
+        fail-safe:写日志失败绝不影响任务执行(与任务生命周期记账同一定位)。
+        """
+        if not task_id or not isinstance(step, dict):
+            return
+        self._append({"event": "step", "task_id": task_id,
+                      "ts": time.time(), **step})
+
+    def steps_of(self, task_id: str, limit: int = 200) -> list:
+        """回放日志,取该 task 已记录的步骤(写入顺序;只留最近 limit 条)。
+
+        只读、容错:文件不存在/行损坏/中途写一半都跳过,不抛异常。
+        """
+        out: list = []
+        if not task_id or not os.path.exists(self.log_path):
+            return out
+        try:
+            with open(self.log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except Exception:
+                        continue        # 末行可能写一半(append 崩溃),跳过
+                    if ev.get("event") == "step" and ev.get("task_id") == task_id:
+                        out.append({k: v for k, v in ev.items()
+                                    if k not in ("event", "task_id")})
+        except Exception:
+            return out
+        return out[-limit:] if limit else out
+
     # ── 启动恢复扫描 ──────────────────────────────────────
     def scan_interrupted(self) -> list[TaskRecord]:
         """启动时调用:重建日志状态,找出被中断的任务。
@@ -274,7 +311,8 @@ class RestartRecovery:
     def compact_log(self, keep_recent_days: float = 7):
         """压实日志:丢弃已完成且超过 N 天的记录,防文件无限膨胀。
         【P2-4】保留判据用 max(started, finished):旧逻辑只看 started,
-        会丢"开始得早但刚完成"的记录(其 finish 审计线索一并丢失)。"""
+        会丢"开始得早但刚完成"的记录(其 finish 审计线索一并丢失)。
+        步骤级 checkpoint(step 事件)属于被保留的任务 → 一并搬运,否则压实即丢断点。"""
         records = self._replay()
         cutoff = time.time() - keep_recent_days * 86400
         keep = []
@@ -286,14 +324,39 @@ class RestartRecovery:
                 if rec.status != "in_progress":
                     keep.append({"event": "finish", "task_id": rec.task_id,
                                  "status": rec.status, "finished": rec.finished})
+        keep_ids = {e["task_id"] for e in keep if e.get("event") == "start"}
+        steps = self._raw_steps(keep_ids)
         try:
             tmp = self.log_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 for e in keep:
                     f.write(json.dumps(e, ensure_ascii=False) + "\n")
+                for e in steps:              # 保留任务的 step 事件随记录一起搬走
+                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
             os.replace(tmp, self.log_path)
         except Exception:
             pass
+
+    def _raw_steps(self, task_ids: set) -> list:
+        """扫原始日志取指定任务的 step 事件(compact 用;task_ids 为空直接返回)。"""
+        out: list = []
+        if not task_ids or not os.path.exists(self.log_path):
+            return out
+        try:
+            with open(self.log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except Exception:
+                        continue
+                    if ev.get("event") == "step" and ev.get("task_id") in task_ids:
+                        out.append(ev)
+        except Exception:
+            return out
+        return out
 
     def active_count(self) -> int:
         return len(self._active)

@@ -242,6 +242,76 @@ def _run_tools_batch(agent, calls: list) -> list:
     return out
 
 
+#: checkpoint 里单步结果最多存多少字符(超出即标记 truncated,续跑时不复用、改为重跑)
+_STEP_RESULT_MAX = 4000
+
+
+def _step_key(name: str, args: dict) -> str:
+    """步骤指纹:同名 + 同参(与字典序无关)= 同一步。续跑靠它匹配「这步之前做过」。"""
+    import hashlib
+    import json
+    try:
+        payload = json.dumps(args or {}, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        payload = repr(args)
+    return f"{name}:{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _step_ok(result: str) -> bool:
+    """这一步是否值得记进 checkpoint(只有「真的做成了」的步才可复用)。
+
+    工具失败/超时/需确认/未执行的回注文本全部以 "(" 开头(见 _guard_tool/_timeout_text/
+    _invoke_tool 的兜底),据此判定;复用它们等于把一次失败当成已完成,绝不能干。
+    """
+    r = (result or "").strip()
+    return bool(r) and not r.startswith("(")
+
+
+def _record_step(agent, call: dict, result: str) -> None:
+    """把一个已完成的工具步骤写进 recovery 日志(fail-safe:异常一律吞掉)。"""
+    rec = getattr(agent, "_recovery", None)
+    tid = getattr(agent, "_session_id", "") or ""
+    if rec is None or not tid:
+        return
+    try:
+        text = result or ""
+        rec.record_step(tid, {
+            "kind": "tool",
+            "name": call.get("name", ""),
+            "key": _step_key(call.get("name", ""), call.get("args") or {}),
+            "args": call.get("args") or {},
+            "result": text[:_STEP_RESULT_MAX],
+            "truncated": len(text) > _STEP_RESULT_MAX,
+        })
+    except Exception:
+        pass
+
+
+def _run_tool_calls(agent, calls: list) -> list:
+    """执行一批 tool_calls,并按断点续跑语义处理(返回与 calls 同序的结果文本):
+      · 命中 `_resume_steps` 里的同指纹步骤 → 复用上次结果,不再执行(断连/崩溃后重跑不重复);
+      · 其余照常执行(只读并发 / 写串行,单工具带超时),成功的步写一条 checkpoint。
+    """
+    from ._context import _resume_steps
+    cache = _resume_steps.get() or {}
+    out: list = [None] * len(calls)
+    todo: list = []
+    for i, c in enumerate(calls):
+        hit = cache.get(_step_key(c.get("name", ""), c.get("args") or {}))
+        if isinstance(hit, dict) and isinstance(hit.get("result"), str):
+            out[i] = (f"(断点续跑:{c.get('name', '')} 这一步此前已完成,"
+                      f"以下为上次的结果,不必重做)\n{hit['result']}")
+        else:
+            todo.append(i)
+    if todo:
+        results = _run_tools_batch(agent, [calls[i] for i in todo])
+        for i, r in zip(todo, results):
+            out[i] = r
+            if _step_ok(r):
+                _record_step(agent, calls[i], r)
+    return out
+
+
 class ToolExecMixin:
     # 以下四个方法均为薄包装:真实 agent 走 self.xxx;单测可用 SimpleNamespace 直接调
     # 模块级函数或 `CognitiveAgent._dispatch_tool(fake, ...)`(鸭子类型)。
@@ -293,7 +363,8 @@ class ToolExecMixin:
             if not calls:
                 return res.get("text") or None   # 模型直接给出最终答案;空答 → None → fallback(不再空回复不回退)
             conv.append(res["assistant_msg"])
-            results = _run_tools_batch(self, calls)   # 只读并发 / 写串行,单工具带超时
+            # 只读并发 / 写串行 / 单工具带超时 + 每步 checkpoint + 续跑复用已完成步骤
+            results = _run_tool_calls(self, calls)
             for c, result in zip(calls, results):
                 conv.append(self.router.format_tool_result(c, result))
         # 轮数超限 → 强制不再调工具、收敛出文本答案
