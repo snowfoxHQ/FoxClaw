@@ -181,9 +181,9 @@ const icon = (n) => ICONS[n] || ICONS.gear
   margin-bottom: 12px;
 }
 .grp {
-  padding: 7px 8px 5px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--faint); text-transform: uppercase;
+  padding: 8px 8px 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--dim); text-transform: uppercase;
 }
 
 .row {
@@ -201,12 +201,12 @@ const icon = (n) => ICONS[n] || ICONS.gear
   fill: none; stroke: currentColor; stroke-width: 1.6;
   stroke-linecap: round; stroke-linejoin: round;
 }
-.row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.row .m b { font-size: 12.5px; font-weight: 550; color: var(--ink); }
-.row .m span { font-size: 11px; color: var(--faint); }
-.hint { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--dim); flex-shrink: 0; }
+.row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .m b { font-size: 13px; font-weight: 600; color: var(--ink); }
+.row .m span { font-size: 11.5px; color: var(--dim); }
+.hint { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--dim); flex-shrink: 0; }
 .hint .dot { width: 7px; height: 7px; border-radius: 50%; }
-.chev { color: var(--faint); font-size: 13px; flex-shrink: 0; transition: transform 0.16s; }
+.chev { color: var(--dim); font-size: 13px; flex-shrink: 0; transition: transform 0.16s; }
 .chev.open { transform: rotate(90deg); }
 
 .seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: rgba(23, 32, 26, 0.05); flex-shrink: 0; }
@@ -229,16 +229,16 @@ const icon = (n) => ICONS[n] || ICONS.gear
 .opt.on { background: rgba(26, 157, 95, 0.09); }
 .opt .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .opt .m { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; }
-.opt .m b { font-size: 12px; font-weight: 550; color: var(--ink); }
-.opt .m span { font-size: 10.5px; color: var(--faint); font-family: var(--mono); }
+.opt .m b { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.opt .m span { font-size: 11.5px; color: var(--dim); font-family: var(--mono); }
 
-.tip { padding: 4px 8px 2px; font-size: 10.5px; line-height: 1.55; color: var(--faint); }
+.tip { padding: 4px 8px 2px; font-size: 11.5px; line-height: 1.6; color: var(--dim); }
 .tip.err { color: var(--red); }
 
 .kv { display: flex; align-items: center; gap: 10px; padding: 4px 8px; }
 .kv kbd {
   min-width: 92px; flex-shrink: 0;
-  font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--ink);
   padding: 2px 6px; border-radius: 5px;
   background: rgba(23, 32, 26, 0.05);
 }
@@ -249,6 +249,6 @@ const icon = (n) => ICONS[n] || ICONS.gear
   margin-top: 2px; padding: 10px 4px 2px;
   border-top: 1px solid var(--line-soft);
 }
-.foot .mono { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.foot .mono { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
 .foot .dev { font-size: 12px; color: var(--faint); }
 </style>

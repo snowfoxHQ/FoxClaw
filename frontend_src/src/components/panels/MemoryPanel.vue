@@ -109,9 +109,9 @@ async function drop(pref) {
 <style scoped>
 .sec-gap { margin-top: 14px; }
 .del {
-  flex-shrink: 0; padding: 3px 9px; border-radius: var(--r-pill);
-  font-size: 10px; color: var(--faint);
-  background: var(--surface-2);
+  flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 600; color: var(--dim);
+  background: var(--surface-2); border: 1px solid var(--line-soft);
 }
 .del:hover { color: var(--red); background: rgba(229, 72, 77, 0.1); }
 .del:disabled { opacity: 0.5; }

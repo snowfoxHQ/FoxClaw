@@ -70,9 +70,9 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
 }
 .term-bar .lang {
   margin-left: auto; flex-shrink: 0;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
   color: var(--cli-bg); background: var(--cli-acc);
-  padding: 1px 7px; border-radius: var(--r-pill);
+  padding: 2px 8px; border-radius: var(--r-pill);
 }
 .term-body {
   flex: 1; overflow: auto; padding: 10px 0 16px;
@@ -83,7 +83,7 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
 .row:hover { background: rgba(255, 255, 255, 0.035); }
 .no {
   flex-shrink: 0; width: 48px; text-align: right; padding-right: 14px;
-  color: rgba(255, 255, 255, 0.2); user-select: none;
+  color: rgba(255, 255, 255, 0.42); user-select: none;
 }
 .code { color: var(--cli-ink); padding-right: 24px; }
 
@@ -97,9 +97,9 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
 }
 .read-meta {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 8px; font-size: 11px; color: var(--faint);
+  margin-top: 8px; font-size: 11.5px; color: var(--dim);
 }
-.read-meta code { font-family: var(--mono); font-size: 10.5px; }
+.read-meta code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
 .read-body { padding: 20px 20px 0; }
 /* 正文是 v-html 生成的,没有 scoped 属性,必须 :deep */
 .read-body :deep(p) {

@@ -572,7 +572,7 @@ async function delMcp(s) {
 }
 .tk-test { display: flex; flex-direction: column; gap: 7px; }
 .tk-test .f span em {
-  font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+  font-style: normal; font-weight: 600; font-family: var(--mono); font-size: 11px; color: var(--dim);
 }
 
 .frow { display: flex; gap: 8px; }
@@ -594,7 +594,7 @@ async function delMcp(s) {
 }
 .f textarea { resize: vertical; line-height: 1.6; }
 .f input:focus, .f select:focus, .f textarea:focus { border-color: var(--line); background: #fff; }
-.f input::placeholder, .f textarea::placeholder { color: var(--faint); }
+.f input::placeholder, .f textarea::placeholder { color: var(--dim); }
 
 .chk {
   display: flex; align-items: center; gap: 6px;

@@ -225,7 +225,7 @@ async function grade(g) {
   box-shadow: 0 1px 3px rgba(23, 32, 26, 0.04);
 }
 .ct { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.ct .dim { font-size: 10.5px; color: var(--faint); }
+.ct .dim { font-size: 11.5px; color: var(--dim); }
 .pn-tag.new { background: rgba(26, 157, 95, 0.12); color: var(--green); }
 .card h3 {
   font-family: var(--serif);
@@ -239,7 +239,7 @@ async function grade(g) {
   background: rgba(23, 32, 26, 0.025);
   margin-bottom: 14px; white-space: pre-wrap;
 }
-.hint { font-size: 11.5px; color: var(--faint); margin: 4px 0 14px; line-height: 1.7; }
+.hint { font-size: 12px; color: var(--dim); margin: 4px 0 14px; line-height: 1.7; }
 .err { margin-top: 10px; font-size: 11px; color: #b4453c; }
 
 .act {
@@ -260,7 +260,7 @@ async function grade(g) {
   border: 1px solid var(--line-soft);
   transition: border-color 0.14s, background 0.14s, color 0.14s;
 }
-.g span { font-size: 9.5px; font-weight: 400; color: var(--faint); }
+.g span { font-size: 11px; font-weight: 500; color: var(--dim); }
 .g:hover { border-color: rgba(26, 157, 95, 0.42); background: rgba(26, 157, 95, 0.06); }
 .g0:hover { border-color: rgba(180, 69, 60, 0.42); background: rgba(180, 69, 60, 0.06); }
 
@@ -279,11 +279,11 @@ async function grade(g) {
 .curve .dot { fill: var(--green); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .axis {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin-top: 4px; font-size: 9.5px; color: var(--faint);
+  margin-top: 5px; font-size: 11px; font-weight: 600; color: var(--dim);
 }
-.axis .dim { font-family: var(--mono); font-size: 9.5px; }
+.axis .dim { font-family: var(--mono); font-size: 11px; }
 .note {
-  margin-top: 8px; font-size: 9.5px; line-height: 1.75; color: var(--faint);
+  margin-top: 8px; font-size: 11.5px; line-height: 1.75; color: var(--dim);
 }
 .note.warn {
   padding: 7px 9px; border-radius: var(--r-sm);
@@ -302,7 +302,7 @@ async function grade(g) {
   display: block; width: 100%; max-width: 26px; border-radius: 2px 2px 0 0;
   background: rgba(26, 157, 95, 0.55);
 }
-.load i.zero { background: rgba(23, 32, 26, 0.1); }
-.load span { font-size: 9px; color: var(--faint); }
-.load em { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--dim); }
+.load i.zero { background: rgba(23, 32, 26, 0.14); }
+.load span { font-size: 10.5px; color: var(--dim); }
+.load em { font-style: normal; font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--ink); }
 </style>

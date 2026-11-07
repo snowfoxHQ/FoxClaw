@@ -70,43 +70,48 @@ onUnmounted(() => clearTimeout(timer))
 .qi-h {
   display: flex; align-items: baseline; gap: 6px;
   margin-bottom: 7px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
   text-transform: uppercase; color: var(--dim);
 }
 .qi-h em {
-  font-style: normal; font-weight: 400; letter-spacing: 0;
-  text-transform: none; font-size: 9.5px; color: var(--faint);
+  font-style: normal; font-weight: 500; letter-spacing: 0;
+  text-transform: none; font-size: 11px; color: var(--dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .qi-ta {
   display: block; width: 100%; box-sizing: border-box;
   resize: vertical; min-height: 46px; max-height: 140px;
   padding: 7px 9px; border-radius: var(--r-sm);
-  font-family: var(--sans); font-size: 11.5px; line-height: 1.6;
+  font-family: var(--sans); font-size: 12.5px; line-height: 1.6;
   color: var(--ink); background: #fff;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
   transition: border-color 0.15s;
 }
+.qi-ta::placeholder { color: var(--dim); }
 .qi-ta:focus { outline: none; border-color: rgba(26, 157, 95, 0.42); }
 .qi-b { display: flex; gap: 6px; margin-top: 6px; }
 .qi-title {
   flex: 1 1 auto; min-width: 0;
   padding: 5px 8px; border-radius: var(--r-pill);
-  font-size: 10.5px; color: var(--ink);
+  font-size: 11.5px; color: var(--ink);
   background: rgba(255, 255, 255, 0.86);
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
 }
+.qi-title::placeholder { color: var(--dim); }
 .qi-title:focus { outline: none; border-color: rgba(26, 157, 95, 0.35); }
 .qi-go {
   flex-shrink: 0;
-  padding: 5px 12px; border-radius: var(--r-pill);
-  font-size: 10.5px; font-weight: 600; color: #fff;
+  padding: 6px 13px; border-radius: var(--r-pill);
+  font-size: 11.5px; font-weight: 600; color: #fff;
   background: var(--green);
   border: 1px solid var(--green);
   transition: opacity 0.15s;
 }
-.qi-go:disabled { opacity: 0.42; }
-.qi-msg { margin-top: 6px; font-size: 10px; line-height: 1.5; }
+.qi-go:disabled {
+  background: rgba(23, 32, 26, 0.07); color: var(--dim);
+  border-color: var(--line);
+}
+.qi-msg { margin-top: 6px; font-size: 11px; line-height: 1.5; }
 .qi-msg.ok { color: var(--green); }
 .qi-msg.busy { color: var(--dim); }
 .qi-msg.err { color: #b4453c; }

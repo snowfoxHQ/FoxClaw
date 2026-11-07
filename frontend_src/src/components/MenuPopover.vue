@@ -112,18 +112,18 @@ onBeforeUnmount(() => {
 .pop-head .x:hover { color: var(--ink); }
 .pop-body { padding: 6px; overflow-y: auto; }
 .pop-sec {
-  padding: 8px 6px 4px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--faint); text-transform: uppercase;
+  padding: 9px 6px 5px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--dim); text-transform: uppercase;
 }
 .pop-item {
   width: 100%;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 7px 8px; border-radius: var(--r-sm);
+  padding: 8px 9px; border-radius: var(--r-sm);
   transition: background 0.14s;
 }
-.pop-item .lbl { font-size: 12.5px; font-weight: 500; }
-.pop-item .tag { font-size: 10px; color: var(--faint); }
+.pop-item .lbl { font-size: 13px; font-weight: 600; color: var(--ink); }
+.pop-item .tag { font-size: 11px; font-weight: 600; color: var(--dim); }
 .pop-item:hover { background: var(--surface-2); }
 .pop-item.on { background: var(--accent-soft); }
 .pop-item.on .lbl { color: var(--accent); font-weight: 600; }

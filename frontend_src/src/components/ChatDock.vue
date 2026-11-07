@@ -301,16 +301,16 @@ function kb(n) {
 .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 2px 7px; }
 .chip {
   display: flex; align-items: center; gap: 6px;
-  padding: 4px 8px; border-radius: var(--r-pill);
-  font-size: 11px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid var(--line-soft);
+  padding: 5px 9px; border-radius: var(--r-pill);
+  font-size: 11.5px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
   box-shadow: 0 1px 2px rgba(23, 32, 26, 0.04);
   max-width: 220px;
 }
 .chip .cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
-.chip .cs { font-family: var(--mono); font-size: 9.5px; color: var(--faint); flex-shrink: 0; }
-.chip .cx { cursor: pointer; font-size: 9px; color: var(--faint); padding: 0 1px; flex-shrink: 0; }
+.chip .cs { font-family: var(--mono); font-size: 10.5px; color: var(--dim); flex-shrink: 0; }
+.chip .cx { cursor: pointer; font-size: 11px; color: var(--dim); padding: 0 2px; flex-shrink: 0; }
 .chip .cx:hover { color: var(--red); }
 .chip.img { padding: 3px 5px; }
 .chip.img img { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; }
@@ -339,7 +339,7 @@ function kb(n) {
 }
 textarea {
   flex: 1; min-width: 0;
-  font-size: 13px; line-height: 1.6;
+  font-size: 13.5px; line-height: 1.6;
   padding: 5px 2px; border: 0; background: none;
   resize: none; overflow-y: auto;
   /* 高度由 grow() 写死具体 px;max-height 只作兜底,避免 JS 失效时无限长高 */
@@ -347,7 +347,9 @@ textarea {
   transition: height 0.14s ease;
 }
 textarea:focus { outline: none; }
-textarea::placeholder { color: var(--faint); }
+/* placeholder 是「第一次进来唯一能读的提示」,用 dim 而不是 faint:
+   输入框是视觉焦点,提示跟着提亮一档才不会被当成禁用态。 */
+textarea::placeholder { color: var(--dim); opacity: 1; }
 
 .send {
   width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;

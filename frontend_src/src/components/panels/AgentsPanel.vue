@@ -76,11 +76,11 @@ function toggle(id) { open.value = open.value === id ? '' : id }
 </template>
 
 <style scoped>
-.id { font-family: var(--mono); font-size: 10px; font-style: normal; color: var(--faint); margin-left: 4px; }
+.id { font-family: var(--mono); font-size: 11px; font-style: normal; color: var(--dim); margin-left: 4px; }
 .det {
   margin: 2px 0 8px 10px; padding: 8px 12px;
   border-left: 2px solid var(--line);
 }
-.kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 11px; color: var(--dim); }
-.kv b { font-weight: 500; color: var(--ink); font-family: var(--mono); font-size: 10.5px; text-align: right; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 12px; color: var(--dim); }
+.kv b { font-weight: 600; color: var(--ink); font-family: var(--mono); font-size: 11.5px; text-align: right; }
 </style>

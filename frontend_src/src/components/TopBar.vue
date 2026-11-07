@@ -69,20 +69,20 @@ function openSettings() {
 }
 .brand h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .ver {
-  font-size: 10.5px; color: var(--dim);
-  padding: 1px 6px; border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.7); border: 1px solid var(--line-soft);
+  font-size: 11px; font-weight: 600; color: var(--dim);
+  padding: 2px 7px; border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.7); border: 1px solid var(--line);
 }
 .spacer { flex: 1; }
-.stat { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
-.stat .val { font-weight: 600; }
+.stat { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--dim); }
+.stat .val { font-weight: 700; color: var(--ink); }
 .stat .val.ok { color: var(--green); }
 .stat .val.bad { color: var(--amber); }
-.stat .val.dim { color: var(--faint); }
+.stat .val.dim { color: var(--dim); }
 .tbtn {
-  font-size: 12.5px; color: var(--dim);
-  padding: 6px 10px; border-radius: var(--r-sm);
-  border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.6);
+  font-size: 12.5px; font-weight: 600; color: var(--ink);
+  padding: 6px 11px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.7);
   transition: color 0.15s, background 0.15s;
 }
 .tbtn:hover { color: var(--ink); background: #fff; }

@@ -182,8 +182,8 @@ function canRetry(i) {
 .u-body { max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .u-atts { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
 .u-att {
-  font-size: 10.5px; padding: 2px 8px; border-radius: var(--r-pill);
-  color: var(--dim); background: rgba(255, 255, 255, 0.9); border: 1px solid var(--line-soft);
+  font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-pill);
+  color: var(--ink); background: rgba(255, 255, 255, 0.9); border: 1px solid var(--line);
 }
 .u-text {
   padding: 9px 14px; border-radius: 14px 14px 4px 14px;
@@ -193,24 +193,24 @@ function canRetry(i) {
   box-shadow: 0 1px 2px rgba(23, 32, 26, 0.05);
   white-space: pre-wrap; word-break: break-word;
 }
-.u-time { font-size: 9.5px; color: var(--faint); font-family: var(--mono); }
+.u-time { font-size: 11px; color: var(--faint); font-family: var(--mono); }
 
 /* ── 助手 ── */
 .a-body { display: flex; flex-direction: column; gap: 9px; }
-.a-head { display: flex; align-items: center; gap: 7px; font-size: 10.5px; color: var(--faint); }
+.a-head { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--dim); }
 .avatar {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--green); box-shadow: 0 0 6px rgba(26, 157, 95, 0.5);
 }
 .avatar.live { animation: pulse 1.1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
-.who { font-weight: 600; color: var(--dim); }
+.who { font-weight: 700; color: var(--ink); }
 .a-head .stage {
-  padding: 1px 7px; border-radius: var(--r-pill);
-  background: rgba(26, 157, 95, 0.1); color: var(--green);
-  font-family: var(--mono); font-size: 9.5px;
+  padding: 2px 8px; border-radius: var(--r-pill);
+  background: rgba(26, 157, 95, 0.12); color: var(--green);
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
 }
-.a-head .live-tag { color: var(--green); font-size: 9.5px; }
+.a-head .live-tag { color: var(--green); font-size: 10.5px; font-weight: 600; }
 .a-time { margin-left: auto; font-family: var(--mono); }
 
 /* 正文由 lib/md.js 渲染成 HTML(见 v-html),所以子元素都是 :deep —— 
@@ -300,14 +300,14 @@ function canRetry(i) {
 }
 .fold summary {
   display: flex; align-items: center; gap: 7px;
-  padding: 6px 10px; cursor: pointer;
-  font-size: 11px; color: var(--dim);
+  padding: 7px 11px; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--ink);
   list-style: none;
 }
 .fold summary::-webkit-details-marker { display: none; }
-.fold summary::before { content: '▸'; font-size: 8px; color: var(--faint); }
+.fold summary::before { content: '▸'; font-size: 10px; color: var(--dim); }
 .fold[open] summary::before { content: '▾'; }
-.fold summary em { font-style: normal; font-family: var(--mono); font-size: 9.5px; color: var(--faint); }
+.fold summary em { font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
 .fold-body {
   margin: 0; padding: 2px 12px 10px;
   font-size: 11.5px; line-height: 1.7; color: var(--dim);
@@ -319,12 +319,12 @@ function canRetry(i) {
 .fold.ev .fold-body { padding-bottom: 8px; }
 
 .ev-row { display: flex; align-items: baseline; gap: 7px; padding: 3px 0; flex-wrap: wrap; }
-.ev-row b { font-size: 11px; font-weight: 600; color: var(--ink); }
-.ev-st { font-family: var(--mono); font-size: 9px; color: var(--faint); }
+.ev-row b { font-size: 12px; font-weight: 700; color: var(--ink); }
+.ev-st { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
 .ev-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); flex-shrink: 0; }
 .ev-dot.verified { background: var(--green); }
 .ev-dot.failed { background: var(--red); }
-.ev-link, .ev-file { font-size: 10.5px; color: var(--accent); text-decoration: none; }
+.ev-link, .ev-file { font-size: 11.5px; color: var(--accent); text-decoration: none; }
 .ev-file { color: var(--dim); }
 .ev-link:hover { text-decoration: underline; }
 
@@ -337,14 +337,14 @@ function canRetry(i) {
 }
 .sres-h {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 10px;
+  padding: 7px 11px;
   border-bottom: 1px solid var(--line-soft);
-  font-size: 9.5px; color: var(--faint); font-family: var(--mono);
+  font-size: 10.5px; color: var(--dim); font-family: var(--mono);
 }
 .sres-h .sroute {
-  padding: 1px 6px; border-radius: var(--r-pill);
-  color: var(--green); background: rgba(26, 157, 95, 0.1);
-  font-weight: 600;
+  padding: 2px 7px; border-radius: var(--r-pill);
+  color: var(--green); background: rgba(26, 157, 95, 0.12);
+  font-weight: 700;
 }
 .srow {
   display: flex; align-items: baseline; gap: 8px;
@@ -353,17 +353,17 @@ function canRetry(i) {
 }
 .srow:last-child { border-bottom: 0; }
 .ssrc {
-  flex-shrink: 0; font-size: 9px; padding: 1px 5px; border-radius: 4px;
+  flex-shrink: 0; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
   color: var(--dim); background: var(--surface-2);
 }
-.ssrc.knowledge { color: var(--green); background: rgba(26, 157, 95, 0.1); }
-.ssrc.web { color: var(--accent); background: rgba(10, 132, 255, 0.1); }
+.ssrc.knowledge { color: var(--green); background: rgba(26, 157, 95, 0.12); }
+.ssrc.web { color: var(--accent); background: rgba(10, 132, 255, 0.12); }
 .srow p {
   flex: 1; min-width: 0;
-  font-size: 11.5px; line-height: 1.6; color: var(--dim);
+  font-size: 12px; line-height: 1.6; color: var(--ink);
   word-break: break-word;
 }
-.srow em { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--faint); }
+.srow em { font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
 
 .notice {
   padding: 6px 10px; border-radius: var(--r-sm);
@@ -376,10 +376,10 @@ function canRetry(i) {
 .msg:hover .a-acts,
 .a-acts:focus-within { opacity: 1; }
 .mini {
-  font-size: 10.5px; padding: 2px 9px;
+  font-size: 11.5px; padding: 3px 10px;
   border-radius: var(--r-pill);
-  color: var(--dim); background: rgba(255, 255, 255, 0.8);
-  border: 1px solid var(--line-soft);
+  color: var(--dim); background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--line);
   transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
 .mini:hover {

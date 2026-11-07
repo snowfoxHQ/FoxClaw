@@ -41,11 +41,11 @@ defineEmits(['refresh'])
 .rf {
   margin-left: auto; flex-shrink: 0;
   padding: 5px 11px; border-radius: var(--r-pill);
-  font-size: 11.5px; color: var(--dim);
-  background: rgba(255, 255, 255, 0.72); border: 1px solid var(--line-soft);
-  transition: color 0.14s, background 0.14s;
+  font-size: 11.5px; font-weight: 600; color: var(--ink);
+  background: rgba(255, 255, 255, 0.86); border: 1px solid var(--line);
+  transition: color 0.14s, background 0.14s, border-color 0.14s;
 }
-.rf:hover { color: var(--ink); background: #fff; }
-.rf.spin { color: var(--faint); }
+.rf:hover { color: var(--green); background: #fff; border-color: rgba(26, 157, 95, 0.35); }
+.rf.spin { color: var(--dim); }
 .pb { flex: 1; padding: 14px 16px 18px; }
 </style>

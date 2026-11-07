@@ -101,5 +101,5 @@ async function report() {
   background: rgba(26, 157, 95, 0.1); border: 1px solid rgba(26, 157, 95, 0.16);
 }
 .btn:hover { background: rgba(26, 157, 95, 0.16); }
-.hint { font-size: 10.5px; color: var(--faint); }
+.hint { font-size: 11.5px; color: var(--dim); }
 </style>

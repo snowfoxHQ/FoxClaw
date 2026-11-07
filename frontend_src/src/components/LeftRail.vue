@@ -273,7 +273,7 @@ function meta(s) {
 }
 .rail-item b {
   flex: 1; min-width: 0; text-align: left;
-  font-size: 12.5px; font-weight: 500; color: var(--ink);
+  font-size: 13px; font-weight: 600; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rail-row:hover .rail-item { background: rgba(255, 255, 255, 0.6); }
@@ -293,10 +293,10 @@ function meta(s) {
 /* 成熟度标签:比正式入口新,或者语义还在变 */
 .beta {
   flex-shrink: 0;
-  font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
   color: var(--amber);
-  padding: 1px 4px; border-radius: 4px;
-  background: rgba(199, 116, 0, 0.1);
+  padding: 2px 5px; border-radius: 4px;
+  background: rgba(199, 116, 0, 0.12);
 }
 
 /* 同源数据的另一视图:只在 hover / 聚焦时出现,不占常驻视觉 */
@@ -323,21 +323,21 @@ function meta(s) {
 }
 .act:hover { background: rgba(26, 157, 95, 0.12); color: var(--green); }
 
-.cur { font-size: 10.5px; color: var(--faint); flex-shrink: 0; }
-.caret { font-size: 9px; color: var(--faint); transition: transform 0.18s; flex-shrink: 0; }
+.cur { font-size: 11.5px; color: var(--dim); flex-shrink: 0; }
+.caret { font-size: 10.5px; color: var(--dim); transition: transform 0.18s; flex-shrink: 0; }
 .caret.open { transform: rotate(180deg); }
 
 .sec-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 2px 4px 0;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
-  color: var(--faint); text-transform: uppercase;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--dim); text-transform: uppercase;
   flex-shrink: 0;
 }
 .sec-head em {
-  font-size: 10.5px; color: var(--dim);
-  padding: 1px 6px; border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.8); border: 1px solid var(--line-soft);
+  font-size: 11px; font-weight: 700; color: var(--ink);
+  padding: 2px 7px; border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.86); border: 1px solid var(--line);
 }
 
 .ns-list { display: flex; flex-direction: column; gap: 3px; flex: 1; margin: 0 -4px; padding: 0 4px; }
@@ -364,10 +364,10 @@ function meta(s) {
   padding: 8px 10px;
 }
 .ns-item b {
-  font-size: 12.5px; font-weight: 500; color: var(--ink);
+  font-size: 13px; font-weight: 600; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.ns-item span { font-size: 10.5px; color: var(--faint); }
+.ns-item span { font-size: 11.5px; color: var(--dim); }
 
 .ns-acts {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);

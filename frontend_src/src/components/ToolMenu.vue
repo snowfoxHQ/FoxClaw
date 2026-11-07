@@ -119,26 +119,26 @@ async function onAttach(e) {
 @keyframes tm-in { from { opacity: 0; transform: translateY(5px); } }
 
 .sec {
-  padding: 5px 7px 3px;
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--faint); text-transform: uppercase;
+  padding: 6px 7px 4px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--dim); text-transform: uppercase;
 }
 .it {
   width: 100%;
   display: flex; align-items: center; gap: 9px;
-  padding: 7px; border-radius: var(--r-sm);
+  padding: 8px; border-radius: var(--r-sm);
   text-align: left;
   transition: background 0.13s;
 }
 .it:hover { background: var(--surface-2); }
-.it .ic { font-size: 13px; width: 16px; text-align: center; flex-shrink: 0; }
-.it .tx { display: flex; flex-direction: column; gap: 1px; }
-.it .tx b { font-size: 12.5px; font-weight: 550; }
-.it .tx span { font-size: 10px; color: var(--faint); }
+.it .ic { font-size: 14px; width: 16px; text-align: center; flex-shrink: 0; }
+.it .tx { display: flex; flex-direction: column; gap: 2px; }
+.it .tx b { font-size: 13px; font-weight: 600; }
+.it .tx span { font-size: 11px; color: var(--dim); }
 
 .foot {
-  margin-top: 4px; padding: 6px 7px 2px;
+  margin-top: 4px; padding: 7px 7px 3px;
   border-top: 1px solid var(--line-soft);
-  font-size: 10px; color: var(--faint); font-family: var(--mono);
+  font-size: 11px; color: var(--dim); font-family: var(--mono);
 }
 </style>

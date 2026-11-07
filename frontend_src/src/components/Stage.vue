@@ -146,7 +146,7 @@ function resume() {
 }
 .tab.doc { max-width: 260px; }
 .tab.doc .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab.doc .x { font-size: 10px; color: var(--faint); }
+.tab.doc .x { font-size: 11px; color: var(--dim); }
 .tab.doc .x:hover { color: var(--red); }
 
 .stage-body {
@@ -170,7 +170,7 @@ function resume() {
   padding: 24px 18px;
   overflow-y: auto;
 }
-.core-cap { font-size: 11.5px; color: var(--faint); line-height: 1.7; text-align: center; }
+.core-cap { font-size: 12.5px; color: var(--dim); line-height: 1.7; text-align: center; }
 
 .hero { text-align: center; }
 .hero-t {
@@ -182,45 +182,45 @@ function resume() {
 .tries { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 420px; }
 .try {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 9px 12px; border-radius: var(--r-sm);
-  font-size: 12px; color: var(--dim); text-align: left;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid var(--line-soft);
+  padding: 10px 13px; border-radius: var(--r-sm);
+  font-size: 12.5px; color: var(--ink); text-align: left;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
   transition: color 0.14s, border-color 0.14s, background 0.14s, transform 0.12s;
 }
-.try:hover { color: var(--ink); background: #fff; border-color: rgba(26, 157, 95, 0.32); }
+.try:hover { color: var(--ink); background: #fff; border-color: rgba(26, 157, 95, 0.42); }
 .try:active { transform: scale(0.99); }
-.try .arrow { font-size: 11px; color: var(--green); flex-shrink: 0; }
+.try .arrow { font-size: 12px; color: var(--green); flex-shrink: 0; }
 
 .resume {
   display: flex; align-items: center; gap: 7px;
-  max-width: 420px; padding: 6px 12px;
+  max-width: 420px; padding: 7px 13px;
   border-radius: var(--r-pill);
   background: var(--surface-2); color: var(--dim);
   transition: background 0.14s, color 0.14s;
 }
 .resume:hover { background: var(--surface-3); color: var(--ink); }
-.resume .rl { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.07em; }
+.resume .rl { font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 0.07em; }
 .resume b {
-  font-size: 11.5px; font-weight: 500;
+  font-size: 12px; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.resume .rm { font-size: 10px; color: var(--faint); flex-shrink: 0; }
+.resume .rm { font-size: 11px; color: var(--dim); flex-shrink: 0; }
 
 .recent { width: 100%; max-width: 420px; }
 .recent .rh {
   margin-bottom: 5px;
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--faint); text-transform: uppercase;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--dim); text-transform: uppercase;
 }
 .rk-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .rk {
-  max-width: 190px; padding: 4px 9px; border-radius: var(--r-pill);
-  font-size: 10.5px; color: var(--dim);
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid var(--line-soft);
+  max-width: 190px; padding: 5px 10px; border-radius: var(--r-pill);
+  font-size: 11.5px; color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--line);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
-.rk:hover { color: var(--green); background: #fff; border-color: rgba(26, 157, 95, 0.35); }
+.rk:hover { color: var(--green); background: #fff; border-color: rgba(26, 157, 95, 0.4); }
 </style>

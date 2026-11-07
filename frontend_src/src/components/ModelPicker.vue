@@ -246,7 +246,7 @@ function isCur(source, key) {
 .pill {
   display: flex; align-items: center; gap: 5px;
   padding: 5px 9px; border-radius: var(--r-pill);
-  font-size: 11.5px; color: var(--dim);
+  font-size: 12px; font-weight: 600; color: var(--ink);
   background: var(--surface-2);
   max-width: 150px;
   transition: background 0.15s, color 0.15s;
@@ -254,7 +254,7 @@ function isCur(source, key) {
 .pill:hover, .pill.on { background: var(--surface-3); color: var(--ink); }
 .pill .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .pill .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pill .caret { font-size: 8px; color: var(--faint); }
+.pill .caret { font-size: 10px; color: var(--dim); }
 
 .pop {
   position: absolute; left: 0; bottom: calc(100% + 8px);
@@ -285,15 +285,15 @@ function isCur(source, key) {
 .it.dis { opacity: 0.55; }
 .it .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .it .tx { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-.it .tx b { font-size: 12.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.it .tx span { font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it .tx b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it .tx span { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .it .tx.plain { background: none; padding: 0; }
 .tg {
-  flex-shrink: 0; font-size: 9.5px; padding: 1px 5px; border-radius: var(--r-pill);
+  flex-shrink: 0; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: var(--r-pill);
   color: var(--accent); background: rgba(26, 157, 95, 0.13);
 }
 .tg.warn { color: var(--amber); background: rgba(200, 140, 40, 0.13); }
-.it .x { flex-shrink: 0; font-size: 10px; color: var(--faint); padding: 2px 4px; }
+.it .x { flex-shrink: 0; font-size: 11px; color: var(--dim); padding: 2px 4px; }
 .it .x:hover { color: var(--red); }
 /* 测 / 编 是 button,去掉按钮底框,和 ✕ 同一个观感 */
 button.x { background: none; border: 0; font-family: inherit; cursor: pointer; }
@@ -302,8 +302,8 @@ button.x:disabled { opacity: 0.4; cursor: default; }
 
 /* 连通性测试结果条:失败原因原样显示(常见是 key 错 / base_url 多一层 /v1) */
 .tres {
-  margin-top: 5px; padding: 6px 8px; border-radius: var(--r-sm);
-  font-size: 10.5px; line-height: 1.55; color: var(--faint);
+  margin-top: 5px; padding: 7px 9px; border-radius: var(--r-sm);
+  font-size: 11.5px; line-height: 1.55; color: var(--dim);
   background: var(--surface-2);
   overflow-wrap: anywhere;
 }
@@ -311,11 +311,11 @@ button.x:disabled { opacity: 0.4; cursor: default; }
 .tres.err { color: var(--red); background: rgba(229, 72, 77, 0.07); }
 
 .sep {
-  padding: 8px 7px 3px;
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--faint); text-transform: uppercase;
+  padding: 9px 7px 4px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--dim); text-transform: uppercase;
 }
-.empty { padding: 10px 7px; font-size: 11.5px; color: var(--faint); }
+.empty { padding: 10px 7px; font-size: 12px; color: var(--dim); }
 
 /* 列表可能长到滚出视口,底部两个按钮必须常驻可点 */
 .foot {
@@ -328,8 +328,8 @@ button.x:disabled { opacity: 0.4; cursor: default; }
   backdrop-filter: blur(10px);
 }
 .fbtn {
-  flex: 1; padding: 6px; border-radius: var(--r-sm);
-  font-size: 11.5px; color: var(--dim);
+  flex: 1; padding: 7px; border-radius: var(--r-sm);
+  font-size: 12px; font-weight: 600; color: var(--dim);
   background: var(--surface-2);
 }
 .fbtn:hover { color: var(--ink); background: var(--surface-3); }
@@ -337,10 +337,10 @@ button.x:disabled { opacity: 0.4; cursor: default; }
 .form { display: flex; flex-direction: column; gap: 6px; padding: 4px; }
 .fhead {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 12px; font-weight: 600; padding: 2px 3px 4px;
+  font-size: 12.5px; font-weight: 700; padding: 2px 3px 4px;
 }
-.fhead .x { cursor: pointer; color: var(--faint); font-size: 11px; }
-.form label { display: flex; flex-direction: column; gap: 3px; font-size: 10.5px; color: var(--faint); }
+.fhead .x { cursor: pointer; color: var(--dim); font-size: 12px; }
+.form label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--dim); }
 .form input {
   padding: 6px 8px; border-radius: 7px; font-size: 12px;
   background: #fff; border: 1px solid var(--line);

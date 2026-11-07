@@ -333,7 +333,7 @@ function covText(c) {
   background: transparent; border: 0; outline: none; resize: vertical;
   min-height: 62px;
 }
-.kb-in textarea::placeholder { color: var(--faint); }
+.kb-in textarea::placeholder { color: var(--dim); }
 
 .kb-bar {
   display: flex; align-items: center; gap: 6px;
@@ -347,13 +347,13 @@ function covText(c) {
   outline: none;
 }
 .kb-bar input:focus { border-color: var(--line); background: #fff; }
-.kb-bar input::placeholder { color: var(--faint); }
+.kb-bar input::placeholder { color: var(--dim); }
 .f-title { flex: 1 1 110px; max-width: 190px; min-width: 0; }
 .f-domain { flex: 0 1 96px; min-width: 60px; }
 
 .tip {
   flex: 1 1 auto; min-width: 0;
-  font-size: 10.5px; color: var(--dim);
+  font-size: 11.5px; color: var(--dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tip.dim { color: var(--faint); }
@@ -369,7 +369,12 @@ function covText(c) {
 }
 .go:hover:not(:disabled) { opacity: 0.9; }
 .go:active:not(:disabled) { transform: scale(0.97); }
-.go:disabled { background: rgba(23, 32, 26, 0.12); color: var(--faint); }
+/* 禁用态原来用 --faint 压在 12% 墨底上,对比度不到 2:1、几乎读不出字。
+   改成实心浅底 + 深墨字:一眼看得出「现在点不了」,但字仍然清楚。 */
+.go:disabled {
+  background: rgba(23, 32, 26, 0.07); color: var(--dim);
+  border: 1px solid var(--line-soft);
+}
 
 .meta { margin-top: 8px; }
 .sec-gap { margin-top: 14px; }
@@ -390,12 +395,12 @@ function covText(c) {
   transition: border-color 0.15s;
 }
 .kb-find input:focus { border-color: rgba(26, 157, 95, 0.45); }
-.kb-find input::placeholder { color: var(--faint); }
+.kb-find input::placeholder { color: var(--dim); }
 .kb-find select {
   padding: 6px 8px; border-radius: var(--r-sm);
-  font-size: 11.5px; color: var(--dim);
+  font-size: 12px; font-weight: 600; color: var(--ink);
   background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
   outline: none;
 }
 .kb-find .go { padding: 6px 13px; }
@@ -410,12 +415,12 @@ function covText(c) {
 .kb-hit:hover { background: rgba(255, 255, 255, 0.75); }
 .kb-hit .m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .kb-hit .m b {
-  font-size: 12.5px; font-weight: 500; color: var(--ink);
+  font-size: 13px; font-weight: 600; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.kb-hit .m .s { font-size: 10.5px; color: var(--faint); }
+.kb-hit .m .s { font-size: 11.5px; color: var(--dim); }
 .kb-hit .r {
-  flex-shrink: 0; font-size: 11px; color: var(--faint);
+  flex-shrink: 0; font-size: 11.5px; color: var(--dim);
   font-variant-numeric: tabular-nums;
 }
 
@@ -432,5 +437,5 @@ function covText(c) {
   font-size: 13px; font-weight: 600; color: var(--ink);
   margin-bottom: 5px;
 }
-.kb-ab-h .v { font-size: 10.5px; font-weight: 400; color: var(--faint); }
+.kb-ab-h .v { font-size: 11.5px; font-weight: 600; color: var(--dim); }
 </style>

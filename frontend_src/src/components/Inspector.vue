@@ -154,10 +154,10 @@ const outline = computed(() => {
 .sec { margin-bottom: 20px; }
 .sec-h {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
-  color: var(--faint); text-transform: uppercase; margin-bottom: 8px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em;
+  color: var(--dim); text-transform: uppercase; margin-bottom: 8px;
 }
-.sec-h em { font-family: var(--mono); font-size: 10px; }
+.sec-h em { font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--ink); }
 .kpi {
   display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
   margin-bottom: 8px;
@@ -166,43 +166,43 @@ const outline = computed(() => {
   padding: 8px 9px; border-radius: var(--r-sm);
   /* 纸面上要的是「白卡」而不是「更浅的纸」:0.72 的白压在暖底上几乎看不出边界 */
   background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
 }
-.kpi b { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
-.kpi span { font-size: 10px; color: var(--faint); }
+.kpi b { display: block; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--w-ink); }
+.kpi span { font-size: 11.5px; font-weight: 500; color: var(--w-dim); }
 .go {
-  width: 100%; padding: 7px; border-radius: var(--r-sm);
-  font-size: 11.5px; font-weight: 600; color: #fff;
+  width: 100%; padding: 8px; border-radius: var(--r-sm);
+  font-size: 12px; font-weight: 600; color: #fff;
   background: var(--green);
   transition: opacity 0.15s;
 }
-.go:disabled { color: var(--faint); background: rgba(64, 50, 32, 0.06); font-weight: 400; }
+.go:disabled { color: var(--w-dim); background: rgba(64, 50, 32, 0.07); font-weight: 600; border: 1px solid var(--line-soft); }
 .go:not(:disabled):hover { opacity: 0.9; }
 
 .sub-h {
   display: flex; justify-content: space-between;
-  padding: 4px 2px 5px;
-  font-size: 10px; color: var(--faint);
+  padding: 5px 2px 6px;
+  font-size: 11px; font-weight: 600; color: var(--w-dim);
 }
 .sub-h em { font-style: normal; font-family: var(--mono); }
 
 .row {
   width: 100%; text-align: left;
   display: flex; flex-direction: column; gap: 2px;
-  padding: 7px 8px; border-radius: var(--r-sm); margin-bottom: 2px;
+  padding: 8px 9px; border-radius: var(--r-sm); margin-bottom: 2px;
   transition: background 0.14s;
 }
 .row:hover { background: rgba(255, 255, 255, 0.75); }
-.row b { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row span { font-size: 10.5px; color: var(--faint); }
+.row b { font-size: 13px; font-weight: 600; color: var(--w-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row span { font-size: 11.5px; color: var(--w-dim); }
 
 /* 「更多」:三条杠 + 文字,点进知识库看全量 */
 .more {
   width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
-  margin-top: 4px; padding: 6px 8px;
+  margin-top: 4px; padding: 7px 9px;
   border-radius: var(--r-sm);
-  font-size: 11px; color: var(--dim);
-  border: 1px dashed var(--line-soft);
+  font-size: 12px; font-weight: 600; color: var(--w-dim);
+  border: 1px dashed var(--line);
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .more:hover {
@@ -215,27 +215,27 @@ const outline = computed(() => {
 .doc-head { padding: 0 4px 12px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; }
 .kind {
   display: inline-block; margin-bottom: 7px;
-  padding: 2px 7px; border-radius: var(--r-pill);
-  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em;
+  padding: 3px 8px; border-radius: var(--r-pill);
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
 }
 .kind.code { background: var(--cli-bg); color: var(--cli-acc); }
-.kind.text { background: var(--surface-2); color: var(--dim); }
-.doc-head h3 { font-size: 14px; font-weight: 600; line-height: 1.45; }
-.path { display: block; margin-top: 5px; font-family: var(--mono); font-size: 10px; color: var(--faint); word-break: break-all; }
-.meta { margin-top: 4px; font-size: 10.5px; color: var(--dim); }
+.kind.text { background: var(--surface-2); color: var(--w-ink); }
+.doc-head h3 { font-size: 15px; font-weight: 650; line-height: 1.45; color: var(--w-ink); }
+.path { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11px; color: var(--w-dim); word-break: break-all; }
+.meta { margin-top: 5px; font-size: 11.5px; color: var(--w-dim); }
 
 .out-line {
-  display: flex; gap: 7px; padding: 5px 6px; border-radius: 7px;
-  font-size: 11.5px; color: var(--dim); line-height: 1.5;
+  display: flex; gap: 7px; padding: 6px 7px; border-radius: 7px;
+  font-size: 12px; color: var(--w-ink); line-height: 1.55;
 }
-.out-line:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink); }
-.out-line .n { font-family: var(--mono); font-size: 9.5px; color: var(--faint); padding-top: 2px; }
+.out-line:hover { background: rgba(255, 255, 255, 0.7); color: var(--w-ink); }
+.out-line .n { font-family: var(--mono); font-size: 10.5px; color: var(--w-dim); padding-top: 2px; }
 
 .acts { padding-top: 6px; }
 .acts button {
-  width: 100%; padding: 7px; border-radius: var(--r-sm);
-  font-size: 12px; color: var(--dim);
-  background: rgba(255, 255, 255, 0.75); border: 1px solid var(--line-soft);
+  width: 100%; padding: 8px; border-radius: var(--r-sm);
+  font-size: 12.5px; font-weight: 600; color: var(--w-ink);
+  background: rgba(255, 255, 255, 0.8); border: 1px solid var(--line);
 }
 .acts button:hover { color: var(--ink); background: #fff; }
 </style>
