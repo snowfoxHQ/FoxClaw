@@ -4,12 +4,24 @@ import LeftRail from './components/LeftRail.vue'
 import Stage from './components/Stage.vue'
 import ChatDock from './components/ChatDock.vue'
 import Inspector from './components/Inspector.vue'
-import { onMounted } from 'vue'
-import { state } from './stores/app.js'
+import { onBeforeUnmount, onMounted } from 'vue'
+import { state, setModule } from './stores/app.js'
 import { bootChat } from './stores/chat.js'
 
 /* 恢复上次会话历史(后端落盘) */
-onMounted(bootChat)
+onMounted(() => {
+  bootChat()
+  window.addEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+/* Ctrl+, 打开设置(顶栏 ⚙ 旁边写的那个键位)。输入框里也生效 —— 它是全局入口 */
+function onKey(e) {
+  if (e.ctrlKey && (e.key === ',' || e.code === 'Comma')) {
+    e.preventDefault()
+    setModule('settings')
+  }
+}
 </script>
 
 <template>

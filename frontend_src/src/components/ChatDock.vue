@@ -223,57 +223,59 @@ function kb(n) {
 
 <template>
   <div class="dock">
-    <div v-if="chat.attachments.length || chat.images.length || chat.ingest" class="chips">
-      <div v-for="(a, i) in chat.attachments" :key="a.id || i" class="chip" :title="`${a.name} · ${a.url}`">
-        <span class="cn">{{ a.name }}</span>
-        <span class="cs">{{ kb(a.size) }}</span>
-        <span class="cx" @click="dropAttachment(i)">✕</span>
+    <div class="dock-in">
+      <div v-if="chat.attachments.length || chat.images.length || chat.ingest" class="chips">
+        <div v-for="(a, i) in chat.attachments" :key="a.id || i" class="chip" :title="`${a.name} · ${a.url}`">
+          <span class="cn">{{ a.name }}</span>
+          <span class="cs">{{ kb(a.size) }}</span>
+          <span class="cx" @click="dropAttachment(i)">✕</span>
+        </div>
+
+        <div v-for="(im, i) in chat.images" :key="`img${i}`" class="chip img" :title="im.name">
+          <img :src="im.url" :alt="im.name" />
+          <span class="cx" @click="dropImage(i)">✕</span>
+        </div>
+
+        <div v-if="chat.ingest" class="chip ing" :class="chat.ingest.status">
+          <span class="cn">{{ chat.ingest.name }}</span>
+          <span class="cs">
+            {{ chat.ingest.status === 'done' ? `${chat.ingest.ku} 条`
+               : chat.ingest.status === 'error' ? '失败'
+               : `${chat.ingest.pct}%` }}
+          </span>
+          <span class="bar"><i :style="{ width: `${chat.ingest.status === 'done' ? 100 : chat.ingest.pct}%` }" /></span>
+          <span v-if="chat.ingest.status === 'done' || chat.ingest.status === 'error'" class="cx" @click="chat.ingest = null">✕</span>
+        </div>
       </div>
 
-      <div v-for="(im, i) in chat.images" :key="`img${i}`" class="chip img" :title="im.name">
-        <img :src="im.url" :alt="im.name" />
-        <span class="cx" @click="dropImage(i)">✕</span>
-      </div>
-
-      <div v-if="chat.ingest" class="chip ing" :class="chat.ingest.status">
-        <span class="cn">{{ chat.ingest.name }}</span>
-        <span class="cs">
-          {{ chat.ingest.status === 'done' ? `${chat.ingest.ku} 条`
-             : chat.ingest.status === 'error' ? '失败'
-             : `${chat.ingest.pct}%` }}
-        </span>
-        <span class="bar"><i :style="{ width: `${chat.ingest.status === 'done' ? 100 : chat.ingest.pct}%` }" /></span>
-        <span v-if="chat.ingest.status === 'done' || chat.ingest.status === 'error'" class="cx" @click="chat.ingest = null">✕</span>
-      </div>
-    </div>
-
-    <ComposerMenu
-      v-if="menu && items.length"
-      :items="items"
-      :index="hover"
-      :hint="hint"
-      @pick="choose"
-      @hover="hover = $event"
-    />
-
-    <div class="wrap">
-      <ToolMenu />
-      <ModelPicker />
-      <textarea
-        ref="ta"
-        v-model="text"
-        rows="1"
-        placeholder="告诉我你想做什么…  / 命令 · @ 技能 · Enter 发送"
-        @keydown="onKey"
-        @input="grow"
-        @focus="onFocus"
-        @blur="onBlur"
-        @click="syncMenu"
-        @keyup="syncMenu"
+      <ComposerMenu
+        v-if="menu && items.length"
+        :items="items"
+        :index="hover"
+        :hint="hint"
+        @pick="choose"
+        @hover="hover = $event"
       />
-      <button class="send" :class="{ stop: busy() }" :title="busy() ? '停止生成' : '发送'" @click="submit">
-        {{ busy() ? '■' : '➤' }}
-      </button>
+
+      <div class="wrap">
+        <ToolMenu />
+        <ModelPicker />
+        <textarea
+          ref="ta"
+          v-model="text"
+          rows="1"
+          placeholder="告诉我你想做什么…  / 命令 · @ 技能 · Enter 发送"
+          @keydown="onKey"
+          @input="grow"
+          @focus="onFocus"
+          @blur="onBlur"
+          @click="syncMenu"
+          @keyup="syncMenu"
+        />
+        <button class="send" :class="{ stop: busy() }" :title="busy() ? '停止生成' : '发送'" @click="submit">
+          {{ busy() ? '■' : '➤' }}
+        </button>
+      </div>
     </div>
 
     <Transition name="fade">
@@ -284,6 +286,16 @@ function kb(n) {
 
 <style scoped>
 .dock { padding: 0 8px 8px; position: relative; }
+
+/* 输入框宽度 = 正文列宽。正文列是 .ms-in(max-width 780,左右 padding 22)居中于
+   .stage-body(margin 0 8px),这里用同一个算式 100% - 44:
+   宽屏时同为 736,窄屏时同为 列宽-60,任何宽度下左右边都压在正文的文字边上。
+   菜单 / 提示条挂在这层里,才会跟着一起变窄。 */
+.dock-in {
+  position: relative;
+  width: min(736px, calc(100% - 44px));
+  margin: 0 auto;
+}
 
 .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 2px 7px; }
 .chip {

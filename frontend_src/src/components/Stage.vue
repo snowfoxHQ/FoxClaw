@@ -10,6 +10,7 @@ import UsagePanel from './panels/UsagePanel.vue'
 import KnowledgePanel from './panels/KnowledgePanel.vue'
 import ReviewPanel from './panels/ReviewPanel.vue'
 import MemoryPanel from './panels/MemoryPanel.vue'
+import SettingsPanel from './panels/SettingsPanel.vue'
 import { chat } from '../stores/chat.js'
 import { state, moduleLabel, closeDoc } from '../stores/app.js'
 
@@ -23,6 +24,7 @@ const PANELS = {
   knowledge: KnowledgePanel,
   review: ReviewPanel,
   memory: MemoryPanel,
+  settings: SettingsPanel,
 }
 const panel = computed(() => PANELS[state.module] || null)
 

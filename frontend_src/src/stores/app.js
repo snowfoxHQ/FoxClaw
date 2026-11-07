@@ -32,6 +32,9 @@ export const MODULES = [
   { id: 'knowledge', label: '学习库', tag: 'Knowledge', group: '知识', icon: 'book', quick: ['review', 'memory'] },
   { id: 'review', label: '复习', tag: 'Review', group: '知识', icon: 'review' },
   { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识', icon: 'memory' },
+  /* 设置不是"干活的地方",所以不进常驻栏;顶栏 ⚙ 与「更多」都能到,
+     顶栏那个 ⚙ 之前是死按钮(title 写着 P3 接入)。 */
+  { id: 'settings', label: '设置', tag: 'Settings', group: '系统', icon: 'gear' },
 ]
 
 /* 左栏常驻的功能入口(顺序即渲染顺序)。不进这个数组的模块全部落进底部「更多」浮层。

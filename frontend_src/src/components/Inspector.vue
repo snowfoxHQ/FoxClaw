@@ -138,14 +138,14 @@ const outline = computed(() => {
   display: flex; align-items: center; gap: 8px; flex-shrink: 0;
   padding: 10px 12px 9px; border-bottom: 1px solid var(--line-soft);
 }
-.seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: rgba(23, 32, 26, 0.05); }
+.seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: rgba(64, 50, 32, 0.055); }
 .seg button {
   display: flex; align-items: center; gap: 4px;
   padding: 4px 11px; border-radius: 7px;
   font-size: 11.5px; color: var(--dim);
   transition: background 0.15s, color 0.15s;
 }
-.seg button.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(23, 32, 26, 0.07); }
+.seg button.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(64, 50, 32, 0.09); }
 .seg .pip { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
 .collapse { margin-left: auto; font-size: 13px; color: var(--faint); padding: 2px 5px; }
 .collapse:hover { color: var(--ink); }
@@ -164,7 +164,8 @@ const outline = computed(() => {
 }
 .kpi div {
   padding: 8px 9px; border-radius: var(--r-sm);
-  background: rgba(255, 255, 255, 0.72);
+  /* 纸面上要的是「白卡」而不是「更浅的纸」:0.72 的白压在暖底上几乎看不出边界 */
+  background: rgba(255, 255, 255, 0.9);
   border: 1px solid var(--line-soft);
 }
 .kpi b { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
@@ -175,7 +176,7 @@ const outline = computed(() => {
   background: var(--green);
   transition: opacity 0.15s;
 }
-.go:disabled { color: var(--faint); background: rgba(23, 32, 26, 0.05); font-weight: 400; }
+.go:disabled { color: var(--faint); background: rgba(64, 50, 32, 0.06); font-weight: 400; }
 .go:not(:disabled):hover { opacity: 0.9; }
 
 .sub-h {

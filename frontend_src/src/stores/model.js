@@ -49,6 +49,33 @@ export async function selectModel({ source, provider = null, name = null }) {
   return r
 }
 
+/* 设置面板里的模型清单:auto / 预设 / 自定义摊平成同一形状。
+   active 的判定必须和上面的 currentLabel 一致 —— 两处各写一套,切换后 pill 和
+   列表就会各说各的(这类"同一状态两套判定"是回归温床)。 */
+export function modelOptions() {
+  const c = model.current
+  const out = [{
+    source: 'auto', key: 'auto', label: 'Auto', sub: '跟随 .env 默认',
+    color: '#7e93b8', active: !c,
+  }]
+  for (const p of model.providers) {
+    out.push({
+      source: 'preset', key: p.provider, label: p.label || p.provider, sub: p.provider,
+      color: p.color || '#7e93b8',
+      configured: p.configured !== false,
+      active: !!c && c.source !== 'custom' && c.provider === p.provider,
+    })
+  }
+  for (const m of model.custom) {
+    out.push({
+      source: 'custom', key: m.name, label: m.name, sub: m.model || '自定义',
+      color: '#a78bfa',
+      active: !!c && c.source === 'custom' && c.name === m.name,
+    })
+  }
+  return out
+}
+
 export async function addCustom(payload) {
   await postJSON('/llm/custom/add', payload)
   await loadModels(true)

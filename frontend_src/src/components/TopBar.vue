@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { getJSON } from '../api.js'
+import { state, setModule } from '../stores/app.js'
 
 const uplink = ref('···')
 const tone = ref('dim')
@@ -19,6 +20,11 @@ onMounted(async () => {
 function openPlanet() {
   window.open('/planet/', '_blank', 'noopener')
 }
+
+/* 这个 ⚙ 一直是死按钮(title 写着「P3 接入」)。设置面板补齐后接上去。 */
+function openSettings() {
+  setModule(state.module === 'settings' ? 'overview' : 'settings')
+}
 </script>
 
 <template>
@@ -34,7 +40,12 @@ function openPlanet() {
       <span class="val" :class="tone">{{ uplink }}</span>
     </div>
     <button class="tbtn" title="打开 HKC 知识星球" @click="openPlanet">🌐 知识星球</button>
-    <button class="tbtn" title="设置（P3 接入）">⚙</button>
+    <button
+      class="tbtn"
+      :class="{ on: state.module === 'settings' }"
+      title="设置 (Ctrl+,)"
+      @click="openSettings"
+    >⚙</button>
   </header>
 </template>
 
@@ -75,4 +86,5 @@ function openPlanet() {
   transition: color 0.15s, background 0.15s;
 }
 .tbtn:hover { color: var(--ink); background: #fff; }
+.tbtn.on { color: var(--green); background: #fff; border-color: rgba(26, 157, 95, 0.32); }
 </style>

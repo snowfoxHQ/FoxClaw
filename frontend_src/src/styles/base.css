@@ -42,10 +42,21 @@ em { font-style: normal; }
 }
 .col--mid { background: var(--veil-mid); }
 .col--right {
-  /* 右栏是白的那一块,和中间的淡绿形成对比 */
+  /* 右栏是纸的那一块,和中间的淡绿形成对比 */
   background: var(--right-panel);
+  /* 暖纸面上换一套墨色:同一条 --ink/--dim/--faint 变量,右栏内部所有组件
+     (Inspector / QuickIngest / 文档大纲)自动跟着变,不用逐个改色值。 */
+  --ink: var(--w-ink);
+  --dim: var(--w-dim);
+  --faint: var(--w-faint);
+  --line: var(--w-line);
+  --line-soft: var(--w-line-soft);
+  --surface-2: var(--w-surface-2);
+  --surface-3: var(--w-surface-3);
   transition: opacity 0.18s ease;
 }
+/* 滚动条也换暖灰,否则绿灰的滑块压在纸面上像贴错了一张 */
+.col--right .scroll::-webkit-scrollbar-thumb { background: rgba(64, 50, 32, 0.16); }
 .workspace.is-collapsed .col--right { opacity: 0; pointer-events: none; }
 
 /* 中间栏:上方舞台 + 底部指令条 */
