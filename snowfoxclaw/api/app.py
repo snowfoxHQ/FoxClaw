@@ -94,17 +94,30 @@ def _mount_hkc(app):
 
 def _mount_frontend(app):
     # ── 前端静态文件 ───────────────────────────────────────────
-    # 前端就是 frontend/ 下的 deck.html + 两个 js,直接挂载该目录
+    # frontend/ 下现在并存三套:frontend/v3(Vue,当前主界面)、deck_v2.html(旧主界面)、
+    # deck.html(最早的一版)。根路径必须给 v3 —— 之前一直指向 deck_v2,新版只能手输 /v3/,
+    # 等于新界面根本没上线。
     frontend_dir = Path(__file__).parent.parent.parent / "frontend"
-    if frontend_dir.exists():
-        @app.get("/")
-        async def serve_deck():
-            # 新版 Snowfoxclaw Deck(deck_v2);旧版仍可通过 /old 访问
-            v2 = frontend_dir / "deck_v2.html"
-            return FileResponse(str(v2 if v2.exists() else frontend_dir / "deck.html"))
+    if not frontend_dir.exists():
+        return
 
-        @app.get("/old")
-        async def serve_deck_old():
-            return FileResponse(str(frontend_dir / "deck.html"))
+    v3_index = frontend_dir / "v3" / "index.html"
 
-        app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+    @app.get("/")
+    async def serve_root():
+        """主界面。v3 未构建(没跑 npm run build)时退回旧 deck_v2,不让根路径 404。"""
+        if v3_index.exists():
+            return FileResponse(str(v3_index))
+        legacy = frontend_dir / "deck_v2.html"
+        return FileResponse(str(legacy if legacy.exists() else frontend_dir / "deck.html"))
+
+    @app.get("/classic")
+    async def serve_classic():
+        """旧界面(deck_v2,v5.34):新版出问题时的手动回退入口,也留着它的二级面板历史。"""
+        return FileResponse(str(frontend_dir / "deck_v2.html"))
+
+    @app.get("/old")
+    async def serve_deck_old():
+        return FileResponse(str(frontend_dir / "deck.html"))
+
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")

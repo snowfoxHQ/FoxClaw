@@ -42,13 +42,13 @@ function evSub(e) {
         <div v-if="!events.length" class="pn-empty">
           还没有事件。发一条消息、让 Agent 跑一步,执行 → 审计 → 记忆的流转会记在这里。
         </div>
-        <button v-for="(e, i) in events" :key="i" class="pn-row" :title="evText(e)">
+        <div v-for="(e, i) in events" :key="i" class="pn-row static" :title="evText(e)">
           <span class="m">
             <b>{{ clip(evText(e), 40) }}</b>
             <span class="s">{{ evSub(e) }}</span>
           </span>
           <span class="r">{{ fmtAgo(e.ts) }}</span>
-        </button>
+        </div>
       </div>
 
       <div class="pn-sec">
@@ -76,3 +76,9 @@ function evSub(e) {
     </div>
   </PanelBox>
 </template>
+
+<style scoped>
+/* 事件行是只读快照,没有可点的动作 —— hover 高亮会让人以为点了能看详情。
+   之前这里是 <button> 但没绑事件,视觉上"能点"、实际不动。 */
+.pn-row.static:hover { background: transparent; }
+</style>

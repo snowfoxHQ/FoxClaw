@@ -1,10 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import ConnectorPanel from './ConnectorPanel.vue'
 import { attachFile, attachImage, chat, ingestFile, ingestFolder, say, setMode, ui } from '../stores/chat.js'
+import { setModule } from '../stores/app.js'
 
 const open = ref(false)
-const showConn = ref(false)
 const root = ref(null)
 const inFile = ref(null)
 const inFolder = ref(null)
@@ -22,22 +21,19 @@ const rows = computed(() => [
   { ic: '📁', b: '导入文件夹', s: '逐个摄入', act: () => { close(); inFolder.value?.click() } },
   { ic: '🖼', b: '附加图片', s: '发给视觉模型', act: () => { close(); inImg.value?.click() } },
   { ic: '📄', b: '附件文件', s: '随问题发给 AI', act: () => { close(); inAttach.value?.click() } },
-  { ic: '🔌', b: '连接器 / 插件', s: 'MCP · 技能', act: () => { showConn.value = true } },
+  /* 连接器只有一份实现,在技能面板里。这里不再内嵌一份只读副本(信任档位还是另一套词),
+     点进来直接去那个面板,要管 MCP 也只在一个地方管。 */
+  { ic: '🔌', b: '技能 · 连接器', s: '到技能面板看全部', act: () => { close(); setModule('tools') } },
 ])
 
 function toggle() {
   open.value = !open.value
-  if (open.value) showConn.value = false
 }
 function close() {
   open.value = false
 }
-/* 斜杠命令 /摄入、/设置 通过 store 信号打到这里,避免把 input 引用抬到全局 */
+/* 斜杠命令 /摄入 通过 store 信号打到这里,避免把 input 引用抬到全局 */
 watch(() => ui.ingestTick, () => inFile.value?.click())
-watch(() => ui.toolsTick, () => {
-  showConn.value = false
-  open.value = true
-})
 
 function onDocDown(e) {
   if (root.value && !root.value.contains(e.target)) close()
@@ -75,18 +71,15 @@ async function onAttach(e) {
     </button>
 
     <div v-if="open" class="pop">
-      <ConnectorPanel v-if="showConn" @back="showConn = false" />
-      <template v-else>
-        <div class="sec">工具</div>
-        <button v-for="(r, i) in rows" :key="i" class="it" @click="r.act()">
-          <span class="ic">{{ r.ic }}</span>
-          <span class="tx"><b>{{ r.b }}</b><span>{{ r.s }}</span></span>
-        </button>
-        <div class="foot">
-          附件 {{ chat.attachments.length }} · 图片 {{ chat.images.length }} ·
-          {{ chat.mode === 'stream' ? '流式' : '编排' }}
-        </div>
-      </template>
+      <div class="sec">工具</div>
+      <button v-for="(r, i) in rows" :key="i" class="it" @click="r.act()">
+        <span class="ic">{{ r.ic }}</span>
+        <span class="tx"><b>{{ r.b }}</b><span>{{ r.s }}</span></span>
+      </button>
+      <div class="foot">
+        附件 {{ chat.attachments.length }} · 图片 {{ chat.images.length }} ·
+        {{ chat.mode === 'stream' ? '流式' : '编排' }}
+      </div>
     </div>
 
     <input ref="inFile" type="file" hidden accept=".pdf,.md,.txt,.epub,.mobi,.azw3,.docx,.xlsx" @change="onIngest" />

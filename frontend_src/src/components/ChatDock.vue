@@ -5,9 +5,10 @@ import ModelPicker from './ModelPicker.vue'
 import ToolMenu from './ToolMenu.vue'
 import { getJSON } from '../api.js'
 import {
-  chat, dropAttachment, dropImage, newSession, pushLocal, requestIngest, requestTools,
+  chat, dropAttachment, dropImage, newSession, pushLocal, requestIngest,
   runSearch, say, send, setMode, stop,
 } from '../stores/chat.js'
+import { setModule } from '../stores/app.js'
 
 const text = ref('')
 const ta = ref(null)
@@ -22,7 +23,7 @@ const CMD = [
   { key: '/任务', desc: '切到编排任务', run: () => { setMode('orchestrate'); say('已切到编排任务') } },
   { key: '/搜索', desc: '检索记忆/知识/联网:/搜索 关键词', arg: true },
   { key: '/摄入', desc: '选文件摄入知识库', run: () => requestIngest() },
-  { key: '/设置', desc: '打开工具栏浮层', run: () => requestTools() },
+  { key: '/设置', desc: '打开设置面板', run: () => setModule('settings') },
   { key: '/停止', desc: '停止当前生成', run: () => stop() },
   { key: '/清屏', desc: '只清空当前显示,不动后端', run: () => { chat.messages = [] } },
   {

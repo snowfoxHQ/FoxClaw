@@ -101,6 +101,31 @@ em { font-style: normal; }
 @media (prefers-reduced-motion: reduce) {
   .workspace, .col--right { transition: none; }
 }
+
+/* 窄窗(<1180):右栏从「第三列」改成覆盖式抽屉。
+   三栏时中栏被压到 252px(900px 窗口实测),扣掉 ＋ 与模型胶囊,textarea 只剩 115px,
+   基本没法打字。抽屉默认收起(App.vue 里按同一断点自动设 railOpen=false),
+   点右侧「检视」拉手展开,盖在中栏上而不是把正文列切走。 */
 @media (max-width: 1180px) {
-  .workspace { grid-template-columns: 248px minmax(0, 1fr) var(--rail-w); }
+  .workspace { grid-template-columns: 248px minmax(0, 1fr); }
+
+  .col--right {
+    position: fixed;
+    top: calc(56px + var(--pad));
+    right: var(--pad);
+    bottom: var(--pad);
+    width: 344px;
+    z-index: 60;
+    box-shadow: var(--sh-pop);
+    transition: transform 0.2s ease, opacity 0.18s ease;
+  }
+  .workspace.is-collapsed .col--right { transform: translateX(calc(100% + var(--pad))); }
+}
+
+/* 抽屉展开时的遮罩:点空白处收起 */
+.rail-scrim {
+  position: fixed;
+  inset: 56px 0 0;
+  z-index: 59;
+  background: rgba(23, 32, 26, 0.16);
 }

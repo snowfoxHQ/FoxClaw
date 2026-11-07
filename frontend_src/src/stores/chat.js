@@ -171,13 +171,11 @@ export async function loadSession(id, { quiet = false } = {}) {
   }
 }
 
-/* 组件间的一次性信号:斜杠命令要调 ToolMenu 里的文件选择/浮层,又不能硬耦合 */
-export const ui = reactive({ ingestTick: 0, toolsTick: 0 })
+/* 组件间的一次性信号:斜杠命令要调 ToolMenu 里的文件选择,又不能硬耦合。
+   (/设置 不再走这里 —— 它现在直接切到设置面板,见 ChatDock 的命令表) */
+export const ui = reactive({ ingestTick: 0 })
 export function requestIngest() {
   ui.ingestTick += 1
-}
-export function requestTools() {
-  ui.toolsTick += 1
 }
 
 /* 纯本地消息(/帮助 之类),不经过后端 */
