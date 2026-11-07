@@ -4,7 +4,7 @@ hkc_crystallizer / adapters.py
 
 KnowledgeEventSource 协议本身在 candidate.py 定义。
 这里提供:
-  - SystemBusEventSource: 基于 Snowfoxclaw SystemBus 的事件来源(实现 KnowledgeEventSource)
+  - SystemBusEventSource: 基于 Foxclaw SystemBus 的事件来源(实现 KnowledgeEventSource)
   - EventToCandidate:    把事件 payload 翻译成 KnowledgeCandidate 的可插拔翻译器
 
 为什么要 EventToCandidate 这一层:
@@ -71,9 +71,9 @@ DEFAULT_TRANSLATORS: dict[str, TranslatorFn] = {
 
 class SystemBusEventSource:
     """
-    基于 Snowfoxclaw SystemBus 的知识事件来源,实现 KnowledgeEventSource 协议。
+    基于 Foxclaw SystemBus 的知识事件来源,实现 KnowledgeEventSource 协议。
 
-    bus: 任何提供 subscribe(channel, handler) 的对象(Snowfoxclaw SystemBus)。
+    bus: 任何提供 subscribe(channel, handler) 的对象(Foxclaw SystemBus)。
     """
 
     def __init__(self, bus):

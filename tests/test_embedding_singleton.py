@@ -15,11 +15,11 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.capability import get_text_embedder, embedding_stats
-from snowfoxclaw.harness.harness import SemanticDrift
+from foxclaw.capability import get_text_embedder, embedding_stats
+from foxclaw.harness.harness import SemanticDrift
 
-BOGUS = "snowfoxclaw-nonexistent-model-xyz"
-BOGUS2 = "snowfoxclaw-nonexistent-model-abc"
+BOGUS = "foxclaw-nonexistent-model-xyz"
+BOGUS2 = "foxclaw-nonexistent-model-abc"
 
 
 def test_same_name_loads_once():
@@ -36,7 +36,7 @@ def test_same_name_loads_once():
 
 def test_five_harnesses_one_load():
     print("\n【2】5 个 SemanticDrift 用同名 → 只加载 1 次(P0 收敛核心)")
-    name = "snowfoxclaw-nonexistent-shared"
+    name = "foxclaw-nonexistent-shared"
     before = embedding_stats()["load_attempts"]
     drifts = [SemanticDrift(name) for _ in range(5)]   # 模拟 5 个 Agent 的 Harness
     after = embedding_stats()["load_attempts"]

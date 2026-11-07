@@ -47,14 +47,14 @@ def _parse(body: str) -> tuple[list, str]:
 
 def test_chat_stream_evidence_event_contract():
     # ISOLATION_GUARD:依赖 import 期固化的单例(路由配置/限流器),须独立进程跑。
-    if "snowfoxclaw.api" in sys.modules:
+    if "foxclaw.api" in sys.modules:
         import pytest
         pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
-    os.environ.setdefault("SNOWFOXCLAW_DATA_DIR", tempfile.mkdtemp(prefix="snowfoxclaw_ev_"))
+    os.environ.setdefault("FOXCLAW_DATA_DIR", tempfile.mkdtemp(prefix="foxclaw_ev_"))
 
     from fastapi.testclient import TestClient
-    from snowfoxclaw.agents.base import CognitiveAgent
-    from snowfoxclaw.api import app
+    from foxclaw.agents.base import CognitiveAgent
+    from foxclaw.api import app
 
     seen: dict = {}
 

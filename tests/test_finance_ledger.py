@@ -13,11 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.finance import FinanceRuntime
-from snowfoxclaw.finance.nlparse import (cn_to_number, has_expense_signal,
+from foxclaw.finance import FinanceRuntime
+from foxclaw.finance.nlparse import (cn_to_number, has_expense_signal,
                                          has_payment_verb, parse)
-from snowfoxclaw.agents.impl.finance import _should_autorecord
-from snowfoxclaw.agents.impl.supervisor import SupervisorAgent
+from foxclaw.agents.impl.finance import _should_autorecord
+from foxclaw.agents.impl.supervisor import SupervisorAgent
 
 NOW = datetime(2026, 11, 7, 20, 0)
 

@@ -13,9 +13,9 @@ import types
 
 import pytest
 
-from snowfoxclaw.agents.base import CognitiveAgent
-from snowfoxclaw.agents.mixins import _context, tool_exec
-from snowfoxclaw.core.recovery import RestartRecovery
+from foxclaw.agents.base import CognitiveAgent
+from foxclaw.agents.mixins import _context, tool_exec
+from foxclaw.core.recovery import RestartRecovery
 
 
 class _Rec:

@@ -38,7 +38,7 @@ rc = _load()
 
 # ── 造最小产物 ────────────────────────────────────────────
 
-def _wheel(dist: Path, version="0.1.0", name="snowfoxclaw", extra=()) -> Path:
+def _wheel(dist: Path, version="0.1.0", name="foxclaw", extra=()) -> Path:
     p = dist / f"{name}-{version}-py3-none-any.whl"
     with zipfile.ZipFile(p, "w") as z:
         z.writestr(f"{name}/__init__.py", "__version__ = '0.1.0'\n")
@@ -50,10 +50,10 @@ def _wheel(dist: Path, version="0.1.0", name="snowfoxclaw", extra=()) -> Path:
     return p
 
 
-def _sdist(dist: Path, version="0.1.0", name="snowfoxclaw", extra=()) -> Path:
+def _sdist(dist: Path, version="0.1.0", name="foxclaw", extra=()) -> Path:
     p = dist / f"{name}-{version}.tar.gz"
     with tarfile.open(p, "w:gz") as t:
-        for arc in (f"{name}-{version}/snowfoxclaw/cli.py",
+        for arc in (f"{name}-{version}/foxclaw/cli.py",
                     f"{name}-{version}/PKG-INFO", *extra):
             data = b"x"
             info = tarfile.TarInfo(arc)
@@ -62,7 +62,7 @@ def _sdist(dist: Path, version="0.1.0", name="snowfoxclaw", extra=()) -> Path:
     return p
 
 
-def _tgz(dist: Path, version="0.1.0", name="snowfoxclaw", pkg=None, extra=()) -> Path:
+def _tgz(dist: Path, version="0.1.0", name="foxclaw", pkg=None, extra=()) -> Path:
     p = dist / f"{name}-{version}.tgz"
     payload = json.dumps(pkg if pkg is not None else
                          {"name": name, "version": version}).encode()
@@ -78,14 +78,14 @@ def _tgz(dist: Path, version="0.1.0", name="snowfoxclaw", pkg=None, extra=()) ->
 
 def _mini_repo(root: Path, version: str, npm_version: str) -> Path:
     """只含四处版本来源的最小仓库,用来测"漏改一处"。"""
-    (root / "snowfoxclaw").mkdir(parents=True)
+    (root / "foxclaw").mkdir(parents=True)
     (root / "npm").mkdir()
     (root / "pyproject.toml").write_text(
-        f'[project]\nname = "snowfoxclaw"\nversion = "{version}"\n', encoding="utf-8")
-    (root / "snowfoxclaw" / "__init__.py").write_text(
+        f'[project]\nname = "foxclaw"\nversion = "{version}"\n', encoding="utf-8")
+    (root / "foxclaw" / "__init__.py").write_text(
         f'__version__ = "{version}"\n', encoding="utf-8")
     (root / "npm" / "package.json").write_text(
-        json.dumps({"name": "snowfoxclaw", "version": npm_version}), encoding="utf-8")
+        json.dumps({"name": "foxclaw", "version": npm_version}), encoding="utf-8")
     (root / "npm" / "index.js").write_text(
         f'export const version = "{npm_version}";\n', encoding="utf-8")
     return root
@@ -128,22 +128,22 @@ def test_empty_tag_is_skipped():
 # ── 归档内容 ──────────────────────────────────────────────
 
 @pytest.mark.parametrize("entry", [
-    "snowfoxclaw/.env",
-    "snowfoxclaw/.env.local",
-    "snowfoxclaw-0.1.0/docs/internal/secret.md",
-    "snowfoxclaw/snowfoxclaw_data/sessions.db",
-    "snowfoxclaw/old.zip",
-    "snowfoxclaw/__pycache__/x.pyc",
-    "snowfoxclaw/.venv/lib/x.py",
+    "foxclaw/.env",
+    "foxclaw/.env.local",
+    "foxclaw-0.1.0/docs/internal/secret.md",
+    "foxclaw/foxclaw_data/sessions.db",
+    "foxclaw/old.zip",
+    "foxclaw/__pycache__/x.pyc",
+    "foxclaw/.venv/lib/x.py",
 ])
 def test_forbidden_entries_detected(entry):
     assert rc.forbidden_entry(entry), entry
 
 
 @pytest.mark.parametrize("entry", [
-    "snowfoxclaw/.env.example",     # 模板必须能进包
-    "snowfoxclaw/cli.py",
-    "snowfoxclaw/vendor/hmr/hmr/__init__.py",
+    "foxclaw/.env.example",     # 模板必须能进包
+    "foxclaw/cli.py",
+    "foxclaw/vendor/hmr/hmr/__init__.py",
 ])
 def test_allowed_entries_pass(entry):
     assert rc.forbidden_entry(entry) is None
@@ -156,7 +156,7 @@ def test_check_dist_passes_with_vendor_warning_only(tmp_path):
     dist.mkdir()
     _wheel(dist)
     _sdist(dist)
-    issues = rc.check_dist(dist, "snowfoxclaw", "0.1.0")
+    issues = rc.check_dist(dist, "foxclaw", "0.1.0")
     assert [i for i in issues if i.level == "error"] == []
     assert any(i.code == "no_vendor" for i in issues), "缺 vendor 应显式提示"
 
@@ -165,7 +165,7 @@ def test_check_dist_flags_missing_wheel(tmp_path):
     dist = tmp_path / "dist"
     dist.mkdir()
     _sdist(dist)
-    assert any(i.code == "wheel_count" for i in rc.check_dist(dist, "snowfoxclaw", "0.1.0"))
+    assert any(i.code == "wheel_count" for i in rc.check_dist(dist, "foxclaw", "0.1.0"))
 
 
 def test_check_dist_flags_version_drift_in_filename(tmp_path):
@@ -173,7 +173,7 @@ def test_check_dist_flags_version_drift_in_filename(tmp_path):
     dist.mkdir()
     _wheel(dist, version="0.2.0")
     _sdist(dist, version="0.1.0")
-    codes = {i.code for i in rc.check_dist(dist, "snowfoxclaw", "0.1.0")}
+    codes = {i.code for i in rc.check_dist(dist, "foxclaw", "0.1.0")}
     assert "wheel_name" in codes or "meta_mismatch" in codes, codes
 
 
@@ -182,29 +182,29 @@ def test_check_dist_flags_secret_inside_archive(tmp_path):
     dist.mkdir()
     _wheel(dist, extra=(".env",))
     _sdist(dist)
-    msgs = [i.msg for i in rc.check_dist(dist, "snowfoxclaw", "0.1.0")
+    msgs = [i.msg for i in rc.check_dist(dist, "foxclaw", "0.1.0")
             if i.code == "forbidden_entry"]
     assert msgs and any(".env" in m for m in msgs), msgs
 
 
 def test_check_dist_missing_dir_is_error(tmp_path):
     assert any(i.code == "no_dist"
-               for i in rc.check_dist(tmp_path / "nope", "snowfoxclaw", "0.1.0"))
+               for i in rc.check_dist(tmp_path / "nope", "foxclaw", "0.1.0"))
 
 
 def test_npm_tgz_ok(tmp_path):
-    assert rc.check_npm_tgz(_tgz(tmp_path), "snowfoxclaw", "0.1.0") == []
+    assert rc.check_npm_tgz(_tgz(tmp_path), "foxclaw", "0.1.0") == []
 
 
 def test_npm_tgz_name_drift_detected(tmp_path):
-    tgz = _tgz(tmp_path, pkg={"name": "snowfoxclaw", "version": "0.2.0"})
-    codes = {i.code for i in rc.check_npm_tgz(tgz, "snowfoxclaw", "0.1.0")}
+    tgz = _tgz(tmp_path, pkg={"name": "foxclaw", "version": "0.2.0"})
+    codes = {i.code for i in rc.check_npm_tgz(tgz, "foxclaw", "0.1.0")}
     assert "npm_meta" in codes, codes
 
 
 def test_npm_tgz_filename_drift_detected(tmp_path):
     tgz = _tgz(tmp_path, version="0.2.0")
-    assert any(i.code == "npm_name" for i in rc.check_npm_tgz(tgz, "snowfoxclaw", "0.1.0"))
+    assert any(i.code == "npm_name" for i in rc.check_npm_tgz(tgz, "foxclaw", "0.1.0"))
 
 
 def test_run_end_to_end(tmp_path):

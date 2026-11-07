@@ -9,15 +9,15 @@ import pytest
 def test_multimodal():
     # ISOLATION_GUARD:本用例依赖 import 时固化的模块级单例(网关/限流器/路由配置按 env 在 import 时定型),单进程全量跑会被前序用例污染 →
     # 假红。全量请用 tests/run_all.py(每文件独立子进程)。
-    if "snowfoxclaw.core.model_router" in sys.modules:
+    if "foxclaw.core.model_router" in sys.modules:
         pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
     for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
         os.environ.pop(k, None)
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_mm_")
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_mm_")
 
-    from snowfoxclaw.core.model_router import ModelRouter
+    from foxclaw.core.model_router import ModelRouter
 
     print("=" * 60); print("多模态对话通道验证"); print("=" * 60)
 
@@ -53,7 +53,7 @@ def test_multimodal():
     print("[4] 无 user / 已多模态 / 无图 边界 OK")
 
     # [5] _sanitize_images 护栏(数量/大小/类型/非列表)
-    from snowfoxclaw.api import _sanitize_images, _MAX_IMAGES, _MAX_IMG_B64
+    from foxclaw.api import _sanitize_images, _MAX_IMAGES, _MAX_IMG_B64
     big = "x" * (_MAX_IMG_B64 + 1)
     many = [{"media_type": "image/png", "data": "a"}] * (_MAX_IMAGES + 3)
     assert len(_sanitize_images(many)) == _MAX_IMAGES, "未限数量"
@@ -116,7 +116,7 @@ def test_multimodal():
 
     # [9] /api/chat/stream 端到端:带图 SSE 正常产出(stub),超大图被 sanitize 掉不崩
     from fastapi.testclient import TestClient
-    from snowfoxclaw.api import app
+    from foxclaw.api import app
     with TestClient(app) as c:
         body = {"task": "看图说话", "agent_id": "supervisor",
                 "images": [{"media_type": "image/png", "data": "iVBORw0KGgo="},

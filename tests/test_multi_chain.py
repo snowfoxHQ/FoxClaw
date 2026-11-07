@@ -9,10 +9,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_multi_chain():
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_chain_")
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_chain_")
 
-    from snowfoxclaw.agents.agents import _with_prior, PRIOR_MAX_STEPS, PRIOR_MAX_CHARS
+    from foxclaw.agents.agents import _with_prior, PRIOR_MAX_STEPS, PRIOR_MAX_CHARS
 
     print("=" * 60); print("多步跨 Agent 链式协作验证"); print("=" * 60)
 
@@ -38,11 +38,11 @@ def test_multi_chain():
     print(f"[4] 单步输出截断到 {PRIOR_MAX_CHARS} 字符 OK")
 
     # ── 集成:直接驱动 _dispatch_multi,看子 Agent 真实收到了什么 ──
-    from snowfoxclaw import Snowfoxclaw
+    from foxclaw import Foxclaw
 
-    # 注意:Snowfoxclaw 的 data_dir 是**构造参数**(默认 ./snowfoxclaw_data),不读 SNOWFOXCLAW_DATA_DIR
+    # 注意:Foxclaw 的 data_dir 是**构造参数**(默认 ./foxclaw_data),不读 FOXCLAW_DATA_DIR
     # ——env 是 api.py 读了再传进来的。测试必须显式传临时目录,否则会写进真实用户记忆库。
-    os_ = Snowfoxclaw(data_dir=os.environ["SNOWFOXCLAW_DATA_DIR"])
+    os_ = Foxclaw(data_dir=os.environ["FOXCLAW_DATA_DIR"])
     sup = os_.supervisor
 
 
@@ -59,7 +59,7 @@ def test_multi_chain():
     subs = {"finance": fin, "admin": adm}
     sched = sup._schedule_for("t", subs) if hasattr(sup, "_schedule_for") else None
     if sched is None:                       # 兼容:直接拿一个 schedule 对象
-        from snowfoxclaw.core.scheduler import SystemContext
+        from foxclaw.core.scheduler import SystemContext
         sched = sup._scheduler.schedule("t", SystemContext(active_agents=0, queue_depth=0, system_load=0.1))
 
     routes = [("查本月餐饮支出", "finance"), ("据此安排下周预算", "admin")]

@@ -1,4 +1,4 @@
-# HMR v1.5 — Snowfoxclaw Memory Runtime
+# HMR v1.5 — Foxclaw Memory Runtime
 
 持续认知运行时，为长期运行的 AI 系统而生。
 

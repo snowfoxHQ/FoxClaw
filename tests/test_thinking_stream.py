@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from snowfoxclaw.core.model_router import ModelRouter, _ThinkStripper
+from foxclaw.core.model_router import ModelRouter, _ThinkStripper
 
 
 class _FakeCompletions:

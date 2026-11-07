@@ -11,9 +11,9 @@ import json
 import httpx
 import pytest
 
-from snowfoxclaw.channels import OutboundMessage
-from snowfoxclaw.channels import signing as S
-from snowfoxclaw.channels.openclaw_bridge import OpenClawBridgeAdapter
+from foxclaw.channels import OutboundMessage
+from foxclaw.channels import signing as S
+from foxclaw.channels.openclaw_bridge import OpenClawBridgeAdapter
 
 SECRET = "test-shared-secret"
 

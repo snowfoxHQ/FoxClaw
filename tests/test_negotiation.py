@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_negotiation():
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
 
-    from snowfoxclaw.orchestration import CrossAgentRequest, Orchestrator
+    from foxclaw.orchestration import CrossAgentRequest, Orchestrator
 
     print("=" * 60); print("跨域协商闭环验证"); print("=" * 60)
 
@@ -116,7 +116,7 @@ def test_negotiation():
     print("[7] 让步逻辑崩溃 → 维持 rejected + 记录错误 OK")
 
     # ── 真 OfficeAgent 的让步策略(行政并入办公,领域逻辑仍归领域 Agent)──
-    from snowfoxclaw.agents.agents import OfficeAgent
+    from foxclaw.agents.agents import OfficeAgent
     adm = OfficeAgent.__new__(OfficeAgent)
 
     # [8] OfficeAgent(原 AdminAgent):逐轮降档 → 夹到下限(600)→ 到底认输。全程单调下降、必然终止

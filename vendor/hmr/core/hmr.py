@@ -34,7 +34,7 @@ from ..graph.memory_graph     import MemoryGraph
 
 class HMR:
     """
-    Snowfoxclaw Memory Runtime v2.0
+    Foxclaw Memory Runtime v2.0
 
     v2.0 新增：
         self.thought_chain  → 推理链引擎

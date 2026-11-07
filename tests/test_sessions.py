@@ -8,7 +8,7 @@ import sys, tempfile, shutil, threading
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.core.sessions import SessionStore, derive_title
+from foxclaw.core.sessions import SessionStore, derive_title
 import pytest
 
 

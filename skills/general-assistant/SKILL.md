@@ -1,6 +1,6 @@
 ---
 name: general-assistant
-version: "1.0-snowfoxclaw"
+version: "1.0-foxclaw"
 builtin: true
 side_effect: read
 description: 通用助理技能。信息整理、汇总、跨域转述、沟通措辞、待办跟进。原是独立的"助手 Agent",现下放为指令技能,由主管/办公在任何 Agent 命中"整理/汇总/沟通"类任务时自动注入。

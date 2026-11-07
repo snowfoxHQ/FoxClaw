@@ -1,9 +1,9 @@
 {
-  "name": "snowfoxclaw-deck-next",
+  "name": "foxclaw-deck-next",
   "private": true,
   "version": "3.0.0",
   "type": "module",
-  "description": "Snowfoxclaw Deck v3 - Vue 3 rendering layer (builds into frontend/v3)",
+  "description": "Foxclaw Deck v3 - Vue 3 rendering layer (builds into frontend/v3)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

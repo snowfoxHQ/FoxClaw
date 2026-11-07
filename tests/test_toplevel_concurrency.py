@@ -21,10 +21,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import snowfoxclaw.core.web_search as ws
+import foxclaw.core.web_search as ws
 ws.needs_search = lambda q: False
 
-from snowfoxclaw import Snowfoxclaw
+from foxclaw import Foxclaw
 
 
 def check(cond, msg):
@@ -39,14 +39,14 @@ def _slow(system, messages, max_tokens=2048, agent_id=""):
 
 
 def _build(data_dir=None):
-    os_ = Snowfoxclaw(data_dir=data_dir or tempfile.mkdtemp())
+    os_ = Foxclaw(data_dir=data_dir or tempfile.mkdtemp())
     os_.router.complete = _slow
     return os_
 
 
 @pytest.fixture(scope="module")
 def os_(tmp_path_factory):
-    """共享同一 Snowfoxclaw 实例(等价脚本式 main() 里 `os_ = _build()` 一次传给 2 个测试)。"""
+    """共享同一 Foxclaw 实例(等价脚本式 main() 里 `os_ = _build()` 一次传给 2 个测试)。"""
     return _build(data_dir=str(tmp_path_factory.mktemp("toplevel_concurrency")))
 
 

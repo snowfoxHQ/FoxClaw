@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from snowfoxclaw.core.thought_chain import ThoughtChain, ThoughtNode
-from snowfoxclaw.harness.harness import Harness
+from foxclaw.core.thought_chain import ThoughtChain, ThoughtNode
+from foxclaw.harness.harness import Harness
 from evals.governance import cases
 
 MODELS = [

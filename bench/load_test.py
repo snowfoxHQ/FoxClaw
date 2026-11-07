@@ -1,7 +1,7 @@
 """
 本地大并发压测（真实 uvicorn 服务）
 
-起一个真实的 uvicorn（Snowfoxclaw，stub LLM / 离线），用 httpx 异步客户端打高并发
+起一个真实的 uvicorn（Foxclaw，stub LLM / 离线），用 httpx 异步客户端打高并发
 `POST /api/task`，量:
   · 吞吐(req/s)、延迟分位(p50/p90/p95/p99/max)、错误率;
   · **负载下正确性**:每个请求拿到独立 session_id(无串味)、无 database is locked、无 5xx。
@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-PORT = int(os.environ.get("SNOWFOXCLAW_BENCH_PORT", "8231"))
+PORT = int(os.environ.get("FOXCLAW_BENCH_PORT", "8231"))
 BASE = f"http://127.0.0.1:{PORT}"
 
 # 一批覆盖不同分诊路径的任务模板（每个请求附唯一编号,便于校验会话唯一性）
@@ -44,13 +44,13 @@ def _pct(xs, p):
 def _start_server():
     """在后台线程起真实 uvicorn。返回 (server, thread)。"""
     import uvicorn
-    os.environ.setdefault("SNOWFOXCLAW_DATA_DIR", tempfile.mkdtemp())
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "50"
+    os.environ.setdefault("FOXCLAW_DATA_DIR", tempfile.mkdtemp())
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "50"
     # 不配任何 LLM key → Router 自动降级 stub(不联网、瞬时返回)
     for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
               "GOOGLE_API_KEY", "DASHSCOPE_API_KEY"):
         os.environ.pop(k, None)
-    config = uvicorn.Config("snowfoxclaw.api:app", host="127.0.0.1", port=PORT,
+    config = uvicorn.Config("foxclaw.api:app", host="127.0.0.1", port=PORT,
                             log_level="warning", access_log=False)
     server = uvicorn.Server(config)
     th = threading.Thread(target=server.run, daemon=True)
@@ -125,7 +125,7 @@ async def _server_log_has_locked():
 
 async def main_async(total, concurrency):
     print("=" * 62)
-    print(f"Snowfoxclaw · 本地大并发压测  (总请求={total} 并发={concurrency})")
+    print(f"Foxclaw · 本地大并发压测  (总请求={total} 并发={concurrency})")
     print("=" * 62)
     ok = await _wait_ready()
     if not ok:

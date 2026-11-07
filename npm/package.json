@@ -1,23 +1,23 @@
 {
-  "name": "snowfoxclaw",
+  "name": "foxclaw",
   "version": "0.1.0",
   "description": "Personal AI agent - a fox living in your device",
   "keywords": [
     "agent",
     "ai",
     "assistant",
-    "snowfoxclaw"
+    "foxclaw"
   ],
   "license": "MIT",
   "author": "snowfox <142133502+snowfoxHQ@users.noreply.github.com>",
-  "homepage": "https://github.com/snowfoxHQ/SnowFoxClaw#readme",
+  "homepage": "https://github.com/snowfoxHQ/FoxClaw#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/snowfoxHQ/SnowFoxClaw.git",
+    "url": "git+https://github.com/snowfoxHQ/FoxClaw.git",
     "directory": "npm"
   },
   "bugs": {
-    "url": "https://github.com/snowfoxHQ/SnowFoxClaw/issues"
+    "url": "https://github.com/snowfoxHQ/FoxClaw/issues"
   },
   "type": "module",
   "main": "index.js",

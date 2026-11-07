@@ -5,7 +5,7 @@
 `import` 直接读到的值，最容易漏）：
 
 - ``pyproject.toml`` 的 ``project.version``      —— PyPI 包版本
-- ``snowfoxclaw/__init__.py`` 的 ``__version__`` —— 运行时 ``foxclaw --version``
+- ``foxclaw/__init__.py`` 的 ``__version__`` —— 运行时 ``foxclaw --version``
 - ``npm/package.json`` 的 ``version``             —— npm 包版本
 - ``npm/index.js`` 的 ``export const version``    —— npm 包对外导出的版本
 
@@ -19,7 +19,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from snowfoxclaw import __version__
+from foxclaw import __version__
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NPM_DIR = REPO_ROOT / "npm"
@@ -57,9 +57,9 @@ def test_npm_index_export_version_agrees() -> None:
     assert match.group(1) == _npm_package()["version"]
 
 
-def test_package_names_are_snowfoxclaw() -> None:
-    """PyPI 与 npm 两侧包名必须同名，且为 snowfoxclaw。"""
-    assert _project_name() == "snowfoxclaw"
+def test_package_names_are_foxclaw() -> None:
+    """PyPI 与 npm 两侧包名必须同名，且为 foxclaw。"""
+    assert _project_name() == "foxclaw"
     assert _npm_package()["name"] == _project_name()
 
 

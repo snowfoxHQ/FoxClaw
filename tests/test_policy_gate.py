@@ -5,16 +5,16 @@
   1. 推理准入归一化:Harness PASS/WARN/BLOCK → Verdict allow/warn/deny(raw 透传同一 HarnessResult)
   2. 动作准入归一化:permission allow/ask/deny → Verdict allow/confirm/deny(raw 透传);
      非 allow 发统一 policy.decision.* 事件,allow 不发(降噪)
-  3. 真实集成:经 Snowfoxclaw,技能路径(副作用 skill 需确认)发出 policy.decision 事件
+  3. 真实集成:经 Foxclaw,技能路径(副作用 skill 需确认)发出 policy.decision 事件
 """
 import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.kernel import PolicyGate
+from foxclaw.kernel import PolicyGate
 
 
 class _HR:                          # 假 HarnessResult
@@ -77,8 +77,8 @@ def test_integration_skill_path():
     print("\n【3】真实集成:技能路径经统一门,副作用 skill 发 policy.decision")
     d = tempfile.mkdtemp(prefix="pg_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         seen = []
         os_.event_spine.project(lambda e: seen.append(e.topic))
         # 发邮件是副作用 skill → 需确认 → 经 PolicyGate 发 policy.decision.confirm

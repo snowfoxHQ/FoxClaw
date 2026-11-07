@@ -9,8 +9,8 @@ from __future__ import annotations
 import threading
 import time
 
-from snowfoxclaw.agents.mixins import tool_exec as _te
-from snowfoxclaw.agents.mixins.tool_exec import ToolExecMixin
+from foxclaw.agents.mixins import tool_exec as _te
+from foxclaw.agents.mixins.tool_exec import ToolExecMixin
 
 
 class _Fake(ToolExecMixin):
@@ -56,7 +56,7 @@ def test_readonly_tools_run_concurrently(monkeypatch) -> None:
 
 
 def test_slow_tool_is_cut_off(monkeypatch) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_TOOL_TIMEOUT", "0.3")
+    monkeypatch.setenv("FOXCLAW_TOOL_TIMEOUT", "0.3")
 
     def behave(name, args, sink):
         time.sleep(2)

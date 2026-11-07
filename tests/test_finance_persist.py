@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.finance import FinanceRuntime, Transaction
+from foxclaw.finance import FinanceRuntime, Transaction
 
 CSV = str(Path(__file__).parent.parent / "examples" / "sample_transactions.csv")
 

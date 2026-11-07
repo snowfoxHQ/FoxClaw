@@ -11,25 +11,25 @@ import os, sys, json, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ── 环境隔离:必须在 import snowfoxclaw 之前 ──────────────────────────────
+# ── 环境隔离:必须在 import foxclaw 之前 ──────────────────────────────
 for _k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GOOGLE_API_KEY",
-           "DASHSCOPE_API_KEY", "MINIMAX_API_KEY", "LLM_API_KEY", "SNOWFOXCLAW_API_KEY"):
+           "DASHSCOPE_API_KEY", "MINIMAX_API_KEY", "LLM_API_KEY", "FOXCLAW_API_KEY"):
     os.environ.pop(_k, None)
 os.environ["HKC_EMBEDDING"] = "stub"
-os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_llmadmin_")
-os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
-os.environ["SNOWFOXCLAW_PROVIDER"] = ""
-os.environ["SNOWFOXCLAW_MODEL"] = ""
-os.environ["SNOWFOXCLAW_MCP_SERVER"] = "0"
+os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_llmadmin_")
+os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
+os.environ["FOXCLAW_PROVIDER"] = ""
+os.environ["FOXCLAW_MODEL"] = ""
+os.environ["FOXCLAW_MCP_SERVER"] = "0"
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import pytest
 from fastapi import HTTPException
 
-from snowfoxclaw.core.model_router import ModelRouter, normalize_base_url
-import snowfoxclaw.api as _api
-from snowfoxclaw.api.routes import llm_admin
+from foxclaw.core.model_router import ModelRouter, normalize_base_url
+import foxclaw.api as _api
+from foxclaw.api.routes import llm_admin
 
 
 # ── 1. BASE URL 规范化 ───────────────────────────────────────────────
@@ -93,7 +93,7 @@ def fresh_store(monkeypatch):
     d = Path(tempfile.mkdtemp(prefix="llm_admin_store_"))
     # router 侧按 env 现算路径(_custom_models_path / _selection_path),必须一起指过来,
     # 否则端点写 A 目录、router 读 B 目录 → 预检假失败。
-    monkeypatch.setenv("SNOWFOXCLAW_DATA_DIR", str(d))
+    monkeypatch.setenv("FOXCLAW_DATA_DIR", str(d))
     monkeypatch.setattr(llm_admin, "CUSTOM_MODELS_PATH", d / "custom_models.json")
     monkeypatch.setattr(llm_admin, "CURRENT_MODEL_PATH", d / ".current_model")
     yield d

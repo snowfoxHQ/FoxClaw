@@ -1,5 +1,5 @@
 """统一 API 网关:per-client 令牌桶 + 配额 + 空闲淘汰 + 429/Retry-After + 启用哲学。
-全离线(TestClient)。网关默认关,本测试显式 SNOWFOXCLAW_GATEWAY=1 + 低额度触发限流。"""
+全离线(TestClient)。网关默认关,本测试显式 FOXCLAW_GATEWAY=1 + 低额度触发限流。"""
 import os, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -8,26 +8,26 @@ import pytest
 def test_gateway():
     # ISOLATION_GUARD:本用例依赖 import 时固化的模块级单例(网关/限流器/路由配置按 env 在 import 时定型),单进程全量跑会被前序用例污染 →
     # 假红。全量请用 tests/run_all.py(每文件独立子进程)。
-    if "snowfoxclaw.api" in sys.modules:
+    if "foxclaw.api" in sys.modules:
         pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
-    # 本测试用 pop("SNOWFOXCLAW_API_KEY") 验证「未设即网关默认关」,但 pop 之后 load_dotenv
-    # (override=False)仍会从 .env 把键灌回来(开发者 .env 常带真实 SNOWFOXCLAW_API_KEY)→ 判定
+    # 本测试用 pop("FOXCLAW_API_KEY") 验证「未设即网关默认关」,但 pop 之后 load_dotenv
+    # (override=False)仍会从 .env 把键灌回来(开发者 .env 常带真实 FOXCLAW_API_KEY)→ 判定
     # 随机器漂移。关掉 .env 使本测试自洽,单独运行也稳定。
-    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
-    # 必须在 import snowfoxclaw.api 之前设好:网关实例在模块加载时按环境变量建
-    os.environ["SNOWFOXCLAW_GATEWAY"] = "1"
-    os.environ["SNOWFOXCLAW_GATEWAY_RATE"] = "5"        # 每分钟 5 → 桶容量 5,突发 5 后限流
-    os.environ["SNOWFOXCLAW_GATEWAY_QUOTA"] = "1000"
-    os.environ["SNOWFOXCLAW_MAX_BODY_MB"] = "1"          # 请求体硬顶降到 1MB 便于测 413
-    os.environ.pop("SNOWFOXCLAW_API_KEY", None)
+    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
+    # 必须在 import foxclaw.api 之前设好:网关实例在模块加载时按环境变量建
+    os.environ["FOXCLAW_GATEWAY"] = "1"
+    os.environ["FOXCLAW_GATEWAY_RATE"] = "5"        # 每分钟 5 → 桶容量 5,突发 5 后限流
+    os.environ["FOXCLAW_GATEWAY_QUOTA"] = "1000"
+    os.environ["FOXCLAW_MAX_BODY_MB"] = "1"          # 请求体硬顶降到 1MB 便于测 413
+    os.environ.pop("FOXCLAW_API_KEY", None)
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_gw_")
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_gw_")
 
     print("=" * 60); print("统一 API 网关验证"); print("=" * 60)
 
     # ── Part A:Gateway 类单元 ─────────────────────────────────
-    from snowfoxclaw.core.gateway import Gateway
+    from foxclaw.core.gateway import Gateway
 
     # [1] 突发令牌桶:容量内放行,超出限流(reason=rate)
     g = Gateway(rate_per_min=3, quota_per_hour=100000)
@@ -58,7 +58,7 @@ def test_gateway():
 
     # ── Part B:接入 FastAPI 中间件(TestClient)────────────────
     from fastapi.testclient import TestClient
-    from snowfoxclaw.api import app, _gateway_on
+    from foxclaw.api import app, _gateway_on
 
     with TestClient(app) as c:
         # [5] stats 端点:启用 + 额度可见
@@ -87,14 +87,14 @@ def test_gateway():
         assert big.status_code == 413, (big.status_code, big.text[:120])
         print("[8] 超大请求体 → 413(读 body 前拦截)OK")
 
-    # [9] 启用哲学:默认关;配 SNOWFOXCLAW_API_KEY(=对外暴露)自动开;=0 强制关优先
-    os.environ.pop("SNOWFOXCLAW_GATEWAY", None); os.environ.pop("SNOWFOXCLAW_API_KEY", None)
+    # [9] 启用哲学:默认关;配 FOXCLAW_API_KEY(=对外暴露)自动开;=0 强制关优先
+    os.environ.pop("FOXCLAW_GATEWAY", None); os.environ.pop("FOXCLAW_API_KEY", None)
     assert _gateway_on() is False, "本地默认应关"
-    os.environ["SNOWFOXCLAW_API_KEY"] = "x"
+    os.environ["FOXCLAW_API_KEY"] = "x"
     assert _gateway_on() is True, "配鉴权应自动开"
-    os.environ["SNOWFOXCLAW_GATEWAY"] = "0"
-    assert _gateway_on() is False, "SNOWFOXCLAW_GATEWAY=0 应强制关"
-    os.environ.pop("SNOWFOXCLAW_GATEWAY", None); os.environ.pop("SNOWFOXCLAW_API_KEY", None)
+    os.environ["FOXCLAW_GATEWAY"] = "0"
+    assert _gateway_on() is False, "FOXCLAW_GATEWAY=0 应强制关"
+    os.environ.pop("FOXCLAW_GATEWAY", None); os.environ.pop("FOXCLAW_API_KEY", None)
     print("[9] 启用哲学(默认关 / 配 key 自动开 / =0 强制关)OK")
 
     print("\n统一 API 网关验证全部通过")

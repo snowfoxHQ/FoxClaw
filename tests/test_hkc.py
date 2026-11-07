@@ -6,7 +6,7 @@
   2. H1 资源修复:close() 后能 rmtree 数据目录(无 Windows WinError 32)——
      即 event_bus/id_gen/graph_store/synthesis 四个 SQLite 句柄全部释放
   3. close() 幂等
-  4. 经 Snowfoxclaw 惰性装配:未访问 .hkc 前不开句柄;访问后装配;aclose() 释放后可删目录
+  4. 经 Foxclaw 惰性装配:未访问 .hkc 前不开句柄;访问后装配;aclose() 释放后可删目录
 
 摄入(ingest)需真实 LLM,不在离线回归内跑;这里只验证融合层的装配/降级/资源契约。
 """
@@ -14,7 +14,7 @@ import sys, tempfile, shutil, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.knowledge import init_hkc
+from foxclaw.knowledge import init_hkc
 
 
 def test_assemble_search_close():
@@ -45,12 +45,12 @@ def test_assemble_search_close():
     print("  ✓ close 后 rmtree 成功 → H1 资源泄漏修复生效(无 WinError 32)")
 
 
-def test_via_snowfoxclawos_lazy_teardown():
-    print("\n【2】经 Snowfoxclaw 惰性装配 + aclose teardown 全链路")
+def test_via_foxclawos_lazy_teardown():
+    print("\n【2】经 Foxclaw 惰性装配 + aclose teardown 全链路")
     d = tempfile.mkdtemp(prefix="hkc_os_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         # 惰性:未访问 .hkc 前不该装配(不开句柄)
         assert os_._hkc_service is None and os_._hkc_inited is False
         print("  ✓ 构造 OS 后未装配 HKC(惰性,未开 db 句柄)")
@@ -114,8 +114,8 @@ def test_agent_available_abilities():
     d = tempfile.mkdtemp(prefix="hkc_selfintro_")
     os_ = None
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         # 空知识库:所有能力都应 sufficient=False(证据 gate:没知识不予授予)
         abils = os_.finance.available_abilities()
         assert isinstance(abils, list) and len(abils) > 0, f"应枚举出能力,实得 {abils}"
@@ -138,8 +138,8 @@ def test_ability_context_injection():
     d = tempfile.mkdtemp(prefix="hkc_inject_")
     os_ = None
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         ag = os_.finance
         base = [{"role": "user", "content": "原始问题"}]
 
@@ -180,8 +180,8 @@ def test_ability_context_injection():
 def test_ability_as_skill_step4():
     print("\n【6】第2档 Step4:能力→SkillRegistry(证据 gate + read 经 PolicyGate + 可路由)")
     from types import SimpleNamespace
-    from snowfoxclaw.knowledge import register_abilities_as_skills
-    from snowfoxclaw.skills import SkillRegistry, SkillAdapter
+    from foxclaw.knowledge import register_abilities_as_skills
+    from foxclaw.skills import SkillRegistry, SkillAdapter
 
     class _C:
         def list_abilities(self): return ["writing_expert", "quant_analyst"]
@@ -219,8 +219,8 @@ def test_ability_skill_prune_and_concurrency():
     print("\n【7】深审修复:ability skill 陈旧清理(re-sync)+ SkillRegistry 线程安全")
     import threading
     from types import SimpleNamespace
-    from snowfoxclaw.knowledge import register_abilities_as_skills
-    from snowfoxclaw.skills import SkillRegistry, SkillSpec
+    from foxclaw.knowledge import register_abilities_as_skills
+    from foxclaw.skills import SkillRegistry, SkillSpec
 
     # (a) 陈旧清理:先达标注册 → 知识掉了不再达标 → re-sync 移除陈旧 ability skill
     class _Cdrop:
@@ -271,7 +271,7 @@ def main():
     print("知识核心 · HKC 融入(全离线,embedding=stub)")
     print("=" * 60)
     test_assemble_search_close()
-    test_via_snowfoxclawos_lazy_teardown()
+    test_via_foxclawos_lazy_teardown()
     test_ability_readonly_surface()
     test_agent_available_abilities()
     test_ability_context_injection()

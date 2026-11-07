@@ -12,11 +12,11 @@ import os, sys, types, threading
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.core.memory_adapter import HMRAdapter
-from snowfoxclaw.agents.base import CognitiveAgent
+from foxclaw.core.memory_adapter import HMRAdapter
+from foxclaw.agents.base import CognitiveAgent
 
 
 def _mem(tags):
@@ -112,7 +112,7 @@ def test_recent_keeps_meaningful_title():
 # ── 2. 活动事件 ────────────────────────────────────────────────────────────────
 def test_chat_publishes_activity_event(monkeypatch):
     """核心回归:对话完成后必须往事件脊柱发 chat.completed,否则"活动"页永远空。"""
-    monkeypatch.setenv("SNOWFOXCLAW_TOOL_USE", "1")
+    monkeypatch.setenv("FOXCLAW_TOOL_USE", "1")
     published = []
     spine = types.SimpleNamespace(
         publish=lambda topic, payload, source="": published.append((topic, payload, source)))

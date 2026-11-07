@@ -27,13 +27,13 @@ def test_file_ingest():
 
     print("=" * 60); print("文件摄入（docx/xlsx）打通验证"); print("=" * 60)
 
-    TMP = Path(tempfile.mkdtemp(prefix="snowfoxclaw_fileingest_"))
+    TMP = Path(tempfile.mkdtemp(prefix="foxclaw_fileingest_"))
 
     def _make_docx() -> Path:
         p = TMP / "sample.docx"
         doc = Document()
         doc.add_heading("第一章 引言", level=1)
-        doc.add_paragraph("Snowfoxclaw 是一个认知代理操作系统，由五个 Agent 组成。")
+        doc.add_paragraph("Foxclaw 是一个认知代理操作系统，由五个 Agent 组成。")
         # 表格夹在第一章内、第二章之前——用于验证按 body 顺序归章（而非全塞末章）
         t = doc.add_table(rows=2, cols=2)
         t.rows[0].cells[0].text = "字段"; t.rows[0].cells[1].text = "取值"
@@ -88,7 +88,7 @@ def test_file_ingest():
         from hkc_core.graph.sqlite_store import SQLiteGraphStore
         from hkc_kep.event_bus import EventBus
         from hkc_kde.kde import KnowledgeDigestEngine
-        d = Path(tempfile.mkdtemp(prefix="snowfoxclaw_kde_"))
+        d = Path(tempfile.mkdtemp(prefix="foxclaw_kde_"))
         store = SQLiteGraphStore(str(d / "hkc.db"))
         bus = EventBus(str(d / "events.db"))
         idg = IDGenerator(str(d / "id.db"))
@@ -100,7 +100,7 @@ def test_file_ingest():
         def extract(self, chunks, progress_cb=None):
             self.seen = list(chunks)
             doc_id = chunks[0].doc_id if chunks else ""
-            raw = RawExtraction(entities=[{"name": "Snowfoxclaw", "type": "Person"}])
+            raw = RawExtraction(entities=[{"name": "Foxclaw", "type": "Person"}])
             return ExtractionResult(doc_id=doc_id, source=doc_id, items=[raw])
 
     for suffix, maker in ((".docx", _make_docx), (".xlsx", _make_xlsx)):
@@ -121,9 +121,9 @@ def test_file_ingest():
         assert ".pptx" in str(e) or "不支持" in str(e), str(e)
     print("[5] 不支持格式（.pptx）明确 ValueError OK")
 
-    # [6] 上传路由格式门：TestClient 走 Snowfoxclaw app 挂载的 /knowledge/ingest/file
+    # [6] 上传路由格式门：TestClient 走 Foxclaw app 挂载的 /knowledge/ingest/file
     from fastapi.testclient import TestClient
-    from snowfoxclaw.api import app
+    from foxclaw.api import app
     with TestClient(app) as c:
         # 不支持后缀 → 415（后缀检查在读文件前，无需 LLM）
         r = c.post("/knowledge/ingest/file",

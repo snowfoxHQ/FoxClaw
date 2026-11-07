@@ -11,10 +11,10 @@ import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
+from foxclaw.cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
 
 
 def test_reasoner_base_order():
@@ -34,7 +34,7 @@ def test_reasoner_base_order():
 
 
 def _policy():
-    from snowfoxclaw.finance import FinanceRuntime
+    from foxclaw.finance import FinanceRuntime
     # data_path 显式隔离:默认落在 policy 同目录(系统 Temp),会与其他测试共用一份数据文件
     p = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
                        data_path=tempfile.mktemp(suffix=".json")).policy
@@ -49,8 +49,8 @@ def _policy():
 
 def test_finance_gatekeeper_reasoner():
     print("\n【2】财务守门人认知化:裁决逐字一致 + 证据链 + 假设")
-    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
-    from snowfoxclaw.finance.models import Transaction
+    from foxclaw.finance.reasoner import FinanceGatekeeperReasoner
+    from foxclaw.finance.models import Transaction
     r = FinanceGatekeeperReasoner(_policy())
     # 小额(规则内)→ approve
     rv = r.reason((Transaction(amount=-150, category="travel", entity="高铁", account="default"), 5000))
@@ -65,9 +65,9 @@ def test_finance_gatekeeper_reasoner():
 
 def test_context_evidence_no_decision_change():
     print("\n【2b】Step2:情境证据(历史/预算/频率)丰满证据链,但**决策不变**")
-    from snowfoxclaw.finance import FinanceRuntime
-    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
-    from snowfoxclaw.finance.models import Transaction
+    from foxclaw.finance import FinanceRuntime
+    from foxclaw.finance.reasoner import FinanceGatekeeperReasoner
+    from foxclaw.finance.models import Transaction
     rt = FinanceRuntime(policy_path=tempfile.mktemp(suffix=".yaml"),
                         data_path=tempfile.mktemp(suffix=".json"))
     rt.set_budget("travel", 3000); rt.set_balance("default", 5000)
@@ -101,8 +101,8 @@ class _MockLLM:
 
 def test_llm_arbitration_safety():
     print("\n【2c】Step3:LLM 裁决的安全不变量(只增强模糊、只能 approve→confirm、永不 reject)")
-    from snowfoxclaw.finance.reasoner import FinanceGatekeeperReasoner
-    from snowfoxclaw.finance.models import Transaction
+    from foxclaw.finance.reasoner import FinanceGatekeeperReasoner
+    from foxclaw.finance.models import Transaction
     policy = _policy()   # large_purchase_check 阈值 200;模糊带 [140,200)
     def txn(amt): return Transaction(amount=-amt, category="travel", entity="高铁", account="default")
     def mk(llm, enabled=True): return FinanceGatekeeperReasoner(policy, llm=llm, llm_enabled=enabled)
@@ -149,9 +149,9 @@ def test_real_path_evidence():
     print("\n【3】真实路径:认知化守门人 + req 附证据链")
     d = tempfile.mkdtemp(prefix="reasoner_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        from snowfoxclaw.orchestration import CrossAgentRequest
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        from foxclaw.orchestration import CrossAgentRequest
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         os_.finance_runtime.set_balance("default", 5000)
         # 大额 → 需确认(裁决不变)+ 证据链附在 req 上
         req = os_.orchestrator.route_request(CrossAgentRequest(

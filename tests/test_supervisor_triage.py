@@ -19,10 +19,10 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import snowfoxclaw.core.web_search as ws
+import foxclaw.core.web_search as ws
 ws.needs_search = lambda q: False      # 自答路径不触发联网,保持离线
 
-from snowfoxclaw import Snowfoxclaw
+from foxclaw import Foxclaw
 
 
 def check(cond, msg):
@@ -40,7 +40,7 @@ def main():
     print("=" * 56)
     print("主管分诊与自答策略回归")
     print("=" * 56)
-    os_ = Snowfoxclaw(data_dir=tempfile.mkdtemp())
+    os_ = Foxclaw(data_dir=tempfile.mkdtemp())
 
     calls = []
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from snowfoxclaw.browser.action.url_policy import validate_navigate_url
+from foxclaw.browser.action.url_policy import validate_navigate_url
 
 
 @pytest.mark.parametrize("url", [
@@ -43,7 +43,7 @@ def test_allows_public_url() -> None:
 def test_allow_private_escape_hatch(monkeypatch) -> None:
     assert validate_navigate_url("http://127.0.0.1:8000/", allow_private=True) \
         == "http://127.0.0.1:8000/"
-    monkeypatch.setenv("SNOWFOXCLAW_BROWSER_ALLOW_PRIVATE", "1")
+    monkeypatch.setenv("FOXCLAW_BROWSER_ALLOW_PRIVATE", "1")
     assert validate_navigate_url("http://192.168.1.10/") == "http://192.168.1.10/"
 
 

@@ -11,7 +11,7 @@ PyPI / npm 的版本号不可撤回:上传后只能 yank(仍占号、仍可被 p
 两侧产物性质不同(别把"发布成功"当"装完能用")
 ------------------------------------------
 HKC / HMR 内嵌在 vendor/、运行期按 `Path(__file__)/../../vendor` 找;而 setuptools
-只收 `snowfoxclaw*`,故 **wheel/sdist 不含 vendor/**:装上是能 import、但知识/记忆
+只收 `foxclaw*`,故 **wheel/sdist 不含 vendor/**:装上是能 import、但知识/记忆
 子系统降级为 None 的**占位包**(与 npm/index.js 占位同一性质)。本脚本对"缺 vendor"
 只 warn 不 error —— 既定事实不是事故,但发布说明必须写明。
 
@@ -19,7 +19,7 @@ HKC / HMR 内嵌在 vendor/、运行期按 `Path(__file__)/../../vendor` 找;而
 ----
   python tools/release_check.py                      # 只查四处版本一致
   python tools/release_check.py --tag v0.1.0         # 另查 tag 与版本一致
-  python tools/release_check.py --dist dist --npm-tgz dist/snowfoxclaw-0.1.0.tgz
+  python tools/release_check.py --dist dist --npm-tgz dist/foxclaw-0.1.0.tgz
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ class Issue:
 # ── 版本来源(与 tests/test_version_sync.py 同一份事实)────────────
 
 def _dunder_version(root: Path) -> str:
-    txt = (root / "snowfoxclaw" / "__init__.py").read_text(encoding="utf-8")
+    txt = (root / "foxclaw" / "__init__.py").read_text(encoding="utf-8")
     m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', txt, re.M)
     return m.group(1) if m else ""
 
@@ -91,7 +91,7 @@ def collect_versions(root: Path = ROOT) -> dict:
 
     return {
         "pyproject.toml:project.version": safe(lambda: _project(root)["version"]),
-        "snowfoxclaw/__init__.py:__version__": safe(_dunder_version, root),
+        "foxclaw/__init__.py:__version__": safe(_dunder_version, root),
         "npm/package.json:version": safe(lambda: _npm_package(root)["version"]),
         "npm/index.js:export const version": safe(_npm_index_version, root),
     }
@@ -139,7 +139,7 @@ def forbidden_entry(entry: str):
         return "密钥配置文件(真实 .env)"
     if "docs/internal/" in p:
         return "内部机密文档 docs/internal/"
-    if "snowfoxclaw_data/" in p:
+    if "foxclaw_data/" in p:
         return "运行期真实数据(会话/记忆)"
     if re.search(r"\.(zip|rar|7z)$", base, re.I):
         return "嵌套归档"
@@ -216,11 +216,11 @@ def check_dist(dist: Path, name: str, version: str) -> list:
                             f"应为 {name}@{version}"))
 
     entries = archive_entries(whl)
-    for need in ("snowfoxclaw/__init__.py", "snowfoxclaw/cli.py"):
+    for need in ("foxclaw/__init__.py", "foxclaw/cli.py"):
         if need not in entries:
             issues.append(Issue("error", "missing_entry", f"{whl.name} 缺 {need}(入口会装丢)"))
-    if not any(e.endswith("snowfoxclaw/cli.py") for e in archive_entries(sdist)):
-        issues.append(Issue("error", "missing_entry", f"{sdist.name} 里没有 snowfoxclaw/cli.py"))
+    if not any(e.endswith("foxclaw/cli.py") for e in archive_entries(sdist)):
+        issues.append(Issue("error", "missing_entry", f"{sdist.name} 里没有 foxclaw/cli.py"))
 
     issues += _scan_forbidden(whl) + _scan_forbidden(sdist)
     if not any("/vendor/" in e for e in entries):

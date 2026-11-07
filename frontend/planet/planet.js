@@ -114,7 +114,7 @@ async function loadData(){
     try{
       const g=await client._get('/knowledge/graph?limit=5000');   // 拉到后端硬上限(默认仅 2000)
       // 真实库为空 → 本次用演示数据渲染(星球不空白);**不翻 client.demo**,连接保留、摄入仍走真实后端,
-      // 摄入知识后刷新即自动显示真实星球。修「嵌入 Snowfoxclaw 空库时星球一片空白」。
+      // 摄入知识后刷新即自动显示真实星球。修「嵌入 Foxclaw 空库时星球一片空白」。
       if(!(g.kus && g.kus.length)){
         toast('知识库为空,先展示演示星球;摄入知识后自动显示真实数据','');
         state.kus=JSON.parse(JSON.stringify(DEMO.kus));
@@ -1628,7 +1628,7 @@ async function startup(){
     // 自动重连失败(后端没起/地址变了)→ 回退演示,字段已回填,用户可手动重连
     toast('已保存的后端未连上，回退演示模式（设置已回填，可在「连接设置」重连）','err');
   }
-  // 嵌入 Snowfoxclaw(同源部署):无保存设置或保存地址连不上时,优先自动连**当前站点**(相对 /knowledge/*),
+  // 嵌入 Foxclaw(同源部署):无保存设置或保存地址连不上时,优先自动连**当前站点**(相对 /knowledge/*),
   // 连通即用真实知识;连不上(如独立打开本文件)再回退演示。
   if(await client.connect('')){ setConn(); await loadData(); return; }
   setConn();

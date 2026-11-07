@@ -11,11 +11,11 @@ import os, sys, asyncio, tempfile, shutil, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.agents.base import CognitiveAgent, HarnessBlockedError
-from snowfoxclaw.agents.agents import (
+from foxclaw.agents.base import CognitiveAgent, HarnessBlockedError
+from foxclaw.agents.agents import (
     FinanceAgent, OfficeAgent, SupervisorAgent)
 
 
@@ -52,8 +52,8 @@ def test_unified_block_handling():
     print("\n【3】统一异常兜底:_execute 抛 HarnessBlockedError → 结构化错误")
     d = tempfile.mkdtemp(prefix="life_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
 
         async def boom(self, task, context, session_id, memories):
             raise HarnessBlockedError(types.SimpleNamespace(reason="模拟越界"), None)
@@ -78,8 +78,8 @@ def test_finance_verify_before_recommend():
     d = tempfile.mkdtemp(prefix="p5_")
     os_ = None
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         fin = os_.finance
         # 给账本内核灌入真实交易 → analyze() 有据可依(当前数据源存在)
         os_.finance_runtime.import_csv(
@@ -113,8 +113,8 @@ def test_run_task_stream():
     d = tempfile.mkdtemp(prefix="d1_")
     os_ = None
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         # 单 Agent 认知管线(7 stage)用领域 Agent 验证:主管走的是 meta/schedule/dispatch
         # 另一条管线,不能拿它当"标准 stage 序列"的样本。
         ag = os_.office
@@ -154,7 +154,7 @@ def test_run_task_stream():
         def _boom(*a, **k):
             raise RuntimeError("流式炸了")
         ag.router.stream = _boom
-        from snowfoxclaw.agents.base import _act_stream as _AS
+        from foxclaw.agents.base import _act_stream as _AS
         async def _one_call():
             tok = _AS.set({"on_token": lambda c: None, "stop_event": None})
             try:
@@ -183,8 +183,8 @@ def test_interrupted_task_not_sunk():
     os_ = None
     try:
         import threading as _th
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         ag = os_.supervisor
         ag.router.provider = "stub"
         captured = {}
@@ -218,8 +218,8 @@ def test_reasoning_lifecycle_hooks():
     d = tempfile.mkdtemp(prefix="e2_")
     os_ = None
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         ag = os_.office          # 单 Agent 认知管线(见上一条注释)
         ag.router.provider = "stub"
         seen = {}
@@ -267,13 +267,13 @@ def test_reasoning_lifecycle_hooks():
 def test_preference_priority_recall():
     """【8·偏好优先召回】明确偏好标 tag=preference(shared 持久)+ **独立于语义 query** 优先注入。
     核心对照:偏好与当前任务**语义完全不相关**时,纯语义 recall 召不到,但偏好召回仍注入——
-    修复"越用越懂你"断在召回链的洞。默认开;SNOWFOXCLAW_PREF_CAPTURE=0 关采集。"""
+    修复"越用越懂你"断在召回链的洞。默认开;FOXCLAW_PREF_CAPTURE=0 关采集。"""
     print("\n【8】偏好优先召回:语义不相关也注入")
     d = tempfile.mkdtemp(prefix="pref_")
     os_ = None
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         ag = os_.office          # 单 Agent 认知管线(见上一条注释)
         ag.router.provider = "stub"
         seen = {}
@@ -300,13 +300,13 @@ def test_preference_priority_recall():
         assert after == before, "无偏好信号的任务不应新增偏好"
 
         # (d) 关采集开关 → 偏好句也不存(可关)
-        os.environ["SNOWFOXCLAW_PREF_CAPTURE"] = "0"
+        os.environ["FOXCLAW_PREF_CAPTURE"] = "0"
         try:
             asyncio.run(ag.run_task("我喜欢用表格展示数据"))
             got = ag.hmr.recall_by_tag(agent_id="assistant", tag="preference", limit=20)
             assert not any("表格" in p.get("content", "") for p in got), "关采集后不应存偏好"
         finally:
-            os.environ.pop("SNOWFOXCLAW_PREF_CAPTURE", None)
+            os.environ.pop("FOXCLAW_PREF_CAPTURE", None)
 
         # (e) 对话路径(stream_reply)也注入偏好——之前只测了任务路径(深审 F2:claim 必测)
         seen_stream = []

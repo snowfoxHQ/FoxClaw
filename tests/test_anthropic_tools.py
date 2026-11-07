@@ -16,10 +16,10 @@ import os, sys, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.core.model_router import ModelRouter
+from foxclaw.core.model_router import ModelRouter
 
 
 def _block(**kw):
@@ -170,7 +170,7 @@ def test_call_tools_anthropic_failsafe():
 
 # ── 6. 回灌闭环(_reply_with_tools 在 anthropic 下)────────────────────────────
 def test_reply_with_tools_anthropic_loop():
-    from snowfoxclaw.agents.base import CognitiveAgent
+    from foxclaw.agents.base import CognitiveAgent
     client = _fake_client([
         # 第1轮:模型要求调 recall_memory
         [_block(type="tool_use", id="c1", name="recall_memory", input={"query": "偏好"})],

@@ -9,8 +9,8 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw import Snowfoxclaw
-from snowfoxclaw.agents.base import HarnessBlockedError
+from foxclaw import Foxclaw
+from foxclaw.agents.base import HarnessBlockedError
 
 
 def check(cond, msg):
@@ -21,12 +21,12 @@ def check(cond, msg):
 
 async def main():
     print("="*64)
-    print("SNOWFOXCLAW · 端到端认知运行时验证")
+    print("FOXCLAW · 端到端认知运行时验证")
     print("="*64)
 
     # shadow_rounds 设小,快速触发校准。数据用临时目录:跑完即弃,不污染仓库根。
-    _data = tempfile.mkdtemp(prefix="snowfoxclaw_e2e_")
-    os_ = Snowfoxclaw(data_dir=_data, shadow_rounds=6)
+    _data = tempfile.mkdtemp(prefix="foxclaw_e2e_")
+    os_ = Foxclaw(data_dir=_data, shadow_rounds=6)
 
     print("\n【1】系统初始化")
     print(f"  Harness 嵌入模式: {os_.finance.harness.sem_drift.mode}")

@@ -228,22 +228,24 @@ class Extractor:
                         raw = None
                     _tick(raw)
 
-        # 全部 chunk 都抽取失败 → 很可能是 LLM 配置问题(没 key / key 错 / 网络不通),
-        # 明确报错,避免"摄入成功但 0 知识"的静默失败让用户困惑。
-        # 必须抛,不能只 log:API 层拿到 ku_count=0 会返回 200,用户以为录进去了,
-        # 实际库还是空的(复习板块永远 0 卡)。
+        # 全部 chunk 都抽取失败 → 分两种情况,不能一刀切:
+        #   1) 根本没配 key:这是**设计内的降级**(无 LLM 时知识库照常读写,只是抽不出 KU,
+        #      文件摄入/格式门等链路仍要能跑通),返回空结果,不抛。
+        #   2) 配了 key 却全失败(401/超时/模型不存在):这才是真故障。必须抛,否则 API 层
+        #      返回 ku_count=0 + 200,用户以为录进去了,实际库是空的(复习永远 0 卡)。
         if fail_count == len(chunks) and len(chunks) > 0:
             reason = self._last_error
             logger.error(
-                "知识抽取全部失败 (%d/%d chunks)。请检查 LLM 配置:provider=%s, model=%s, "
-                "是否已正确填写 API Key。最后错误: %s",
-                fail_count, len(chunks), self.provider, self.model, reason,
+                "知识抽取全部失败 (%d/%d chunks)。provider=%s, model=%s, has_key=%s。最后错误: %s",
+                fail_count, len(chunks), self.provider, self.model, bool(self.api_key), reason,
             )
-            raise RuntimeError(
-                f"知识抽取失败:所有 {len(chunks)} 段都没能抽出内容。"
-                f"当前 provider={self.provider} model={self.model}。"
-                f"最后错误: {reason or '未知(模型返回为空或解析失败)'}"
-            )
+            if self.api_key:
+                raise RuntimeError(
+                    f"知识抽取失败:所有 {len(chunks)} 段都没能抽出内容。"
+                    f"当前 provider={self.provider} model={self.model}。"
+                    f"最后错误: {reason or '未知(模型返回为空或解析失败)'}"
+                )
+            logger.warning("未配置 API Key —— 按降级处理,本次不产出知识单元。")
 
         return ExtractionResult(doc_id=doc_id, source=source, items=items)
 

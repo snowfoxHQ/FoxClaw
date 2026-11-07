@@ -8,15 +8,15 @@ import pytest
 def test_metrics():
     # ISOLATION_GUARD:本用例依赖 import 时固化的模块级单例(网关/限流器/路由配置按 env 在 import 时定型),单进程全量跑会被前序用例污染 →
     # 假红。全量请用 tests/run_all.py(每文件独立子进程)。
-    if "snowfoxclaw.api" in sys.modules:
+    if "foxclaw.api" in sys.modules:
         pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
     os.environ["HKC_EMBEDDING"] = "stub"
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_metrics_")
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_metrics_")
 
     from fastapi.testclient import TestClient
-    from snowfoxclaw.api import app
+    from foxclaw.api import app
 
     print("=" * 60); print("ops 监控验证"); print("=" * 60)
 
@@ -47,7 +47,7 @@ def test_metrics():
 
         # [4] Prometheus 文本格式
         p = c.get("/metrics")
-        assert p.status_code == 200 and "snowfoxclaw_requests_total" in p.text and "snowfoxclaw_llm_calls_total" in p.text
+        assert p.status_code == 200 and "foxclaw_requests_total" in p.text and "foxclaw_llm_calls_total" in p.text
         print("[4] /metrics Prometheus 文本 OK")
 
         # [5] 未匹配路由(404)不撑爆 key:20 个不同 404 路径 → 只 1 个 "unmatched" key

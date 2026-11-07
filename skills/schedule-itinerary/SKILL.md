@@ -1,6 +1,6 @@
 ---
 name: schedule-itinerary
-version: "1.0-snowfoxclaw"
+version: "1.0-foxclaw"
 builtin: true
 side_effect: read
 description: 日程行程技能。排期、会议、出差、路线与冲突检查、差旅预算协商。原是独立的"行政 Agent",现下放为指令技能,由办公学习 Agent 在命中日程类任务时注入;行程内核(ItineraryRuntime)仍由代码提供真实路线与冲突数据。

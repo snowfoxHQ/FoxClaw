@@ -1,6 +1,6 @@
-"""Snowfoxclaw 内置 MCP 服务器 端到端(带鉴权,贴真实暴露场景):
+"""Foxclaw 内置 MCP 服务器 端到端(带鉴权,贴真实暴露场景):
 - 防后门:不带 X-API-Key 访问 /api/mcp/ → 401
-- 带 key 的 MCP 客户端能 initialize + list_tools(3 只读 + ask_snowfoxclaw) + call
+- 带 key 的 MCP 客户端能 initialize + list_tools(3 只读 + ask_foxclaw) + call
 真起 uvicorn(MCP over Streamable HTTP 需真实 URL)。"""
 import os, sys, tempfile, threading, time, asyncio, urllib.request, urllib.error
 from pathlib import Path
@@ -12,22 +12,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
     strict=False,
 )
 def test_mcp_server():
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"      # 用进程环境变量自洽测试,不加载开发机 .env
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_mcpsrv_")
-    os.environ["SNOWFOXCLAW_API_KEY"] = "mcp-test-key"              # ★ 开鉴权,测真实暴露
-    os.environ["SNOWFOXCLAW_MCP_SERVER"] = "1"
-    os.environ["SNOWFOXCLAW_MCP_AGENTS"] = "1"
-    os.environ["SNOWFOXCLAW_MCP_RATE_AGENT"] = "1"                  # ask_snowfoxclaw 限 1/桶,测限流
-    os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"      # 用进程环境变量自洽测试,不加载开发机 .env
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_mcpsrv_")
+    os.environ["FOXCLAW_API_KEY"] = "mcp-test-key"              # ★ 开鉴权,测真实暴露
+    os.environ["FOXCLAW_MCP_SERVER"] = "1"
+    os.environ["FOXCLAW_MCP_AGENTS"] = "1"
+    os.environ["FOXCLAW_MCP_RATE_AGENT"] = "1"                  # ask_foxclaw 限 1/桶,测限流
+    os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
     os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试(否则模型加载拖 2 分钟,服务器赶不上就绪窗口)
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     import uvicorn
     import httpx
-    from snowfoxclaw.api import app, _snowfoxclaw_mcp
+    from foxclaw.api import app, _foxclaw_mcp
 
-    assert _snowfoxclaw_mcp is not None, "SNOWFOXCLAW_MCP_SERVER=1 时应构建 MCP 服务器"
-    print("=" * 60); print("Snowfoxclaw 内置 MCP 服务器验证(带鉴权)"); print("=" * 60)
+    assert _foxclaw_mcp is not None, "FOXCLAW_MCP_SERVER=1 时应构建 MCP 服务器"
+    print("=" * 60); print("Foxclaw 内置 MCP 服务器验证(带鉴权)"); print("=" * 60)
 
     PORT = 8079
     KEY = "mcp-test-key"
@@ -61,8 +61,8 @@ def test_mcp_server():
             async with ClientSession(r, w) as s:
                 await s.initialize()
                 tools = {t.name for t in (await s.list_tools()).tools}
-                assert tools == {"knowledge_search", "knowledge_get", "memory_recall", "ask_snowfoxclaw"}, tools
-                print("[1] 带key initialize + list_tools(3 只读 + ask_snowfoxclaw) OK")
+                assert tools == {"knowledge_search", "knowledge_get", "memory_recall", "ask_foxclaw"}, tools
+                print("[1] 带key initialize + list_tools(3 只读 + ask_foxclaw) OK")
 
                 res = await s.call_tool("knowledge_search", {"query": "anything", "top_k": 999999})  # 试超大 top_k(应被钳制不崩)
                 assert res.content is not None
@@ -77,19 +77,19 @@ def test_mcp_server():
                 assert "not_found" in txt or "error" in txt
                 print("[4] knowledge_get 不存在 → not_found OK")
 
-                res = await s.call_tool("ask_snowfoxclaw", {"task": "分析这个月支出"})
+                res = await s.call_tool("ask_foxclaw", {"task": "分析这个月支出"})
                 txt = res.content[0].text if res.content else ""
                 assert "dispatched_to" in txt or "reply" in txt or "error" in txt, txt
-                print("[5] ask_snowfoxclaw Agent 调度可调(返回 reply/dispatched_to) OK")
+                print("[5] ask_foxclaw Agent 调度可调(返回 reply/dispatched_to) OK")
 
                 # [6] 限流:agent 桶设 1,上面已消耗 → 再调应被限流
-                res = await s.call_tool("ask_snowfoxclaw", {"task": "再来一次"})
+                res = await s.call_tool("ask_foxclaw", {"task": "再来一次"})
                 txt = res.content[0].text if res.content else ""
                 assert "rate limited" in txt, f"限流未生效: {txt}"
-                print("[6] ask_snowfoxclaw 限流(令牌桶)生效 OK")
+                print("[6] ask_foxclaw 限流(令牌桶)生效 OK")
 
     asyncio.run(probe())
-    print("\nSnowfoxclaw 内置 MCP 服务器验证全部通过")
+    print("\nFoxclaw 内置 MCP 服务器验证全部通过")
 
 if __name__ == "__main__":
     test_mcp_server()

@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.core.memory_adapter import create_memory_backend
+from foxclaw.core.memory_adapter import create_memory_backend
 
 QUERY = "quarterly revenue growth and budget forecast analysis"
 N_FINANCE = 55           # > 老路径 fetch_k(50),< 压缩阈值(同类型 80)

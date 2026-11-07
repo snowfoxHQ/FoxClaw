@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from snowfoxclaw import __version__
-from snowfoxclaw.cli import APP_TARGET, build_parser, main
+from foxclaw import __version__
+from foxclaw.cli import APP_TARGET, build_parser, main
 
 
 def test_target_is_api_app() -> None:
-    assert APP_TARGET == "snowfoxclaw.api:app"
+    assert APP_TARGET == "foxclaw.api:app"
 
 
 def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
@@ -21,7 +21,7 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "snowfoxclaw" in out
+    assert "foxclaw" in out
     assert __version__ in out
 
 

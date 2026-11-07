@@ -13,12 +13,12 @@ import os, sys, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.core import injection_guard as IG
-from snowfoxclaw.skills import permission as PERM
-from snowfoxclaw.agents.base import (
+from foxclaw.core import injection_guard as IG
+from foxclaw.skills import permission as PERM
+from foxclaw.agents.base import (
     CognitiveAgent, _taint_get, _taint_raise, _taint_reset,
 )
 
@@ -104,7 +104,7 @@ def test_dispatch_recall_memory_raises_taint():
 
 
 def test_dispatch_web_search_raises_taint(monkeypatch):
-    from snowfoxclaw.core import web_search as WS
+    from foxclaw.core import web_search as WS
     monkeypatch.setattr(WS, "search_answer", lambda q: {"answer": "答案ABC", "references": []})
     a = types.SimpleNamespace(_think=lambda **k: None)
     out = CognitiveAgent._dispatch_tool(a, "web_search", {"query": "问题"})

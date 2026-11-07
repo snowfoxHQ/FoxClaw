@@ -1,5 +1,5 @@
 """
-Snowfoxclaw — 全量回归测试运行器
+Foxclaw — 全量回归测试运行器
 一次跑完 tests/ 下所有测试,汇总通过/失败,确认整个系统端到端健康。
 用法:python tests/run_all.py
 """
@@ -71,8 +71,8 @@ TESTS = [
     ("test_mcp_connectors.py", "工具中心②·MCP 连接器(接入/工具成技能/审核/调用/移除/持久化)"),
     ("test_markdown_skills.py", "工具中心③·SKILL.md 指令技能(上传/解析/审核/注入/持久化)"),
     ("test_markdown_skills_openclaw.py", "工具中心③·OpenClaw 兼容(zip包/描述触发/编辑触发词·进程隔离防原生库崩溃)"),
-    ("test_mcp_server.py",   "内置 MCP 服务器(Snowfoxclaw 作提供者:只读知识+记忆暴露成 MCP 工具)"),
-    ("test_mcp_no_memory.py", "MCP ask_snowfoxclaw 不污染记忆(外部任务不写 HMR,正常任务照写)"),
+    ("test_mcp_server.py",   "内置 MCP 服务器(Foxclaw 作提供者:只读知识+记忆暴露成 MCP 工具)"),
+    ("test_mcp_no_memory.py", "MCP ask_foxclaw 不污染记忆(外部任务不写 HMR,正常任务照写)"),
     ("test_streaming.py",    "LLM 流式输出(router.stream 分块 + /api/chat/stream SSE 逐字)"),
     ("test_task_stream.py",  "D1 · /api/task/stream 任务流式化(逐 stage 进度 + act token + 结果)"),
     ("test_config_layering.py", "E1 · 分层配置(LayeredConfig 三层 + policy 层 deny 不可覆盖)"),
@@ -132,44 +132,44 @@ def main():
         _before = len(TESTS)
         TESTS = [(f, d) for f, d in TESTS if _only in f or _only in d]
         print(f"[filter] '{_only}' 匹配 {len(TESTS)}/{_before} 项\n")
-    # HF_HUB_OFFLINE:装了 sentence-transformers 时,每个 Snowfoxclaw() 会载入 all-MiniLM
+    # HF_HUB_OFFLINE:装了 sentence-transformers 时,每个 Foxclaw() 会载入 all-MiniLM
     # 模型 6 次(5 Harness + 1 HMR embedding),且每次都向 HF Hub 发未认证网络请求——
     # 即便模型已缓存。实测让单次 init 从 ~44s 降到 ~7s,并去除网络抖动(否则被 HF 限流时
     # 某个子测试会顶穿 300s 超时)。模型已本地缓存,离线读取即可;未缓存时 Harness 会自动
     # 降级 n-gram 哈希嵌入,不影响测试判定。PYTHONUTF8:防 Windows GBK 控制台的 ✓/✗ 编码错。
     # ── 测试环境隔离(必须放在最前,否则回归不可复现)────────────────────────
-    # SNOWFOXCLAW_SKIP_DOTENV=1:让 api.py 完全不读项目根目录的 .env。
+    # FOXCLAW_SKIP_DOTENV=1:让 api.py 完全不读项目根目录的 .env。
     #   为什么不能只靠下面那些空字符串:.env 的加载是 load_dotenv(override=False),
     #   它只保护「当前进程里已存在的键」。但测试常常要 pop 掉某键来验证「未设时的行为」
-    #   (如 test_gateway.py / test_api_auth.py pop SNOWFOXCLAW_API_KEY),pop 完再 import api,
+    #   (如 test_gateway.py / test_api_auth.py pop FOXCLAW_API_KEY),pop 完再 import api,
     #   .env 就会把键灌回来 —— 空字符串挡不住这种路径。
-    #   实测证据:对照树(0 改动)+ 含 SNOWFOXCLAW_API_KEY 的 .env → test_gateway 报
+    #   实测证据:对照树(0 改动)+ 含 FOXCLAW_API_KEY 的 .env → test_gateway 报
     #   KeyError: 'enabled';同树删掉 .env → 通过。故必须在源头关掉 .env。
-    #   另:开发者 .env 里有真实 Key 与 SNOWFOXCLAW_DATA_DIR=./snowfoxclaw_data,不隔离会让测试
+    #   另:开发者 .env 里有真实 Key 与 FOXCLAW_DATA_DIR=./foxclaw_data,不隔离会让测试
     #   真的打外部 API(花钱)并写进真实数据目录。
     # 下面显式置空的 key 作为**第二道防线**,覆盖那些会 import 本运行器 env dict
     # 或直接读 os.environ 的路径(且便于单独运行单个测试文件时也保持确定性)。
-    env = dict(os.environ, SNOWFOXCLAW_SHADOW_ROUNDS="50",
+    env = dict(os.environ, FOXCLAW_SHADOW_ROUNDS="50",
                HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
-               SNOWFOXCLAW_SKIP_DOTENV="1",
+               FOXCLAW_SKIP_DOTENV="1",
                # 强制 stub:回归保持离线/免费/确定性。鉴权与网关必须为「未设」态——
-               # test_api_auth / test_gateway 要自行控制 SNOWFOXCLAW_API_KEY,这里先兜底清空。
+               # test_api_auth / test_gateway 要自行控制 FOXCLAW_API_KEY,这里先兜底清空。
                DEEPSEEK_API_KEY="", ANTHROPIC_API_KEY="", OPENAI_API_KEY="",
-               GOOGLE_API_KEY="", DASHSCOPE_API_KEY="", SNOWFOXCLAW_API_KEY="",
-               # .env 里 SNOWFOXCLAW_MCP_SERVER=1 会让 api.py 在 import 时构建 MCP 服务器,
+               GOOGLE_API_KEY="", DASHSCOPE_API_KEY="", FOXCLAW_API_KEY="",
+               # .env 里 FOXCLAW_MCP_SERVER=1 会让 api.py 在 import 时构建 MCP 服务器,
                # 而 test_tracing.py 有两处 `with TestClient(app)`(82/189 行),第二次进
                # lifespan 会撞 StreamableHTTPSessionManager「.run() can only be called
                # once per instance」。回归默认关;test_mcp_server.py 自己会置 1。
-               SNOWFOXCLAW_MCP_SERVER="0",
-               # 锁 stub 模型路由:.env 里 SNOWFOXCLAW_PROVIDER=openai/SNOWFOXCLAW_MODEL=abab6.5s-chat
+               FOXCLAW_MCP_SERVER="0",
+               # 锁 stub 模型路由:.env 里 FOXCLAW_PROVIDER=openai/FOXCLAW_MODEL=abab6.5s-chat
                # 是开发者的真实配置,回归不继承(否则路由判定随机器变化)。
-               SNOWFOXCLAW_PROVIDER="", SNOWFOXCLAW_MODEL="",
+               FOXCLAW_PROVIDER="", FOXCLAW_MODEL="",
                # 产品默认 HKC_EMBEDDING=auto(真语义),但回归锁 stub 保确定+快;
                # 真语义单独由 test_semantic.py 显式验证。
                HKC_EMBEDDING="stub")
     print("=" * 64)
-    print("Snowfoxclaw · 全量回归测试")
+    print("Foxclaw · 全量回归测试")
     print("=" * 64)
     results = []
     try:

@@ -1,6 +1,6 @@
-# Snowfoxclaw 运行时治理能力说明
+# Foxclaw 运行时治理能力说明
 
-这组能力借鉴 OpenClaw 等成熟 Agent 系统的设计原理,用 Python 适配 Snowfoxclaw 实现,目标是让系统在真实运行(消息重发、进程崩溃、长任务、死循环)中保持**可靠、可审计、不丢不重**。
+这组能力借鉴 OpenClaw 等成熟 Agent 系统的设计原理,用 Python 适配 Foxclaw 实现,目标是让系统在真实运行(消息重发、进程崩溃、长任务、死循环)中保持**可靠、可审计、不丢不重**。
 
 六项能力分两类:**已接入主路径、现在就生效**的(幂等、重启恢复、循环检测),和**基础设施、按需启用**的(上下文压缩、钩子标准化、干预队列)。
 
@@ -12,9 +12,9 @@
 
 **原理:** 给"只应发生一次"的操作算一个稳定 key,执行前**原子查重**——处理过就跳过,没处理才执行并记录。
 
-**核心接口**(`snowfoxclaw/core/idempotency.py`):
+**核心接口**(`foxclaw/core/idempotency.py`):
 ```python
-from snowfoxclaw.core.idempotency import IdempotencyGuard, make_key
+from foxclaw.core.idempotency import IdempotencyGuard, make_key
 
 guard = IdempotencyGuard(ttl_seconds=3600)        # 可选 persist_path 跨重启
 key = make_key("message", channel, message_id, sender_id)
@@ -35,11 +35,11 @@ if guard.check_and_mark(key):     # 原子:首次返回 True(执行),重复返�
 
 **解决:** 长任务(多 Agent 链、财务分析)跑到一半进程崩了/重启,任务凭空消失,记忆可能留下半完成的脏数据。
 
-**原理:** 启动时主动识别"上次还在进行、但持有它的进程已不在"的任务,**诚实标记为中断**,而不是装无事。契合 Snowfoxclaw"可审计、可信"的定位。
+**原理:** 启动时主动识别"上次还在进行、但持有它的进程已不在"的任务,**诚实标记为中断**,而不是装无事。契合 Foxclaw"可审计、可信"的定位。
 
-**核心接口**(`snowfoxclaw/core/recovery.py`):
+**核心接口**(`foxclaw/core/recovery.py`):
 ```python
-from snowfoxclaw.core.recovery import RestartRecovery
+from foxclaw.core.recovery import RestartRecovery
 
 rec = RestartRecovery(log_path="data/task_log.jsonl")
 rec.task_started(task_id, description)    # 任务开始(落 in_progress)
@@ -47,7 +47,7 @@ rec.task_finished(task_id, status="done")  # 结束(done/failed)
 interrupted = rec.scan_interrupted()       # 启动时扫描:返回被中断的任务列表
 ```
 
-**已接入:** `Snowfoxclaw` 启动时自动扫描,检测到中断任务会打印提示;主管任务经 base 模板的
+**已接入:** `Foxclaw` 启动时自动扫描,检测到中断任务会打印提示;主管任务经 base 模板的
 生命周期钩子(`_on_session_started`/`_on_task_settled`,P1-1)自动记录开始/结束
 (正常终态标 done、未兜底异常标 failed;`run_task` 与 `run_task_stream` 两条路径都记账)。
 
@@ -64,9 +64,9 @@ interrupted = rec.scan_interrupted()       # 启动时扫描:返回被中断的�
 
 **原理:** 监控工具调用历史,检测三种循环模式,多级阈值预警→熔断。
 
-**核心接口**(`snowfoxclaw/harness/loop_detection.py`):
+**核心接口**(`foxclaw/harness/loop_detection.py`):
 ```python
-from snowfoxclaw.harness.loop_detection import ToolLoopDetector
+from foxclaw.harness.loop_detection import ToolLoopDetector
 
 det = ToolLoopDetector(warning=6, critical=12, circuit_break=20)
 verdict = det.record(tool_name, args, result)   # 每次工具调用后
@@ -88,9 +88,9 @@ if det.should_abort():
 
 **原理:** 渐进降级压缩,绝不崩——LLM 完整摘要 → 排除超大消息的部分摘要 → 截断兜底。始终保留系统提示 + 最近 N 轮 + 关键标识符(ID/金额)。
 
-**核心接口**(`snowfoxclaw/core/compaction.py`):
+**核心接口**(`foxclaw/core/compaction.py`):
 ```python
-from snowfoxclaw.core.compaction import Compactor
+from foxclaw.core.compaction import Compactor
 
 c = Compactor(router=model_router, max_tokens=6000, keep_recent=4)
 if c.needs_compaction(messages):
@@ -107,14 +107,14 @@ if c.needs_compaction(messages):
 
 **原理:** 标准生命周期钩子 + 明确的阻断权 + 向后兼容。
 
-**标准钩子点**(`snowfoxclaw/skills/hooks_spec.py`):
+**标准钩子点**(`foxclaw/skills/hooks_spec.py`):
 - 会话级:`session_start` → `agent_start` → `agent_end` → `session_end`
   - `agent_start`(别名 **`pre_reasoning`**)/ `agent_end`(别名 **`task_complete`**)由**认知管线 `run_task`** 触发(E2);`agent_start` 可返回 `additional_context` 注入本次推理(非阻断)。`session_start/end` 由 AHS skill 编排链触发。
 - 工具级:`before_tool_call`(唯一可阻断)→ `after_tool_call` / `on_error` / `on_loop`
 - 消息级:`before_message_write`
 
 ```python
-from snowfoxclaw.skills.lifecycle import HookManager
+from foxclaw.skills.lifecycle import HookManager
 hm = HookManager()
 hm.register("before_tool_call", my_hook)    # 旧名 pre_skill 也兼容,自动规整
 ```
@@ -129,9 +129,9 @@ hm.register("before_tool_call", my_hook)    # 旧名 pre_skill 也兼容,自动�
 
 **原理:** 租约机制。当前多 Agent 顺序执行用不上(直接收集即可);这是为**未来并行子 Agent** 预留的基础设施。
 
-**核心接口**(`snowfoxclaw/core/steering_queue.py`):
+**核心接口**(`foxclaw/core/steering_queue.py`):
 ```python
-from snowfoxclaw.core.steering_queue import SteeringQueue
+from foxclaw.core.steering_queue import SteeringQueue
 
 q = SteeringQueue(lease_seconds=30)
 q.publish(requester, source_agent, payload)   # 子任务完成入队

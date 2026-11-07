@@ -1,22 +1,22 @@
 ---
 name: execution-contract
-version: "1.0-snowfoxclaw"
+version: "1.0-foxclaw"
 implements: agent-harness-skills/execution-contract
-description: Snowfoxclaw 实现版契约。把 AHS 标准的 IO 结构落地到 SkillSpec/SkillResult 数据结构。
+description: Foxclaw 实现版契约。把 AHS 标准的 IO 结构落地到 SkillSpec/SkillResult 数据结构。
 bound_modules:
-  - snowfoxclaw/skills/__init__.py (SkillSpec / SkillResult / SkillAdapter)
-  - snowfoxclaw/skills/permission.py (输入校验 Stage1)
+  - foxclaw/skills/__init__.py (SkillSpec / SkillResult / SkillAdapter)
+  - foxclaw/skills/permission.py (输入校验 Stage1)
 side_effect: read
 trust_level: high
 ---
 
-# Execution Contract(Snowfoxclaw 实现版)
+# Execution Contract(Foxclaw 实现版)
 
-> AHS 标准 `execution-contract` 在 Snowfoxclaw 的落地。标准定义 IO schema,本文件定义 Snowfoxclaw 的真实数据结构。
+> AHS 标准 `execution-contract` 在 Foxclaw 的落地。标准定义 IO schema,本文件定义 Foxclaw 的真实数据结构。
 
-## 标准 → Snowfoxclaw 真实落地
+## 标准 → Foxclaw 真实落地
 
-| AHS 标准 | Snowfoxclaw 实现 | 代码位置 |
+| AHS 标准 | Foxclaw 实现 | 代码位置 |
 |---------|------------|---------|
 | SkillInput | `SkillAdapter.invoke` 的入参 | `skills/__init__.py` |
 | SkillOutput | `SkillResult` dataclass(字段:`skill_id/success/output/status/message/loop_warning`) | `skills/__init__.py: SkillResult` |
@@ -26,5 +26,5 @@ trust_level: high
 
 ## 关键差异
 
-> 标准是 schema 描述;Snowfoxclaw 是可运行的 Python dataclass + 真实校验代码。
+> 标准是 schema 描述;Foxclaw 是可运行的 Python dataclass + 真实校验代码。
 > 注:`SkillResult` **无 `trace_node_id` 字段**——审计追踪独立由 ThoughtChain + HookManager 承担,不塞进结果结构。

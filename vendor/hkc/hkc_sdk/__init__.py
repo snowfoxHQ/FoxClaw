@@ -1,6 +1,6 @@
 """
 hkc_sdk
-Snowfoxclaw Knowledge Core — Python SDK
+Foxclaw Knowledge Core — Python SDK
 
 统一入口 connect()，两种后端无感切换：
 

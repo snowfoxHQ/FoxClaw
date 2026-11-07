@@ -60,7 +60,7 @@ def main() -> int:
     elif vs < THRESHOLD:
         print(f"阶段: Flat (IndexFlatIP, O(N) 暴力精确)")
         print(f"下次 vector_size 跨过 {THRESHOLD} 时 append_ku 会触发升级")
-        print(f"触发后看日志:    grep '{UPGRADE_KEYWORD}' <snowfoxclaw.log>")
+        print(f"触发后看日志:    grep '{UPGRADE_KEYWORD}' <foxclaw.log>")
     else:
         print(f"阶段: IVF (IndexIVFFlat, O(√N) 倒排)")
         print(f"升级日志关键词:  '{UPGRADE_KEYWORD}'")

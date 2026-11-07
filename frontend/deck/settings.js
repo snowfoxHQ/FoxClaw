@@ -15,7 +15,7 @@ async function fetchSysInfo(){ try{ _sysInfo=await(await fetch(`${API}/system/in
 async function renderSettingDetail(key){
   const body=document.getElementById('sdBody');
   body.innerHTML='<div class="sd-ph">加载中…</div>';
-  // ── Snowfoxclaw 主系统 ──
+  // ── Foxclaw 主系统 ──
   if(key==='model'){
     const d=await fetchSysInfo(); const m=d?.model||{};
     let h=`<div class="sd-card"><div class="sd-k">当前模型</div>
@@ -37,7 +37,7 @@ async function renderSettingDetail(key){
       <div class="sd-kv"><span>数据目录</span><b>${d?.data_dir||'—'}</b></div>
       <div class="sd-kv"><span>Harness 影子轮数</span><b>${d?.shadow_rounds??'—'}</b></div>
       </div>
-      <div class="sd-note">运行参数在 <code>.env</code> 配置(SNOWFOXCLAW_DATA_DIR / SNOWFOXCLAW_SHADOW_ROUNDS),改后重启生效。影子轮数越小,Harness 越快进入漂移拦截模式。</div>`;
+      <div class="sd-note">运行参数在 <code>.env</code> 配置(FOXCLAW_DATA_DIR / FOXCLAW_SHADOW_ROUNDS),改后重启生效。影子轮数越小,Harness 越快进入漂移拦截模式。</div>`;
   }else if(key==='ui'){
     body.innerHTML=`
       <div class="sd-sec">界面偏好<span class="badge edit">可调</span></div>
@@ -55,34 +55,34 @@ async function renderSettingDetail(key){
       <div class="sd-kv"><span>记忆后端</span><b>${s.backend||'—'}</b></div>
       <div class="sd-kv"><span>记忆总条数</span><b>${s.total_memories??0}</b></div>
       <div class="sd-kv"><span>知识关系数</span><b>${s.relations??0}</b></div>
-      <div class="sd-note">运行数据存于本地 <code>snowfoxclaw_data/</code> 目录。清空数据请在本地删除该目录后重启(网页端不直接删除,避免误操作)。</div>`;
+      <div class="sd-note">运行数据存于本地 <code>foxclaw_data/</code> 目录。清空数据请在本地删除该目录后重启(网页端不直接删除,避免误操作)。</div>`;
   }else if(key==='auth'){
-    const cur=localStorage.getItem('snowfoxclawApiKey')||'';
+    const cur=localStorage.getItem('foxclawApiKey')||'';
     body.innerHTML=`
       <div class="sd-sec">后端访问密钥<span class="badge ${cur?'ro':'edit'}">${cur?'已配置':'未配置'}</span></div>
-      <div class="sd-desc">后端 <code>.env</code> 若设置了 <code>SNOWFOXCLAW_API_KEY</code>,则所有 <code>/api</code>、<code>/knowledge</code> 请求与 WebSocket 都需携带此密钥,否则返回 401/403、数据无法加载。填入与 <code>.env</code> 相同的值即可恢复。</div>
+      <div class="sd-desc">后端 <code>.env</code> 若设置了 <code>FOXCLAW_API_KEY</code>,则所有 <code>/api</code>、<code>/knowledge</code> 请求与 WebSocket 都需携带此密钥,否则返回 401/403、数据无法加载。填入与 <code>.env</code> 相同的值即可恢复。</div>
       <div class="api-key-row">
-        <input type="password" id="pf-apiKey" class="api-key-inp" placeholder="粘贴 SNOWFOXCLAW_API_KEY 的值" value="${cur}" autocomplete="off" spellcheck="false">
+        <input type="password" id="pf-apiKey" class="api-key-inp" placeholder="粘贴 FOXCLAW_API_KEY 的值" value="${cur}" autocomplete="off" spellcheck="false">
       </div>
       <div class="api-key-btns">
         <button id="pf-apiKey-save" class="api-key-btn primary">保存并重连</button>
         <button id="pf-apiKey-clear" class="api-key-btn">清除</button>
       </div>
-      <div class="sd-note">密钥仅保存在本机浏览器 <code>localStorage</code>,不会上传到服务器。后端未设 <code>SNOWFOXCLAW_API_KEY</code> 时此项留空即可(默认开放)。</div>`;
+      <div class="sd-note">密钥仅保存在本机浏览器 <code>localStorage</code>,不会上传到服务器。后端未设 <code>FOXCLAW_API_KEY</code> 时此项留空即可(默认开放)。</div>`;
     document.getElementById('pf-apiKey-save').onclick=()=>{
       const v=document.getElementById('pf-apiKey').value.trim();
-      if(v) localStorage.setItem('snowfoxclawApiKey', v);
-      else localStorage.removeItem('snowfoxclawApiKey');
+      if(v) localStorage.setItem('foxclawApiKey', v);
+      else localStorage.removeItem('foxclawApiKey');
       location.reload();
     };
     document.getElementById('pf-apiKey-clear').onclick=()=>{
-      localStorage.removeItem('snowfoxclawApiKey');
+      localStorage.removeItem('foxclawApiKey');
       location.reload();
     };
   }else if(key==='about'){
     const d=await fetchSysInfo();
     body.innerHTML=`
-      <div class="sd-card"><div class="sd-big">Snowfoxclaw <span>v${d?.version||'1.0.0'}</span></div>
+      <div class="sd-card"><div class="sd-big">Foxclaw <span>v${d?.version||'1.0.0'}</span></div>
         <div class="sd-desc">认知 Agent 操作系统 · 记忆/认知层与 LLM 解耦</div></div>
       <div class="sd-sec">五个 Agent</div>
       <div class="sd-kv"><span>主管 Supervisor</span><b>分诊调度 · 全局态势</b></div>
@@ -91,7 +91,7 @@ async function renderSettingDetail(key){
       <div class="sd-kv"><span>办公 Office</span><b>学习 · 知识图谱</b></div>
       <div class="sd-kv"><span>助手 Assistant</span><b>通用 · Skill 接入</b></div>
       <div class="sd-sec">三大模块</div>
-      <div class="sd-desc">Snowfoxclaw(主系统) · Agents(五智能体) · HMR(记忆系统)</div>
+      <div class="sd-desc">Foxclaw(主系统) · Agents(五智能体) · HMR(记忆系统)</div>
       <div class="sd-note">配置说明见项目 <code>docs/配置指南.md</code></div>`;
   }else if(key && key.startsWith('mem-')){
     const s=await(await fetch(`${API}/memory/stats`)).json().catch(()=>({}));
@@ -129,7 +129,7 @@ async function renderSettingDetail(key){
         <div class="sd-sec">记忆管理<span class="badge ro">只读</span></div>
         <div class="sd-kv"><span>记忆总条数</span><b>${s.total_memories??0}</b></div>
         <div class="sd-kv"><span>知识关系数</span><b>${s.relations??0}</b></div>
-        <div class="sd-note">运行数据存于本地 <code>snowfoxclaw_data/</code> 目录。清空记忆请在本地删除该目录后重启(网页端不直接删除,避免误操作)。导出功能可通过 HMR 后端 API 实现。</div>`;
+        <div class="sd-note">运行数据存于本地 <code>foxclaw_data/</code> 目录。清空记忆请在本地删除该目录后重启(网页端不直接删除,避免误操作)。导出功能可通过 HMR 后端 API 实现。</div>`;
     }
   }else if(key && key.startsWith('ag-')){
     await renderAgentDetail(key.slice(3), body);
@@ -220,17 +220,17 @@ function toggleBallAnim(on){
   const c=document.getElementById('coreCanvas'); if(c)c.style.display=on?'block':'none';
   // 仅 display:none 不够(loop 还在 60fps 跑,吃 GPU)→ 同步设置 localStorage 标志,
   // 引导用户硬刷一次(自动 reload)。visuals.js 顶部 _lowpower 检查,刷新后即生效。
-  try{ localStorage.setItem('snowfoxclaw_lowpower', on ? '0' : '1'); }catch{}
+  try{ localStorage.setItem('foxclaw_lowpower', on ? '0' : '1'); }catch{}
   // 仅当「关」才 reload(开不影响,因为持久态 = 0 时不阻止)
   if (!on) {
     // 提示一下,避免用户疑惑
-    console.info('[snowfoxclaw] 关掉球动画后需刷新一次才停止 GPU 占用');
+    console.info('[foxclaw] 关掉球动画后需刷新一次才停止 GPU 占用');
   }
 }
 
 /* 二级子项定义 */
 const SETTINGS_SUBS={
-  snowfoxclaw:[['model','模型路由'],['runtime','运行参数'],['ui','界面偏好'],['data','数据管理'],['auth','访问密钥'],['about','关于']],
+  foxclaw:[['model','模型路由'],['runtime','运行参数'],['ui','界面偏好'],['data','数据管理'],['auth','访问密钥'],['about','关于']],
   agents:[['ag-supervisor','主管 Agent'],['ag-finance','财务 Agent'],['ag-admin','行政 Agent'],['ag-office','办公 Agent'],['ag-assistant','助手 Agent']],
   hmr:[['mem-backend','记忆后端'],['mem-layer','双层记忆'],['mem-recall','召回参数'],['mem-manage','记忆管理']],
 };

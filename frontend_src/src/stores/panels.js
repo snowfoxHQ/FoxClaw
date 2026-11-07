@@ -102,7 +102,7 @@ const LOADERS = {
     return !!(tk || gw || mt)
   },
 
-  /* 知识库 = HKC 根路径 /stats 与 /knowledge/sources,加 Snowfoxclaw 侧能力清单
+  /* 知识库 = HKC 根路径 /stats 与 /knowledge/sources,加 Foxclaw 侧能力清单
      与最近录入的 KU(右栏和面板共用这一份) */
   async knowledge(p) {
     const [st, src, ab, rc] = await Promise.all([
@@ -323,7 +323,7 @@ export async function openTokenReport() {
     kind: 'code',
     lang: 'text',
     title: 'token-report',
-    path: 'snowfoxclaw/api/routes/system.py',
+    path: 'foxclaw/api/routes/system.py',
     meta: 'Token 消耗报告 · 实时生成',
     content: d.report || '(暂无报告)',
   })

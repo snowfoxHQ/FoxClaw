@@ -1,6 +1,6 @@
-# tools/restart_snowfoxclaw.ps1
+# tools/restart_foxclaw.ps1
 # 杀旧 uvicorn → 后台启新(带 --reload 自动加载 vendor 修改) → 等 /stats 可达
-# 用法: powershell -NoProfile -File tools\restart_snowfoxclaw.ps1
+# 用法: powershell -NoProfile -File tools\restart_foxclaw.ps1
 $ErrorActionPreference = "Continue"
 
 # 1. python 路径
@@ -29,7 +29,7 @@ if ($targetPid) {
 }
 
 # 3. 启 uvicorn(后台,隐藏窗口,带 --reload + 日志 redirect)
-$logDir = "C:\Users\snow\projects\Snowfoxclaw\snowfoxclaw_data"
+$logDir = "C:\Users\snow\projects\Foxclaw\foxclaw_data"
 $outLog = "$logDir\uvicorn.log"
 $errLog = "$logDir\uvicorn.err.log"
 "" | Out-File -FilePath $outLog -Encoding utf8
@@ -38,13 +38,13 @@ Write-Host "[3] Start uvicorn (hidden window, --reload --reload-dir vendor)"
 Write-Host "    stdout -> $outLog"
 Write-Host "    stderr -> $errLog"
 $uviArgs = @(
-    "-m", "uvicorn", "snowfoxclaw.api:app",
+    "-m", "uvicorn", "foxclaw.api:app",
     "--port", "8000",
     "--reload",
-    "--reload-dir", "C:\Users\snow\projects\Snowfoxclaw\vendor"
+    "--reload-dir", "C:\Users\snow\projects\Foxclaw\vendor"
 )
 Start-Process $py -ArgumentList $uviArgs `
-    -WorkingDirectory "C:\Users\snow\projects\Snowfoxclaw" `
+    -WorkingDirectory "C:\Users\snow\projects\Foxclaw" `
     -WindowStyle Hidden `
     -RedirectStandardOutput $outLog `
     -RedirectStandardError  $errLog | Out-Null

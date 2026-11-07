@@ -20,11 +20,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import snowfoxclaw.core.web_search as ws
+import foxclaw.core.web_search as ws
 ws.needs_search = lambda q: False          # 关联网:离线测试不碰网络
 
-from snowfoxclaw import Snowfoxclaw
-from snowfoxclaw.core.thought_chain import ThoughtNode
+from foxclaw import Foxclaw
+from foxclaw.core.thought_chain import ThoughtNode
 
 SLEEP = 0.4
 PAR_TASK = "同时查今天的日程、分析本月理财、总结这篇论文"
@@ -43,14 +43,14 @@ def _slow(system, messages, max_tokens=2048, agent_id=""):
 
 
 def _build(data_dir=None):
-    os_ = Snowfoxclaw(data_dir=data_dir or tempfile.mkdtemp())
+    os_ = Foxclaw(data_dir=data_dir or tempfile.mkdtemp())
     os_.router.complete = _slow      # 注入固定延迟,让并发/串行差异可测
     return os_
 
 
 @pytest.fixture(scope="module")
 def os_(tmp_path_factory):
-    """共享同一 Snowfoxclaw 实例(等价脚本式 main() 里 `os_ = _build()` 一次传给 5 个测试)。"""
+    """共享同一 Foxclaw 实例(等价脚本式 main() 里 `os_ = _build()` 一次传给 5 个测试)。"""
     return _build(data_dir=str(tmp_path_factory.mktemp("parallel_dispatch")))
 
 
@@ -168,7 +168,7 @@ def test_memory_isolation_concurrent(os_):
 
 def test_gatekeeper_no_race(os_):
     print("\n【5】守门人并发裁决无竞态（M2 声称项）")
-    from snowfoxclaw.orchestration import CrossAgentRequest
+    from foxclaw.orchestration import CrossAgentRequest
     orch = os_.orchestrator
     before = len(orch.request_log)
     N, results, lock, errs = 24, [], threading.Lock(), []

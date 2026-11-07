@@ -5,11 +5,11 @@ from types import SimpleNamespace as NS
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_mcp_guardian_discovery():
-    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_mcp_guardian_")
+    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_mcp_guardian_")
 
     # 1. tool_to_spec 兼容 dict(守门人序列化产物),fail-closed 不变
-    from snowfoxclaw.skills.mcp_client import tool_to_spec
+    from foxclaw.skills.mcp_client import tool_to_spec
     spec = tool_to_spec("srv", {"name": "get_time", "description": "读时间", "inputSchema": {},
                                 "annotations": {"readOnlyHint": True, "destructiveHint": None}})
     assert spec.id == "mcp__srv__get_time" and spec.side_effect == "read" and not spec.destructive
@@ -19,7 +19,7 @@ def test_mcp_guardian_discovery():
     print("[1] tool_to_spec 兼容 dict + fail-closed OK")
 
     # 2. 守门人 mcp_register:主进程空 headers 不覆盖守门人已有凭证
-    import snowfoxclaw.kernel.sentinel as sm
+    import foxclaw.kernel.sentinel as sm
     servers = {}
     sm._handle_mcp_register({"servers": [
         {"id": "a", "name": "a", "url": "https://a", "headers": {"Authorization": "Bearer SECRET"},
@@ -31,7 +31,7 @@ def test_mcp_guardian_discovery():
     print("[2] mcp_register 空 headers 保留旧凭证 OK")
 
     # 3. 守门人 mcp_list_tools 代发现:用自己的 headers 连 + 序列化为 dict
-    import snowfoxclaw.skills.mcp_client as mc
+    import foxclaw.skills.mcp_client as mc
     _seen = {}
     async def fake_list(url, headers, transport):
         _seen["headers"] = headers
@@ -75,8 +75,8 @@ def test_mcp_guardian_discovery():
     host.mcp_manager = FakeMgr()
     host.mcp_store = FakeStore()
 
-    from snowfoxclaw import Snowfoxclaw
-    Snowfoxclaw.mcp_add_server_guardian(host, {
+    from foxclaw import Foxclaw
+    Foxclaw.mcp_add_server_guardian(host, {
         "id": "srv", "name": "srv", "url": "https://srv",
         "headers": {"X-Key": "SECRET"}, "transport": "streamable_http"})
 

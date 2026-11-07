@@ -34,8 +34,8 @@ def check(cond, label):
 
 
 # ═══════════════ [1]-[3] P2-2 compose pending ═══════════════
-from snowfoxclaw.skills import SkillRegistry, SkillSpec, SkillAdapter
-from snowfoxclaw.skills.pipeline import compose, plan, AHSPipeline
+from foxclaw.skills import SkillRegistry, SkillSpec, SkillAdapter
+from foxclaw.skills.pipeline import compose, plan, AHSPipeline
 
 
 def _make_pending_registry(counter: dict):
@@ -189,7 +189,7 @@ def test_run_async():
 
 
 # ═══════════════ [5]-[7] P2-3 idempotency ═══════════════
-from snowfoxclaw.core.idempotency import IdempotencyGuard
+from foxclaw.core.idempotency import IdempotencyGuard
 
 
 class _Spine:
@@ -290,7 +290,7 @@ def test_idem_persist_failure():
 
 
 # ═══════════════ [8]-[9] P2-4 recovery ═══════════════
-from snowfoxclaw.core.recovery import RestartRecovery, RecoveryPlan
+from foxclaw.core.recovery import RestartRecovery, RecoveryPlan
 
 
 def test_recovery_plan():
@@ -361,15 +361,15 @@ def test_recovery_details():
 # ═══════════════ [10] P3-2 /api/ahs/run ═══════════════
 def test_api_ahs_run():
     print("\n【10】P3-2:/api/ahs/run 走 run_async + 暴露 pending 字段")
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ.setdefault("SNOWFOXCLAW_EMBEDDING_MODEL", "snowfoxclaw-nonexistent-fast")
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_ahsrun_")
-    os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_ahsrun_")
+    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
     for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-               "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "SNOWFOXCLAW_API_KEY"):
+               "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "FOXCLAW_API_KEY"):
         os.environ[_k] = ""
     from fastapi.testclient import TestClient
-    from snowfoxclaw.api import app
+    from foxclaw.api import app
     with TestClient(app) as c:
         r = c.post("/api/ahs/run", json={"task": "计算 12*12"})
         check(r.status_code == 200, f"端点 200(实为 {r.status_code})")

@@ -6,8 +6,8 @@
 >
 > 另外两个 registry 的现状(查过,别再当"全新包"处理):
 >
-> - PyPI `snowfoxclaw` 已有 **0.1.0**(2026-11-06 上传,不能重发,只能 yank);
-> - npm `snowfoxclaw` 已有 `0.0.0-stage` / `0.1.0` / **0.1.1**(latest),而仓库代码是 0.1.0
+> - PyPI `foxclaw` 已有 **0.1.0**(2026-11-06 上传,不能重发,只能 yank);
+> - npm `foxclaw` 已有 `0.0.0-stage` / `0.1.0` / **0.1.1**(latest),而仓库代码是 0.1.0
 >   —— 那个 0.1.1 是手工 `npm publish` 后没提交,git 里找不到对应版本。
 >
 > 所以下次真正发布时,四处版本号必须先跳到 **≥ 0.1.2**(PyPI 只需 >0.1.0,npm 需 >0.1.1,取大)。
@@ -16,11 +16,11 @@
 
 | 产物 | 命令 | 里面有什么 |
 | --- | --- | --- |
-| PyPI `snowfoxclaw` | `pip install snowfoxclaw` | **占位包**:能 import,但 `vendor/`(HKC/HMR)不入包 → 知识/记忆子系统降级为 None |
-| npm `snowfoxclaw` | `npm i snowfoxclaw` | 占位包:`index.js` 只导出 `name` / `version` |
+| PyPI `foxclaw` | `pip install foxclaw` | **占位包**:能 import,但 `vendor/`(HKC/HMR)不入包 → 知识/记忆子系统降级为 None |
+| npm `foxclaw` | `npm i foxclaw` | 占位包:`index.js` 只导出 `name` / `version` |
 | GitHub Release | tag 自动 | 上面两个包的文件 + 自动生成的 release notes |
 
-`vendor/` 不入包是设计现状(`packages.find` 只收 `snowfoxclaw*`,HMR/HKC 以 sys.path
+`vendor/` 不入包是设计现状(`packages.find` 只收 `foxclaw*`,HMR/HKC 以 sys.path
 内嵌,运行期按 `Path(__file__)/../../vendor` 找)。发布说明里必须写明"这是占位包",
 不要让人装完以为拿到了完整运行时。
 
@@ -37,12 +37,12 @@ python tools/release_check.py --dist dist --npm-tgz dist/*.tgz
 
 - `dist/` 里恰好一个 wheel + 一个 sdist,文件名与版本号一致;
 - wheel 的 `METADATA` 里 `Name` / `Version` 与 `pyproject.toml` 一致;
-- 归档内**不得**出现 `.env`(除 `.env.example`)、`docs/internal/`、`snowfoxclaw_data/`、
+- 归档内**不得**出现 `.env`(除 `.env.example`)、`docs/internal/`、`foxclaw_data/`、
   `__pycache__`、嵌套压缩包、`.venv`;
 - npm tgz 文件名与 `package/package.json` 的 `name@version` 一致;
 - 缺 `vendor/` 只报 `[WARN]`(见上表),不会拦发布。
 
-版本号的唯一来源是 `pyproject.toml`,另外三处(`snowfoxclaw/__init__.py`、
+版本号的唯一来源是 `pyproject.toml`,另外三处(`foxclaw/__init__.py`、
 `npm/package.json`、`npm/index.js`)由 `tests/test_version_sync.py` 盯着必须相等。
 改版本时**四处一起改**,只改一处会在第一道检查里挂掉。
 
@@ -70,7 +70,7 @@ Actions → Release → Run workflow:
 | environment | 审批后执行 | 用的 secret |
 | --- | --- | --- |
 | `pypi` | `pypa/gh-action-pypi-publish` | `PYPI_API_TOKEN`(项目级 `pypi-`/`npt_` token) |
-| `npm` | `npm publish` | `NPM_TOKEN`(granular,仅 `snowfoxclaw` 的 publish 权限) |
+| `npm` | `npm publish` | `NPM_TOKEN`(granular,仅 `foxclaw` 的 publish 权限) |
 
 需要在仓库 Settings → Environments 里先建 `pypi`、`npm` 两个环境并配 Required reviewers,
 否则"审批门"不存在,勾了就直接发。
@@ -81,7 +81,7 @@ Actions → Release → Run workflow:
 
 - PyPI:`yank`(`twine`/网页)→ 该版本不再被新装选中,但**仍然占着号**,不能重发同号;
   修好后必须 `0.1.1`。
-- npm:`npm unpublish snowfoxclaw@0.1.0` 只在发布后 72 小时内、且无其他包依赖时可用;
+- npm:`npm unpublish foxclaw@0.1.0` 只在发布后 72 小时内、且无其他包依赖时可用;
   过了就只能 `npm deprecate` + 发新号。
 
 所以"先构建、再审批上传"不是流程洁癖,是这两个 registry 的规则逼出来的。
@@ -98,5 +98,5 @@ Actions → Release → Run workflow:
 ## 待决:仓库名
 
 `git remote` 是 `snowfoxHQ/HestiaOS-dev`,但 `npm/package.json` 的 `homepage` /
-`repository` 写的是 `snowfoxHQ/SnowFoxClaw`。OIDC 的 publisher 要求仓库名精确匹配,
+`repository` 写的是 `snowfoxHQ/FoxClaw`。OIDC 的 publisher 要求仓库名精确匹配,
 所以切 OIDC 之前必须先统一这两处。

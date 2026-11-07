@@ -1,15 +1,15 @@
-# Snowfoxclaw · Cognitive Agent Operating System
+# Foxclaw · Cognitive Agent Operating System
 
 A **cognitive agent OS** built on the HMR memory runtime: three collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
 
 ```
 Traditional frameworks:  memory = storage,           agents = stateless execution
-Snowfoxclaw:               memory = living cognitive runtime, agents = reason · learn · evolve
+Foxclaw:               memory = living cognitive runtime, agents = reason · learn · evolve
 ```
 
 ## What it is
 
-Snowfoxclaw is not "yet another agent framework" but an operating system for agents. Its moats are independent of any LLM:
+Foxclaw is not "yet another agent framework" but an operating system for agents. Its moats are independent of any LLM:
 
 - **ThoughtChain** — each agent's reasoning is an auditable, comparable directed graph, not a log
 - **Harness** — three-dimensional drift detection (semantic / tool / scope) + shadow-mode self-calibration + policy self-learning
@@ -49,12 +49,12 @@ Keeps the system reliable under message redelivery, crashes, long tasks, and loo
 pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets pyyaml numpy scikit-learn rich pydantic
 python tests/run_all.py        # full regression (all green)
 export DEEPSEEK_API_KEY=sk-...  # or ANTHROPIC_API_KEY; unset → stub
-python -m uvicorn snowfoxclaw.api:app --port 8000
+python -m uvicorn foxclaw.api:app --port 8000
 ```
 
 See [docs/RUN.md](docs/RUN.md). Chinese docs: [README_CN.md](README_CN.md).
 
-> **Windows**: don't place the project under OneDrive-managed folders (Documents/Desktop/Pictures); Python can't create dirs inside redirect placeholders. Use a path like `C:\snowfoxclaw`.
+> **Windows**: don't place the project under OneDrive-managed folders (Documents/Desktop/Pictures); Python can't create dirs inside redirect placeholders. Use a path like `C:\foxclaw`.
 
 ## Knowledge base (HKC) model config
 
@@ -121,7 +121,7 @@ Leave it unset if you don't need semantic precision (defaults to `stub` pseudo-s
 
 - **`.env` is the source of truth** — read at startup; restart after editing.
 - The "extraction model" section in the planet page's connection settings is an **optional runtime override** (stored in browser localStorage, may override `.env` on refresh); leave it blank to always follow `.env`.
-- The page's first "API Key" field is the backend auth token (`.env`'s `SNOWFOXCLAW_API_KEY`), unrelated to the model keys.
+- The page's first "API Key" field is the backend auth token (`.env`'s `FOXCLAW_API_KEY`), unrelated to the model keys.
 
 > Note: switching the embedding model changes the vector dimension (e.g. 384 → 1024), so you must rebuild the knowledge index (clear and re-ingest).
 

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from snowfoxclaw.api.middleware import _api_key_guard, _host_header_allowed
+from foxclaw.api.middleware import _api_key_guard, _host_header_allowed
 
 
 @pytest.mark.parametrize("host", [
@@ -31,7 +31,7 @@ def test_rejects_public_domain_hosts(host: str) -> None:
 
 
 def test_allowlist_escape_hatch(monkeypatch) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_ALLOWED_HOSTS", "my.host.net, *.corp.example")
+    monkeypatch.setenv("FOXCLAW_ALLOWED_HOSTS", "my.host.net, *.corp.example")
     assert _host_header_allowed("my.host.net") is True
     assert _host_header_allowed("a.corp.example") is True
     assert _host_header_allowed("evil.com") is False
@@ -52,18 +52,18 @@ async def _ok(_request):
 
 @pytest.mark.parametrize("path", ["/api/task", "/knowledge/ingest", "/config/llm"])
 def test_loopback_with_public_host_is_forbidden(path: str, monkeypatch) -> None:
-    monkeypatch.delenv("SNOWFOXCLAW_API_KEY", raising=False)
+    monkeypatch.delenv("FOXCLAW_API_KEY", raising=False)
     resp = asyncio.run(_api_key_guard(_request(path, "evil.com"), _ok))
     assert resp.status_code == 403, "本机客户端 + 公网域名 Host 必须拒绝"
 
 
 def test_loopback_with_local_host_passes(monkeypatch) -> None:
-    monkeypatch.delenv("SNOWFOXCLAW_API_KEY", raising=False)
+    monkeypatch.delenv("FOXCLAW_API_KEY", raising=False)
     resp = asyncio.run(_api_key_guard(_request("/api/task", "127.0.0.1:8000"), _ok))
     assert resp.status_code == 200
 
 
 def test_probe_paths_not_affected(monkeypatch) -> None:
-    monkeypatch.delenv("SNOWFOXCLAW_API_KEY", raising=False)
+    monkeypatch.delenv("FOXCLAW_API_KEY", raising=False)
     resp = asyncio.run(_api_key_guard(_request("/health", "evil.com"), _ok))
     assert resp.status_code == 200, "探针不在数据面防护范围"

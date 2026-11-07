@@ -5,7 +5,7 @@
   1. 空源检索:无 HMR / 无知识 / 无外部端口 → 返回 SearchResult,迭代有上限,不死循环
   2. 内部记忆证据:假 HMR recall → 证据图含 MEMORY 来源节点
   3. 知识端口边界:HKCReadPort(client=None) 永远返回 [](降级不报错)
-  4. 经 Snowfoxclaw 惰性 search_runtime + aclose teardown
+  4. 经 Foxclaw 惰性 search_runtime + aclose teardown
 
 联网(百度)与真实 HKC 检索不在离线回归内;这里验证 HSR 的编排/融合/迭代/降级契约。
 """
@@ -13,7 +13,7 @@ import sys, tempfile, shutil, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.search import SearchRuntime, HKCReadPort, SourceType
+from foxclaw.search import SearchRuntime, HKCReadPort, SourceType
 
 
 class FakeHMR:
@@ -56,12 +56,12 @@ def test_hkc_port_degrades():
     print("  ✓ client=None 时 available=False 且 query 返回 [](不报错)")
 
 
-def test_via_snowfoxclawos_lazy():
-    print("\n【4】经 Snowfoxclaw 惰性 search_runtime + aclose")
+def test_via_foxclawos_lazy():
+    print("\n【4】经 Foxclaw 惰性 search_runtime + aclose")
     d = tempfile.mkdtemp(prefix="hsr_os_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         # 【P1-3】search_runtime 由能力中枢惰性构造:未访问前未缓存
         assert "search_runtime" not in os_.capabilities._caps, "未访问前不该构造"
         rt = os_.search_runtime   # 触发构造(顺带惰性装配 HKC 作知识端口)
@@ -97,7 +97,7 @@ class FakeRegistry:
 
 def test_agent_port_all_subsources():
     print("\n【5】AgentSourcePort:四类子源全连通")
-    from snowfoxclaw.search import AgentSourcePort
+    from foxclaw.search import AgentSourcePort
     finance = _NS(
         transactions=[_NS(entity="星巴克咖啡", amount=35, category="餐饮", tags=["coffee"])],
         budgets=[_NS(category="餐饮", monthly_limit=800)], entities={})
@@ -113,7 +113,7 @@ def test_agent_port_all_subsources():
                            itinerary_runtime=itinerary, thought_chain=FakeThoughtChain(),
                            skill_registry=FakeRegistry(), hmr=HMRStub())
     assert port.available
-    from snowfoxclaw.search import SourceType
+    from foxclaw.search import SourceType
 
     def origins(q):
         return {e.origin for e in port.query(q, top_k=8)}
@@ -134,11 +134,11 @@ def test_bidirectional_and_internal_only():
     print("\n【6】双向:Agent 调用内部搜索(internal_only,不联网)")
     d = tempfile.mkdtemp(prefix="hsr_bi_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        from snowfoxclaw.search import SourceType
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        from foxclaw.search import SourceType
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         # 往财务内核放一笔交易
-        from snowfoxclaw.finance.models import Transaction
+        from foxclaw.finance.models import Transaction
         os_.finance_runtime.add_transaction(
             Transaction(entity="蔚来汽车", amount=-260000, category="购车",
                         account="alipay", timestamp="2026-05-01T10:00:00"),
@@ -164,8 +164,8 @@ def test_internal_source_isolation():
         def query(self, text, top_k=5): raise RuntimeError("内部源炸了")
     class _OKKnow:
         def query(self, text, top_k=5):
-            from snowfoxclaw.search import SourceType
-            from snowfoxclaw.search.models import RawEvidence
+            from foxclaw.search import SourceType
+            from foxclaw.search.models import RawEvidence
             return [RawEvidence(id="k1", fact=f"知识:{text}", source=SourceType.KNOWLEDGE,
                                 origin="hkc:k1", confidence=0.7)]
     # agent_port 抛异常 + memory(FakeHMR)正常 + knowledge 正常 → search 不崩,仍返回其它源证据
@@ -191,7 +191,7 @@ def main():
     test_empty_sources_terminates()
     test_memory_evidence()
     test_hkc_port_degrades()
-    test_via_snowfoxclawos_lazy()
+    test_via_foxclawos_lazy()
     test_agent_port_all_subsources()
     test_bidirectional_and_internal_only()
     test_internal_source_isolation()

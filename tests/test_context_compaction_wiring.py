@@ -15,9 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from snowfoxclaw.agents.base import CognitiveAgent
-from snowfoxclaw.agents.mixins.tool_exec import ToolExecMixin
-from snowfoxclaw.core.compaction import Compactor, estimate_messages_tokens
+from foxclaw.agents.base import CognitiveAgent
+from foxclaw.agents.mixins.tool_exec import ToolExecMixin
+from foxclaw.core.compaction import Compactor, estimate_messages_tokens
 
 
 def _long_history(n: int = 12, chars: int = 400) -> list:
@@ -65,7 +65,7 @@ def _stub_agent(thoughts: list) -> SimpleNamespace:
 
 
 def test_compact_context_applies_and_records_thought(monkeypatch) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_CONTEXT_MAX_TOKENS", "100")
+    monkeypatch.setenv("FOXCLAW_CONTEXT_MAX_TOKENS", "100")
     thoughts: list = []
     msgs = _long_history()
     out = CognitiveAgent._compact_context(_stub_agent(thoughts), msgs, "chat")
@@ -74,14 +74,14 @@ def test_compact_context_applies_and_records_thought(monkeypatch) -> None:
 
 
 def test_compact_context_noop_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_CONTEXT_MAX_TOKENS", "0")
+    monkeypatch.setenv("FOXCLAW_CONTEXT_MAX_TOKENS", "0")
     msgs = _long_history()
     out = CognitiveAgent._compact_context(_stub_agent([]), msgs, "chat")
     assert out is msgs, "预算置 0 时应整体关闭,原样返回"
 
 
 def test_compact_context_swallows_errors(monkeypatch) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_CONTEXT_MAX_TOKENS", "100")
+    monkeypatch.setenv("FOXCLAW_CONTEXT_MAX_TOKENS", "100")
     msgs = _long_history()
     out = CognitiveAgent._compact_context(SimpleNamespace(router=None), msgs, "chat")
     assert isinstance(out, list)          # _think 缺失 → 内部异常被吞,不影响主流程
@@ -124,7 +124,7 @@ def test_reply_with_tools_compacts_each_round() -> None:
 
 @pytest.mark.parametrize("limit", ["6000", "0"])
 def test_context_env_parsing(monkeypatch, limit) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_CONTEXT_MAX_TOKENS", limit)
+    monkeypatch.setenv("FOXCLAW_CONTEXT_MAX_TOKENS", limit)
     msgs = [{"role": "user", "content": "x"}]
     out = CognitiveAgent._compact_context(_stub_agent([]), msgs, "chat")
     assert isinstance(out, list)

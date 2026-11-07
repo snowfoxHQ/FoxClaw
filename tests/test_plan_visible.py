@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import types
 
-from snowfoxclaw.agents.base import CognitiveAgent, _plan_payload
-from snowfoxclaw.pipeline.cognitive_pipeline import _record_plan_node, stage_plan
+from foxclaw.agents.base import CognitiveAgent, _plan_payload
+from foxclaw.pipeline.cognitive_pipeline import _record_plan_node, stage_plan
 
 
 def _ctx(task, agent=None):
-    from snowfoxclaw.pipeline import PipelineContext
+    from foxclaw.pipeline import PipelineContext
     return PipelineContext(agent=agent or types.SimpleNamespace(), task=task)
 
 

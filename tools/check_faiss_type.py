@@ -3,7 +3,7 @@ import sys
 import os
 
 # 默认路径
-faiss_path = r"C:\Users\snow\projects\Snowfoxclaw\snowfoxclaw_data\hkc\search_vector.faiss"
+faiss_path = r"C:\Users\snow\projects\Foxclaw\foxclaw_data\hkc\search_vector.faiss"
 if len(sys.argv) > 1:
     faiss_path = sys.argv[1]
 

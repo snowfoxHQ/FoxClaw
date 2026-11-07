@@ -15,10 +15,10 @@ import types
 
 import pytest
 
-from snowfoxclaw.agents.mixins import tool_exec
-from snowfoxclaw.core import failure_policy as policy
-from snowfoxclaw.core import tools as core_tools
-from snowfoxclaw.core import verify as vf
+from foxclaw.agents.mixins import tool_exec
+from foxclaw.core import failure_policy as policy
+from foxclaw.core import tools as core_tools
+from foxclaw.core import verify as vf
 
 TIMEOUT_TEXT = "(工具 web_search 超过 45s 未返回,已跳过以免拖住整轮)"
 
@@ -209,7 +209,7 @@ def test_unverified_side_effect_tells_model_not_to_claim_done(monkeypatch) -> No
 # ── ④ 证据不串台 ─────────────────────────────────────────────
 
 def test_evidence_is_per_agent() -> None:
-    from snowfoxclaw.agents.mixins import _context
+    from foxclaw.agents.mixins import _context
 
     a, b = _agent(), _agent()
     _context._evidence_reset(a)

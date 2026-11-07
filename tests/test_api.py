@@ -21,14 +21,14 @@ def show(title, data, limit=None):
 
 
 def test_api():
-    # 环境变量须在 import snowfoxclaw.api 前设好(模块加载时按环境变量建网关/agent)
-    os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_test_")  # 不污染仓库根
-    from snowfoxclaw.api import app
+    # 环境变量须在 import foxclaw.api 前设好(模块加载时按环境变量建网关/agent)
+    os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
+    os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_test_")  # 不污染仓库根
+    from foxclaw.api import app
 
     with TestClient(app) as c:
         print("="*64)
-        print("SNOWFOXCLAW · API 端到端验证 (ASGI TestClient)")
+        print("FOXCLAW · API 端到端验证 (ASGI TestClient)")
         print("="*64)
 
         # 1. 系统状态

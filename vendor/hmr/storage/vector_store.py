@@ -29,18 +29,18 @@ class EmbeddingProvider:
     3. TF-IDF 字符级 n-gram（纯 Python，始终可用，比哈希有真实语义）
 
     【P1·全系统 2 模型】模型解析顺序：
-      显式传参 > HKC_EMBEDDING_MODEL(bge-m3)> SNOWFOXCLAW_EMBEDDING_MODEL > MiniLM 兜底。
+      显式传参 > HKC_EMBEDDING_MODEL(bge-m3)> FOXCLAW_EMBEDDING_MODEL > MiniLM 兜底。
     【P1·share-bge-m3】ST 加载优先调 HKC 共享缓存 get_st_model(),同名复用 instance,
     避免启动期重复加载 bge-m3 占双倍内存。
     """
 
     def __init__(self, model: str = None):
         # 【P2·单 embedding 入口】模型解析链 —— 与 harness.py / evidence.py 一致:
-        # 显式 > EMBEDDING_MODEL(系统单入口) > HKC_EMBEDDING_MODEL > SNOWFOXCLAW_EMBEDDING_MODEL > MiniLM 兜底
+        # 显式 > EMBEDDING_MODEL(系统单入口) > HKC_EMBEDDING_MODEL > FOXCLAW_EMBEDDING_MODEL > MiniLM 兜底
         self.model = (model
                       or os.environ.get("EMBEDDING_MODEL")
                       or os.environ.get("HKC_EMBEDDING_MODEL")
-                      or os.environ.get("SNOWFOXCLAW_EMBEDDING_MODEL")
+                      or os.environ.get("FOXCLAW_EMBEDDING_MODEL")
                       or "all-MiniLM-L6-v2")
         self._provider = None
         self._vocab: Dict[str, int] = {}
@@ -244,7 +244,7 @@ class VectorStore:
         self.embedding_model = (embedding_model
                                 or os.environ.get("EMBEDDING_MODEL")
                                 or os.environ.get("HKC_EMBEDDING_MODEL")
-                                or os.environ.get("SNOWFOXCLAW_EMBEDDING_MODEL")
+                                or os.environ.get("FOXCLAW_EMBEDDING_MODEL")
                                 or "all-MiniLM-L6-v2")
         self.storage_path = Path(storage_path) if storage_path else None
         self._lock = threading.Lock()

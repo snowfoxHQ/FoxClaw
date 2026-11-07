@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from snowfoxclaw.channels import InboundMessage
-from snowfoxclaw.channels.dispatcher import ChannelDispatcher
+from foxclaw.channels import InboundMessage
+from foxclaw.channels.dispatcher import ChannelDispatcher
 
 
 class _Sup:
@@ -52,21 +52,21 @@ def _dispatcher() -> tuple[ChannelDispatcher, _Sup]:
 
 def test_sender_trusted_matrix(monkeypatch) -> None:
     msg = _msg("u42")
-    monkeypatch.delenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", raising=False)
+    monkeypatch.delenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", raising=False)
     assert ChannelDispatcher._sender_trusted(msg) is False, "默认不信任"
 
-    monkeypatch.setenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", "u1,u42")
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "u1,u42")
     assert ChannelDispatcher._sender_trusted(msg) is True
 
-    monkeypatch.setenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", "telegram:u42")
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "telegram:u42")
     assert ChannelDispatcher._sender_trusted(msg) is True
 
-    monkeypatch.setenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", "u1")
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "u1")
     assert ChannelDispatcher._sender_trusted(msg) is False
 
 
 def test_untrusted_message_is_wrapped(monkeypatch) -> None:
-    monkeypatch.delenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", raising=False)
+    monkeypatch.delenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", raising=False)
     disp, sup = _dispatcher()
     asyncio.run(disp.handle(_msg()))
     text, ctx = sup.seen[0]
@@ -76,7 +76,7 @@ def test_untrusted_message_is_wrapped(monkeypatch) -> None:
 
 
 def test_trusted_message_passes_through_verbatim(monkeypatch) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", "u42")
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "u42")
     disp, sup = _dispatcher()
     asyncio.run(disp.handle(_msg("u42", "帮我看看今天的日程")))
     text, ctx = sup.seen[0]
@@ -87,5 +87,5 @@ def test_trusted_message_passes_through_verbatim(monkeypatch) -> None:
 
 @pytest.mark.parametrize("raw", ["*"])
 def test_wildcard_trusts_channel(monkeypatch, raw) -> None:
-    monkeypatch.setenv("SNOWFOXCLAW_CHANNEL_TRUSTED_SENDERS", raw)
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", raw)
     assert ChannelDispatcher._sender_trusted(_msg("anyone")) is True

@@ -5,16 +5,16 @@
   1. 默认关:on_truth 不结晶(行为不变)
   2. 启用:后台把真值 fact 经 hkc.client.ingest_text(KDE→KEE)结晶
   3. 被拦截任务跳过 / HKC 不可用跳过(不崩)
-  4. 真实接线:Snowfoxclaw 把结晶器订阅到 truth.appended;发该事件即触发(启用+假HKC)
+  4. 真实接线:Foxclaw 把结晶器订阅到 truth.appended;发该事件即触发(启用+假HKC)
 """
 import os, sys, asyncio, tempfile, shutil, types
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.knowledge import TruthCrystallizer
+from foxclaw.knowledge import TruthCrystallizer
 
 
 class _Client:
@@ -89,15 +89,15 @@ def test_pending_bounded_no_leak():
 
 
 def test_integration_wiring():
-    print("\n【4】真实接线:Snowfoxclaw 订阅 truth.appended → 触发结晶")
+    print("\n【4】真实接线:Foxclaw 订阅 truth.appended → 触发结晶")
     d = tempfile.mkdtemp(prefix="truthx_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         fake = _HKC()
         os_.truth_crystallizer._hkc_provider = lambda: fake   # 换成假 HKC(不调 LLM)
         os_.truth_crystallizer.enabled = True
-        # 真值链末端事件 → 结晶器应被 Snowfoxclaw 订阅到并触发
+        # 真值链末端事件 → 结晶器应被 Foxclaw 订阅到并触发
         os_.system_bus.publish("truth.appended",
                                {"truth": {"fact": "测试真值事实"}, "agent_id": "finance"})
         os_.truth_crystallizer.drain()

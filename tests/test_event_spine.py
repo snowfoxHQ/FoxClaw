@@ -5,7 +5,7 @@
   1. EventSpine:发布/订阅(前缀匹配) + 投影(收到每条) + 有界历史
   2. SystemBus 门面:退化为脊柱门面后,既有消费者零改;系统事件汇入脊柱
   3. Harness → 脊柱转发:harness 事件汇入脊柱;高频内部信号(goal_registered)不上脊柱
-  4. Snowfoxclaw 统一投影:harness 事件与系统事件都被**同一个投影**观测(核心统一验证)
+  4. Foxclaw 统一投影:harness 事件与系统事件都被**同一个投影**观测(核心统一验证)
 
 为避免加载 7s 重模型,harness embedding 用不存在的模型名 → 降级 hash(不影响事件验证)。
 """
@@ -13,10 +13,10 @@ import os, sys, asyncio, tempfile, shutil
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ["SNOWFOXCLAW_EMBEDDING_MODEL"] = "snowfoxclaw-nonexistent-fast"   # harness 走 hash,快
+os.environ["FOXCLAW_EMBEDDING_MODEL"] = "foxclaw-nonexistent-fast"   # harness 走 hash,快
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from snowfoxclaw.kernel import EventSpine
+from foxclaw.kernel import EventSpine
 
 
 def test_spine_pubsub_prefix_projection():
@@ -36,7 +36,7 @@ def test_spine_pubsub_prefix_projection():
 
 def test_systembus_facade():
     print("\n【2】SystemBus 门面:消费者零改 + 汇入脊柱")
-    from snowfoxclaw.core.system_bus import SystemBus
+    from foxclaw.core.system_bus import SystemBus
     spine = EventSpine()
     seen = []
     spine.project(lambda e: seen.append((e.topic, e.source)))
@@ -52,8 +52,8 @@ def test_systembus_facade():
 
 def test_harness_forwards_to_spine():
     print("\n【3】Harness → 脊柱转发(goal_registered 不上脊柱)")
-    from snowfoxclaw.harness.harness import Harness
-    from snowfoxclaw.core.thought_chain import ThoughtChain
+    from foxclaw.harness.harness import Harness
+    from foxclaw.core.thought_chain import ThoughtChain
     d = tempfile.mkdtemp(prefix="spine_h_")
     try:
         spine = EventSpine()
@@ -75,7 +75,7 @@ def test_harness_forwards_to_spine():
 
 def test_hkc_events_bridge_to_spine():
     print("\n【3b】HKC EventBus → 脊柱桥接(知识事件不再是孤岛;memory.* 刻意不桥)")
-    from snowfoxclaw.knowledge import bridge_hkc_events
+    from foxclaw.knowledge import bridge_hkc_events
 
     class _FakeHKCBus:
         def __init__(self): self._h = {}
@@ -102,12 +102,12 @@ def test_hkc_events_bridge_to_spine():
     print("  ✓ knowledge.merged/conflict/ability 桥到脊柱(source=hkc);memory.* 不桥;None 优雅降级")
 
 
-def test_unified_projection_via_snowfoxclawos():
-    print("\n【4】Snowfoxclaw:harness 事件与系统事件被同一投影统一观测")
+def test_unified_projection_via_foxclawos():
+    print("\n【4】Foxclaw:harness 事件与系统事件被同一投影统一观测")
     d = tempfile.mkdtemp(prefix="spine_os_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         seen = []
         os_.event_spine.project(lambda e: seen.append(e.topic))
         # 两类来源:harness 总线 与 系统总线,都汇入 os_.event_spine
@@ -126,7 +126,7 @@ def test_unified_projection_via_snowfoxclawos():
 def test_ws_projection_safe_and_bounded():
     print("\n【5】WS 投影净化:脏/大 payload 不丢连接、不泛洪(深审修复)")
     import json as _json
-    import snowfoxclaw.api as api
+    import foxclaw.api as api
     # a) 净化器:非 JSON 对象 → 可序列化;超大 → 截断;正常 → 透传
     class Weird:  # 非 JSON 可序列化
         def __repr__(self): return "<Weird>"
@@ -140,8 +140,8 @@ def test_ws_projection_safe_and_bounded():
     # b) 端到端:投影把脏事件放进队列后,队列项必须 JSON 可序列化(否则 send_json 会丢连接)
     d = tempfile.mkdtemp(prefix="spine_ws_")
     try:
-        from snowfoxclaw import Snowfoxclaw
-        os_ = Snowfoxclaw(data_dir=d, shadow_rounds=50)
+        from foxclaw import Foxclaw
+        os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         # 清空可能的既有队列
         while not api._event_queue.empty():
             api._event_queue.get_nowait()
@@ -171,7 +171,7 @@ def main():
     test_systembus_facade()
     test_harness_forwards_to_spine()
     test_hkc_events_bridge_to_spine()
-    test_unified_projection_via_snowfoxclawos()
+    test_unified_projection_via_foxclawos()
     test_ws_projection_safe_and_bounded()
     print("\n" + "=" * 60)
     print("✓ P0-2 验证完成:脊柱 + SystemBus门面 + Harness转发 + 统一投影")

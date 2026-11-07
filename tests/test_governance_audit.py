@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # 隔离项目 .env(本测试不依赖任何真实配置;与批次 2 的隔离策略一致)
-os.environ.setdefault("SNOWFOXCLAW_SKIP_DOTENV", "1")
+os.environ.setdefault("FOXCLAW_SKIP_DOTENV", "1")
 os.environ.setdefault("HKC_EMBEDDING", "stub")
 
 CHECKS = []
@@ -30,9 +30,9 @@ def check(cond, msg):
         raise AssertionError(f"断言失败: {msg}")
 
 
-from snowfoxclaw.core.governance_audit import (
+from foxclaw.core.governance_audit import (
     GovernanceAuditor, attach, new_decision_id, TOPIC, ENV_SWITCH)
-from snowfoxclaw.kernel.spine import EventSpine
+from foxclaw.kernel.spine import EventSpine
 
 
 def _fresh_auditor(test_dir, with_spine=True):
@@ -99,15 +99,15 @@ def test_auditor_unit(test_dir):
 # ── 2. PolicyGate(P1-2/P3-4)─────────────────────────────────
 
 def _make_gate(test_dir, spine=None):
-    from snowfoxclaw.kernel.policy_gate import PolicyGate
-    from snowfoxclaw.skills.permission import evaluate
+    from foxclaw.kernel.policy_gate import PolicyGate
+    from foxclaw.skills.permission import evaluate
     aud, spine = _fresh_auditor(test_dir, with_spine=True)
     gate = PolicyGate(spine=spine, action_evaluator=evaluate, auditor=aud)
     return gate, aud, spine
 
 
 def _make_skill(sid="demo.skill", side_effect="read", destructive=False):
-    from snowfoxclaw.skills import SkillSpec
+    from foxclaw.skills import SkillSpec
     return SkillSpec(id=sid, name=sid, description="测试",
                      side_effect=side_effect, destructive=destructive,
                      handler=lambda **k: {"ok": True})
@@ -123,7 +123,7 @@ def test_policy_gate(test_dir):
     check(len(_gov_events(spine)) == 0, "allow 不记 governance 事件")
 
     # deny:记审计,layer=permission,decision_id 一致
-    from snowfoxclaw.skills.permission import PermissionRules
+    from foxclaw.skills.permission import PermissionRules
     rules = PermissionRules(deny=["demo.*"])
     v_deny = gate.check_action(_make_skill(), {}, rules=rules)
     check(v_deny.level == "deny" and not v_deny.allowed, "deny 裁决正确(行为不变)")
@@ -142,7 +142,7 @@ def test_policy_gate(test_dir):
     check(len(evs) == 2 and evs[1]["payload"]["verdict"] == "confirm", "confirm 也记审计")
 
     # 推理准入:BLOCK 记,PASS 不记
-    from snowfoxclaw.harness.harness import HarnessResult
+    from foxclaw.harness.harness import HarnessResult
     class FakeHarness:
         def __init__(self, status): self._s = status
         def check(self, node):
@@ -160,7 +160,7 @@ def test_policy_gate(test_dir):
     check(len(_gov_events(spine)) == 3, "PASS 不记审计")
 
     # 向后兼容:旧式位置参数构造(无 decision_id)仍可用
-    from snowfoxclaw.kernel.policy_gate import Verdict
+    from foxclaw.kernel.policy_gate import Verdict
     v_old = Verdict(True, "allow", "无动作评估器(降级放行)", "permission", None)
     check(v_old.decision_id == "" and v_old.allowed, "Verdict 位置参数构造向后兼容")
 
@@ -182,7 +182,7 @@ class _FakeAgent:
 
 def test_orchestrator(test_dir):
     print("\n【3】Orchestrator:裁决审计 + 协商链 correlation_id(P1-3)")
-    from snowfoxclaw.orchestration import Orchestrator, CrossAgentRequest
+    from foxclaw.orchestration import Orchestrator, CrossAgentRequest
     aud, spine = _fresh_auditor(test_dir)
 
     # 三种终态 + 目标不存在(P1-0 路径)
@@ -240,8 +240,8 @@ def test_orchestrator(test_dir):
 
 def test_skill_adapter(test_dir):
     print("\n【4】SkillAdapter:执行终态审计 + 裁决↔执行 decision_id join(P2-0/P3-4)")
-    from snowfoxclaw.skills import SkillRegistry, SkillAdapter, SkillSpec
-    from snowfoxclaw.skills.permission import PermissionRules
+    from foxclaw.skills import SkillRegistry, SkillAdapter, SkillSpec
+    from foxclaw.skills.permission import PermissionRules
     gate, aud, spine = _make_gate(test_dir)
     reg = SkillRegistry()
     adapter = SkillAdapter(reg, policy_gate=gate)
@@ -284,7 +284,7 @@ def test_skill_adapter(test_dir):
     check(len(skill_recs_after) == 2, "deny 后 skill 层不重复记录(仍只有前两条执行审计)")
 
     # ④ 断路器出口:权限过了但断路器开 → skill deny 审计,correlation_id 挂裁决
-    from snowfoxclaw.skills.lifecycle import CircuitBreaker
+    from foxclaw.skills.lifecycle import CircuitBreaker
     br = CircuitBreaker()
     for _ in range(10):
         br.record_failure("demo.flaky")
@@ -308,7 +308,7 @@ def test_ws_visibility_and_wiring(test_dir):
     # 「agent.cognition.* 前缀」与「_WS_MUTED 元组」两条,二者都不得命中 governance.*。
     # 这同时是一道防退化闸:将来若有人把 governance.* 加进静音列表,本测试会红。
     import inspect, re as _re
-    import snowfoxclaw.api as _api_mod
+    import foxclaw.api as _api_mod
     src = inspect.getsource(_api_mod)
     m = _re.search(r"_WS_MUTED\s*=\s*\(([^)]*)\)", src)
     muted_members = m.group(1) if m else ""
@@ -317,15 +317,15 @@ def test_ws_visibility_and_wiring(test_dir):
           "governance.decision 不命中 agent.cognition.* 静音前缀")
 
     # 真实装配:三处同一 auditor;一次真共享写入之外的治理动作落盘
-    from snowfoxclaw import Snowfoxclaw
-    d = tempfile.mkdtemp(prefix="snowfoxclaw_gov_e2e_", dir=test_dir)
-    o = Snowfoxclaw(data_dir=d, shadow_rounds=2)
+    from foxclaw import Foxclaw
+    d = tempfile.mkdtemp(prefix="foxclaw_gov_e2e_", dir=test_dir)
+    o = Foxclaw(data_dir=d, shadow_rounds=2)
     check(o.governance_auditor is not None, "装配:governance_auditor 存在")
     check(o.policy_gate.auditor is o.governance_auditor, "PolicyGate 持同一 auditor")
     check(o.orchestrator._auditor is o.governance_auditor, "Orchestrator 持同一 auditor")
 
     # 端到端裁决:目标不存在的跨 Agent 请求 → 审计事件 + 落盘
-    from snowfoxclaw.orchestration import CrossAgentRequest
+    from foxclaw.orchestration import CrossAgentRequest
     o.orchestrator.route_request(CrossAgentRequest(
         from_agent="admin", to_agent="ghost", request_type="info_request", payload={}))
     evs = o.event_spine.history("governance.", 50)
@@ -341,7 +341,7 @@ def main():
     print("=" * 60)
     print("批次 3 · 治理审计链(P1-2/P1-3/P2-0/P3-4)")
     print("=" * 60)
-    test_dir = tempfile.mkdtemp(prefix="snowfoxclaw_govtest_")
+    test_dir = tempfile.mkdtemp(prefix="foxclaw_govtest_")
     try:
         test_auditor_unit(test_dir)
         test_policy_gate(test_dir)

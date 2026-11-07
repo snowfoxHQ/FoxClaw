@@ -6,26 +6,26 @@ A 阶段联调测试 — 验证前后端实时链路打通。
 import sys, os, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-os.environ["SNOWFOXCLAW_SHADOW_ROUNDS"] = "3"   # 快速进入 active 模式以触发 BLOCK
+os.environ["FOXCLAW_SHADOW_ROUNDS"] = "3"   # 快速进入 active 模式以触发 BLOCK
 import tempfile
-os.environ["SNOWFOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="snowfoxclaw_test_")  # 不污染仓库根
+os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_test_")  # 不污染仓库根
 
 # ── 测试隔离(补齐,仿 tests/run_all.py 的第二道防线)────────────────────
 # 病根:本文件直接运行时不经 run_all.py,会加载项目根的真实 .env。若其中
-# SNOWFOXCLAW_API_KEY 已设置,api.py 的鉴权中间件会对所有 /api/task 返回 **401**,
+# FOXCLAW_API_KEY 已设置,api.py 的鉴权中间件会对所有 /api/task 返回 **401**,
 # 任务根本没执行 → harness 一次都不跑 → 本文件断言的"事件总线实时工作"
 # 恒为 0 条。此前该失败被误判为「embedding 降级导致不拦截」,实际是 401。
 # 证据:日志里每条 POST /api/task 都是 "HTTP/1.1 401 Unauthorized"。
-# run_all.py 已在 env dict 里清空 SNOWFOXCLAW_API_KEY 并设 SNOWFOXCLAW_SKIP_DOTENV=1,
+# run_all.py 已在 env dict 里清空 FOXCLAW_API_KEY 并设 FOXCLAW_SKIP_DOTENV=1,
 # 但单独运行本文件时那套不生效,故此处显式声明。
-os.environ["SNOWFOXCLAW_SKIP_DOTENV"] = "1"
-os.environ["SNOWFOXCLAW_API_KEY"] = ""            # 置空 = 未设鉴权(与 run_all.py 一致)
+os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
+os.environ["FOXCLAW_API_KEY"] = ""            # 置空 = 未设鉴权(与 run_all.py 一致)
 for _k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
            "GOOGLE_API_KEY", "DASHSCOPE_API_KEY"):
     os.environ[_k] = ""                      # 强制 stub,回归不联网、不产生费用
 
 from fastapi.testclient import TestClient
-from snowfoxclaw.api import app
+from foxclaw.api import app
 
 
 def check(cond, msg):
@@ -43,13 +43,13 @@ def main():
         # 1. 根路径返回前端
         print("\n【1】静态前端服务")
         r = client.get("/")
-        print(f"  GET / → HTTP {r.status_code} · 含前端内容: {'✓' if 'SNOWFOXCLAW' in r.text.upper() else '✗'}")
-        check(r.status_code == 200 and "SNOWFOXCLAW" in r.text.upper(),
+        print(f"  GET / → HTTP {r.status_code} · 含前端内容: {'✓' if 'FOXCLAW' in r.text.upper() else '✗'}")
+        check(r.status_code == 200 and "FOXCLAW" in r.text.upper(),
               f"GET / 返回 200 且含前端内容(HTTP {r.status_code})")
 
         # 2. 验证 harness 事件实时触发(直接挂监听到 OS 的 agent 总线)
         print("\n【2】实时事件触发(核心验证)")
-        import snowfoxclaw.api as api_mod
+        import foxclaw.api as api_mod
         os_inst = api_mod._os_instance
         captured = []
         for agent in os_inst._agents.values():

@@ -8,19 +8,19 @@ from __future__ import annotations
 
 import pytest
 
-from snowfoxclaw.core.confirm_nonce import (
+from foxclaw.core.confirm_nonce import (
     ConfirmationBroker,
     action_fingerprint,
     is_critical,
 )
-from snowfoxclaw.skills import (
+from foxclaw.skills import (
     SkillAdapter,
     SkillRegistry,
     SkillSpec,
     reset_loop_session,
     set_loop_session,
 )
-from snowfoxclaw.skills import pipeline as sk_pipeline
+from foxclaw.skills import pipeline as sk_pipeline
 
 SESSION = "sess-1"
 

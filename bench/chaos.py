@@ -22,12 +22,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # 关闭联网触发(chaos 只测 LLM 咽喉,不触发搜索)
-import snowfoxclaw.core.web_search as ws  # noqa: E402
+import foxclaw.core.web_search as ws  # noqa: E402
 ws.needs_search = lambda q: False
 
-from snowfoxclaw.core.model_router import ModelRouter, PROVIDER_ENV  # noqa: E402
+from foxclaw.core.model_router import ModelRouter, PROVIDER_ENV  # noqa: E402
 
-_SYS = "你是 Snowfoxclaw 助手。"
+_SYS = "你是 Foxclaw 助手。"
 _MSG = [{"role": "user", "content": "用一句话总结量子计算"}]
 
 
@@ -119,7 +119,7 @@ def main():
         ("恢复(冷却过期→正常服务)", case5_recovery),
     ]
     print("=" * 64)
-    print("Snowfoxclaw · 混沌故障注入(ModelRouter 咽喉)")
+    print("Foxclaw · 混沌故障注入(ModelRouter 咽喉)")
     print("=" * 64)
     n_ok = 0
     for name, fn in cases:
