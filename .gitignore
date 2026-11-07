@@ -67,6 +67,9 @@ dist/
 tests/_fail_*.txt
 _uv.out
 _uv.err
+# 本地手工起服务时的 stdout/stderr 重定向文件
+.tmp_srv.out
+.tmp_srv.err
 
 # 前端构建依赖(源码 frontend_src/ 与产物 frontend/v3/ 入库,依赖与缓存不入库)
 frontend_src/node_modules/
