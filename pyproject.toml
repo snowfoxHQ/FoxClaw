@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "foxclaw"
 version = "0.1.1"
-description = "Foxclaw - Cognitive Agent Operating System built on HMR"
+description = "Foxclaw - a personal agent with memory, built on the HMR memory runtime"
 requires-python = ">=3.11"
 
 # 依赖以本表为唯一来源(CI 用 `pip install -e .` 安装,不再手写第二份清单)。
