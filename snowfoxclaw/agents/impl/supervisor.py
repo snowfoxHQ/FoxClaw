@@ -117,14 +117,30 @@ class SupervisorAgent(CognitiveAgent):
         has_biz = any(P.keyword_hits(t, kws) for kws in self.ROUTING_KEYWORDS.values())
         return has_meta and not has_biz
 
+    @staticmethod
+    def _is_expense_report(task: str) -> bool:
+        """是不是一句「零星花钱报备」(今天买衣服 105 块 / 后天洗车 100)。
+
+        这类句子**不含任何财务关键词**,但它是财务应用最前线的输入。不在这里拦一道,
+        就会被当成闲聊由主管自答,账直接丢了 —— 所以它必须算作"命中财务领域"。
+        """
+        try:
+            from ...finance.nlparse import has_expense_signal
+            return has_expense_signal(task)
+        except Exception:
+            return False
+
     def _route(self, task: str, sched=None) -> str:
         """决定任务派给哪个子 Agent。
 
-        综合决策:关键词命中(主)+ 调度意图(辅)。
+        综合决策:花费报备(最高优先)+ 关键词命中(主)+ 调度意图(辅)。
+        - 花费报备 → 财务(哪怕一个财务关键词都没出现)
         - 关键词明确命中 → 直接采用(领域词最可靠)
         - 关键词不明 + 调度意图为 memory/reasoning → 倾向 office(知识/研究)
         - 都不明 → "supervisor"(主管自答;助手已下放为技能,不再有兜底 Agent)
         """
+        if self._is_expense_report(task):
+            return "finance"
         # 关键词命中计数走统一原语(negation=False,与原计数逐字一致)
         scores = {aid: P.keyword_hits(task, kws)
                   for aid, kws in self.ROUTING_KEYWORDS.items()}
@@ -151,8 +167,13 @@ class SupervisorAgent(CognitiveAgent):
         return "office" if "office" in subagents else next(iter(subagents), "")
 
     def _has_keyword_hit(self, task: str) -> bool:
-        """任务是否命中任一领域关键词(命中 = 关键词路由可信,不必再问 LLM)。"""
-        return any(P.keyword_hits(task, kws) for kws in self.ROUTING_KEYWORDS.values())
+        """任务是否命中任一领域关键词(命中 = 关键词路由可信,不必再问 LLM)。
+
+        花费报备也算命中 —— 否则 route stage 会把「今天买衣服 105 块」判成
+        "无关键词 → 主管自答",连派发都进不去。
+        """
+        return (any(P.keyword_hits(task, kws) for kws in self.ROUTING_KEYWORDS.values())
+                or self._is_expense_report(task))
 
     # 【已删除 · 请勿凭记忆加回】这里原有一个 `_llm_classify(task) -> Optional[str]`:
     # 关键词未命中时用一次 LLM 把任务分诊到领域 Agent。它已被「无关键词命中 → 主管直接

@@ -15,6 +15,16 @@ from .models import Transaction, Budget, FinancialEntity
 from .reasoning import FinanceReasoning
 from .policy import FinancePolicyEngine
 from .graph import FinancialDataGraph
+from .fx import FxTable
+from .nlparse import CATEGORY_LABELS, parse as parse_expense_text
+
+
+def _period_of(txn, default: str = "") -> str:
+    """交易的账期(YYYY-MM)。时间戳坏掉时返回 default,不让一条脏数据炸掉整个汇总。"""
+    try:
+        return txn.timestamp[:7]
+    except Exception:
+        return default
 
 
 def _coerce(cls, d):
@@ -52,6 +62,8 @@ class FinanceRuntime:
         self._lock = threading.RLock()
         self.load_error: str = ""
         self.save_error: str = ""
+        # 多币种:账本按本位币(CNY)算账,汇率表与账本同目录
+        self.fx = FxTable(str(self._data_path.parent / "finance_fx.json"))
         self.load()
 
     # ── 持久化(原子写 tmp→replace;损坏文件只降级、不阻断启动)──────
@@ -194,6 +206,173 @@ class FinanceRuntime:
             self.account_balances[account] = balance
         self.save()
 
+    # ── 自然语言记账(第一线功能)────────────────────────────
+    def record_text(self, text: str, account: str = "default",
+                    now: datetime = None, dry_run: bool = False) -> dict:
+        """「今天买了一件衣服花了 105 块」→ 落一笔账,返回可读回执。
+
+        识别(金额/币种/时间/分类)全部走 `nlparse` 的确定性规则,LLM 不参与算钱。
+        未来时间(明天/下个月)记成 planned,进账本但不进"本月已花"。
+        """
+        parsed = parse_expense_text(text, now=now)
+        if not parsed:
+            return {"recorded": [], "skipped": [{"text": (text or "").strip(),
+                                                 "reason": "没识别出金额"}],
+                    "dry_run": dry_run, "ack": "这句话里没听出金额,没有记账。"}
+        recorded = []
+        for p in parsed:
+            sign = -1 if p.direction == "expense" else 1
+            base, rate = self.fx.to_base(p.amount, p.currency)
+            tags = []
+            if p.planned:
+                tags.append("planned")
+            if p.direction == "income":
+                tags.append("income")
+            txn = Transaction(
+                amount=round(sign * base, 2),
+                category=p.category,
+                entity=p.entity or CATEGORY_LABELS.get(p.category, "未注明"),
+                account=account,
+                timestamp=p.when.isoformat(timespec="seconds"),
+                tags=tags,
+                note=p.text,
+                currency=p.currency,
+                original_amount=round(sign * p.amount, 2),
+                fx_rate=rate,
+                description=p.description,
+                status="planned" if p.planned else "settled",
+                source="text",
+            )
+            item = {**txn.to_dict(), "confidence": p.confidence,
+                    "warnings": list(p.warnings)}
+            if not self.fx.known(p.currency):
+                item["warnings"].append(
+                    f"未配置 {p.currency} 汇率,暂按 1:1 记入,可用 /api/finance/fx 设置")
+            if dry_run:
+                item["verdicts"] = []
+            else:
+                res = self.add_transaction(txn, run_gatekeeper=True, save=False)
+                item["verdicts"] = res["verdicts"]
+            recorded.append(item)
+        if recorded and not dry_run:
+            self.save()
+        result = {"recorded": recorded, "skipped": [], "dry_run": dry_run}
+        result["ack"] = self.render_ack(result)
+        return result
+
+    def render_ack(self, rec: dict) -> str:
+        """把记账结果拼成人话。确定性文本 —— 记账回执不该等 LLM,也不该被它改写。"""
+        items = rec.get("recorded") or []
+        if not items:
+            return "这句话里没听出金额,没有记账。"
+        head = "预览(未落账)" if rec.get("dry_run") else "已记账"
+        lines = [f"{head} {len(items)} 笔:"]
+        for it in items:
+            cur = it.get("currency") or "CNY"
+            orig = it.get("amount_original") or 0.0
+            amt = it.get("amount") or 0.0
+            label = CATEGORY_LABELS.get(it.get("category"), it.get("category"))
+            flag = "(计划)" if it.get("status") == "planned" else ""
+            money = (f"{orig:+.2f} {cur}(≈¥{amt:+.2f})" if cur != "CNY"
+                     else f"{amt:+.2f} 元")
+            day = (it.get("timestamp") or "")[:10]
+            lines.append(f"· {day} {it.get('description') or it.get('entity') or ''}"
+                         f" {money} · {label}{flag}")
+
+        # 汇总期跟着这笔账走:记的是上月 5 号的账,就别报"本月已花"
+        period = (items[0].get("timestamp") or "")[:7] or None
+        led = self.ledger(period)
+        head = "本月" if period == datetime.now().strftime("%Y-%m") else f"{period} "
+        lines.append(f"{head}已花 ¥{led['expense']:.2f},共 {led['count']} 笔,"
+                     f"净额 ¥{led['net']:+.2f}")
+        if led["planned"]["count"]:
+            lines.append(f"另有 {led['planned']['count']} 笔计划支出共 "
+                         f"¥{led['planned']['expense']:.2f},发生时才算进已花")
+        gates = [v for it in items for v in (it.get("verdicts") or [])
+                 if v.get("action") in ("veto", "freeze", "require_confirmation")]
+        for v in gates:
+            lines.append(f"守门人:{v.get('action')} — "
+                         f"{v.get('message') or v.get('reason') or ''}")
+        warns = list(dict.fromkeys(w for it in items for w in (it.get("warnings") or [])))
+        if warns:
+            lines.append("提示:" + "；".join(warns))
+        return "\n".join(lines)
+
+    def ledger(self, period: str = None) -> dict:
+        """记账本:按月汇总(已发生 vs 计划、按天、按分类、按币种)。"""
+        period = period or datetime.now().strftime("%Y-%m")
+        with self._lock:
+            txns = list(self.transactions)
+        settled = [t for t in txns
+                   if not getattr(t, "is_planned", False) and _period_of(t) == period]
+        planned = sorted((t for t in txns if getattr(t, "is_planned", False)),
+                         key=lambda t: t.timestamp)
+
+        expense = round(sum(t.amount for t in settled if t.amount < 0), 2)
+        income = round(sum(t.amount for t in settled if t.amount > 0), 2)
+
+        by_day, by_cat, by_cur = {}, {}, {}
+        for t in settled:
+            day = (t.timestamp or "")[:10]
+            d = by_day.setdefault(day, {"date": day, "expense": 0.0, "income": 0.0,
+                                        "count": 0, "items": []})
+            d["count"] += 1
+            if t.amount < 0:
+                d["expense"] = round(d["expense"] + t.amount, 2)
+            else:
+                d["income"] = round(d["income"] + t.amount, 2)
+            if len(d["items"]) < 6:
+                d["items"].append(t.description or t.entity)
+
+            if t.amount < 0:
+                c = by_cat.setdefault(t.category, {"category": t.category,
+                                                   "label": CATEGORY_LABELS.get(t.category, t.category),
+                                                   "total": 0.0, "count": 0})
+                c["total"] = round(c["total"] + t.amount, 2)
+                c["count"] += 1
+
+            cur = getattr(t, "currency", "CNY") or "CNY"
+            k = by_cur.setdefault(cur, {"currency": cur, "original_total": 0.0,
+                                        "base_total": 0.0, "count": 0})
+            k["original_total"] = round(k["original_total"] + t.amount_original, 2)
+            k["base_total"] = round(k["base_total"] + t.amount, 2)
+            k["count"] += 1
+
+        cat_total = abs(sum(c["total"] for c in by_cat.values())) or 1.0
+        categories = sorted(by_cat.values(), key=lambda c: c["total"])
+        for c in categories:
+            c["share"] = round(abs(c["total"]) / cat_total, 3)
+            c["total"] = round(abs(c["total"]), 2)
+
+        def _entry(t):
+            return {"id": t.id, "date": (t.timestamp or "")[:10],
+                    "description": t.description or t.entity, "entity": t.entity,
+                    "category": t.category,
+                    "category_label": CATEGORY_LABELS.get(t.category, t.category),
+                    "amount": t.amount, "currency": getattr(t, "currency", "CNY"),
+                    "amount_original": t.amount_original,
+                    "status": getattr(t, "status", "settled"),
+                    "note": t.note}
+
+        return {
+            "period": period,
+            "base_currency": "CNY",
+            "count": len(settled),
+            "expense": round(abs(expense), 2),
+            "income": round(income, 2),
+            "net": round(income + expense, 2),
+            "by_day": sorted(by_day.values(), key=lambda d: d["date"], reverse=True),
+            "by_category": sorted(categories, key=lambda c: -c["total"]),
+            "by_currency": sorted(by_cur.values(), key=lambda c: -abs(c["base_total"])),
+            "planned": {
+                "count": len(planned),
+                "expense": round(abs(sum(t.amount for t in planned if t.amount < 0)), 2),
+                "items": [_entry(t) for t in planned],
+            },
+            "entries": [_entry(t) for t in sorted(settled, key=lambda t: t.timestamp,
+                                                  reverse=True)][:300],
+        }
+
     def import_csv(self, path: str) -> int:
         """从 CSV 导入交易。列:amount,category,entity,account,timestamp,tags
         真实银行 API 接口可在此处替换/扩展。"""
@@ -203,13 +382,21 @@ class FinanceRuntime:
             reader = csv.DictReader(f)
             for row in reader:
                 tags = [t.strip() for t in (row.get("tags") or "").split("|") if t.strip()]
+                # 可选的 currency 列:外币行按当天记账汇率折成本位币再入账,
+                # 否则「100 美元」会和「100 元」一起被求和。
+                cur = (row.get("currency") or row.get("币种") or "CNY").strip().upper()
+                raw = float(row["amount"])
+                base, rate = self.fx.to_base(abs(raw), cur)
                 txn = Transaction(
-                    amount=float(row["amount"]),
+                    amount=round(-base if raw < 0 else base, 2),
                     category=row.get("category", "uncategorized"),
                     entity=row.get("entity", "unknown"),
                     account=row.get("account", "default"),
                     timestamp=row.get("timestamp") or datetime.now().isoformat(),
                     tags=tags,
+                    currency=cur, original_amount=raw, fx_rate=rate,
+                    description=row.get("description", ""),
+                    source="csv",
                 )
                 self.add_transaction(txn, run_gatekeeper=False, save=False)
                 count += 1
@@ -228,7 +415,9 @@ class FinanceRuntime:
         period = period or datetime.now().strftime("%Y-%m")
         # 快照:分析期间可能有并发录入(持久化后 import 端点就是可并发的写方),
         # 直接遍历 self.transactions 会撞上 "list changed size during iteration"。
-        txns = list(self.transactions)
+        # 计划支出(明天/下个月)必须排除:还没发生的钱不能算进"本月已花",
+        # 否则「明天交房租 3000」会立刻把这个月的预算打爆。
+        txns = [t for t in self.transactions if not getattr(t, "is_planned", False)]
         budgets = list(self.budgets)
         bal = current_balance
         if bal is None and self.account_balances:

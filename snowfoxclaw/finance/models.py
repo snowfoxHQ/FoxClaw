@@ -16,8 +16,13 @@ EntityType = Literal["account", "merchant", "subscription"]
 
 @dataclass
 class Transaction:
-    """一笔交易 = 一个可计算的资金行为"""
-    amount: float                       # 负数=支出,正数=收入
+    """一笔交易 = 一个可计算的资金行为
+
+    金额口径(重要):`amount` 永远是**本位币(CNY)**金额,预算/风控/现金流都按它算。
+    原币金额与币种另存 `original_amount` / `currency` / `fx_rate` —— 这样「100 美元」
+    不会和「100 元」在求和时混在一起,同时账本里又看得到用户当时说的原话数额。
+    """
+    amount: float                       # 负数=支出,正数=收入(本位币 CNY)
     category: str                       # 分类:subscription/food/transport/salary...
     entity: str                         # 商户/对手方:Netflix、星巴克、公司
     account: str                        # 账户:credit_card_1、debit、alipay
@@ -25,6 +30,13 @@ class Transaction:
     tags: list = field(default_factory=list)   # ["recurring","media"]
     note: str = ""
     id: str = field(default_factory=lambda: f"txn_{uuid.uuid4().hex[:10]}")
+    # —— 多币种 & 自然语言记账 ——
+    currency: str = "CNY"               # 原币种
+    original_amount: Optional[float] = None   # 原币金额(正负号与 amount 一致)
+    fx_rate: float = 1.0                # 记账时原币 → 本位币的折算率
+    description: str = ""               # 报备原话里的"买的什么"
+    status: str = "settled"             # settled=已发生 planned=未来计划
+    source: str = "manual"              # manual / text / csv / bank
 
     @property
     def is_expense(self) -> bool:
@@ -35,11 +47,25 @@ class Transaction:
         return "recurring" in self.tags or self.category == "subscription"
 
     @property
+    def is_planned(self) -> bool:
+        """未来才发生的钱(「明天交房租」)。绝不能算进"本月已花"。"""
+        return self.status == "planned"
+
+    @property
+    def amount_original(self) -> float:
+        """原币金额。老数据没存原币时按 amount 折算回来。"""
+        if self.original_amount is not None:
+            return self.original_amount
+        return round(self.amount / self.fx_rate, 2) if self.fx_rate else self.amount
+
+    @property
     def dt(self) -> datetime:
         return datetime.fromisoformat(self.timestamp)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["amount_original"] = self.amount_original
+        return d
 
 
 @dataclass

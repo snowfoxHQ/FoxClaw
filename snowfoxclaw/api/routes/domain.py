@@ -58,6 +58,54 @@ async def finance_import(p: ImportPayload):
         raise HTTPException(400, f"导入失败: {e}")
 
 
+# ── 自然语言记账(第一线)────────────────────────────────────
+
+class RecordPayload(BaseModel):
+    text: str
+    account: str = "default"
+    dry_run: bool = False           # 只解析预览,不落账
+
+
+class FxPayload(BaseModel):
+    currency: str
+    rate: float
+
+
+@app.post("/api/finance/record")
+async def finance_record(p: RecordPayload):
+    """一句话记账:「今天买了一件衣服花了 105 块」/「明天交房租 3000」。"""
+    rt = _api._os_instance.finance_runtime
+    try:
+        return rt.record_text(p.text, account=p.account, dry_run=p.dry_run)
+    except Exception as e:
+        raise HTTPException(400, f"记账失败: {e}")
+
+
+@app.get("/api/finance/ledger")
+async def finance_ledger(period: Optional[str] = None):
+    """记账本:按月汇总(已发生/计划、按天、按分类、按币种)。"""
+    rt = _api._os_instance.finance_runtime
+    try:
+        return rt.ledger(period)
+    except Exception as e:
+        raise HTTPException(500, f"记账本汇总失败: {e}")
+
+
+@app.get("/api/finance/fx")
+async def finance_fx():
+    """当前汇率表(本位币 CNY)。"""
+    return _api._os_instance.finance_runtime.fx.snapshot()
+
+
+@app.post("/api/finance/fx")
+async def finance_set_fx(p: FxPayload):
+    """设置某个币种的记账汇率(比如刷卡当天的实际结算价)。"""
+    try:
+        return _api._os_instance.finance_runtime.fx.set_rate(p.currency, p.rate)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/learning/analysis")
 async def learning_analysis():
     """学习内核综合分析:掌握度/遗忘风险/知识图谱/学习策略。"""
