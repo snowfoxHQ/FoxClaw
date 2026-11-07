@@ -155,9 +155,15 @@ async def chat_stream(req: TaskRequest, request: Request):
 
         def _producer():
             _parts = []
+
+            def _on_thinking(delta: str) -> None:
+                # 推理走独立事件,不混进正文:前端折叠展示,正文仍只收 {"delta"}。
+                loop.call_soon_threadsafe(q.put_nowait, {"thinking": delta})
+
             try:
                 for chunk in agent.stream_reply(req.task, stop_event=stop, images=imgs,
-                                                history=req.history, attachments=atts):
+                                                history=req.history, attachments=atts,
+                                                on_thinking=_on_thinking):
                     _parts.append(chunk)
                     loop.call_soon_threadsafe(q.put_nowait, {"delta": chunk})
                 loop.call_soon_threadsafe(q.put_nowait, {"done": True})
@@ -186,6 +192,13 @@ async def chat_stream(req: TaskRequest, request: Request):
                     continue
                 if item is None:
                     break
+                if "thinking" in item:
+                    # 命名事件(SSE 规范):event: thinking + data。老客户端只认 data: 行也不会被
+                    # 误导成正文(delta 字段不存在);新前端按事件名折叠展示。
+                    yield ("event: thinking\ndata: "
+                           + json.dumps({"thinking": item["thinking"]}, ensure_ascii=False)
+                           + "\n\n")
+                    continue
                 yield "data: " + json.dumps(item, ensure_ascii=False) + "\n\n"
         finally:
             stop.set()

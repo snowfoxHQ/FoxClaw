@@ -60,9 +60,19 @@ class _ThinkStripper:
 
     def feed(self, chunk: str) -> str:
         """输入新 chunk,返回可 yield 部分(已剥离 think 块)。"""
+        return self.feed_events(chunk)[0]
+
+    def feed_events(self, chunk: str) -> tuple[str, str]:
+        """输入新 chunk,返回 (可见正文, 推理文本)。
+
+        可见正文与 `feed` 逐字一致(think 块一律不进正文);推理文本是刚闭合的
+        think 块内容,由上层作为独立 SSE `thinking` 事件送前端折叠展示——**正文仍净化**,
+        思考不再被丢弃(此前整段淘汰,用户只看到结论)。
+        """
         if not chunk:
-            return ""
+            return "", ""
         out: list[str] = []
+        think: list[str] = []
         text = self._buf + chunk
         self._buf = ""
         i = 0
@@ -73,9 +83,11 @@ class _ThinkStripper:
                 if end == -1:
                     # 没遇到结束标签,剩余暂存,等下个 chunk 续上
                     self._buf = text[i:]
-                    return "".join(out)
+                    return "".join(out), "".join(think)
+                think.append(text[i:end])
                 i = end + len(self._CLOSE_TAG)
                 self._in_think = False
+                continue
             else:
                 start = text.find(self._OPEN_TAG, i)
                 if start == -1:
@@ -86,14 +98,14 @@ class _ThinkStripper:
                     last_lt = text.rfind("<", i)
                     if last_lt == -1:
                         out.append(text[i:])
-                        return "".join(out)
+                        return "".join(out), "".join(think)
                     out.append(text[i:last_lt])
                     self._buf = text[last_lt:]
-                    return "".join(out)
+                    return "".join(out), "".join(think)
                 out.append(text[i:start])
                 i = start + len(self._OPEN_TAG)
                 self._in_think = True
-        return "".join(out)
+        return "".join(out), "".join(think)
 
 
 # 各 provider 的默认模型(可被环境变量覆盖)
@@ -645,10 +657,13 @@ class ModelRouter:
             pass
 
     def stream(self, system: str, messages: list, max_tokens: int = 2048,
-               agent_id: str = "", stop_event=None, images: list = None):
+               agent_id: str = "", stop_event=None, images: list = None,
+               on_thinking=None):
         """流式文本补全:逐块 yield。各 provider 用其流式 API;stub/异常降级分块。
         与 complete() 同为 LLM 咽喉,收尾做 token 计量。images(可选)= 多模态图片。
-        stop_event:threading.Event,置位则提前终止(客户端断连时省 token)。"""
+        stop_event:threading.Event,置位则提前终止(客户端断连时省 token)。
+        on_thinking(可选)= 推理增量回调:provider 原生 reasoning(reasoning_content)
+        与正文内嵌 <think> 块都从这里出去,作为独立 SSE thinking 事件;正文不受影响。"""
         def _stopped():
             return stop_event is not None and stop_event.is_set()
         system = self._inject_runtime(system)   # 规则化:与 complete 同一咽喉注入运行时事实基准
@@ -718,10 +733,21 @@ class ModelRouter:
                         st.close() if hasattr(st, "close") else None
                         return
                     d = c.choices[0].delta.content if c.choices else None
+                    # 原生推理通道:deepseek-reasoner / 部分 openai-compatible 厂商把思考放在
+                    # delta.reasoning_content(少数用 reasoning)。此前整段被丢弃(只读 content),
+                    # 用户完全看不到推理;现在转成 thinking 事件,正文仍只走 content。
+                    if c.choices and on_thinking is not None:
+                        _delta = c.choices[0].delta
+                        _rt = (getattr(_delta, "reasoning_content", None)
+                               or getattr(_delta, "reasoning", None))
+                        if _rt:
+                            on_thinking(_rt)
                     if not d:
                         continue
                     parts.append(d)
-                    cleaned = stripper.feed(d)
+                    cleaned, _think_txt = stripper.feed_events(d)
+                    if _think_txt and on_thinking is not None:
+                        on_thinking(_think_txt)      # 内嵌 <think> 块 → 推理事件,不进正文
                     if cleaned:
                         yield cleaned
             elif self.provider == "google":

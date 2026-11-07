@@ -8,10 +8,16 @@ CognitiveAgent — 认知增强 Agent 基类
   - 共享的 Anthropic LLM 接口
 """
 
+import threading
 import uuid
 
 from ..core.thought_chain import ThoughtChain, ThoughtNode
 from ..harness.harness import Harness, HarnessResult
+
+# 工具并行执行后,多个 worker 线程可能同时走 _think(web_search 命中 / 记忆召回节点),
+# 而 _parent_node_id 是共享可变指针。用模块级 RLock 串行化「建链 + 挪指针」两步,
+# 保证 thought 链仍是一条合法链(节点本身顺序由完成时刻决定,语义可接受)。
+_THINK_LOCK = threading.RLock()
 
 # ── S3 步骤 2：按职责拆分到 mixin（纯搬移、零行为变更）────────────────────────
 # 会话状态基础设施（contextvar + 污点 + HarnessBlockedError）搬至 mixins/_context.py；
@@ -231,7 +237,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             tool_name=tool_name,
             entities=entities or [],
         )
-        self.thought_chain.add_node(node)
+        # 锁只护「链插入 + 父指针挪动」这两步共享状态;Harness 判定在锁外,避免钩子阻塞并发工具。
+        with _THINK_LOCK:
+            self.thought_chain.add_node(node)
 
         # Harness 校验(经统一 PolicyGate 做推理准入;拿到的仍是同一 HarnessResult,行为一致)
         result = self._reasoning_result(node)
@@ -243,7 +251,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         if result.is_warned:
             node.conf = max(node.conf - 0.15, 0.1)
 
-        self._parent_node_id = node.id
+        with _THINK_LOCK:
+            self._parent_node_id = node.id
         return node, result
 
     @staticmethod
@@ -316,13 +325,15 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         return "\n\n" + "\n\n".join(parts) if parts else ""
 
     def stream_reply(self, task: str, stop_event=None, images: list = None, history: list = None,
-                     attachments: list = None):
+                     attachments: list = None, on_thinking=None):
         """流式直答路径(方案A):对话/问答/分析,不做多步编排(那走 run_task)。同步生成器,
         由端点在线程池迭代成 SSE。stop_event 置位(客户端断连)则提前终止,省 token。
         images(可选)= 多模态图片,随问题发给视觉模型(模型无关,非视觉模型 router 层降级)。
         history(可选)= 前端带来的最近几轮对话 → 拼在当前问题前,让多轮连贯。
         attachments(可选)= 聊天附件 [{name,size,mime,url,text}]:text 为提取正文,拼进问题末尾
           供 LLM 阅读;text 为空的(二进制/图片)降级为「文件名 + 元数据」提示。
+        on_thinking(可选)= 推理增量回调。模型的原生 reasoning 与正文内嵌 <think> 块都经此
+          出去,由端点作为独立 SSE `thinking` 事件送前端折叠显示;正文 (yield) 仍走净化。
 
         两条路径(单一决策源之争,见 TOOL_USE_PLAN.md):
           ① SNOWFOXCLAW_TOOL_USE=1 且 provider 支持 tools 且无图 → **LLM 自主工具循环**(_reply_with_tools),
@@ -341,6 +352,23 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         parts = []
         used_tools = False
         guarded_out = False                       # 输出护栏是否触发(触发的污染回复不落库,防回流)
+
+        def _emit_thinking(delta: str) -> None:
+            """推理内容的最后一道关:思考也不许带密钥/系统提示原文(与正文同等级净化)。"""
+            if not delta or on_thinking is None:
+                return
+            try:
+                if _ig.scan_output(delta):
+                    on_thinking("(推理内容已被安全护栏过滤)")
+                    return
+                delta = _ig.redact_secrets(delta)
+            except Exception:
+                pass
+            try:
+                on_thinking(delta)
+            except Exception:
+                pass                         # 前端断连/回调异常不得影响正文生成
+
         if _tools.tool_use_enabled() and self.router.supports_tools() and not images:
             # 与 fallback 一致地注入偏好/技能/能力(否则开工具化会静默丢掉"总是注入偏好"的保证、
             # 丢掉 SKILL.md 与能力知识)。**唯独不做 web_augment**——联网交给 LLM 自主调 web_search 工具。
@@ -382,7 +410,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             _WIN = 256   # 覆盖最长敏感串(密钥)跨 chunk 边界的情况
             for chunk in self.router.stream(self.system_prompt, messages,
                                             agent_id=self.AGENT_ID, stop_event=stop_event,
-                                            images=images):
+                                            images=images,
+                                            on_thinking=_emit_thinking if on_thinking else None):
                 # 流出前检测(而非"yield 后才检测"):密钥/泄露所在 chunk 不再已发给用户才中断。
                 # 只扫"尾缓冲 + 新 chunk"(增量滑窗),命中则本 chunk 不发、整段 dump 止于此。
                 _probe = _tail + chunk

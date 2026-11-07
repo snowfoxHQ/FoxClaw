@@ -1044,6 +1044,18 @@ async function transmitStream(task, agent, images, attachments){
   const rp=document.getElementById('ccReply'), st=document.getElementById('ccStatus');
   rp.textContent=''; rp.style.color='var(--ink)'; st.style.color='var(--ink-dim)'; st.textContent='◌ 流式生成中…';
   let acc='';
+  // 推理过程折叠块:每轮重置。后端以 SSE `event: thinking` 单独送出思考增量,
+  // 正文(delta)不含思考,这里只做展示,不参与落库/复制。
+  let _thinkWrap=document.getElementById('ccThink');
+  if(!_thinkWrap && rp.parentNode){
+    _thinkWrap=document.createElement('details');
+    _thinkWrap.id='ccThink'; _thinkWrap.className='cc-think'; _thinkWrap.hidden=true;
+    _thinkWrap.innerHTML='<summary>推理过程</summary><div class="cc-think-body" id="ccThinkBody"></div>';
+    rp.parentNode.insertBefore(_thinkWrap, rp);
+  }
+  const _thinkBody=document.getElementById('ccThinkBody');
+  if(_thinkBody) _thinkBody.textContent='';
+  if(_thinkWrap){ _thinkWrap.hidden=true; _thinkWrap.open=false; }
   try{
     if(!_sessionId) await ensureSession();          // 保证本轮问答有会话归属(否则落不了盘)
     const body={task, agent_id:agent, history:_chatHistory.slice(-12), session_id:_sessionId};
@@ -1057,9 +1069,17 @@ async function transmitStream(task, agent, images, attachments){
       buf+=dec.decode(value,{stream:true});
       let idx;
       while((idx=buf.indexOf('\n\n'))>=0){
-        const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
-        if(!line.startsWith('data:'))continue;
-        let ev; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+        const block=buf.slice(0,idx); buf=buf.slice(idx+2);
+        // 兼容命名事件(SSE 规范):`event: thinking` + `data: {...}`;无 event 行按默认事件处理。
+        const evName=((block.match(/^event:\s*(\S+)/m)||[])[1])||'message';
+        const dataLine=((block.match(/^data:\s*([\s\S]*)$/m)||[])[1]||'').trim();
+        if(!dataLine)continue;
+        let ev; try{ ev=JSON.parse(dataLine); }catch(e){ continue; }
+        if(evName==='thinking'||ev.thinking){          // 推理增量 → 折叠区,不进正文
+          const t=ev.thinking||'';
+          if(t){ if(_thinkWrap) _thinkWrap.hidden=false; if(_thinkBody) _thinkBody.textContent+=t; }
+          continue;
+        }
         if(ev.delta){ acc+=ev.delta; rp.textContent=acc; if(_ccBody) _ccBody.scrollTop=_ccBody.scrollHeight; }
         if(ev.error){ st.textContent='⚠ '+ev.error; st.style.color='var(--pink)'; }
         if(ev.done){ st.textContent='✓ 完成'; }
