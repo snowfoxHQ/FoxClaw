@@ -127,7 +127,9 @@ ignore = [
 python_version = "3.11"
 ignore_missing_imports = true
 check_untyped_defs = true
-# 渐进式:首次引入,存量 425 个类型错误不在 S1 范围,CI 用 warning 级不阻塞。
+# 渐进式:mypy 存量错误用棘轮门管理(tools/mypy_ratchet.py + tools/mypy_baseline.txt)。
+# 2026-11 实测 673 errors in 90 files,已冻结:CI 中错误数一旦增加即失败,
+# 下降后用 `python tools/mypy_ratchet.py --update` 调低基线。只降不升。
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

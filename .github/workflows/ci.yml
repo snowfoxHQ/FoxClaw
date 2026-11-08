@@ -15,21 +15,30 @@ permissions:
 
 jobs:
   toolchain:
-    # S1:工程化安全网 —— ruff(硬门) + mypy(渐进式) + pytest + coverage。
+    # S1:工程化安全网 —— ruff(硬门) + mypy(棘轮) + 体积(棘轮) + pytest 收集。
     # ruff 只保留 F 系列死代码/真 bug 作为硬门,存量风格告警已在 pyproject 显式豁免;
     # 覆盖 foxclaw/ 与 tests/(tests 于 2026-11 纳入:此前 13 条 F 系列全藏在这里)。
-    # mypy 渐进式,仅报告不阻塞(2026-11 实测存量 673 个类型错误,此前记录为 425);
+    # mypy 自 2026-11 起改为棘轮门(tools/mypy_ratchet.py):存量 673 冻结,只许降不许升。
+    #   此前是 continue-on-error,数字从注释里的 425 一路涨到 673 也无人发现 ——
+    #   不阻塞的检查等于没有检查。
+    # 体积门(tools/size_check.py):单文件 <=15KB;现有 25 个超限文件冻结在白名单,
+    #   新增超限直接失败,拆小了会提示移出白名单。
     # pytest 只做快速收集检查(S2 已把全部 76 个测试迁为 pytest,无顶层副作用),
     # 真正的断言执行统一走下方 regression job 的 run_all.py(每文件独立子进程隔离单例)。
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 是发布/回归基线;3.14 覆盖「本地装了新版、CI 从未验证」的版本漂移。
+        python-version: ["3.12", "3.14"]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install toolchain
         run: |
@@ -44,9 +53,13 @@ jobs:
           ruff check foxclaw/
           ruff check tests/
 
-      - name: Mypy (advisory, non-blocking)
-        continue-on-error: true
-        run: mypy foxclaw/ --ignore-missing-imports --check-untyped-defs
+      - name: Mypy ratchet (no new type errors)
+        # 只在基线版本跑:基线数字按 3.12 校准,两版本并行会因 typeshed 差异抖动。
+        if: matrix.python-version == '3.12'
+        run: python tools/mypy_ratchet.py
+
+      - name: File size ratchet (<=15KB)
+        run: python tools/size_check.py
 
       - name: Pytest collect check (all tests migrated)
         run: python -m pytest --collect-only -q
@@ -54,6 +67,7 @@ jobs:
       - name: Release preflight (version sources)
         # 版本号漏改一处会让发布物自相对不上,而发出去不能覆盖。这里只查"四处是否一致",
         # 产物结构检查(需先 build)在 .github/workflows/release.yml 里。
+        if: matrix.python-version == '3.12'
         run: python tools/release_check.py
 
   regression:

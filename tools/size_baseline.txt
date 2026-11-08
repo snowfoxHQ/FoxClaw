@@ -1,0 +1,28 @@
+# 单文件体积棘轮基线:列此处的文件已超 15KB,允许存在但不得再增长;
+# 拆到 <=15KB 后运行 `python tools/size_check.py --update` 自动移出。
+# 2026-11-09 冻结时共 25 个。
+foxclaw/core/model_router.py
+foxclaw/agents/base.py
+foxclaw/agents/impl/supervisor.py
+foxclaw/skills/__init__.py
+foxclaw/__init__.py
+foxclaw/finance/nlparse.py
+foxclaw/pipeline/cognitive_pipeline.py
+foxclaw/finance/runtime.py
+foxclaw/core/memory_adapter.py
+foxclaw/core/vec_recall_adapter.py
+foxclaw/harness/harness.py
+foxclaw/core/settings.py
+foxclaw/agents/mixins/tool_exec.py
+foxclaw/kernel/sentinel.py
+foxclaw/api/routes/llm_admin.py
+foxclaw/harness/_policy.py
+foxclaw/api/routes/ahs.py
+foxclaw/finance/reasoning.py
+foxclaw/skills/pipeline.py
+foxclaw/agents/impl/office.py
+foxclaw/learning/runtime.py
+foxclaw/knowledge/__init__.py
+foxclaw/core/recovery.py
+foxclaw/core/tracing.py
+foxclaw/finance/policy.py
