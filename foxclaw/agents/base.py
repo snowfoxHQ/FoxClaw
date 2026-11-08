@@ -340,9 +340,13 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
     @staticmethod
     def _attachments_context(attachments) -> str:
         """把聊天附件拼成一段给 LLM 的上下文:文本类贴正文、其它降级为「文件名 + 元数据」提示。
-        附件正文已在路由层 _sanitize_attachments 清洗(限长/限量),这里只做可读性排版。"""
+
+        附件正文已在路由层 _sanitize_attachments 清洗(限长/限量);这里再按**不可信数据**隔离:
+        附件可能是别人转发的文件,与用户当面对话不是同一信任级别,而手写中文定界符可被正文
+        伪造。统一走 wrap_untrusted(随机 nonce 边界 + 破界 defang + 注入特征告警)。"""
         if not attachments:
             return ""
+        from ..core.injection_guard import wrap_untrusted
         parts = []
         for a in attachments:
             if not isinstance(a, dict):
@@ -350,7 +354,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             name = a.get("name") or "文件"
             text = (a.get("text") or "").strip()
             if text:
-                parts.append(f"【附件「{name}」内容如下】\n{text}\n【附件「{name}」结束】")
+                block = wrap_untrusted(text, source="attachment")
+                parts.append(f"【附件「{name}」内容如下】\n{block}\n【附件「{name}」结束】")
             else:
                 mime = a.get("mime") or "未知类型"
                 size = a.get("size") or 0

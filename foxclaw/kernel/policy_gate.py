@@ -66,16 +66,23 @@ class PolicyGate:
 
     # ── 动作准入(skill-guard)──────────────────────────────────
     def check_action(self, skill, args: dict, rules=None,
-                     confirmed: bool = False, mode: str = "strict") -> Verdict:
+                     confirmed: bool = False, mode: str = "strict",
+                     taint_level: int = 0, taint_threshold: int = 0) -> Verdict:
         """经统一门做动作权限准入。底层仍是 permission.evaluate(同一 PermissionDecision);
         归一化为 Verdict,并对**非 allow**发统一 policy.decision.* 审计事件(动作路径原本无统一事件)。
 
         【P3-4】每次裁决都带 decision_id(allow 也带——调用方 SkillAdapter 拿它做执行审计的
-        correlation_id,把「谁批准的」与「执行结果」join 起来)。"""
+        correlation_id,把「谁批准的」与「执行结果」join 起来)。
+
+        【污点门槛透传】taint_level/threshold 原样交给评估器。此前门面没接这两个参数,导致
+        permission.evaluate 的 Stage 3.5(碰过敏感数据 → 外发/副作用须确认)只有工具路径能触发,
+        技能路径永不触发。注入的评估器(permission.evaluate / sentinel.evaluate)签名都带这两个
+        kwarg;默认 0 = 关闭,既有调用方行为不变。"""
         if self._eval is None:
             return Verdict(True, "allow", "无动作评估器(降级放行)", "permission", None,
                            decision_id=new_decision_id())
-        d = self._eval(skill, args, rules=rules, confirmed=confirmed, mode=mode)
+        d = self._eval(skill, args, rules=rules, confirmed=confirmed, mode=mode,
+                       taint_level=taint_level, taint_threshold=taint_threshold)
         level = {"allow": "allow", "ask": "confirm", "deny": "deny"}.get(d.decision, "deny")
         v = Verdict(allowed=(d.decision == "allow"), level=level,
                     reason=(d.reason or ""), source="permission", raw=d,
