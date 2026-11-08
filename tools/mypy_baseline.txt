@@ -1,0 +1,5 @@
+# mypy 类型错误棘轮基线。只允许下降。
+# 2026-11-09 实测:mypy 2.4.0 / Python 3.14.5 下 673 errors in 90 files。
+# 注意:CI 跑在 Python 3.12 上,若首次因解释器差异导致数字略有不同,
+# 先在 CI 同版本下跑一次 `python tools/mypy_ratchet.py --update` 校准基线。
+673
