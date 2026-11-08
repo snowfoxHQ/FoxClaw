@@ -13,6 +13,7 @@ Agent 隔离:HMR v2.0 的 ingest/recall 无 agent_id 概念,
 recall 后按标签过滤,保证五个 Agent 记忆互不污染。
 """
 
+import os
 import re
 import sys
 import threading
@@ -451,8 +452,38 @@ class MockHMR:
                 "total_memories": 0, "relations": 0}
 
 
+def _vecrecall_dir(storage_path: str) -> str:
+    """与 HMR 的存储目录强制分开。
+
+    两套后端落盘格式完全不同(HMR 是 memories/*.json + vectors.json,vecRecall 是
+    sqlite)。放同一个目录会让新后端初始化时看到"一半旧一半新",切回旧后端时又可能
+    被新文件干扰 —— 隔离目录是切换可逆的前提。
+    """
+    p = Path(str(storage_path))
+    if p.name.lower() == "hmr":
+        return str(p.parent / "vecrecall")
+    return str(p.parent / ((p.name or "memory") + "_vecrecall"))
+
+
 def create_memory_backend(storage_path: str = "./hmr_data", llm_api_key: str = None):
-    """工厂:优先真实 HMR,失败则降级 MockHMR。"""
+    """工厂:默认 HMR;`FOXCLAW_MEMORY_BACKEND=vecrecall` 时才切 vecRecall。
+
+    顺序 vecRecall → HMR → MockHMR,任一层失败退到下一层,且**明确打印**实际用的是
+    哪个内核 —— 换记忆后端这种事,日志里必须看得见,不能静默替换。
+    """
+    choice = (os.environ.get("FOXCLAW_MEMORY_BACKEND") or "hmr").strip().lower()
+    if choice in ("vecrecall", "vec_recall"):
+        try:
+            from .vec_recall_adapter import VecRecallAdapter
+            adapter = VecRecallAdapter(storage_path=_vecrecall_dir(storage_path))
+            print(f"[Foxclaw] ✓ vecRecall v{adapter.version} 已接入 "
+                  f"(backend={adapter.backend}, path={adapter.storage_path})")
+            return adapter
+        except Exception as e:
+            print(f"[Foxclaw] ⚠ vecRecall 不可用 ({e.__class__.__name__}: {e}),回退 HMR")
+    elif choice != "hmr":
+        print(f"[Foxclaw] ⚠ FOXCLAW_MEMORY_BACKEND={choice!r} 无法识别,按 HMR 处理")
+
     try:
         adapter = HMRAdapter(storage_path=storage_path, llm_api_key=llm_api_key)
         print(f"[Foxclaw] ✓ HMR v{adapter.version} 已接入 (backend={adapter.backend})")
