@@ -87,6 +87,47 @@ def test_gateway():
         assert big.status_code == 413, (big.status_code, big.text[:120])
         print("[8] 超大请求体 → 413(读 body 前拦截)OK")
 
+        # [8b] chunked / 无 Content-Length:只查头会漏,流上累计必须兜住
+        import asyncio
+        from starlette.requests import Request as _Req
+        from foxclaw.api.middleware import (
+            _gateway_mw, _PayloadTooLarge, _wrap_body_limit)
+
+        pending = [b"x" * 10, b"y" * 10, b"z" * 10]
+
+        async def _recv():
+            if pending:
+                return {"type": "http.request", "body": pending.pop(0),
+                        "more_body": bool(pending)}
+            return {"type": "http.disconnect"}
+
+        req = _Req({"type": "http", "method": "POST", "path": "/api/x",
+                    "scheme": "http", "server": ("test", 80),
+                    "headers": [], "query_string": b""}, _recv)
+        _wrap_body_limit(req, 15)          # 第 2 块累计 20 > 15
+
+        async def _drain():
+            for _ in range(3):
+                await req.receive()
+
+        try:
+            asyncio.run(_drain())
+        except _PayloadTooLarge:
+            pass
+        else:
+            raise AssertionError("chunked 超限未被流上计数拦住")
+
+        # [8c] 流超限转成 413,而不是冒成 500
+        async def _boom(_req):
+            raise _PayloadTooLarge(999)
+
+        req2 = _Req({"type": "http", "method": "POST", "path": "/api/x",
+                     "scheme": "http", "server": ("test", 80),
+                     "headers": [], "query_string": b""})
+        resp = asyncio.run(_gateway_mw(req2, _boom))
+        assert resp.status_code == 413, resp.status_code
+        print("[8b] chunked 超限 → 流上计数拦截并转 413 OK")
+
     # [9] 启用哲学:默认关;配 FOXCLAW_API_KEY(=对外暴露)自动开;=0 强制关优先
     os.environ.pop("FOXCLAW_GATEWAY", None); os.environ.pop("FOXCLAW_API_KEY", None)
     assert _gateway_on() is False, "本地默认应关"
