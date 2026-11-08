@@ -87,6 +87,19 @@ body{
   border-left:1px solid var(--line);padding-left:10px;}
 .brand .ver{color:var(--ink-3);font-weight:600;font-size:11px;opacity:.65;letter-spacing:.02em}
 
+/* 返回主界面(顶栏右侧)。brand 已可收缩,此按钮不缩,保证窄屏也在 */
+.home-link{
+  display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+  height:30px;padding:0 11px;border-radius:8px;
+  font-size:12px;font-weight:600;letter-spacing:.01em;
+  color:var(--ink-2);background:#fff;border:1px solid var(--line);
+  text-decoration:none;white-space:nowrap;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.home-link:hover{color:var(--ink);border-color:var(--green);background:var(--canvas)}
+.home-link:active{transform:translateY(1px)}
+.home-link svg{flex-shrink:0}
+
 /* 搜索 */
 .search-wrap{flex:1;display:flex;gap:10px;align-items:center;max-width:680px}
 .search-box{
