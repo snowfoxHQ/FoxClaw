@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Optional
@@ -416,20 +417,37 @@ class Extractor:
         # 全部失败 → 大概率 LLM 配置问题(与逐段路径同一诊断口径)
         if fail_count == total and total > 0:
             logger.error(
-                "知识抽取全部失败 (%d/%d chunks)。请检查 LLM 配置:provider=%s, model=%s, "
-                "是否已正确填写 API Key。", fail_count, total, self.provider, self.model
+                "知识抽取全部失败 (%d/%d chunks)。provider=%s, model=%s。"
+                "若上方有「JSON 解析失败」,说明输出被截断:调大 HKC_EXTRACT_MAX_TOKENS "
+                "或调小 HKC_EXTRACT_BATCH;否则检查 API Key / 网络。",
+                fail_count, total, self.provider, self.model,
             )
 
         doc_id = chunks[0].doc_id
         return ExtractionResult(doc_id=doc_id, source=doc_id, items=items)
 
-    def _extract_batch(self, chunks, timeout):
+    @staticmethod
+    def _batch_max_tokens(n: int) -> int:
+        """单批输出上限:随段数放大(每段最多 5×4 条),硬顶可配。
+
+        旧公式是 1024*n,批 4 段正好 4096 —— 恰好撞在 deepseek-chat 的单次输出
+        硬顶上。内容密的中文文档会在 JSON 写到一半被截断,整批 4 段全部丢弃,
+        表象就是「摄入完成但 0 条知识」。这里给足余量并允许用
+        HKC_EXTRACT_MAX_TOKENS 覆盖(上限 8192)。
+        """
+        try:
+            cap = max(2048, int(os.getenv("HKC_EXTRACT_MAX_TOKENS", "8192")))
+        except ValueError:
+            cap = 8192
+        return max(2048, min(cap, 1280 * n))
+
+    def _extract_batch(self, chunks, timeout, max_tokens: Optional[int] = None):
         """一次 LLM 调用抽取一组 chunks,返回与 chunks 对齐的 list[Optional[RawExtraction]]。"""
         n = len(chunks)
         parts = [f'<chunk id="{i}">\n{ch.content}\n</chunk>' for i, ch in enumerate(chunks)]
         user = "\n\n".join(parts)
-        # 输出上限随段数放大(每段最多 5×4 条,批越大输出越多);至少 2048。
-        max_tokens = max(2048, 1024 * n)
+        if max_tokens is None:
+            max_tokens = self._batch_max_tokens(n)
         try:
             client = self._get_client()
             if self.provider == "anthropic":
@@ -460,6 +478,19 @@ class Extractor:
             return [None] * n
 
         parsed = self._parse_batch_response(raw_text, n)
+        # 整批解析失败(JSON 被截断 / 空响应):拆半重试,不把整批丢掉。
+        # 逐层对半拆到单段为止;单段仍失败,就放大输出上限再试一次。
+        if n > 1 and all(p is None for p in parsed):
+            mid = n // 2
+            logger.warning("批量抽取整批解析失败,拆分为 %d + %d 重试", mid, n - mid)
+            return (self._extract_batch(chunks[:mid], timeout)
+                    + self._extract_batch(chunks[mid:], timeout))
+        if n == 1 and parsed[0] is None:
+            bigger = min(8192, max_tokens * 2)
+            if bigger > max_tokens:
+                logger.warning("单段抽取解析失败,放大 max_tokens %d → %d 重试",
+                               max_tokens, bigger)
+                return self._extract_batch(chunks, timeout, bigger)
         for i, raw in enumerate(parsed):
             if raw is None:
                 continue
