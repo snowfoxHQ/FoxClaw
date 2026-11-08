@@ -22,14 +22,22 @@ from hkc_core.utils.id_gen import IDGenerator
 from hkc_kep.event_bus import EventBus
 
 from .models import ParsedDocument
-from .chunker import Chunker, MAX_CHARS
+from .chunker import Chunker, MAX_CHARS, OVERLAP_CHARS
 
-# 单文档最多处理的 chunk 数(防止整本书切出上千 chunk 导致海量 LLM 调用)。
-# 500 个 chunk 约覆盖 ~90 万字符,可较完整摄入整本书;超大书仍会截断并警告。
+# 单文档最多处理的 chunk 数(防止误传超大文件导致数小时的 LLM 调用与不可控账单)。
+#
+# 为什么是 800:按实际步长(MAX_CHARS - OVERLAP_CHARS = 1568 字符/段)折算,
+# 800 段约覆盖 125 万字符,足以吞下一本普通电子书/一份长文档;按 batch=4、
+# 并发 8 的实测口径约 1.3 小时、几元成本,属于"能跑完、看得见进度、账单可控"的
+# 折中。而上传上限 20MB(约 700 万字符 ≈ 4400 段 ≈ 7 小时)远超这个量级,
+# 若把上限调到 0(不限制),一次误传就会在后台连续跑大半天并持续产生费用,
+# 中途既看不到头也无法回退,因此默认不给"全量跑完"的权限。
+#
 # 可经环境变量 HKC_MAX_CHUNKS_PER_DOC 覆盖:设 0 或负数 = 不限制(完整摄入整本书)。
-# 摄入已异步化(后台线程池),chunk 多只是后台跑得久,不卡 UI;主要代价是 LLM 调用费用。
-# 配合批量抽取(HKC_EXTRACT_BATCH>1)后,一次调用处理多段,可放心调大或设 0。
-DEFAULT_MAX_CHUNKS_PER_DOC = 500
+# 真需要整本摄入时再显式放开,并自行承担耗时与费用。
+# 注意:超出上限只处理前 N 段,而整文件内容哈希已入库,同一文件重传会被去重拦截,
+# 想补齐剩余部分必须先把文件拆分成多份再分别上传。
+DEFAULT_MAX_CHUNKS_PER_DOC = 800
 
 
 class DuplicateDocumentError(Exception):
@@ -213,8 +221,10 @@ class KnowledgeDigestEngine:
         if _cap > 0 and len(chunks) > _cap:
             logger.warning(
                 "文档过大:切出 %d 个 chunk,超过单文档上限 %d。仅处理前 %d 个"
-                "(约 %d 字符)。如需完整摄入,请设 HKC_MAX_CHUNKS_PER_DOC=0 或调大该值。",
-                len(chunks), _cap, _cap, _cap * MAX_CHARS,
+                "(约 %d 字符)。如需完整摄入,请调大 HKC_MAX_CHUNKS_PER_DOC"
+                "(设 0 = 不限制,但耗时与费用会同步放大);"
+                "注意同一文件重传会被内容去重拦截,补齐剩余部分需先拆分文件。",
+                len(chunks), _cap, _cap, _cap * (MAX_CHARS - OVERLAP_CHARS),
             )
             chunks = chunks[:_cap]
 

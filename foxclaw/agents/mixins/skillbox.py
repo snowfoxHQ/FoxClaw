@@ -36,9 +36,19 @@ class SkillBoxMixin:
             node_type="tool_intent", tool_name=skill.id, conf=0.9,
         )
         from ...skills import set_loop_session, reset_loop_session
+        from ...core import injection_guard as _ig
+        from ._context import _taint_get, _untrusted_get
         token = set_loop_session(self._session_id)
         try:
-            result = adp.invoke(skill, args or {}, confirmed=confirmed)
+            # 会话已取回敏感数据(知识库/记忆/网页)后,技能的外发/副作用动作同样要二次确认——
+            # 此前技能路径不带污点,permission.evaluate 的 Stage 3.5 只对工具生效。
+            # 来源不可信(外部聊天渠道)时按同一口径抬到 TAINT_PERSONAL。
+            _taint = _taint_get(self)
+            if _untrusted_get(self):
+                _taint = max(_taint, _ig.TAINT_PERSONAL)
+            result = adp.invoke(skill, args or {}, confirmed=confirmed,
+                                taint_level=_taint,
+                                taint_threshold=_ig.TAINT_PERSONAL)
         finally:
             reset_loop_session(token)
         self._think(

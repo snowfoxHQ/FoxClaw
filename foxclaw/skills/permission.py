@@ -109,7 +109,7 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     # deny 不命中时,ask 优先于 allow
 
     # ---------- Stage 3: capability(能力检查,Fail-closed)----------
-    side_effect = getattr(skill, "side_effect", "read")
+    side_effect = getattr(skill, "side_effect", "write")    # 未声明 → 按有副作用(fail-closed)
     destructive = getattr(skill, "destructive", False)
     external = getattr(skill, "external", False)
     # read_only 字段默认 None → 按 side_effect 推断(read 即只读);显式 True/False 则尊重
@@ -146,7 +146,9 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     # 会话已取回 ≥threshold 的用户数据,再外发/副作用 → 即使工具本身可信也强制确认,
     # 防「模型把用户隐私塞进 send/write/external」外泄。置于 trusted 之前:
     # 污点是结构性约束,trusted 只信任工具本身,不豁免「携带敏感数据外发」。
-    if taint_threshold and taint_level >= taint_threshold:
+    # [P-Muse·确认放行] `not confirmed`:此闸防的是**静默**外发,用户显式确认后必须放行,
+    # 否则「问一次 → 确认 → 再问一次」永远出不去(与上方 destructive 的判定口径一致)。
+    if taint_threshold and taint_level >= taint_threshold and not confirmed:
         if side_effect in ("write", "send", "pay") or external:
             return PermissionDecision("ask", 3,
                 reason="会话已取回用户敏感数据,外发/副作用动作需二次确认(污点防护)",

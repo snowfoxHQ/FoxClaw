@@ -112,6 +112,8 @@ SPECS: tuple[Opt, ...] = (
     # ── 服务 ────────────────────────────────────────────────────────────────
     Opt("FOXCLAW_PORT", "int", 8000, "服务", "HTTP 监听端口", lo=1, hi=65535),
     Opt("FOXCLAW_DATA_DIR", "str", "", "服务", "数据目录(默认 <仓库>/foxclaw_data)"),
+    Opt("FOXCLAW_IMPORT_ROOTS", "csv", "", "服务",
+        "额外允许的导入目录(逗号分隔);不配则只有数据目录内的文件可被导入"),
     Opt("FOXCLAW_API_KEY", "str", "", "服务",
         "对外访问口令;设了才启用鉴权(空 = 仅本机开放)", secret=True),
     Opt("FOXCLAW_CORS_ORIGINS", "str", "", "服务",
@@ -140,7 +142,9 @@ SPECS: tuple[Opt, ...] = (
     Opt("BAIDU_SEARCH_TIMEOUT", "int", 45, "搜索", "秒;调用点已有 max(5, ...) 兜底"),
     # ── 渠道 ────────────────────────────────────────────────────────────────
     Opt("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "csv", "", "渠道",
-        "逗号分隔的可信发送者 id"),
+        "逗号分隔的可信发送者:<id> / <channel>:<id> / <channel>:*"),
+    Opt("FOXCLAW_CHANNEL_TRUST_ALL", "str", "", "渠道",
+        "1/true 才让裸 `*` 生效(全局信任,不推荐)"),
     Opt("FOXCLAW_CHANNEL_SIGNING_SECRET", "str", "", "渠道",
         "出站 HMAC 密钥;留空 = 不签", secret=True),
     Opt("FOXCLAW_CHANNEL_SIGNING_KEY_ID", "str", "", "渠道", "密钥轮换标识"),

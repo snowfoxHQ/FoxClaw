@@ -10,6 +10,7 @@ import json
 import os
 import math
 import re
+import time
 import hashlib
 import threading
 from pathlib import Path
@@ -370,16 +371,30 @@ class VectorStore:
         tmp_vec = vec_path.with_suffix(".tmp")
         tmp_meta = meta_path.with_suffix(".tmp")
 
-        with open(tmp_vec, "w") as f:
+        # 必须显式 utf-8：不指定时 Py3 在 Windows 简体中文环境按 cp936 落盘，
+        # 而 metadata 里含中文标题/摘要（ensure_ascii=False），写出的是 GBK 字节。
+        # 一旦有进程以 UTF-8 模式运行（-X utf8 / PYTHONUTF8=1）就读不回来。
+        with open(tmp_vec, "w", encoding="utf-8") as f:
             json.dump(self.vectors, f)
-        with open(tmp_meta, "w") as f:
+        with open(tmp_meta, "w", encoding="utf-8") as f:
             json.dump(self.metadata, f, ensure_ascii=False, indent=2)
 
         tmp_vec.replace(vec_path)
         tmp_meta.replace(meta_path)
 
     def _load_from_disk(self):
-        """启动时从磁盘加载向量"""
+        """启动时从磁盘加载向量。
+
+        历史缺陷：读写两侧都没指定 encoding。Windows 简体中文环境下 open() 默认
+        cp936，metadata（含中文标题/摘要）以 GBK 落盘；之后只要有进程以 UTF-8 模式
+        运行（-X utf8 / PYTHONUTF8=1）读取就解码失败 → 走进 except 把 vectors 和
+        metadata 清空 → 下一次 add 触发 _save_to_disk，用空集覆盖磁盘。
+        症状是"召回突然失灵，但记忆文件看着都还在"，且真实向量已不可恢复。
+
+        现在：写入统一 UTF-8；读取按 utf-8 → gbk 依次尝试（兼容历史 GBK 文件）；
+        仍然读不出来就把原文件改名留存，再以空索引启动 —— 宁可少加载，也不让
+        空集静默盖掉原数据。
+        """
         if not self.storage_path:
             return
 
@@ -388,15 +403,87 @@ class VectorStore:
 
         if vec_path.exists() and meta_path.exists():
             try:
-                with open(vec_path, "r") as f:
-                    self.vectors = json.load(f)
-                with open(meta_path, "r") as f:
-                    self.metadata = json.load(f)
+                self.vectors = self._read_json_file(vec_path)
+                self.metadata = self._read_json_file(meta_path)
                 print(f"[HMR VectorStore] 从磁盘加载 {len(self.vectors)} 条向量")
             except Exception as e:
-                print(f"[HMR VectorStore] 加载失败，从空开始: {e}")
-                self.vectors = {}
-                self.metadata = {}
+                kept = self._quarantine_unreadable(vec_path, meta_path)
+                print(f"[HMR VectorStore] ⚠ 加载失败({e.__class__.__name__}: {e})，"
+                      f"原文件已留存为 {kept}，本次以空索引启动")
+
+    def purge_incompatible(self, dimension: int) -> bool:
+        """丢弃维度与当前模型不符的向量（换 embedding 模型后），返回是否发生丢弃。
+
+        为什么必须主动清：换模型后旧向量照常从磁盘加载，但 _cosine_similarity 对
+        长度不等的一律 return 0.0 —— 表现是"召回有条目、分数全 0、排序随机"，
+        既不报错也不为空，是最难发现的一种失效。清空前把原文件改名保留，
+        回滚只需把 env 改回去、再把备份改回原名。
+        """
+        if not self.vectors:
+            return False
+
+        stale_dims = sorted({len(v) for v in self.vectors.values()
+                             if len(v) != dimension})
+        if not stale_dims:
+            return False
+
+        count = sum(1 for v in self.vectors.values() if len(v) in stale_dims)
+
+        kept = ""
+        if self.storage_path:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            tag = "dim" + "-".join(str(d) for d in stale_dims)
+            names = []
+            for name in ("vectors.json", "vector_metadata.json"):
+                p = self.storage_path / name
+                if not p.exists():
+                    continue
+                target = p.with_name(f"{p.name}.{tag}-{stamp}")
+                try:
+                    p.rename(target)
+                    names.append(target.name)
+                except OSError:
+                    pass
+            kept = ", ".join(names)
+
+        with self._lock:
+            self.vectors.clear()
+            self.metadata.clear()
+
+        print(f"[HMR VectorStore] ⚠ 旧向量维度 {stale_dims} ≠ 当前模型 {dimension}，"
+              f"已清空 {count} 条" + (f"（原文件备份: {kept}）" if kept else ""))
+        return True
+
+    # 历史文件可能是 cp936 写出的，读取时按序试；不做 latin-1 兜底 —— 它能把任意
+    # 损坏字节解成乱码并"成功"解析，反而掩盖问题，让乱码随后覆盖真实数据。
+    _READ_ENCODINGS = ("utf-8", "gbk")
+
+    @classmethod
+    def _read_json_file(cls, path: Path):
+        last_err: Optional[Exception] = None
+        for enc in cls._READ_ENCODINGS:
+            try:
+                with open(path, "r", encoding=enc) as f:
+                    return json.load(f)
+            except Exception as e:      # UnicodeDecodeError / JSONDecodeError 都是 ValueError
+                last_err = e
+        raise last_err
+
+    @staticmethod
+    def _quarantine_unreadable(vec_path: Path, meta_path: Path) -> str:
+        """把读不了的文件改名保留，供事后人工恢复；返回结果描述。"""
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        kept = []
+        for p in (vec_path, meta_path):
+            if not p.exists():
+                continue
+            target = p.with_name(f"{p.name}.unreadable-{stamp}")
+            try:
+                p.rename(target)
+                kept.append(target.name)
+            except OSError:
+                pass
+        return ", ".join(kept) or "(备份失败，原文件可能被占用)"
 
     # -------------------------------------------------------------------------
     # 工具方法

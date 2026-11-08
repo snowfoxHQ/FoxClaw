@@ -2,20 +2,20 @@
   /* 品牌三色（与 Foxclaw 统一）*/
   --green:    #2c9678;   /* 主操作：搜索/编译按钮、覆盖度进度条、active Claim */
   --klein:    #002FA7;   /* 数据强调：选中节点、链接、Evidence 引用、置信度数值 */
-  --canvas:   #DADFE2;   /* 画布背景、卡片底色 */
+  --canvas:   #f1f4ef;   /* 卡片/交互底色（对齐主界面 surface-2） */
 
-  /* 三栏背景 */
-  --bar-left:   #002FA7;  /* 左功能栏：克莱因蓝 */
-  --bar-mid:    #DADFE2;  /* 中知识图谱：浅灰 */
-  --bar-right:  #373834;  /* 右词条详情：深炭 */
+  /* 三栏背景：左、右取主界面左栏/中栏的绿，中栏图谱保持原样 */
+  --bar-left:   #d7e8d0;  /* 左功能栏：= 主界面左栏 */
+  --bar-mid:    #DADFE2;  /* 中知识图谱：不动 */
+  --bar-right:  #eef7e8;  /* 右词条详情：= 主界面中间栏 */
 
-  /* 深色背景(左栏蓝 / 右栏炭)上的前景色 */
-  --on-dark:     #f3f5f9;   /* 深色栏主文字 */
-  --on-dark-2:   rgba(243,245,249,.66);  /* 深色栏次文字 */
-  --on-dark-3:   rgba(243,245,249,.40);  /* 深色栏弱文字 */
-  --on-dark-line:rgba(255,255,255,.14);  /* 深色栏分隔线 */
-  --klein-bright:#7d97ff;   /* 蓝在深炭底上提亮版：置信度数值/Evidence 等"要被注意的数据" */
-  --green-bright:#46c79f;   /* 绿在深色底上提亮版 */
+  /* 左右两栏现在都是浅色底，前景色走主界面同一套墨绿系 */
+  --on-dark:     #17201a;
+  --on-dark-2:   #3f4c42;
+  --on-dark-3:   #65716a;
+  --on-dark-line:rgba(23,32,26,.12);
+  --klein-bright:#002FA7;   /* 深底提亮色在新浅底上一律回落到本色 */
+  --green-bright:#2c9678;
 
   /* 派生（仅明度/透明度变体，不引入新色相） */
   --green-d:  #1f6e58;
@@ -27,12 +27,12 @@
   --klein-12: rgba(0,47,167,.12);
   --klein-20: rgba(0,47,167,.20);
 
-  /* 中性 */
-  --ink:      #1a1d24;   /* 主文字（非纯黑） */
-  --ink-2:    #555b66;   /* 次文字 */
-  --ink-3:    #8b909b;   /* 弱文字 */
-  --line:     #c4ccd2;   /* 边框（配合更深的画布灰）*/
-  --line-2:   #d0d6db;
+  /* 中性（墨绿系，与主界面左/中栏文字同一套） */
+  --ink:      #17201a;   /* 主文字（非纯黑） */
+  --ink-2:    #3f4c42;   /* 次文字 */
+  --ink-3:    #65716a;   /* 弱文字 */
+  --line:     rgba(23,32,26,.10);   /* 边框：半透明,落在绿底上不显脏 */
+  --line-2:   rgba(23,32,26,.06);
   --white:    #ffffff;
 
   /* 冲突警示（功能性破例，低饱和暗红） */
@@ -62,7 +62,7 @@ body{
 /* ── 顶栏 ── */
 .topbar{
   height:60px;flex-shrink:0;
-  background:var(--white);
+  background:var(--bar-left);           /* 与左栏同色,顶栏和功能区分层靠边框而非色差 */
   border-bottom:1px solid var(--line);
   display:flex;
   align-items:center;
@@ -86,6 +86,19 @@ body{
 .brand .sub{color:var(--ink-3);font-weight:500;font-size:12px;
   border-left:1px solid var(--line);padding-left:10px;}
 .brand .ver{color:var(--ink-3);font-weight:600;font-size:11px;opacity:.65;letter-spacing:.02em}
+
+/* 返回主界面(顶栏右侧)。brand 已可收缩,此按钮不缩,保证窄屏也在 */
+.home-link{
+  display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+  height:30px;padding:0 11px;border-radius:8px;
+  font-size:12px;font-weight:600;letter-spacing:.01em;
+  color:var(--ink-2);background:#fff;border:1px solid var(--line);
+  text-decoration:none;white-space:nowrap;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.home-link:hover{color:var(--ink);border-color:var(--green);background:var(--canvas)}
+.home-link:active{transform:translateY(1px)}
+.home-link svg{flex-shrink:0}
 
 /* 搜索 */
 .search-wrap{flex:1;display:flex;gap:10px;align-items:center;max-width:680px}
@@ -148,9 +161,9 @@ body{
 }
 /* 三栏外壳 */
 .col{display:flex;flex-direction:column;overflow:hidden;min-height:0}
-.col-left{background:var(--canvas);color:var(--ink)}
+.col-left{background:var(--bar-left);color:var(--ink)}
 .col-mid{background:var(--bar-mid)}
-.col-right{background:var(--canvas);color:var(--ink)}
+.col-right{background:var(--bar-right);color:var(--ink)}
 
 /* ── 左栏：功能区(深蓝) ── */
 .side-scroll{flex:1;overflow-y:auto;padding:18px 16px;display:flex;flex-direction:column;gap:22px;min-height:0}
@@ -209,19 +222,18 @@ body{
   backdrop-filter:blur(8px);transition:all .15s}
 .graph-fit:hover{color:#fff;background:rgba(20,28,40,.82)}
 
-/* 右栏标题条 + 深炭适配 */
-/* 右栏标题条:克莱因蓝底(与中栏绿对冲) */
-.col-right .panel-head{background:var(--klein);border-bottom:none}
-.col-right .panel-head h2{color:#fff}
-.col-right .panel-head .icon-btn{color:rgba(255,255,255,.85)}
-.col-right .panel-head .icon-btn:hover{background:rgba(255,255,255,.18);color:#fff}
-.icon-btn-dark{color:var(--on-dark-2)}
-.icon-btn-dark:hover{background:rgba(255,255,255,.10);color:var(--on-dark)}
+/* 右栏标题条：浅底墨字（与左栏顶栏同一套），不再用克莱因蓝满铺 */
+.col-right .panel-head{background:rgba(255,255,255,.55);border-bottom:1px solid var(--line)}
+.col-right .panel-head h2{color:var(--ink-2)}
+.col-right .panel-head .icon-btn{color:var(--ink-2)}
+.col-right .panel-head .icon-btn:hover{background:var(--canvas);color:var(--ink)}
+.icon-btn-dark{color:var(--ink-2)}
+.icon-btn-dark:hover{background:var(--line-2);color:var(--ink)}
 .col-right #wiki-body{flex:1;overflow-y:auto;padding:18px;min-height:0}
 .col-right .wiki-empty{color:var(--ink-3)}
 .col-right .wiki-empty svg{color:var(--ink-3);opacity:.5}
 
-/* ── 左栏(深蓝)内的卡片深色适配 ── */
+/* ── 左栏（浅绿底）内的卡片适配 ── */
 /* 能力卡片:纵向堆叠 + 半透明白底 */
 .col-left #ability-body{
   padding:0;display:flex;flex-direction:column;gap:10px;
@@ -255,17 +267,17 @@ body{
 .col-left .cc-claim-txt{color:var(--ink)}
 .col-left .cc-claim-conf{color:var(--klein)}        /* 置信度数值:克莱因蓝 */
 .col-left .cc-vs{color:var(--ink-3)}
-.col-left .count{background:rgba(0,0,0,.06);color:var(--ink-2)}
+.col-left .count{background:rgba(255,255,255,.72);color:var(--ink-2)}
 .col-left .count-alert{background:rgba(176,65,62,.12);color:var(--alert)}
 
-/* ── 右栏(深炭)词条详情深色适配 ── */
+/* ── 右栏（浅绿底）词条详情适配 ── */
 .col-right .wiki-title{color:var(--ink)}
 .col-right .wiki-domain{color:var(--ink-3)}
 .col-right .wiki-summary{color:var(--ink-2)}
 .col-right .wiki-section h4{color:var(--ink-3)}
 /* 原文段落 + 书关键词 */
 .wiki-source{margin-top:6px;font-size:13px;line-height:1.8;color:var(--ink-1,#1d2129);
-  background:rgba(44,150,120,.07);border-left:3px solid var(--green);
+  background:rgba(44,150,120,.10);border-left:3px solid var(--green);
   padding:12px 14px;border-radius:0 8px 8px 0;
   height:auto;max-height:460px;overflow-y:auto;  /* 自适应内容:短则小,长则大,超长才滚动 */
   white-space:pre-wrap;word-break:break-word}

@@ -20,13 +20,16 @@ from contextlib import asynccontextmanager
 # (3) FOXCLAW_DATA_DIR=./foxclaw_data 会让测试写进用户的真实数据目录。
 # 设 FOXCLAW_SKIP_DOTENV=1 后,进程环境变量成为唯一来源,测试环境完全自洽。
 try:
-    from dotenv import load_dotenv
+    from ..core.envfile import load_env_file
     _env_path = Path(__file__).parent.parent.parent / ".env"
     if os.environ.get("FOXCLAW_SKIP_DOTENV", "").strip() in ("1", "true", "True", "yes"):
         print("[Foxclaw] ○ FOXCLAW_SKIP_DOTENV=1 —— 跳过 .env,仅用进程环境变量")
     elif _env_path.exists():
-        load_dotenv(_env_path)
+        # 非空值优先:系统环境变量里的同名旧 key 不再压住 .env(见 core/envfile.py)
+        _shadows = load_env_file(_env_path)
         print("[Foxclaw] ✓ 已加载配置文件 .env")
+        if _shadows:
+            print("[Foxclaw] ! .env 覆盖了系统环境变量: " + ", ".join(_shadows))
 except ImportError:
     pass  # 未装 python-dotenv 则用系统环境变量
 

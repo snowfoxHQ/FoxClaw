@@ -145,7 +145,7 @@ def _rebuild_skill(sd: dict):
     return SimpleNamespace(
         id=sd.get("id", ""),
         kind=sd.get("kind", "local"),
-        side_effect=sd.get("side_effect", "read"),
+        side_effect=sd.get("side_effect", "write"),     # 未声明 → 有副作用
         destructive=bool(sd.get("destructive", False)),
         external=bool(sd.get("external", False)),
         read_only=sd.get("read_only", None),

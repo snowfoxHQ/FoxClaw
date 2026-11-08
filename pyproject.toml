@@ -81,6 +81,9 @@ browser = ["playwright>=1.44.0"]
 # google.generativeai;未装则该分支 ImportError(其余 provider 不受影响)。此前只在
 # 文档里写「pip install google-generativeai」,依赖表无对应声明,属 R1 检测出的缺口。
 gemini = ["google-generativeai>=0.8"]
+# 自定义模型 API key 存 OS 凭据库(Windows DPAPI / macOS Keychain / Linux Secret
+# Service)。未装则回退 base64 混淆(防 grep,非加密),见 core/secrets.py。
+keyring = ["keyring>=24.0"]
 # 知识核心(HKC,vendor/hkc)。核心运行时依赖;缺失时 /api/knowledge/* 优雅降级。
 # 真实语义向量另需 sentence-transformers+faiss(已随本体);文件摄入见 knowledge-files。
 knowledge = ["networkx>=3.0", "rank-bm25>=0.2", "aiofiles>=23.0", "requests>=2.31"]
@@ -132,8 +135,10 @@ python_files = [
     "test_api_auth.py",
     "test_api_host_guard.py",
     "test_attachments.py",
+    "test_audit_chain.py",
     "test_audit_sink.py",
     "test_browser.py",
+    "test_browser_request_guard.py",
     "test_capabilities.py",
     "test_channel_signing.py",
     "test_channel_trust.py",
@@ -164,6 +169,7 @@ python_files = [
     "test_hkc_index_build_manager.py",
     "test_hkc_manifest_reuse.py",
     "test_hkc_search_event_sync.py",
+    "test_import_path_guard.py",
     "test_injection_guard.py",
     "test_integration.py",
     "test_itinerary.py",
@@ -176,6 +182,7 @@ python_files = [
     "test_mcp_connectors.py",
     "test_mcp_guardian_discovery.py",
     "test_mcp_no_memory.py",
+    "test_mcp_policy_gate.py",
     "test_mcp_server.py",
     "test_memory_recall.py",
     "test_metrics.py",
@@ -201,6 +208,9 @@ python_files = [
     "test_settings.py",
     "test_shadow_learning.py",
     "test_shared_write.py",
+    "test_envfile.py",
+    "test_secrets.py",
+    "test_skill_taint_gate.py",
     "test_skills.py",
     "test_stats_and_events.py",
     "test_streaming.py",

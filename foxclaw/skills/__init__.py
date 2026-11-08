@@ -44,8 +44,10 @@ class SkillSpec:
     description: str
     kind: SkillKind = "local"
     triggers: list = field(default_factory=list)     # 触发关键词
-    side_effect: SideEffect = "read"                 # 副作用级别 → 守门人据此裁决
-    destructive: bool = False                         # 是否不可逆操作(Fail-closed 默认 False)
+    # 【fail-closed】未声明 = 按有副作用处理。漏写一行不该等于「放行」:
+    # 工具侧 core/tools.py 的未声明能力兜底为 write+external → 强制确认,这里对齐同一口径。
+    side_effect: SideEffect = "write"                # read/write/send/pay → 守门人据此裁决
+    destructive: bool = False                         # 不可逆操作(read_only 一票否决);write 已触发确认
     external: bool = False                             # 是否调用外部服务(联网/API)
     read_only: Optional[bool] = None                  # 是否只读(None=按 side_effect 推断)
     params: dict = field(default_factory=dict)        # 参数 schema
@@ -216,19 +218,26 @@ class SkillAdapter:
 
     def invoke(self, skill: SkillSpec, args: dict,
                confirmed: bool = False, mode: str = "strict",
-               confirm_nonce: str = "") -> SkillResult:
+               confirm_nonce: str = "", taint_level: int = 0,
+               taint_threshold: int = 0) -> SkillResult:
         """调用 skill:pre钩子 → 权限管线 → 断路器 → 执行 → 记账 → post/error钩子。
 
         `confirm_nonce`:关键操作(send/pay/destructive)的二次确认码。注入了
         `confirms` 时,`confirmed=True` **必须**配一个有效 nonce 才放行;缺/错/过期
         → 退回 needs_confirmation 并签发新码(见 core.confirm_nonce)。
+
+        `taint_level`/`taint_threshold`:会话污点与触发阈值(默认 0 = 关闭)。此前技能路径
+        不带污点,permission.evaluate 的 Stage 3.5 形同虚设 → 「知识库/记忆被取回后经技能
+        外发」少一道闸。调用方(agents/mixins/skillbox.py)按 `_taint_get(agent)` 传入。
         """
         from .permission import evaluate
         from foxclaw.core.tracing import span as _span
         args = args or {}
         with _span("skill.invoke", id=skill.id, kind=skill.kind):
             return self._invoke_inner(skill, args, confirmed, mode, evaluate,
-                                      confirm_nonce=confirm_nonce)
+                                      confirm_nonce=confirm_nonce,
+                                      taint_level=taint_level,
+                                      taint_threshold=taint_threshold)
 
     def _audit_terminal(self, skill: SkillSpec, verdict, outcome: str,
                         reason: str, detail: dict = None) -> None:
@@ -249,7 +258,8 @@ class SkillAdapter:
 
     def _invoke_inner(self, skill: SkillSpec, args: dict,
                       confirmed: bool, mode: str, evaluate,
-                      confirm_nonce: str = "") -> SkillResult:
+                      confirm_nonce: str = "", taint_level: int = 0,
+                      taint_threshold: int = 0) -> SkillResult:
 
         # —— 全局封杀策略(deny 压倒一切,kill-switch:所有结构化技能执行的唯一咽喉)——
         pol = self.skill_policy
@@ -274,7 +284,7 @@ class SkillAdapter:
         # 无效/缺失 → 降级为**未确认**,走 ask 并签发新码(绝不静默放行)。
         from ..core.confirm_nonce import is_critical as _is_critical
         _session = _loop_session.get() or ""
-        _critical = _is_critical(getattr(skill, "side_effect", "read"),
+        _critical = _is_critical(getattr(skill, "side_effect", "write"),
                                  bool(getattr(skill, "destructive", False)))
         _nonce_reject = ""
         if self.confirms is not None and _critical and confirmed:
@@ -291,11 +301,13 @@ class SkillAdapter:
         verdict = None
         if self.policy_gate is not None:
             verdict = self.policy_gate.check_action(
-                skill, args, rules=self.rules, confirmed=confirmed, mode=mode)
+                skill, args, rules=self.rules, confirmed=confirmed, mode=mode,
+                taint_level=taint_level, taint_threshold=taint_threshold)
             decision = verdict.raw
         else:
             decision = evaluate(skill, args, rules=self.rules,
-                                confirmed=confirmed, mode=mode)
+                                confirmed=confirmed, mode=mode,
+                                taint_level=taint_level, taint_threshold=taint_threshold)
         if decision.decision == "deny":
             return SkillResult(skill.id, False, status="blocked",
                 message=f"权限拒绝(阶段{decision.stage}): {decision.reason}")

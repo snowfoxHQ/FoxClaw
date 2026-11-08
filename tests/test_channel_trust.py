@@ -85,7 +85,25 @@ def test_trusted_message_passes_through_verbatim(monkeypatch) -> None:
     assert ctx["sender_trusted"] is True
 
 
-@pytest.mark.parametrize("raw", ["*"])
-def test_wildcard_trusts_channel(monkeypatch, raw) -> None:
+@pytest.mark.parametrize("raw", ["telegram:*"])
+def test_channel_wildcard_trusts_channel(monkeypatch, raw) -> None:
+    """`channel:*` = 该渠道下所有发送者可信(推荐写法,范围一眼可见)。"""
     monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", raw)
+    assert ChannelDispatcher._sender_trusted(_msg("anyone")) is True
+    assert ChannelDispatcher._sender_trusted(
+        InboundMessage(channel="wechat", message_id="m1", text="x",
+                       sender_id="anyone", conversation_id="c1")) is False
+
+
+def test_bare_wildcard_requires_explicit_optin(monkeypatch) -> None:
+    """裸 `*` 不再等于「谁都可信」:必须 FOXCLAW_CHANNEL_TRUST_ALL=1 显式确认。
+
+    它看起来和 `u42` 差不多长,实际是「所有渠道所有发送者」——一次手滑就把外部用户
+    全提成指令源,而配置里读不出这个差别。
+    """
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "*")
+    monkeypatch.delenv("FOXCLAW_CHANNEL_TRUST_ALL", raising=False)
+    assert ChannelDispatcher._sender_trusted(_msg("anyone")) is False
+
+    monkeypatch.setenv("FOXCLAW_CHANNEL_TRUST_ALL", "1")
     assert ChannelDispatcher._sender_trusted(_msg("anyone")) is True

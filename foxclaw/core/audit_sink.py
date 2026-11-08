@@ -32,6 +32,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from . import audit_chain
+
 ENV_SWITCH = "FOXCLAW_SHARED_WRITE_AUDIT"
 AUDIT_DIR = "audit"
 AUDIT_FILE = "shared_write.jsonl"
@@ -48,6 +50,7 @@ class SharedWriteAuditSink:
     def __init__(self, path: Path):
         self.path = Path(path)
         self._lock = threading.Lock()
+        self._last_hash: str | None = None    # 链尾,首次写时从文件尾部补齐
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def __call__(self, evt):  # EventSpine.subscribe 的 handler 形态:handler(event)
@@ -58,10 +61,13 @@ class SharedWriteAuditSink:
                 "correlation_id": getattr(evt, "correlation_id", ""),
                 "payload": evt.payload,
             }
-            line = json.dumps(rec, ensure_ascii=False, default=str)
             with self._lock:
+                if self._last_hash is None:
+                    self._last_hash = audit_chain.tail_hash(self.path)
+                rec = audit_chain.link(rec, self._last_hash)
                 with open(self.path, "a", encoding="utf-8") as f:
-                    f.write(line + "\n")
+                    f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+                self._last_hash = rec["hash"]
         except Exception:
             pass  # 审计失败绝不影响写入主流程
 
@@ -79,6 +85,10 @@ class SharedWriteAuditSink:
             except Exception:
                 continue
         return out
+
+    def verify(self) -> tuple:
+        """校验落盘链 → (ok, 条数, 问题)。"""
+        return audit_chain.verify(self.path)
 
 
 def attach(spine, data_dir):

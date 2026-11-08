@@ -386,7 +386,7 @@ class ModelRouter:
     def _build_custom_client(self, name: str):
         """从 ``custom_models.json`` 读 + 构造 OpenAI client。
         返回 ``(client_or_None, model, error_str)``。"""
-        import base64 as _b64
+        from . import secrets as _secrets
         p = self._custom_models_path()
         if not p.exists():
             return None, "", "custom_models.json 不存在"
@@ -397,14 +397,8 @@ class ModelRouter:
         match = next((m for m in models if m.get("name") == name), None)
         if not match:
             return None, "", f"未找到自定义模型: {name}"
-        # key 反混淆(base64);兼容旧的明文字段
-        key_obf = match.get("api_key_obf", "") or ""
-        key = ""
-        if key_obf:
-            try:
-                key = _b64.b64decode(key_obf.encode()).decode()
-            except Exception:
-                key = ""
+        # key:OS 凭据库优先,回退 base64(旧记录)/ 更早的明文字段
+        key = _secrets.load(name, match.get("api_key_obf", "") or "")
         if not key:
             key = match.get("api_key", "") or ""
         if not key:

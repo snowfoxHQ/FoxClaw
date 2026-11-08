@@ -14,6 +14,7 @@ from fastapi import HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 import foxclaw.api as _api
+from foxclaw.core.paths import resolve_import_path
 from .. import app
 
 
@@ -22,6 +23,19 @@ from .. import app
 class ImportPayload(BaseModel):
     csv_path: Optional[str] = None
     rows: Optional[list] = None     # 也可直接传记录数组
+
+
+def _resolve_csv_path(raw: str) -> str:
+    """把请求里的 csv_path 收敛到允许目录内(默认 FOXCLAW_DATA_DIR)。
+
+    此前 csv_path 原样进 import_csv → open(),等于给 HTTP 面开放「读本机任意文件」,
+    且内容会落入知识库/账本再从 /api 读回。库调用(CLI/测试/示例)不走这里:
+    那是本地可信代码,本身就有文件权限,加限制只破坏用法不增加安全。
+    """
+    try:
+        return str(resolve_import_path(raw))
+    except ValueError as e:
+        raise HTTPException(400, f"csv_path 不允许: {e}")
 
 
 @app.get("/api/finance/analysis")
@@ -39,9 +53,10 @@ async def finance_analysis(period: Optional[str] = None,
 async def finance_import(p: ImportPayload):
     """导入交易数据(CSV 路径或记录数组)。"""
     rt = _api._os_instance.finance_runtime
+    src = _resolve_csv_path(p.csv_path) if p.csv_path else ""
     try:
-        if p.csv_path:
-            n = rt.import_csv(p.csv_path)
+        if src:
+            n = rt.import_csv(src)
         elif p.rows:
             from foxclaw.finance import Transaction
             n = 0
@@ -120,9 +135,10 @@ async def learning_import(p: ImportPayload):
     """导入知识点(办公学习内核)。learn() 内部已把内容存进 HKC(连续 ConceptKU,知识真源),
     不再另做桥接。"""
     rt = _api._os_instance.learning_runtime
+    src = _resolve_csv_path(p.csv_path) if p.csv_path else ""
     try:
-        if p.csv_path:
-            n = rt.import_csv(p.csv_path)
+        if src:
+            n = rt.import_csv(src)
         elif p.rows:
             n = 0
             for row in p.rows:
@@ -171,9 +187,10 @@ async def itinerary_plan(mode: str = "driving"):
 async def itinerary_import(p: ImportPayload):
     """导入行程点。"""
     rt = _api._os_instance.itinerary_runtime
+    src = _resolve_csv_path(p.csv_path) if p.csv_path else ""
     try:
-        if p.csv_path:
-            n = rt.import_csv(p.csv_path)
+        if src:
+            n = rt.import_csv(src)
         elif p.rows:
             n = 0
             for row in p.rows:

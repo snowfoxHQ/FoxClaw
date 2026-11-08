@@ -10,7 +10,7 @@
     .then(THREE => { window.THREE = THREE; window.dispatchEvent(new Event('three-ready')); })
     .catch(e => { window.__threeLoadError = String(e); console.error('Three.js 加载失败', e); });
 </script>
-<link rel="stylesheet" href="./planet.css?v=1.0">
+<link rel="stylesheet" href="./planet.css?v=1.2">
 </head>
 <body>
 <div class="layout">
@@ -22,6 +22,10 @@
         <span>Foxclaw Knowledge Core</span>
         <span class="ver" id="app-ver">v1.0</span>
       </div>
+      <a class="home-link" href="/" id="btn-home" title="返回 Foxclaw 主界面">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+        主界面
+      </a>
     </div>
     <div class="side-scroll">
       <!-- 搜索 -->
@@ -232,5 +236,31 @@
 <div id="toast-wrap"></div>
 
 <script src="./planet.js?v=1.0"></script>
+<script>
+  // 返回主界面。三种宿主环境要分别处理,否则会出怪现象:
+  // ① 旧界面 deck_v2(/classic)是把星球塞进整页 iframe 浮层 —— 此时 href="/" 会在浮层内部
+  //    再套一层主界面,必须让父窗口把浮层关掉。
+  // ② 当前主界面 v3 用 window.open 新标签打开星球 —— 能关掉这个标签就回到原来那个主界面。
+  // ③ 直接输地址打开 —— 走 href="/" 正常跳转。
+  (function () {
+    var a = document.getElementById('btn-home');
+    if (!a) return;
+    a.addEventListener('click', function (e) {
+      if (window.self !== window.top) {
+        e.preventDefault();
+        try {
+          if (typeof window.parent.closePlanet === 'function') { window.parent.closePlanet(); return; }
+        } catch (err) {}
+        try { window.top.location.href = '/'; } catch (err) {}
+        return;
+      }
+      if (window.opener && !window.opener.closed) {
+        e.preventDefault();
+        try { window.close(); } catch (err) {}
+        setTimeout(function () { window.location.href = '/'; }, 80);
+      }
+    });
+  })();
+</script>
 </body>
 </html>

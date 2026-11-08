@@ -99,6 +99,10 @@ class ChannelDispatcher:
         # 白名单、无 <untrusted> 包裹)。可信发送者用 FOXCLAW_CHANNEL_TRUSTED_SENDERS
         # 显式声明,逗号分隔,支持 `sender_id` 或 `channel:sender_id`,`*` 为该渠道全信任。
         context["sender_trusted"] = self._sender_trusted(msg)
+        # 下传给权限判定:不可信来源驱动的任务里,写/发送/外发动作一律按「已接触敏感数据」
+        # 处理(见 agents/_context._untrusted_get → tool_exec._guard_tool / skillbox)。
+        # 只影响带此键的入口(渠道),本地 HTTP 对话不带 → 行为不变。
+        context["untrusted_source"] = not context["sender_trusted"]
         text = msg.text
         if not context["sender_trusted"]:
             from ..core.injection_guard import wrap_untrusted
@@ -137,10 +141,20 @@ class ChannelDispatcher:
             return False
         sid = str(getattr(msg, "sender_id", "") or "")
         chan = str(getattr(msg, "channel", "") or "")
+        # 裸 `*` 曾等于「所有渠道的所有发送者都可信」——一次手滑就把任意外部聊天用户提成
+        # 指令源,而列表里看不出它比 channel:sender_id 宽多少。现在必须二选一:
+        # 写 `channel:*`(限定渠道,推荐),或用 FOXCLAW_CHANNEL_TRUST_ALL=1 显式确认全局信任。
+        trust_all = _os.environ.get("FOXCLAW_CHANNEL_TRUST_ALL", "").strip() in ("1", "true", "True")
         for item in (x.strip() for x in raw.split(",")):
             if not item:
                 continue
-            if item == "*" or item == sid or item == f"{chan}:{sid}":
+            if item == "*":
+                if trust_all:
+                    return True
+                continue
+            if item == sid or item == f"{chan}:{sid}":
+                return True
+            if chan and item == f"{chan}:*":
                 return True
         return False
 

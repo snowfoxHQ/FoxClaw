@@ -41,6 +41,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import audit_chain
+
 ENV_SWITCH = "FOXCLAW_GOVERNANCE_AUDIT"
 TOPIC = "governance.decision"
 
@@ -69,6 +71,8 @@ class GovernanceAuditor:
         self._spine = spine
         self._path = Path(sink_path) if sink_path else None
         self._lock = threading.Lock()
+        # 链尾 hash:首次落盘时从文件尾部补齐(重启后接着上一条链,而不是重开 GENESIS)
+        self._last_hash: str | None = None
 
     @property
     def path(self) -> Path | None:
@@ -111,13 +115,22 @@ class GovernanceAuditor:
             pass
 
     def _persist(self, rec: dict) -> None:
+        """落盘时接哈希链(见 core/audit_chain.py):改一行/删中间一行都能被 verify 发现。
+
+        事件通道仍发**不带链字段**的原始 rec —— 前端只关心裁决内容,而链是落盘证据;
+        两个通道内容不同是有意的,别拿 WS 事件当真伪校验的依据。
+        """
         if self._path is None:
             return
         try:
             with self._lock:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
+                if self._last_hash is None:
+                    self._last_hash = audit_chain.tail_hash(self._path)
+                chained = audit_chain.link(rec, self._last_hash)
                 with open(self._path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                    f.write(json.dumps(chained, ensure_ascii=False) + "\n")
+                self._last_hash = chained["hash"]
         except Exception:
             pass
 
@@ -139,6 +152,15 @@ class GovernanceAuditor:
         except Exception:
             return []
         return out[-limit:][::-1]
+
+    def verify(self) -> tuple:
+        """校验落盘链 → (ok, 条数, 问题)。无落盘时视为通过。
+
+        用法:`python -m foxclaw.core.audit_chain {data_dir}/audit/governance.jsonl`。
+        """
+        if self._path is None:
+            return True, 0, ""
+        return audit_chain.verify(self._path)
 
 
 def attach(spine, data_dir) -> GovernanceAuditor | None:

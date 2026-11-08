@@ -216,7 +216,7 @@ def _is_read_only(skill) -> bool:
     ro = getattr(skill, "read_only", None)
     if ro is not None:
         return bool(ro)
-    return (getattr(skill, "side_effect", "read") == "read"
+    return (getattr(skill, "side_effect", "write") == "read"
             and not getattr(skill, "destructive", False))
 
 

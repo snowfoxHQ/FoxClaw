@@ -174,6 +174,35 @@ _GATEWAY = Gateway(
 _MAX_BODY = settings.get_int("FOXCLAW_MAX_BODY_MB") * 1024 * 1024
 
 
+class _PayloadTooLarge(Exception):
+    """请求体在**流上**超限:Content-Length 缺失或撒谎(如 chunked 传输)。"""
+
+    def __init__(self, size: int):
+        super().__init__(size)
+        self.size = size
+
+
+def _wrap_body_limit(request, max_bytes: int) -> None:
+    """给 `request.receive` 套一层累计计数。
+
+    `Content-Length` 只是**声明值**:chunked 或不带该头时上游可以无限发,只查头等于没拦。
+    头检查保留(不读流就能拒掉绝大多数),这里对流兜底,两道都要。
+    """
+    original = request.receive
+    received = 0
+
+    async def _receive():
+        nonlocal received
+        msg = await original()
+        if msg.get("type") == "http.request":
+            received += len(msg.get("body") or b"")
+            if received > max_bytes:
+                raise _PayloadTooLarge(received)
+        return msg
+
+    request._receive = _receive
+
+
 def _gateway_on() -> bool:
     """网关是否启用。沿用鉴权哲学:配了 FOXCLAW_API_KEY(=对外暴露)才自动开;
     FOXCLAW_GATEWAY=1 强制开、=0 强制关。每请求读环境变量(运行时可配 + 便于测试)。"""
@@ -198,6 +227,8 @@ async def _gateway_mw(request, call_next):
             from fastapi.responses import JSONResponse
             return JSONResponse(
                 {"error": f"payload too large (>{_MAX_BODY // 1048576}MB)"}, status_code=413)
+        # chunked / 无 Content-Length:靠流上累计兜底(头检查只是快路径)
+        _wrap_body_limit(request, _MAX_BODY)
     # ② per-client 限流 + 配额(网关启用时)
     if guarded and _gateway_on():
         valid = os.environ.get("FOXCLAW_API_KEY", "").strip()
@@ -212,7 +243,12 @@ async def _gateway_mw(request, call_next):
             return JSONResponse(
                 {"error": f"rate limited ({reason})", "retry_after": retry},
                 status_code=429, headers={"Retry-After": str(retry)})
-    return await call_next(request)
+    try:
+        return await call_next(request)
+    except _PayloadTooLarge:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"error": f"payload too large (>{_MAX_BODY // 1048576}MB)"}, status_code=413)
 
 
 async def _trace_mw(request, call_next):

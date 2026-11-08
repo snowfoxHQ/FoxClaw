@@ -29,6 +29,7 @@ from .mixins._context import (
     _taint_get,
     _taint_raise,
     _taint_reset,
+    _untrusted_set,
     _evidence_reset,
     _evidence_take,
     _suppress_memory,
@@ -340,9 +341,13 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
     @staticmethod
     def _attachments_context(attachments) -> str:
         """把聊天附件拼成一段给 LLM 的上下文:文本类贴正文、其它降级为「文件名 + 元数据」提示。
-        附件正文已在路由层 _sanitize_attachments 清洗(限长/限量),这里只做可读性排版。"""
+
+        附件正文已在路由层 _sanitize_attachments 清洗(限长/限量);这里再按**不可信数据**隔离:
+        附件可能是别人转发的文件,与用户当面对话不是同一信任级别,而手写中文定界符可被正文
+        伪造。统一走 wrap_untrusted(随机 nonce 边界 + 破界 defang + 注入特征告警)。"""
         if not attachments:
             return ""
+        from ..core.injection_guard import wrap_untrusted
         parts = []
         for a in attachments:
             if not isinstance(a, dict):
@@ -350,7 +355,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             name = a.get("name") or "文件"
             text = (a.get("text") or "").strip()
             if text:
-                parts.append(f"【附件「{name}」内容如下】\n{text}\n【附件「{name}」结束】")
+                block = wrap_untrusted(text, source="attachment")
+                parts.append(f"【附件「{name}」内容如下】\n{block}\n【附件「{name}」结束】")
             else:
                 mime = a.get("mime") or "未知类型"
                 size = a.get("size") or 0
@@ -635,6 +641,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         from ..pipeline import PipelineContext
         context = context or {}
         session_id = self.start_session(goal=task, entities=self._task_entities(task))
+        # 来源可信性:渠道入口会带 untrusted_source=True(见 channels/dispatcher)。本任务里的
+        # 写/发送/外发动作据此强制 HITL;本地 HTTP 对话不带此键 → 行为逐字不变。
+        _untrusted_set(self, bool(context.get("untrusted_source")))
         # 【P1-1】生命周期钩子:会话已开、管线未跑。默认 no-op;主管借此做崩溃/重启
         # 恢复记账(task_started)——恢复记账需先于执行落日志,故必须在管线之前。
         self._on_session_started(session_id, task, context)

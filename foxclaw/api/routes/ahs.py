@@ -73,7 +73,7 @@ class SkillInstallPayload(BaseModel):
     description: str = ""
     kind: str                                  # 只允许 "web_api" | "mcp"
     triggers: list = []
-    side_effect: str = "read"                  # read/write/send/pay
+    side_effect: str = "write"                 # read/write/send/pay;不传按有副作用(会要求确认)
     destructive: bool = False
     external: bool = True
     params: dict = {}
