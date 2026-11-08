@@ -51,6 +51,41 @@ def _clean_query(q) -> str:
     return (str(q or "")[:_MAX_QUERY])
 
 
+def _external_action(sid: str):
+    """给「非技能动作」(如外部驱动 Agent)做个最小 skill 替身,好走同一套权限门。
+
+    鸭子类型,只提供 permission.evaluate 真正读的字段;不 import skills 包(避免启停期的
+    包级循环)。side_effect=write + external=True 是事实描述:它确实有副作用且面向外部。
+    """
+    from types import SimpleNamespace
+    return SimpleNamespace(id=sid, kind="mcp", params={"task": {"required": True}},
+                           side_effect="write", external=True,
+                           destructive=False, read_only=False)
+
+
+def _policy_error(gate, rules, task: str) -> str | None:
+    """外部驱动动作的准入裁决。返回 None = 放行,否则返回错误码。
+
+    为什么这里要单独判:外部客户端「绕开工具直接驱动 Agent」,若不过门,宿主配的
+    deny(封杀某动作)和 ask(要求人工)对它完全无效。
+    MCP 没有交互确认通道 → 命中 ask 规则即拒,而不是放行后等一个永远不会来的确认;
+    其余常规 ask(副作用 / external)由 FOXCLAW_MCP_AGENTS=1 这道显式开关承担授权。
+    """
+    if gate is None:
+        return None
+    from foxclaw.skills.permission import ASK_RULE, MISSING_PARAMS
+    v = gate.check_action(_external_action("mcp:ask_foxclaw"), {"task": task},
+                          rules=rules, mode="strict", confirmed=False)
+    code = getattr(v.raw, "reason_code", "") or ""
+    if getattr(v, "level", "") == "deny":
+        return "blocked"
+    if code == ASK_RULE:
+        return "needs_confirmation"
+    if code == MISSING_PARAMS:
+        return "missing arguments"
+    return None
+
+
 def build_foxclaw_mcp(os_getter, expose_agents: bool = False) -> FastMCP:
     """os_getter:无参回调,返回当前 Foxclaw 实例(惰性,启动后才有)。
     expose_agents:另开一道开关才暴露 Agent 调度(有副作用面,默认关)。"""
@@ -127,6 +162,13 @@ def build_foxclaw_mcp(os_getter, expose_agents: bool = False) -> FastMCP:
                 return {"error": "not ready"}
             task = _clean_query(task)
             agent = str(agent or "supervisor")[:40]
+            if not task.strip():
+                return {"error": "missing arguments"}
+            err = _policy_error(getattr(os_, "policy_gate", None),
+                                getattr(getattr(os_, "skill_adapter", None), "rules", None),
+                                task)
+            if err:
+                return {"error": err}
 
             def _work():
                 from foxclaw.agents.base import _suppress_memory

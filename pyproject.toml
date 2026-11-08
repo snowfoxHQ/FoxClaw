@@ -178,6 +178,7 @@ python_files = [
     "test_mcp_connectors.py",
     "test_mcp_guardian_discovery.py",
     "test_mcp_no_memory.py",
+    "test_mcp_policy_gate.py",
     "test_mcp_server.py",
     "test_memory_recall.py",
     "test_metrics.py",
