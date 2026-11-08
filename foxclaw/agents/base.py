@@ -29,6 +29,7 @@ from .mixins._context import (
     _taint_get,
     _taint_raise,
     _taint_reset,
+    _untrusted_set,
     _evidence_reset,
     _evidence_take,
     _suppress_memory,
@@ -640,6 +641,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         from ..pipeline import PipelineContext
         context = context or {}
         session_id = self.start_session(goal=task, entities=self._task_entities(task))
+        # 来源可信性:渠道入口会带 untrusted_source=True(见 channels/dispatcher)。本任务里的
+        # 写/发送/外发动作据此强制 HITL;本地 HTTP 对话不带此键 → 行为逐字不变。
+        _untrusted_set(self, bool(context.get("untrusted_source")))
         # 【P1-1】生命周期钩子:会话已开、管线未跑。默认 no-op;主管借此做崩溃/重启
         # 恢复记账(task_started)——恢复记账需先于执行落日志,故必须在管线之前。
         self._on_session_started(session_id, task, context)

@@ -142,7 +142,9 @@ SPECS: tuple[Opt, ...] = (
     Opt("BAIDU_SEARCH_TIMEOUT", "int", 45, "搜索", "秒;调用点已有 max(5, ...) 兜底"),
     # ── 渠道 ────────────────────────────────────────────────────────────────
     Opt("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "csv", "", "渠道",
-        "逗号分隔的可信发送者 id"),
+        "逗号分隔的可信发送者:<id> / <channel>:<id> / <channel>:*"),
+    Opt("FOXCLAW_CHANNEL_TRUST_ALL", "str", "", "渠道",
+        "1/true 才让裸 `*` 生效(全局信任,不推荐)"),
     Opt("FOXCLAW_CHANNEL_SIGNING_SECRET", "str", "", "渠道",
         "出站 HMAC 密钥;留空 = 不签", secret=True),
     Opt("FOXCLAW_CHANNEL_SIGNING_KEY_ID", "str", "", "渠道", "密钥轮换标识"),

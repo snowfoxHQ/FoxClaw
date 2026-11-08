@@ -12,7 +12,7 @@
 import threading
 import time
 
-from ._context import _taint_get, _taint_raise
+from ._context import _taint_get, _taint_raise, _untrusted_get
 from ...core import settings
 from ...core.injection_guard import redact_obj, redact_secrets
 
@@ -104,8 +104,13 @@ def _guard_tool(agent, name: str, args: dict):
                for k, v in (_schema.get("properties") or {}).items()
                if isinstance(v, dict)}
     spec = _types.SimpleNamespace(id=f"tool:{name}", params=_params, **cap)
+    # 来源不可信(外部聊天渠道 / 远程驱动)→ 按「已接触敏感数据」处理:写/发送/外发强制 HITL。
+    # 只读工具不受影响(污点分支只作用于副作用动作),所以读操作不会被这一条拖慢。
+    _taint = _taint_get(agent)
+    if _untrusted_get(agent):
+        _taint = max(_taint, _ig.TAINT_PERSONAL)
     decision = _perm.evaluate(spec, args or {}, confirmed=False,
-                              taint_level=_taint_get(agent),
+                              taint_level=_taint,
                               taint_threshold=_ig.TAINT_PERSONAL)
     if decision.decision == "deny":
         return f"(工具 {name} 被权限策略拒绝:{decision.reason},未执行)", cap

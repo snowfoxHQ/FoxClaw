@@ -98,3 +98,57 @@ def test_attachment_keeps_metadata_fallback():
         [{"name": "a.bin", "mime": "application/octet-stream", "size": 12}])
     assert "a.bin" in ctx and "12 字节" in ctx
     assert "<untrusted" not in ctx
+
+
+# ── 来源可信性 → 权限判定 ─────────────────────────────────────────
+
+def test_taint_gate_does_not_deadlock_after_confirmation():
+    """污点门槛防的是**静默**外发:用户确认后必须能出去。
+
+    若不看 `confirmed`,用户点一次确认 → 重跑 → 又被 ask,永远出不去。
+    """
+    from foxclaw.core import injection_guard as IG
+    from foxclaw.skills import SkillAdapter
+
+    reg = _registry()
+    res = SkillAdapter(reg).invoke(
+        reg.get("write_note"), {"text": "hi"}, confirmed=True, mode="trusted",
+        taint_level=IG.TAINT_PERSONAL, taint_threshold=IG.TAINT_PERSONAL)
+    assert res.success and res.status == "done", res
+
+
+def test_untrusted_channel_source_requires_confirmation():
+    """非白名单渠道发送者驱动的任务:写技能要确认,不需要先取回敏感数据。
+
+    渠道层把 `untrusted_source` 放进 context → base 记到会话槽 → skillbox 抬污点。
+    """
+    from foxclaw.agents.mixins.skillbox import SkillBoxMixin
+    from foxclaw.skills import SkillAdapter
+
+    reg = _registry()
+
+    class _Agent(SkillBoxMixin):
+        skill_registry = reg
+        skill_adapter = SkillAdapter(reg)
+        _session_id = "s-untrusted"
+        _taint = 0
+        _untrusted_source = True
+
+        def _think(self, **kw):
+            return None
+
+    out = _Agent().use_skill("写笔记", {"text": "hi"})
+    assert out["result"]["status"] == "needs_confirmation", out
+    assert "污点" in out["result"]["message"], out
+
+
+def test_untrusted_source_marks_context():
+    """渠道把 untrusted_source 放进 context,base 记到会话槽后 _untrusted_get 读得到。"""
+    from types import SimpleNamespace
+
+    from foxclaw.agents.mixins._context import _untrusted_get, _untrusted_set
+
+    agent = SimpleNamespace()
+    assert _untrusted_get(agent) is False
+    _untrusted_set(agent, True)
+    assert _untrusted_get(agent) is True

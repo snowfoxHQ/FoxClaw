@@ -122,6 +122,27 @@ def _taint_reset(agent) -> None:
         agent._taint_level = 0
 
 
+def _untrusted_set(agent, flag: bool) -> None:
+    """标本次任务「来源不可信」(外部聊天渠道 / 远程驱动)。与污点同槽同寿命。
+
+    为什么单独一个位而不是直接抬污点:污点表达「取回过什么数据」,这个是「谁在下指令」,
+    两者来源不同、生命周期也不同(任务开始就要定,不等任何召回)。
+    """
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        _agent_ctx_set(tok, untrusted_source=bool(flag))
+    else:
+        agent._untrusted_source = bool(flag)
+
+
+def _untrusted_get(agent) -> bool:
+    """读「来源是否不可信」。fake agent(测试替身)无 _ctx_token 时退化为实例属性或 False。"""
+    tok = getattr(agent, "_ctx_token", None)
+    if tok is not None:
+        return bool(_agent_ctx_get(tok).get("untrusted_source"))
+    return bool(getattr(agent, "_untrusted_source", False))
+
+
 class HarnessBlockedError(Exception):
     """Harness 截断异常，携带完整的 HarnessResult"""
     def __init__(self, result: HarnessResult, node: ThoughtNode):
