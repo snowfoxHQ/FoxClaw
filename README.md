@@ -184,3 +184,9 @@ Token ratio: **~4k input + 2k output tokens per 10k characters** (batch extracti
 ## Philosophy
 
 Memory and cognition are fully decoupled from the LLM. The model is a replaceable text generator; the real moat (ThoughtChain audit + Harness drift + policy self-learning + domain kernels) exists independently of any model.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Use it, modify it, ship it, sell it; just keep the copyright notice.
+
+The runtimes vendored under `vendor/` keep their own licenses (see `vendor/hkc/LICENSE`).

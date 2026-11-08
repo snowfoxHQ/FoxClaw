@@ -8,6 +8,15 @@ version = "0.1.1"
 description = "Foxclaw - a personal agent with memory, built on the HMR memory runtime"
 requires-python = ">=3.11"
 
+# 许可:仓库根目录 LICENSE 为 MIT。这里用 { file = "LICENSE" } 而不是 PEP 639 的
+# SPDX 字符串(`license = "MIT"`),因为 build-system 只要求 setuptools>=68,而
+# SPDX 字符串要 setuptools>=77 才会被接受;老写法在 68+ 全部可用,metadata 里同样
+# 带上完整许可全文。
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
+
 # 依赖以本表为唯一来源(CI 用 `pip install -e .` 安装,不再手写第二份清单)。
 # 注意:HMR 与 HKC 以 vendor/ 内嵌随包分发、走 sys.path 加载,不是 PyPI 依赖,
 # 故此处**不**声明 hmr/hkc —— 此前声明 hmr>=1.0.0 是空转项(永不从 PyPI 安装)。
