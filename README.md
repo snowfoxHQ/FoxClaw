@@ -84,7 +84,7 @@ HKC_LLM_BASE_URL=http://localhost:11434/v1   # Ollama's OpenAI-compatible endpoi
 HKC_LLM_TIMEOUT=180                          # local models are slow; relax the default 60s
 HKC_EXTRACT_CONCURRENCY=2                    # 1–2 for local, up to 5 for cloud APIs
 HKC_EXTRACT_BATCH=8                          # optional: extract N chunks per call, saves tokens & time; default 1 = per-chunk
-HKC_MAX_CHUNKS_PER_DOC=0                     # optional: per-doc chunk cap; 0 = no cap (ingest whole book), default 500
+HKC_MAX_CHUNKS_PER_DOC=800                   # optional: per-doc chunk cap; default 800 (~1.25M chars); 0 = no cap, see below
 ```
 
 ### Case B · public cloud model (no local model)
@@ -124,6 +124,62 @@ Leave it unset if you don't need semantic precision (defaults to `stub` pseudo-s
 - The page's first "API Key" field is the backend auth token (`.env`'s `FOXCLAW_API_KEY`), unrelated to the model keys.
 
 > Note: switching the embedding model changes the vector dimension (e.g. 384 → 1024), so you must rebuild the knowledge index (clear and re-ingest).
+
+### How much can I ingest at once?
+
+**The limits are hard — exceeding them returns an error, never a silent truncation:**
+
+| Entry point | Limit | On overflow |
+|---|---|---|
+| File upload (`/knowledge/ingest/file`, `/ingest/file/async`) | **20 MB per file** | `413 file too large` |
+| Pasted text (`/knowledge/ingest/text`) | **2,000,000 characters** | `413 text too large` |
+| Chunks per document | **800 by default** (~1.25M chars); `HKC_MAX_CHUNKS_PER_DOC=0` disables the cap | Only the first N chunks are processed, with a "document too large" warning |
+
+Supported formats: `.pdf` `.md` `.markdown` `.txt` `.epub` `.mobi` `.azw3` `.azw` `.docx` `.xlsx`. `.doc` is not supported, and **scanned PDFs get no OCR** — image-only pages yield no text at all.
+
+**A chunk is the billing and timing unit**, and it is fixed:
+
+```
+max 1792 chars per chunk, 224 chars of overlap
+→ roughly 1 chunk per 1568 characters
+```
+
+**Time and cost reference** (batch=4, concurrency=8, cloud DeepSeek, CJK content):
+
+| Content | File size | Chunks | Expected time |
+|---|---|---|---|
+| 100k chars | ~100 KB | ~64 | ~6 min |
+| 500k chars | ~500 KB | ~320 | ~32 min |
+| 1M chars | ~1 MB | ~640 | ~1 hour |
+| 7M chars (ceiling) | ~20 MB | ~4400 | ~7 hours |
+
+Token ratio: **~4k input + 2k output tokens per 10k characters** (batch extraction already amortizes the system prompt) — multiply by your provider's rates. English content is 2–3× the characters of CJK for the same bytes, so it costs proportionally more.
+
+**Practical guidance:**
+
+- **Keep single files at 2–5 MB.** That covers an ordinary ebook, finishes within tens of minutes, and lets you watch progress.
+- **Leave `HKC_MAX_CHUNKS_PER_DOC` at its default of 800.** Read the section below before lifting it — the reason is not just "it's slow".
+- **Use file upload, not paste, for anything long.** `/ingest/text` is synchronous and holds the request; `/ingest/file/async` runs in a background thread and exposes `processed/total` progress.
+- **Re-uploading the same file is free.** Content SHA-256 is checked first and duplicates return `409 already ingested`.
+- **When extraction fails, check the log keyword first.** "JSON parse failed" means the model's output was cut off mid-JSON (common with dense CJK documents) — lower `HKC_EXTRACT_BATCH` or raise `HKC_EXTRACT_MAX_TOKENS` (default 8192, the output ceiling). Only when that keyword is absent should you check the API key or network.
+
+### Per-document chunk cap: why the default is 800
+
+`HKC_MAX_CHUNKS_PER_DOC` defaults to **800 chunks**, chosen as the intersection of "covers real documents completely" and "finishes in a time you can sit through, at a cost you can predict":
+
+| Cap | Characters covered | Chunks | Expected time | Cost (cloud) |
+|---|---|---|---|---|
+| **800 (default)** | ~1.25M | 800 | ~1.3 hours | ~$0.4 |
+| 2000 | ~3.1M | 2000 | ~3.3 hours | ~$1 |
+| 0 (uncapped, i.e. a full 20 MB file) | ~7M | ~4400 | **7+ hours** | ~$2.3 |
+
+> Costs are rough order-of-magnitude estimates at DeepSeek list prices; scale for your provider.
+
+**Why not raise it (and especially not to 0):** uploads accept up to 20 MB. With no chunk cap, one accidental upload — a 20 MB scanned PDF, a rotated log dump — runs in the background for the better part of a day while billing the whole time. Ingestion runs on a background thread with no checkpoint and no rollback button: you either watch it finish or kill the whole service. The default exists to stop obviously unreasonable volumes up front, not to be as restrictive as possible.
+
+**Why not shrink it either:** past the cap only the first N chunks are processed, and the **whole file's SHA-256 is already recorded** as ingested. Re-uploading the same file is rejected with `409`. So a truncated ingest cannot be completed by "raising the cap and sending it again" — you must split the file by chapter and upload the parts separately. 800 chunks leaves enough headroom that ordinary documents and normal ebooks never hit the cap.
+
+**If you genuinely need a whole book,** raise the cap (or set 0) for that one ingest and set it back to 800 afterwards. A "document too large: split into N chunks" warning in the log means truncation happened, and it reports how much was dropped.
 
 ## Philosophy
 
