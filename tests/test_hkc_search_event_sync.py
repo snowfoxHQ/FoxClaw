@@ -28,14 +28,12 @@ HKC 事件 → 索引 C/U/D 同步测试(阶段 B 提交)。
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
-import pytest
 
 # ── vendor 隔离硬阻断(等价于 test_vendor_path_isolation.py 闸门 2-4) ────────
-from hkc_search.hybrid import HybridSearch, SearchResult
-from hkc_search.vector_search import VectorIndex, _hash_text
+from hkc_search.hybrid import HybridSearch
+from hkc_search.vector_search import VectorIndex
 from hkc_search.embedding_backends import StubBackend
 from hkc_api.container import HKCContainer, init_container, reset_container
 from hkc_core.graph.sqlite_store import SQLiteGraphStore

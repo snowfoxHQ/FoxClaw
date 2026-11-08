@@ -17,9 +17,10 @@ jobs:
   toolchain:
     # S1:工程化安全网 —— ruff(硬门) + mypy(渐进式) + pytest + coverage。
     # ruff 只保留 F 系列死代码/真 bug 作为硬门,存量风格告警已在 pyproject 显式豁免;
-    # mypy 渐进式,仅报告不阻塞(存量 425 个类型错误);
-    # pytest 只做快速收集检查(S2 已把全部 76 个测试迁为 pytest,无顶层副作用);
-    # 全量执行统一走下方 regression job 的 run_all.py(每文件独立子进程隔离模块级单例)。
+    # 覆盖 foxclaw/ 与 tests/(tests 于 2026-11 纳入:此前 13 条 F 系列全藏在这里)。
+    # mypy 渐进式,仅报告不阻塞(2026-11 实测存量 673 个类型错误,此前记录为 425);
+    # pytest 只做快速收集检查(S2 已把全部 76 个测试迁为 pytest,无顶层副作用),
+    # 真正的断言执行统一走下方 regression job 的 run_all.py(每文件独立子进程隔离单例)。
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,7 +37,12 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Ruff (hard gate)
-        run: ruff check foxclaw/
+        # tests/ 一并纳入:未用 import / 未定义名在测试里同样是死代码信号。
+        # 此前 tests/ 完全没有门禁,存量 13 条 F 系列(含 1 条 F811 重复 import)藏在
+        # 测试文件里无人发现 —— 只查 foxclaw/ 等于给测试留了盲区。
+        run: |
+          ruff check foxclaw/
+          ruff check tests/
 
       - name: Mypy (advisory, non-blocking)
         continue-on-error: true

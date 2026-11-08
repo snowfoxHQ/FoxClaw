@@ -19,12 +19,10 @@ HKC 后台索引构建测试(阶段 C 提交)。
 """
 from __future__ import annotations
 
-import os
 import sys
 import time
 from pathlib import Path
 
-import pytest
 
 # ── vendor 隔离硬阻断 ────────────────────────────────────────────
 from hkc_search.index_build_manager import IndexBuildManager, _BUILD_STATES
@@ -307,7 +305,7 @@ class TestManagerStats:
             hybrid_search=_FakeHybrid(),
             graph_store=_FakeEmptyGraphStore(),
         )
-        r = mgr.start()
+        mgr.start()
         mgr.join(timeout=5)
         # 空 store 扫描到 0 条 → 直接 _mark_ready
         s = mgr.stats()

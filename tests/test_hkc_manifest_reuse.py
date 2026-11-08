@@ -27,8 +27,6 @@ HKC 持久化 manifest 校验测试(阶段 A 提交)。
 """
 from __future__ import annotations
 
-import hashlib
-import os
 import pickle
 import sys
 from pathlib import Path

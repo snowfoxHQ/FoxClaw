@@ -107,7 +107,7 @@ def test_sessions_append_attachments(store):
 def test_upload_and_download():
     with TestClient(app) as c:
         # 上传文本文件 → 提取正文
-        r = c.post("/api/upload", files={"file": ("笔记.txt", "今天学了三件事".encode("utf-8"), "text/plain")})
+        r = c.post("/api/upload", files={"file": ("笔记.txt", "今天学了三件事".encode(), "text/plain")})
         assert r.status_code == 200, r.text
         a = r.json()
         assert a["name"] == "笔记.txt" and a["text"] == "今天学了三件事"
@@ -138,7 +138,7 @@ def test_chat_stream_with_attachments():
     import foxclaw.api as _api
     with TestClient(app) as c:
         # 先上传一个带正文的附件,拿到引用
-        up = c.post("/api/upload", files={"file": ("要点.txt", "预算 100 万".encode("utf-8"), "text/plain")})
+        up = c.post("/api/upload", files={"file": ("要点.txt", "预算 100 万".encode(), "text/plain")})
         att = up.json()
         # 会话须先存在,append 才会落盘(前端 ensureSession 同款:POST /api/sessions → 拿 id)
         sid = _api._os_instance.sessions.create()["id"]
