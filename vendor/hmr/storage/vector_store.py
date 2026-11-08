@@ -411,6 +411,49 @@ class VectorStore:
                 print(f"[HMR VectorStore] ⚠ 加载失败({e.__class__.__name__}: {e})，"
                       f"原文件已留存为 {kept}，本次以空索引启动")
 
+    def purge_incompatible(self, dimension: int) -> bool:
+        """丢弃维度与当前模型不符的向量（换 embedding 模型后），返回是否发生丢弃。
+
+        为什么必须主动清：换模型后旧向量照常从磁盘加载，但 _cosine_similarity 对
+        长度不等的一律 return 0.0 —— 表现是"召回有条目、分数全 0、排序随机"，
+        既不报错也不为空，是最难发现的一种失效。清空前把原文件改名保留，
+        回滚只需把 env 改回去、再把备份改回原名。
+        """
+        if not self.vectors:
+            return False
+
+        stale_dims = sorted({len(v) for v in self.vectors.values()
+                             if len(v) != dimension})
+        if not stale_dims:
+            return False
+
+        count = sum(1 for v in self.vectors.values() if len(v) in stale_dims)
+
+        kept = ""
+        if self.storage_path:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            tag = "dim" + "-".join(str(d) for d in stale_dims)
+            names = []
+            for name in ("vectors.json", "vector_metadata.json"):
+                p = self.storage_path / name
+                if not p.exists():
+                    continue
+                target = p.with_name(f"{p.name}.{tag}-{stamp}")
+                try:
+                    p.rename(target)
+                    names.append(target.name)
+                except OSError:
+                    pass
+            kept = ", ".join(names)
+
+        with self._lock:
+            self.vectors.clear()
+            self.metadata.clear()
+
+        print(f"[HMR VectorStore] ⚠ 旧向量维度 {stale_dims} ≠ 当前模型 {dimension}，"
+              f"已清空 {count} 条" + (f"（原文件备份: {kept}）" if kept else ""))
+        return True
+
     # 历史文件可能是 cp936 写出的，读取时按序试；不做 latin-1 兜底 —— 它能把任意
     # 损坏字节解成乱码并"成功"解析，反而掩盖问题，让乱码随后覆盖真实数据。
     _READ_ENCODINGS = ("utf-8", "gbk")

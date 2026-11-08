@@ -124,6 +124,16 @@ class HMR:
     def _sync_vector_store(self):
         all_memories = self.memory_fs.list_memories()
         vs_count = len(self.vector_store.vectors)
+
+        # 换了 embedding 模型：旧向量维度与新模型不符，检索会退化成"全 0 分"。
+        # 这里主动发现并全量重编码，换模型就只剩「改 env + 重启」一步，
+        # 不用手工删索引，也不用记得清。
+        if vs_count and self.vector_store.purge_incompatible(
+                self.vector_store.embedder.dimension):
+            print(f"[HMR] embedding 模型已变化，重建向量索引（{len(all_memories)} 条）...")
+            self.vector_store.rebuild_from_memories(all_memories)
+            return
+
         if all_memories and vs_count == 0:
             print(f"[HMR] 重建向量索引（{len(all_memories)} 条）...")
             self.vector_store.rebuild_from_memories(all_memories)
