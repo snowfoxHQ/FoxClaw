@@ -11,7 +11,6 @@ BM25+向量+图 / ACE 能力编译)。按 HMR 同款方式 vendor 在 `vendor/hk
   · 资源可释放:HKCService.close() 关闭全部 4 个 SQLite 连接(经修好的 HKCContainer.close)。
   · 惰性装配:由 Foxclaw.hkc 属性首次访问时才装配,避免每次构造 OS 都开 db 句柄。
 """
-import base64
 import json
 import os
 import sys
@@ -65,12 +64,9 @@ def _read_custom_model(data_dir, name):
     if not match:
         return None
     key = ""
-    obf = match.get("api_key_obf") or ""
-    if obf:
-        try:
-            key = base64.b64decode(obf.encode()).decode()
-        except Exception:
-            key = ""
+    # OS 凭据库优先,回退 base64(旧记录)/ 更早的明文字段
+    from ..core.secrets import load as _load_secret
+    key = _load_secret(name, match.get("api_key_obf") or "")
     key = key or (match.get("api_key") or "")
     if not key.strip():
         return None

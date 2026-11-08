@@ -11,7 +11,6 @@
 import os
 import json
 import time
-import base64
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -20,6 +19,7 @@ from pydantic import BaseModel
 
 import foxclaw.api as _api
 from .. import app
+from ...core import secrets as _secrets
 from ...core.model_router import normalize_base_url
 
 
@@ -54,19 +54,24 @@ _PROVIDER_KEY_ENV = {
 
 # ── 工具 ─────────────────────────────────────────────────
 
-def _obf(s: str) -> str:
-    """API key 简单 base64 混淆(防 grep;非加密 — 本地单用户足够)。"""
-    if not s:
-        return ""
-    return base64.b64encode(s.encode()).decode()
+def _save_key(name: str, key: str) -> dict:
+    """把 key 存到最安全的地方,返回该写进 custom_models.json 的字段。
 
-def _deobf(s: str) -> str:
-    if not s:
-        return ""
-    try:
-        return base64.b64decode(s.encode()).decode()
-    except Exception:
-        return s
+    有 OS 凭据库 → 只留 `api_key_kr: True` 标记,JSON 里不再有任何可还原的密文;
+    没有 → 保持 base64(导入/删除/无桌面 Linux 等场景)。两个键总是成对写,
+    免得「旧密文 + 新标记」并存导致 has_key 与读取路径对不上。
+    """
+    key = (key or "").strip()
+    if not key:
+        return {"api_key_kr": False, "api_key_obf": ""}
+    if _secrets.store(name, key):
+        return {"api_key_kr": True, "api_key_obf": ""}
+    return {"api_key_kr": False, "api_key_obf": _secrets.obf(key)}
+
+
+def _has_key(m: dict) -> bool:
+    """列表/详情只答「有没有 key」,绝不把 key 本身回给前端。"""
+    return bool(m.get("api_key_obf") or m.get("api_key") or m.get("api_key_kr"))
 
 def _load_custom() -> list:
     if not CUSTOM_MODELS_PATH.exists():
@@ -125,7 +130,7 @@ async def list_models():
             "model":    m.get("model", ""),
             "base_url": m.get("base_url", ""),
             "note":     m.get("note", ""),
-            "has_key":  bool(m.get("api_key_obf", "") or m.get("api_key", "")),
+            "has_key":  _has_key(m),
             "source":   "custom",
         })
     current = None
@@ -221,7 +226,7 @@ async def add_custom_model(req: _CustomAddReq):
     models.append({
         "name":          name,
         "base_url":      base_url,
-        "api_key_obf":   _obf(req.api_key.strip()),
+        **_save_key(name, req.api_key),
         "model":         req.model.strip(),
         "extra_headers": extra,
         "note":          req.note or "",
@@ -263,7 +268,7 @@ async def get_custom_model(name: str):
         "name":          match.get("name", ""),
         "base_url":      match.get("base_url", ""),
         "model":         match.get("model", ""),
-        "has_key":       bool(match.get("api_key_obf", "") or match.get("api_key", "")),
+        "has_key":       _has_key(match),
         "group_id":      gid,
         "extra_headers": extra_only,
         "note":          match.get("note", ""),
@@ -306,8 +311,8 @@ async def update_custom_model(name: str, req: _CustomUpdateReq):
     if req.model is not None:
         target["model"] = req.model.strip()
     if req.api_key is not None and req.api_key.strip():
-        # 留空 = 保留原 key(防误清);非空 = 覆盖
-        target["api_key_obf"] = _obf(req.api_key.strip())
+        # 留空 = 保留原 key(防误清);非空 = 覆盖(按新名字存,改名时不会留下孤儿条目)
+        target.update(_save_key(new_name, req.api_key))
     if req.note is not None:
         target["note"] = req.note
 
@@ -326,6 +331,12 @@ async def update_custom_model(name: str, req: _CustomUpdateReq):
 
     # 改名:同步 .current_model
     if new_name != name:
+        # 凭据按模型名存放 → 不改名搬迁就再也 load 不到(key 静默丢失)。
+        # 已换新 key 时新条目已在 new_name 下,这里只需清掉旧的。
+        if req.api_key is not None and req.api_key.strip():
+            _secrets.delete(name)
+        else:
+            _secrets.rename(name, new_name)
         target["name"] = new_name
         if CURRENT_MODEL_PATH.exists():
             try:
@@ -350,6 +361,7 @@ async def delete_custom_model(name: str):
     if len(new_models) == len(models):
         raise HTTPException(404, f"未找到: {name}")
     _save_custom(new_models)
+    _secrets.delete(name)        # 别在 OS 凭据库里留孤儿条目
     # 如果当前选的就是它 → 清空选择
     if CURRENT_MODEL_PATH.exists():
         try:
@@ -394,7 +406,7 @@ async def test_model(req: _TestReq):
         match = next((m for m in models if m.get("name") == req.name), None)
         if not match:
             raise HTTPException(404, f"未找到自定义模型: {req.name}")
-        key = _deobf(match.get("api_key_obf", ""))
+        key = _secrets.load(req.name or "", match.get("api_key_obf", ""))
         try:
             base_url = normalize_base_url(match.get("base_url", ""))
         except ValueError as e:
