@@ -3,7 +3,12 @@ Foxclaw — 全量回归测试运行器
 一次跑完 tests/ 下所有测试,汇总通过/失败,确认整个系统端到端健康。
 用法:python tests/run_all.py
 """
-import sys, os, subprocess, time
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 
 # Windows GBK 控制台无法编码 ✓/✗(✓/✗)等字符 → 运行器自己把 stdout/stderr 切到
@@ -189,9 +194,17 @@ def main():
         if not path.exists():
             results.append((desc, "缺失", 0)); continue
         t0 = time.time()
+        # 每个文件用**独立的 basetemp**,不共用 %TEMP%\pytest-of-<user> 根目录。
+        # 为什么:Windows 上该根目录一旦留下损坏的 reparse point(实测 pytest-current
+        # unlink 报 WinError 5),pytest 会在 sessionfinish 的 cleanup_numbered_dir 阶段
+        # 抛 PermissionError —— 断言全过也返回非 0,7 个文件同时假红,真回归被淹没。
+        # 显式 basetemp 后 pytest 不再遍历/清理共用根目录;目录必须预先存在(pytest 不会
+        # 为 --basetemp 建父目录,缺了直接 FileNotFoundError),故用 mkdtemp 建好再传。
+        _bt = Path(tempfile.mkdtemp(prefix="foxclaw-pt-"))
         try:
             # 统一走 pytest(每文件独立子进程,隔离模块级单例)。
-            _cmd = [sys.executable, "-m", "pytest", str(path), "-q"]
+            _cmd = [sys.executable, "-m", "pytest", str(path), "-q",
+                    f"--basetemp={_bt}"]
             # 显式 utf-8 解码子进程输出:子进程已被 PYTHONUTF8=1 强制输出 utf-8,
             # 父进程若用 Windows 默认 GBK 解码会 UnicodeDecodeError(模型加载进度条等
             # 含非 GBK 字节)→ r.stdout 变 None → 后续拼接 TypeError。errors=replace 兜底。
@@ -231,6 +244,10 @@ def main():
                     r.stdout + r.stderr, encoding="utf-8")
         except subprocess.TimeoutExpired:
             results.append((desc, "超时", 300))
+        finally:
+            # basetemp 是本文件专用的一次性目录:正常结束由 pytest 自己清,
+            # 子进程崩溃/超时会残留,这里统一回收。ignore_errors 兜 Windows 文件占用。
+            shutil.rmtree(_bt, ignore_errors=True)
         print(f"  {'✓' if results[-1][1]=='通过' else '✗'} {desc:<28} [{results[-1][1]}] {results[-1][2]:.0f}s")
 
     print("\n" + "=" * 64)
