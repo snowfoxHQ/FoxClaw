@@ -164,6 +164,7 @@ python_files = [
     "test_hkc_index_build_manager.py",
     "test_hkc_manifest_reuse.py",
     "test_hkc_search_event_sync.py",
+    "test_import_path_guard.py",
     "test_injection_guard.py",
     "test_integration.py",
     "test_itinerary.py",

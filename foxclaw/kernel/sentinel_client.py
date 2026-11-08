@@ -106,7 +106,7 @@ class SentinelClient:
         return {
             "id": getattr(skill, "id", ""),
             "kind": getattr(skill, "kind", "local"),
-            "side_effect": getattr(skill, "side_effect", "read"),
+            "side_effect": getattr(skill, "side_effect", "write"),   # 未声明 → 有副作用
             "destructive": bool(getattr(skill, "destructive", False)),
             "external": bool(getattr(skill, "external", False)),
             "read_only": getattr(skill, "read_only", None),

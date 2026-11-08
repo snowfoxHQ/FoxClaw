@@ -112,6 +112,8 @@ SPECS: tuple[Opt, ...] = (
     # ── 服务 ────────────────────────────────────────────────────────────────
     Opt("FOXCLAW_PORT", "int", 8000, "服务", "HTTP 监听端口", lo=1, hi=65535),
     Opt("FOXCLAW_DATA_DIR", "str", "", "服务", "数据目录(默认 <仓库>/foxclaw_data)"),
+    Opt("FOXCLAW_IMPORT_ROOTS", "csv", "", "服务",
+        "额外允许的导入目录(逗号分隔);不配则只有数据目录内的文件可被导入"),
     Opt("FOXCLAW_API_KEY", "str", "", "服务",
         "对外访问口令;设了才启用鉴权(空 = 仅本机开放)", secret=True),
     Opt("FOXCLAW_CORS_ORIGINS", "str", "", "服务",

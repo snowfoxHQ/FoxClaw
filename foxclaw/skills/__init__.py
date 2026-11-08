@@ -44,8 +44,10 @@ class SkillSpec:
     description: str
     kind: SkillKind = "local"
     triggers: list = field(default_factory=list)     # 触发关键词
-    side_effect: SideEffect = "read"                 # 副作用级别 → 守门人据此裁决
-    destructive: bool = False                         # 是否不可逆操作(Fail-closed 默认 False)
+    # 【fail-closed】未声明 = 按有副作用处理。漏写一行不该等于「放行」:
+    # 工具侧 core/tools.py 的未声明能力兜底为 write+external → 强制确认,这里对齐同一口径。
+    side_effect: SideEffect = "write"                # read/write/send/pay → 守门人据此裁决
+    destructive: bool = False                         # 不可逆操作(read_only 一票否决);write 已触发确认
     external: bool = False                             # 是否调用外部服务(联网/API)
     read_only: Optional[bool] = None                  # 是否只读(None=按 side_effect 推断)
     params: dict = field(default_factory=dict)        # 参数 schema
@@ -274,7 +276,7 @@ class SkillAdapter:
         # 无效/缺失 → 降级为**未确认**,走 ask 并签发新码(绝不静默放行)。
         from ..core.confirm_nonce import is_critical as _is_critical
         _session = _loop_session.get() or ""
-        _critical = _is_critical(getattr(skill, "side_effect", "read"),
+        _critical = _is_critical(getattr(skill, "side_effect", "write"),
                                  bool(getattr(skill, "destructive", False)))
         _nonce_reject = ""
         if self.confirms is not None and _critical and confirmed:

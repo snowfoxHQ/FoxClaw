@@ -109,7 +109,7 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     # deny 不命中时,ask 优先于 allow
 
     # ---------- Stage 3: capability(能力检查,Fail-closed)----------
-    side_effect = getattr(skill, "side_effect", "read")
+    side_effect = getattr(skill, "side_effect", "write")    # 未声明 → 按有副作用(fail-closed)
     destructive = getattr(skill, "destructive", False)
     external = getattr(skill, "external", False)
     # read_only 字段默认 None → 按 side_effect 推断(read 即只读);显式 True/False 则尊重
