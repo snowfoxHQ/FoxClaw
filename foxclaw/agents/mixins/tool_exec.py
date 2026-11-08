@@ -14,6 +14,7 @@ import time
 
 from ._context import _taint_get, _taint_raise
 from ...core import settings
+from ...core.injection_guard import redact_obj, redact_secrets
 
 #: 同轮最多并发几个工具(再多也是网络等待,收益递减;避免打爆 provider/搜索服务)
 MAX_PARALLEL = 4
@@ -269,20 +270,26 @@ def _step_ok(result: str) -> bool:
 
 
 def _record_step(agent, call: dict, result: str) -> None:
-    """把一个已完成的工具步骤写进 recovery 日志(fail-safe:异常一律吞掉)。"""
+    """把一个已完成的工具步骤写进 recovery 日志(fail-safe:异常一律吞掉)。
+
+    落盘前对 args/result 过 `redact_secrets`:recovery 日志会被回放读回,长期留在
+    `{data_dir}/recovery/` 下,而工具参数里经常出现 token/密钥(如鉴权类 CLI、带 key 的
+    HTTP 请求)。`_step_key` 仍用**未脱敏**的 args 计算,否则同一步骤的 key 前后不一致,
+    缓存去重和回放对不上。
+    """
     rec = getattr(agent, "_recovery", None)
     tid = getattr(agent, "_session_id", "") or ""
     if rec is None or not tid:
         return
     try:
-        text = result or ""
+        text = redact_secrets(result or "")
         rec.record_step(tid, {
             "kind": "tool",
             "name": call.get("name", ""),
             "key": _step_key(call.get("name", ""), call.get("args") or {}),
-            "args": call.get("args") or {},
+            "args": redact_obj(call.get("args") or {}),
             "result": text[:_STEP_RESULT_MAX],
-            "truncated": len(text) > _STEP_RESULT_MAX,
+            "truncated": len(result or "") > _STEP_RESULT_MAX,
         })
     except Exception:
         pass

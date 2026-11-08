@@ -137,6 +137,20 @@ def redact_secrets(text: str) -> str:
     return _SECRET_RE.sub("[已脱敏]", str(text or ""))
 
 
+def redact_obj(obj):
+    """递归脱敏 dict/list 里的字符串(结构化日志落盘用)。
+
+    只处理容器与字符串,其余类型原样返回 —— 不改变结构,读日志的一方仍能按字段取。
+    """
+    if isinstance(obj, str):
+        return redact_secrets(obj)
+    if isinstance(obj, dict):
+        return {k: redact_obj(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [redact_obj(v) for v in obj]
+    return obj
+
+
 def guard_output(text: str, kernel: str = "") -> tuple:
     """输出兜底,返回 (安全文本, issues)。
     - 疑似整段吐系统提示词 → 换成安全拒答(不放行);

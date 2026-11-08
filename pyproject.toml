@@ -132,6 +132,7 @@ python_files = [
     "test_api_auth.py",
     "test_api_host_guard.py",
     "test_attachments.py",
+    "test_audit_chain.py",
     "test_audit_sink.py",
     "test_browser.py",
     "test_capabilities.py",
