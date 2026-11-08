@@ -4,9 +4,14 @@
 .env*
 !.env.example
 
-# 内部机密文档:**团队版本控制内保留**(默认不忽略);"不公开"指绝不进用户产品面。
-# 若本仓库将来对外开源/分发,取消下一行注释以整体排除内部文档目录。
-# docs/internal/
+# 内部机密文档:**绝不进公开仓库**(本仓库 origin 已指向公开仓库 snowfoxHQ/foxclaw)。
+# 2026-11-09 起整体排除:内部目录、审计报告、修复报告/重构计划/系统评审,根目录 .md 只放行 README.md 与 README_CN.md。
+docs/internal/
+docs/reports/
+docs/superpowers/
+docs/FIX_EXECUTION_REPORT.md
+docs/REFACTOR_PLAN.md
+docs/SYSTEM_REVIEW_*.md
 
 # 运行数据(测试现已全用系统临时目录,以下为默认运行目录 + 防御历史遗留)
 foxclaw_data/
