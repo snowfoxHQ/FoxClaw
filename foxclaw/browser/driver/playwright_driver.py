@@ -17,10 +17,15 @@ PlaywrightDriver —— 默认底层驱动实现。
   故本 driver 必须由 BrowserService 的专用工作线程独占构造与调用（见 service.py）。
 """
 
+import os
 import time
 from typing import List, Any
 
 from .base_driver import BaseDriver
+
+
+# 被拦请求只留最近这些条:诊断/测试用,不落盘
+_MAX_BLOCKED = 50
 
 
 # role -> 对应的 CSS selector，v1 用简单选择器覆盖大多数场景
@@ -38,7 +43,7 @@ ROLE_SELECTOR_MAP = {
 
 class PlaywrightDriver(BaseDriver):
 
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, guard_requests: bool | None = None):
         # A1：惰性导入——缺 playwright 时这里才抛 ImportError，由上层能力探测拦截，
         # 不会污染 `import foxclaw.browser`。
         from playwright.sync_api import sync_playwright
@@ -46,14 +51,52 @@ class PlaywrightDriver(BaseDriver):
         self._pw = None
         self._browser = None
         self._page = None
+        self.blocked_requests: list[tuple[str, str]] = []
         try:
             self._pw = sync_playwright().start()
             self._browser = self._pw.chromium.launch(headless=headless)
             self._page = self._browser.new_page()
+            if guard_requests is None:
+                guard_requests = os.environ.get(
+                    "FOXCLAW_BROWSER_GUARD_REQUESTS", "1").strip() not in ("0", "false", "no")
+            if guard_requests:
+                # `**/*` 覆盖主文档、3xx 跳转后的新地址、iframe 与全部子资源。
+                # 原先只校验 navigate 的目标:公网页面跳一次转,或塞一个
+                # `<img src="http://169.254.169.254/...">` 就能越过准入。
+                self._page.route("**/*", self._on_route)
         except Exception:
             # A4：构造中途失败（如 chromium 内核未 install）也不能泄漏原生资源
             self._safe_teardown()
             raise
+
+    def _on_route(self, route) -> None:
+        """路由层准入:放行公网 http(s),拦下内网 / 非 http(s) 请求。
+
+        Playwright 的 sync 回调在浏览器真正发请求**之前**执行,所以 abort 能挡住
+        连接建立,而不是等响应回来才后悔。DNS 层面的 TOCTOU 见 url_policy 的说明。
+        """
+        from ..action.url_policy import validate_request_url
+
+        try:
+            url = route.request.url or ""
+        except Exception:
+            url = ""
+        try:
+            validate_request_url(url)
+        except ValueError as e:
+            self.blocked_requests.append((url[:512], str(e)))
+            if len(self.blocked_requests) > _MAX_BLOCKED:
+                del self.blocked_requests[:-_MAX_BLOCKED]
+            try:
+                route.abort("blockedbyclient")
+            except Exception:
+                pass
+            return
+        try:
+            route.continue_()
+        except Exception:
+            # 会话已在拆卸中(回调与 close 竞争):请求已无意义,静默丢弃
+            pass
 
     def _safe_teardown(self):
         """尽力释放已创建的资源，任一步失败都不影响其余步骤。"""
