@@ -161,4 +161,6 @@ jobs:
           pip install "pip-audit>=2.7"
 
       - name: Audit pinned runtime dependencies
-        run: pip-audit -r requirements.txt --progress-spinner off
+        # --no-deps:requirements.txt 已是 uv 解析好的完整闭包(含全部传递依赖),
+        # 不需要 pip-audit 再解析一遍 —— 不加会静默跑几分钟且可能超时。
+        run: pip-audit -r requirements.txt --no-deps --progress-spinner off
