@@ -87,3 +87,23 @@ async def delete_preference(pref_id: str):
     """删一条误存的用户偏好(F3:防误报偏好持久注入污染)。返回 {ok}。"""
     ag = _api.os_instance().supervisor
     return {"ok": ag.delete_preference(pref_id)}
+
+
+# ── 用户档案:称呼 ────────────────────────────────────────────
+# 前端首次打开问一句「怎么称呼你」,设置页可改。存的仍是一条 preference
+# (每轮注入、跨会话),所以不需要账号/用户表。
+class ProfilePayload(BaseModel):
+    nickname: str = ""
+
+
+@app.get("/api/profile")
+async def get_profile():
+    """当前称呼。没设置过返回空串(前端据此决定要不要显示首次引导)。"""
+    return {"nickname": _api.os_instance().supervisor.get_nickname()}
+
+
+@app.put("/api/profile")
+async def update_profile(payload: ProfilePayload):
+    """设置称呼。传空串 = 清除。返回生效后的值(已 trim/截断)。"""
+    nick = _api.os_instance().supervisor.set_nickname(payload.nickname)
+    return {"ok": True, "nickname": nick}

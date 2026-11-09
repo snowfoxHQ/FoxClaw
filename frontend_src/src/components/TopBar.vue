@@ -1,19 +1,23 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { getJSON } from '../api.js'
 import { state, setModule } from '../stores/app.js'
+import { system, loadSystemInfo } from '../stores/system.js'
 
 const uplink = ref('···')
 const tone = ref('dim')
+
 /* 版本号唯一来源是后端(pyproject → foxclaw.__version__ → /system/info)。
    前端此前把版本写死在模板里,后端发版后左上角仍是旧数字,对外就对不上。
    取不到就干脆不显示,不猜一个值。 */
-const ver = ref('')
+const ver = computed(() => system.version)
+
+/* 更新提示:后端默认不查(FOXCLAW_UPDATE_CHECK=1 才查),所以这里只在
+   它明确说「有新版本」时出一个小箭头 —— 不自己判断,也不制造焦虑。 */
+const upd = computed(() => (system.update?.update_available ? system.update : null))
 
 onMounted(async () => {
-  getJSON('/system/info')
-    .then((d) => { ver.value = d?.version || '' })
-    .catch(() => {})
+  loadSystemInfo()
   try {
     await getJSON('/status')
     uplink.value = '在线'
@@ -40,6 +44,12 @@ function openSettings() {
       <div class="logo">F</div>
       <h1>Foxclaw</h1>
       <span v-if="ver" class="ver">v{{ ver }}</span>
+      <button
+        v-if="upd"
+        class="upd"
+        :title="`有新版本 ${upd.latest}(当前 ${upd.current}),点这里看设置`"
+        @click="openSettings"
+      >↑</button>
     </div>
     <div class="spacer" />
     <div class="stat">
@@ -80,6 +90,17 @@ function openSettings() {
   padding: 2px 7px; border-radius: var(--r-pill);
   background: rgba(255, 255, 255, 0.7); border: 1px solid var(--line);
 }
+/* 更新提示:一个小箭头,不抢视觉,但点得到(点了进设置看详情) */
+.upd {
+  display: grid; place-items: center;
+  width: 18px; height: 18px; margin-left: -3px;
+  border-radius: 50%;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  color: var(--amber);
+  background: rgba(214, 158, 46, 0.12);
+  border: 1px solid rgba(214, 158, 46, 0.35);
+}
+.upd:hover { background: rgba(214, 158, 46, 0.2); }
 .spacer { flex: 1; }
 .stat { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--dim); }
 .stat .val { font-weight: 700; color: var(--ink); }

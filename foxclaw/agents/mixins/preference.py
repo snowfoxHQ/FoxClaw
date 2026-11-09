@@ -86,3 +86,60 @@ class PreferenceMixin:
             return self.hmr.delete_memory(pref_id)
         except Exception:
             return False
+
+    # ── 用户档案:称呼 ─────────────────────────────────────────
+    # 只有一个字段,刻意复用 preference 通道(每轮无条件注入 + shared 跨会话),
+    # 而不是新建 users 表:foxclaw 是本地单用户,账号体系在这里没有对应物,
+    # 「怎么称呼你」本质就是一条用户声明,和「我喜欢简短回答」同一类。
+    _NICK_PREFIXES = ("称呼我为", "叫我", "我的名字是", "我的名字叫")
+
+    def remember_preference(self, text: str) -> bool:
+        """写一条用户主动声明的偏好(设置面板 / 首次引导用)。返回是否落库。
+
+        与 `_maybe_store_preference`(对话里自动抓)的区别:这条不经过注入扫描,
+        因为来源是设置表单而非自由文本;但同样限长 200,避免把整段话塞进偏好。
+        """
+        t = (text or "").strip()
+        if not t:
+            return False
+        try:
+            self._store_memory(f"用户偏好:{t[:200]}", mem_type="preference",
+                               tags=["preference"], shared=True)
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def _nick_of(cls, content: str) -> str | None:
+        """从一条 preference 文本里取出称呼;不是称呼类返回 None。"""
+        c = (content or "").strip()
+        if c.startswith("用户偏好:"):
+            c = c[len("用户偏好:"):].strip()
+        for prefix in cls._NICK_PREFIXES:
+            if c.startswith(prefix):
+                return c[len(prefix):].strip(" :：,，。.")
+        return None
+
+    def get_nickname(self) -> str:
+        """当前称呼(取最近一条称呼类偏好;没设置过返回空串)。"""
+        for p in self.list_preferences(limit=200):
+            nick = self._nick_of(p.get("content", ""))
+            if nick:
+                return nick
+        return ""
+
+    def set_nickname(self, nick: str) -> str:
+        """设置称呼;传空串 = 清除。返回生效后的值。
+
+        先把旧的称呼条目删掉再写:否则每改一次就多一条「称呼我为 X」,注入时
+        几条互相矛盾(虽然 prompt 里约定「以最新为准」,但没必要让它去猜)。
+        """
+        value = (nick or "").strip()[:24]
+        for p in self.list_preferences(limit=200):
+            if self._nick_of(p.get("content", "")):
+                pid = p.get("id")
+                if pid:
+                    self.delete_preference(pid)
+        if value:
+            self.remember_preference(f"称呼我为 {value}")
+        return value

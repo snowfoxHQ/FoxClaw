@@ -11,8 +11,9 @@ import KnowledgePanel from './panels/KnowledgePanel.vue'
 import ReviewPanel from './panels/ReviewPanel.vue'
 import MemoryPanel from './panels/MemoryPanel.vue'
 import SettingsPanel from './panels/SettingsPanel.vue'
-import { chat, loadSession, send } from '../stores/chat.js'
+import { chat, loadSession, say, send } from '../stores/chat.js'
 import { state, moduleLabel, closeDoc, loadSessions, openSession } from '../stores/app.js'
+import { profile, loadProfile, saveNickname } from '../stores/profile.js'
 import { openKu } from '../stores/panels.js'
 import { getJSON } from '../api.js'
 import { clip } from '../lib/fmt.js'
@@ -46,11 +47,36 @@ const EXAMPLES = [
 ]
 
 const recent = ref([])
+
+/* ── 首次引导:问称呼 ──
+   只在「后端还没存过称呼」时出现一次。点「跳过」记在 localStorage,之后不再问;
+   设置页里随时能改。存进去的是一条 preference,每轮注入,所以模型真的会这么叫。 */
+const nick = ref('')
+const nickSkipped = ref(localStorage.getItem('sfx.nick.skip') === '1')
+const askNick = computed(() => profile.loaded && !profile.nickname && !nickSkipped.value)
+
 onMounted(async () => {
+  loadProfile().then(() => { nick.value = profile.nickname })
   if (!state.sessions.length) loadSessions().catch(() => {})
   const d = await getJSON('/knowledge/recent?limit=5').catch(() => null)
   recent.value = d?.kus || []
 })
+
+async function saveNick() {
+  const n = nick.value.trim()
+  if (!n) return
+  try {
+    await saveNickname(n)
+    say(`记住了,以后称呼你为 ${n}`)
+  } catch (e) {
+    say(`保存失败:${e.message}`, 4000)
+  }
+}
+
+function skipNick() {
+  nickSkipped.value = true
+  localStorage.setItem('sfx.nick.skip', '1')
+}
 
 /* 「继续上次」:取列表里最新一条**真的有消息**的会话。
    不能只看 sessions[0] —— 那个常常是刚建的空会话(count=0),跳过它才能拿到上次聊的。 */
@@ -95,6 +121,19 @@ function resume() {
           <div class="hero">
             <div class="hero-t">问我任何事</div>
             <div class="core-cap">主管 Agent 会按需调度子 Agent;想让它读你的知识库,直接问就行</div>
+          </div>
+
+          <div v-if="askNick" class="ask-nick">
+            <span class="an-q">我该怎么称呼你?</span>
+            <input
+              v-model="nick"
+              class="an-in"
+              maxlength="24"
+              placeholder="例如:snow"
+              @keydown.enter.prevent="saveNick"
+            />
+            <button class="an-ok" :disabled="profile.saving || !nick.trim()" @click="saveNick">就这么叫</button>
+            <button class="an-skip" title="以后在设置里也能填" @click="skipNick">跳过</button>
           </div>
 
           <div class="tries">
@@ -177,6 +216,32 @@ function resume() {
   font-size: 19px; font-weight: 600; letter-spacing: -0.02em;
   color: var(--ink); margin-bottom: 6px;
 }
+
+/* 首次引导的问称呼条:与下面的示例提问同宽,不弹窗、不挡操作 */
+.ask-nick {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; max-width: 420px;
+  padding: 9px 11px; border-radius: var(--r-sm);
+  background: rgba(26, 157, 95, 0.06);
+  border: 1px solid rgba(26, 157, 95, 0.22);
+}
+.an-q { font-size: 12.5px; font-weight: 600; color: var(--ink); flex-shrink: 0; }
+.an-in {
+  flex: 1; min-width: 56px;
+  padding: 5px 8px; border-radius: 7px;
+  font-size: 12.5px; color: var(--ink);
+  background: #fff; border: 1px solid var(--line);
+}
+.an-in:focus { outline: none; border-color: rgba(26, 157, 95, 0.5); }
+.an-ok {
+  flex-shrink: 0;
+  padding: 5px 10px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; color: #fff;
+  background: var(--green);
+}
+.an-ok:disabled { opacity: 0.45; cursor: default; }
+.an-skip { flex-shrink: 0; padding: 4px 2px; font-size: 11.5px; color: var(--dim); }
+.an-skip:hover { color: var(--ink); }
 
 /* 示例提问:原来空态只有一句提示,用户不知道从哪开口 */
 .tries { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 420px; }

@@ -16,7 +16,7 @@ from foxclaw import __version__
 import foxclaw.api as _api
 from .. import app
 from ..middleware import _gateway_on, _GATEWAY
-from ...core import settings
+from ...core import settings, update_check
 
 
 # ── 系统状态 ───────────────────────────────────────────────
@@ -69,6 +69,7 @@ async def get_amap_config():
 @app.get("/api/system/info")
 async def get_system_info():
     """系统级只读信息:版本、运行参数、各 Agent、模块状态(供设置面板展示)。"""
+    update_check.maybe_refresh()      # 未启用 / 缓存新鲜时立即返回;否则起 daemon 线程
     agents = {}
     for aid, ag in _api.os_instance()._agents.items():
         h = ag.harness
@@ -84,6 +85,9 @@ async def get_system_info():
         }
     return {
         "version": __version__,
+        # 更新提示:默认关(FOXCLAW_UPDATE_CHECK=1 才查),这里只读缓存 + 需要时起后台线程,
+        # 不会让这个请求等网络。
+        "update": update_check.status(),
         "data_dir": os.environ.get("FOXCLAW_DATA_DIR", "./foxclaw_data"),
         "shadow_rounds": settings.get_int("FOXCLAW_SHADOW_ROUNDS"),
         "model": _api.os_instance().router.info(),
