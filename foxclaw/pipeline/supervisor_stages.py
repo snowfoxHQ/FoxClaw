@@ -16,11 +16,13 @@ hooks / 流式(run_task_stream)/ stop_event 中断 / 统一 `_emit_execution` / 
 import asyncio
 from datetime import datetime
 
-from .cognitive_pipeline import PipelineContext, stage_recall  # noqa: F401  (recall 复用默认 stage)
 from ..core.dispatch import dispatch_failed  # 谓词在 core:避免 pipeline 反向 import agents
+from .cognitive_pipeline import PipelineContext, stage_recall  # noqa: F401  (recall 复用默认 stage)
+from .stage_meta import named_stage
 
 
 # ── Stage 2: meta_check —— 元问题判断(你是谁/能做什么 → 主管以总管身份自答,不分派)──
+@named_stage("meta_check")
 async def sv_meta_check(ctx: PipelineContext) -> None:
     agent = ctx.agent
     if not agent._is_meta(ctx.task):
@@ -58,10 +60,10 @@ async def sv_meta_check(ctx: PipelineContext) -> None:
     ctx.result = {"dispatched_to": "supervisor", "sub_result": reply,
                   "self_answered": True}
     ctx.extra["_meta_answered"] = True      # 短路标记:后续 stage 跳过(aggregate 清除)
-sv_meta_check.stage_name = "meta_check"
 
 
 # ── Stage 3: schedule —— 认知调度(优先级/负载/抢占)────────────────
+@named_stage("schedule")
 async def sv_schedule(ctx: PipelineContext) -> None:
     if ctx.extra.get("_meta_answered"):
         return
@@ -73,10 +75,10 @@ async def sv_schedule(ctx: PipelineContext) -> None:
                  + (f" · 抢占({ctx.sched.preemption_reason})" if ctx.sched.preemptible else "")),
         node_type="decision", conf=0.9,
     )
-sv_schedule.stage_name = "schedule"
 
 
 # ── Stage 4: route —— 路由决策(关键词+调度意图;未命中且模型可用 → 决策主管自答)──
+@named_stage("route")
 async def sv_route(ctx: PipelineContext) -> None:
     if ctx.extra.get("_meta_answered"):
         return
@@ -100,10 +102,10 @@ async def sv_route(ctx: PipelineContext) -> None:
         node_type="decision",
         conf=0.9,
     )
-sv_route.stage_name = "route"
 
 
 # ── Stage 5: plan —— planner 拆解(多步?跨 Agent?)────────────────
+@named_stage("plan")
 async def sv_plan(ctx: PipelineContext) -> None:
     if ctx.extra.get("_meta_answered") or ctx.extra.get("_self_answer"):
         return
@@ -124,10 +126,10 @@ async def sv_plan(ctx: PipelineContext) -> None:
         ctx.multi_agent = False
     ctx.plan_obj = plan_obj
     ctx.step_routes = step_routes or []
-sv_plan.stage_name = "plan"
 
 
 # ── Stage 6: dispatch —— 分发执行(自答 / 多 Agent / 单 Agent / 兜底)──
+@named_stage("dispatch")
 async def sv_dispatch(ctx: PipelineContext) -> None:
     agent = ctx.agent
     if ctx.extra.get("_meta_answered"):
@@ -182,10 +184,10 @@ async def sv_dispatch(ctx: PipelineContext) -> None:
 
     # 子 Agent 不可用(未注册)→ 主管自处理
     ctx.dispatch_result = await agent._dispatch_fallback(ctx.task, ctx.context)
-sv_dispatch.stage_name = "dispatch"
 
 
 # ── Stage 6.5: replan —— 反思重规划(P0-1:失败步骤 → LLM 反思 → 修正计划 → 重执行)──
+@named_stage("replan")
 async def sv_replan(ctx: PipelineContext) -> None:
     if ctx.extra.get("_meta_answered") or ctx.extra.get("_self_answer"):
         return
@@ -200,10 +202,10 @@ async def sv_replan(ctx: PipelineContext) -> None:
     ctx.dispatch_result = await agent._replan_and_redo(
         ctx.task, ctx.sched, ctx.session_id, subagents, ctx.context, ctx.memories,
         dr, max_rounds=max_rounds)
-sv_replan.stage_name = "replan"
 
 
 # ── Stage 7: aggregate —— 结果组装(dispatch_result → ctx.result/extra)──
+@named_stage("aggregate")
 async def sv_aggregate(ctx: PipelineContext) -> None:
     # 清除内部短路标记,不外泄到返回体(它们会经 **ctx.extra 透传进 resp)
     ctx.extra.pop("_meta_answered", None)
@@ -222,7 +224,6 @@ async def sv_aggregate(ctx: PipelineContext) -> None:
     # 真值链不沉淀(呼应 P3-5)。成功/自答路径不带此键,行为逐字不变。
     if isinstance(ctx.result, dict) and ctx.result.get("blocked"):
         ctx.extra["skill_status"] = "blocked"
-sv_aggregate.stage_name = "aggregate"
 
 
 # 主管 pipeline 的 stage 序列(recall 复用默认实现:与旧 `self._recall_memory(task)` 逐字等价)

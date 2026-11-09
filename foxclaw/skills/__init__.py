@@ -11,7 +11,7 @@ Foxclaw Skill 接入层 — 助手的"万能工具箱",同时是对外生态兼�
 import contextvars
 import threading
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Callable, Literal
+from typing import Any, Callable, Literal, Optional
 
 
 SkillKind = Literal["local", "mcp", "web_api"]
@@ -446,7 +446,7 @@ class SkillAdapter:
         loc = skill.param_location
         if loc == "auto":
             loc = "query" if method in ("GET", "DELETE") else "json"
-        req_kwargs = {"headers": headers, "timeout": skill.timeout,
+        req_kwargs: dict[str, Any] = {"headers": headers, "timeout": skill.timeout,
                       "follow_redirects": False}     # 禁止重定向(防绕过 SSRF 校验)
         if loc == "query":
             req_kwargs["params"] = args
