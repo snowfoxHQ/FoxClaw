@@ -112,13 +112,27 @@ class PlaywrightDriver(BaseDriver):
         self._browser = None
         self._pw = None
 
+    def _require_page(self):
+        """取当前页面；未打开或已拆卸时立刻报错，而不是等 None 属性访问炸。
+
+        `_page` 的静态类型是 `Page | None`（初始化与拆卸都会置 None）。下面几个
+        方法原先直接 `self._page.xxx`：正常流程里 close() 之后没人再调，所以一直
+        没出事；一旦有人在拆卸后调用，得到的是 `'NoneType' object has no attribute
+        'goto'`，看不出「会话已关闭」这层意思。集中在这里判一次，报错即意图。
+        """
+        if self._page is None:
+            raise RuntimeError(
+                "browser session is not open: driver was closed or failed to launch"
+            )
+        return self._page
+
     def navigate(self, url: str) -> None:
-        self._page.goto(url, wait_until="domcontentloaded")
+        self._require_page().goto(url, wait_until="domcontentloaded")
 
     def query_interactive_elements(self, roles: tuple) -> List[Any]:
         selectors = [ROLE_SELECTOR_MAP[r] for r in roles if r in ROLE_SELECTOR_MAP]
         combined = ", ".join(selectors)
-        elements = self._page.query_selector_all(combined)
+        elements = self._require_page().query_selector_all(combined)
         # 只保留当前可见的元素，避免 LLM 尝试操作看不见的东西
         return [el for el in elements if el.is_visible()]
 
@@ -148,19 +162,19 @@ class PlaywrightDriver(BaseDriver):
 
     def scroll(self, direction: str) -> None:
         delta = 600 if direction == "down" else -600
-        self._page.mouse.wheel(0, delta)
+        self._require_page().mouse.wheel(0, delta)
 
     def wait(self, seconds: float) -> None:
         time.sleep(seconds)
 
     def get_visible_text(self) -> str:
-        return self._page.inner_text("body")
+        return self._require_page().inner_text("body")
 
     def current_url(self) -> str:
-        return self._page.url
+        return self._require_page().url
 
     def current_title(self) -> str:
-        return self._page.title()
+        return self._require_page().title()
 
     def close(self) -> None:
         self._safe_teardown()
