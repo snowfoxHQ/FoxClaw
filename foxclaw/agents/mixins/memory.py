@@ -2,10 +2,18 @@
 
 从 `foxclaw/agents/base.py` 搬移出来的记忆相关方法。
 """
+from typing import Any, Callable
+
 from ._context import _suppress_memory
 
 
 class MemoryMixin:
+    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
+    # 不声明的话,检查器在每个 self.hmr / self._think 处报 attr-defined。
+    AGENT_ID: str
+    hmr: Any
+    _think: Callable[..., Any]
+
     def _recall_memory(self, query: str, top_k: int = 5) -> list:
         """从 HMR 召回相关记忆，记录到 ThoughtChain"""
         from foxclaw.core.tracing import span as _span

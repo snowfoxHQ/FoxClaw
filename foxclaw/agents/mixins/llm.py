@@ -3,9 +3,15 @@
 从 `foxclaw/agents/base.py` 搬移出来的 `_call_llm`。
 """
 from ._context import _reasoning_inject, _act_stream
+from typing import Any
 
 
 class LlmMixin:
+    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
+    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
+    AGENT_ID: str
+    router: Any
+    system_prompt: str
     async def _call_llm(
         self,
         messages: list[dict],
