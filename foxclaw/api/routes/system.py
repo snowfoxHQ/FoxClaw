@@ -1,7 +1,7 @@
 """系统状态 / 模型路由 / 认知调度 / 事件总线 / 真值 / 进程 / 思考链 / Harness / 探活 / 监控与追踪。
 
-从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api._os_instance`
-晚绑定读取(保持测试可重绑定 `api._os_instance`);路由用 `@app` 装饰器在 import 时注册。
+从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api.current_os()`
+晚绑定读取(状态在 `_state`,测试可重绑 `_state._os_instance`);路由用 `@app` 装饰器在 import 时注册。
 """
 
 import os
@@ -30,7 +30,7 @@ async def get_system_status():
 @app.get("/api/tokens")
 async def get_token_summary():
     """Token 消耗摘要(成本可观测性):总量、按 Agent、按模型。"""
-    meter = getattr(_api._os_instance, "token_meter", None)
+    meter = getattr(_api.current_os(), "token_meter", None)
     if meter is None:
         return {"error": "token meter 未启用"}
     return {
@@ -43,7 +43,7 @@ async def get_token_summary():
 @app.get("/api/tokens/report")
 async def get_token_report():
     """Token 消耗的人类可读文本报告。"""
-    meter = getattr(_api._os_instance, "token_meter", None)
+    meter = getattr(_api.current_os(), "token_meter", None)
     if meter is None:
         return {"error": "token meter 未启用"}
     return {"report": meter.report()}
@@ -255,7 +255,7 @@ async def health():
 async def health_ready():
     """就绪探针(readiness):逐子系统深度检查。**开放**(探针无需鉴权),
     组件只回 ok/stub/down,不泄露 provider 名等细节。不触发 HKC 惰性初始化。"""
-    o = _api._os_instance
+    o = _api.current_os()
     comps = {}
     comps["hmr"] = "ok" if getattr(o, "hmr", None) is not None else "down"
     _router = getattr(o, "router", None)

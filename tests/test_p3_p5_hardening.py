@@ -94,8 +94,8 @@ def _run_ability_with(exc):
             raise exc
 
     fake_hkc = SimpleNamespace(available=True, client=_Client())
-    old_os = api_mod._os_instance
-    api_mod._os_instance = SimpleNamespace(hkc=fake_hkc)
+    old_os = api_mod._state.current_os()
+    api_mod._state.set_os_instance(SimpleNamespace(hkc=fake_hkc))
     try:
         try:
             body = asyncio.run(api_mod.knowledge_ability("any_key"))
@@ -106,7 +106,7 @@ def _run_ability_with(exc):
                 return e.status_code, {"detail": e.detail}
             raise
     finally:
-        api_mod._os_instance = old_os
+        api_mod._state.set_os_instance(old_os)
 
 
 def test_ability_isinstance():

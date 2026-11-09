@@ -1,6 +1,6 @@
 """领域内核端点(B 阶段三内核):财务 / 学习 / 行程 + 多格式文件导入。
 
-从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api._os_instance`
+从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api.current_os()`
 晚绑定读取;路由用 `@app` 装饰器在 import 时注册。
 """
 

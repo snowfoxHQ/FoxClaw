@@ -133,7 +133,7 @@ def test_select_custom_takes_effect_immediately(fresh_store, monkeypatch):
         pass
     fake = _FakeOS()
     fake.router = router
-    monkeypatch.setattr(_api, "_os_instance", fake, raising=False)
+    monkeypatch.setattr(_api._state, "_os_instance", fake, raising=False)
 
     import asyncio
     out = asyncio.run(llm_admin.select_model(

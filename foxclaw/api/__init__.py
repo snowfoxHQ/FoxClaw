@@ -33,7 +33,7 @@ try:
 except ImportError:
     pass  # 未装 python-dotenv 则用系统环境变量
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from typing import Optional
 
 from foxclaw import Foxclaw, __version__
@@ -58,33 +58,15 @@ from .routes.ws import manager, harness_websocket as harness_websocket
 # 事件脊柱辅助(WS 净化 / HKC 预热)已移至 spine.py;`_register_spine_projection` 因
 # `_WS_MUTED` 源码级断言约束仍留本文件(见 test_governance_audit)。
 from .spine import _ws_safe_payload, _prewarm_hkc
+# 共享 OS 实例的状态与访问器单独成模块:本文件已贴着 15KB 体积门上限(tools/size_check.py),
+# 再往里塞代码会顶穿。`as os_instance` 是刻意的 —— 路由层写 `_api.os_instance()`,属再导出。
+from ._state import current_os, set_os_instance
+from ._state import os_instance as os_instance
+
 # app 挂载/配置(CORS / HKC 星球数据面 / 前端静态)已移至 bootstrap.py,在下方按原顺序调用。
 # 注意:该文件绝不能叫 app.py —— 包内已有变量 `app = FastAPI(...)`,同名子模块会让
 # `from .. import app` 在类型检查器(以及运行期早于赋值的导入)里解析成模块而非实例。
 from .bootstrap import _configure_cors, _mount_hkc, _mount_frontend
-
-
-# ── 全局 OS 实例 ───────────────────────────────────────────
-_os_instance: Optional[Foxclaw] = None
-
-
-def os_instance() -> Foxclaw:
-    """取 lifespan 里创建的共享 OS 实例;尚未就绪时给 503 而不是 AttributeError。
-
-    `_os_instance` 在 lifespan 启动时赋值,静态类型必然带 `None`。路由层原先直接
-    写 `_api._os_instance.skill_policy`,未就绪时抛的是
-    `'NoneType' object has no attribute 'skill_policy'` —— 对调用方是 500,
-    且看不出「服务还在启动、可以重试」。这里收口一次:类型上窄化为 `Foxclaw`,
-    运行期给出可重试的 503。
-
-    仍需要「无 OS 也能降级」的路由(如 /api/llm/runtime 返回 ok=False)不要用它,
-    改为取 `_os_instance` 存局部变量后判空,由调用点自己决定降级形态。
-    """
-    inst = _os_instance
-    if inst is None:
-        raise HTTPException(
-            status_code=503, detail="service is starting up, retry shortly")
-    return inst
 
 # 线程安全事件队列:harness 在任意线程触发的事件先入队,
 # 由后台 async 任务统一广播到 WebSocket(解决跨线程 create_task 失败问题)
@@ -120,22 +102,24 @@ def _register_spine_projection(os_instance: Foxclaw):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _os_instance, _broadcast_task
+    global _broadcast_task
     # 启动自检:未设 FOXCLAW_API_KEY 即等于无鉴权。此处只做提醒(绑定地址由启动方式决定,
     # 拿不到 host);__main__ 入口对「非回环 + 无鉴权」有硬拦截。
     if not os.environ.get("FOXCLAW_API_KEY", "").strip():
         print("[Foxclaw API] ⚠ 未设置 FOXCLAW_API_KEY —— 当前无鉴权,"
               "仅本地回环安全;对外暴露前务必设置。")
-    _os_instance = Foxclaw(
+    os_inst = Foxclaw(
         data_dir=os.environ.get("FOXCLAW_DATA_DIR", "./foxclaw_data"),
         shadow_rounds=settings.get_int("FOXCLAW_SHADOW_ROUNDS"),
     )
-    _register_spine_projection(_os_instance)
+    # 状态存进 _state 模块,路由层经 os_instance() 取,不再跨模块直接读模块变量。
+    set_os_instance(os_inst)
+    _register_spine_projection(os_inst)
     # trace 落库(与其它 SQLite 同放 data_dir):内存环只留最近若干条且重启即失,
     # 落库后才能"查昨天那次慢请求"。只留慢的/出错的 + 采样,见 tracing._should_persist。
     try:
         from ..core.tracing import TRACES
-        TRACES.attach_db(Path(_os_instance.data_dir) / "traces.db")
+        TRACES.attach_db(Path(os_inst.data_dir) / "traces.db")
     except Exception as e:
         print(f"[Foxclaw API] ⚠ trace 持久化未启用: {e}")
     # 后台任务:把队列里的事件广播到所有 WebSocket
@@ -143,7 +127,7 @@ async def lifespan(app: FastAPI):
     print("[Foxclaw API] ✓ 事件广播任务已启动")
     # 预热 HKC:开机后台加载知识核心(装配 + HKC 多语言 embedding 模型 + 搜索索引 over 全量 KU),
     # 免得"重启后第一次知识查询"触发冷装配卡 ~1 分钟。后台守护线程跑、不阻塞启动;失败静默。
-    _prewarm_hkc(_os_instance)
+    _prewarm_hkc(os_inst)
     if _foxclaw_mcp is not None:
         # 内置 MCP 服务器的 session_manager 需在 app lifespan 内 run()
         async with _foxclaw_mcp.session_manager.run():
@@ -162,8 +146,9 @@ async def lifespan(app: FastAPI):
     # 关闭 SQLite 连接,会与预热线程产生 use-after-free → Windows access violation。
     if _prewarm_thread is not None and _prewarm_thread.is_alive():
         _prewarm_thread.join(timeout=120.0)
-    if _os_instance is not None:
-        await _os_instance.aclose()
+    live = current_os()
+    if live is not None:
+        await live.aclose()
     print("[Foxclaw API] 关闭中...")
 
 
@@ -194,7 +179,7 @@ _foxclaw_mcp_app = None
 if os.environ.get("FOXCLAW_MCP_SERVER", "0").strip() in ("1", "true", "True"):
     from ..mcp_server import build_foxclaw_mcp
     _mcp_agents = os.environ.get("FOXCLAW_MCP_AGENTS", "0").strip() in ("1", "true", "True")
-    _foxclaw_mcp = build_foxclaw_mcp(lambda: _os_instance, expose_agents=_mcp_agents)
+    _foxclaw_mcp = build_foxclaw_mcp(lambda: current_os(), expose_agents=_mcp_agents)
     _foxclaw_mcp_app = _foxclaw_mcp.streamable_http_app()
     if _mcp_agents:
         print("[Foxclaw API] ⚠ MCP 已暴露 Agent 调度(ask_foxclaw)——外部客户端可驱动你的认知 Agent")

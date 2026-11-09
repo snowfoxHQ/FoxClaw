@@ -98,7 +98,7 @@ def _sync_hkc_llm() -> None:
     extractor 自带 ``reconfigure``(HKC 自己的界面也用它),这里复用同一条路径。
     """
     try:
-        os_inst = _api._os_instance
+        os_inst = _api.current_os()
         hkc = os_inst.hkc if os_inst is not None else None
         if hkc is None or not getattr(hkc, "available", False):
             return
@@ -156,7 +156,7 @@ async def select_model(req: _SelectReq):
     (key 空 / BASE URL 非法 / 记录已被删),前端显示"已切换",聊天却继续走旧 provider,
     用户看到的是"填了填不上"。现在选中前先自检,失败直接 400 带原因。
     """
-    os_inst = _api._os_instance
+    os_inst = _api.current_os()
     router = os_inst.router if os_inst is not None else None
     if req.source == "auto":
         if CURRENT_MODEL_PATH.exists():
@@ -393,7 +393,7 @@ async def test_model(req: _TestReq):
     if req.source == "preset":
         if not req.provider:
             raise HTTPException(400, "preset 必须给 provider")
-        os_inst = _api._os_instance
+        os_inst = _api.current_os()
         router = os_inst.router if os_inst is not None else None
         if router is None:
             raise HTTPException(503, "OS 未就绪")
@@ -447,7 +447,7 @@ async def test_model(req: _TestReq):
 @app.get("/api/llm/runtime")
 async def get_runtime():
     """当前真正生效的 provider/model(供前端高亮 + 调试)。"""
-    os_inst = _api._os_instance
+    os_inst = _api.current_os()
     router = os_inst.router if os_inst is not None else None
     if router is None:
         return {"ok": False, "error": "OS 未就绪"}
