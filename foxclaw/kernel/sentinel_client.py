@@ -32,7 +32,7 @@ class SentinelClient:
         self._data_dir = data_dir
         self._lock = threading.Lock()
         self._req_id = 0
-        self._proc = None
+        self._proc: subprocess.Popen[str] | None = None
         self._spawn(cmd)
 
     # ── 进程生命周期 ─────────────────────────────────────────
@@ -80,9 +80,12 @@ class SentinelClient:
             mid = self._req_id
             msg = json.dumps({"id": mid, "op": op, **payload}, ensure_ascii=False)
             try:
-                self._proc.stdin.write(msg + "\n")
-                self._proc.stdin.flush()
-                line = self._proc.stdout.readline()
+                proc = self._proc
+                if proc is None or proc.stdin is None or proc.stdout is None:
+                    raise SentinelUnavailable("守门人进程未启动")
+                proc.stdin.write(msg + "\n")
+                proc.stdin.flush()
+                line = proc.stdout.readline()
             except Exception as e:
                 raise SentinelUnavailable(f"IPC 通信失败: {e}")
             if not line:
@@ -156,7 +159,7 @@ class SentinelClient:
 
     def mint(self, ref: str, ttl: float | None = None):
         """为 ref 签发一次性能力令牌。返回 token(绝不返回真值);失败返回 None。"""
-        payload = {"ref": ref}
+        payload: dict[str, object] = {"ref": ref}
         if ttl is not None:
             payload["ttl"] = ttl
         try:
