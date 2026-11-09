@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from .models import Budget
+from typing import Any
 
 
 class FinanceReasoning:
@@ -17,7 +18,7 @@ class FinanceReasoning:
     @staticmethod
     def spend_by_category(transactions: list, period: str | None = None) -> dict:
         """按分类汇总支出(绝对值)。period 形如 '2026-06',None=全部。"""
-        out = defaultdict(float)
+        out: defaultdict[str, float] = defaultdict(float)
         for t in transactions:
             if not t.is_expense:
                 continue
@@ -144,7 +145,7 @@ class FinanceReasoning:
         同一商户按"最近一次扣款"代表其当前月度订阅价(订阅可能涨价,
         取最新而非遍历到的任意一条;也避免同商户多月记录被累加成虚高总额)。
         """
-        latest = {}   # entity -> (dt, amount)
+        latest: dict[str, tuple[Any, Any]] = {}   # entity -> (dt, amount)
         for t in transactions:
             if t.is_recurring and t.is_expense:
                 prev = latest.get(t.entity)
@@ -287,7 +288,7 @@ class FinanceReasoning:
         # 使 large 阈值 = 恰好触发异常检测的单笔金额。两条规则从此共用一把尺。
         large = min(_round100(med + (3.5 / 0.6745) * mad), 20000.0)
 
-        by_day = defaultdict(float)
+        by_day: defaultdict[Any, float] = defaultdict(float)
         for t in expenses:
             by_day[t.dt.date()] += abs(t.amount)
         daily_med = median(by_day.values())

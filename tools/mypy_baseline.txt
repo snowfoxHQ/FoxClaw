@@ -1,5 +1,5 @@
 # mypy 类型错误棘轮基线。只允许下降。
-# 2026-11-09 复核:mypy 2.4.1 / Python 3.12(.venv,依赖按 requirements.txt)→ 231 errors in 62 files。
+# 2026-11-09 复核:mypy 2.4.1 / Python 3.12(.venv,依赖按 requirements.txt)→ 167 errors in 46 files。
 # 历史:673(2.4.0 / 3.14 旧依赖)→ 655(cli.py 不再用 **dict 展开调 uvicorn.run)
 #      → 645(playwright_driver 收进 _require_page;_policy 用 np.float64)
 #      → 408(api/app.py 改名 bootstrap.py,解掉 101 条「子模块名遮蔽 app 变量」;
@@ -7,4 +7,4 @@
 #             PolicyMixin 声明宿主注入状态;-33;model_router 补 Any/Optional 注解)。
 # 注意:CI 跑在 Python 3.12 上,若首次因解释器差异导致数字略有不同,
 # 先在 CI 同版本下跑一次 `python tools/mypy_ratchet.py --update` 校准基线。
-231
+167

@@ -4,6 +4,7 @@ import re
 import threading
 from dataclasses import dataclass, field, asdict
 import yaml
+from typing import Any
 
 
 @dataclass
@@ -65,7 +66,7 @@ def load_builtin_dir(reg: MarkdownSkillRegistry, root) -> list:
     用户已安装的同 id 技能优先(不覆盖),内置只是缺省值。
     """
     from pathlib import Path
-    loaded = []
+    loaded: list[Any] = []
     try:
         base = Path(root)
         if not base.is_dir():
@@ -164,7 +165,7 @@ def extract_skill_package(zip_bytes: bytes, max_uncompressed: int = 2_000_000):
     if not skill_name:
         raise ValueError("包内未找到 SKILL.md")
     skill_md = zf.read(skill_name).decode("utf-8", "replace")
-    meta = {}
+    meta: dict[str, Any] = {}
     meta_name = next((n for n in zf.namelist() if n.lower().endswith("_meta.json")), None)
     if meta_name:
         try:

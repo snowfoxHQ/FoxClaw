@@ -14,7 +14,7 @@ class _Stat:
     def __init__(self):
         self.count = 0
         self.errors = 0
-        self.samples = deque(maxlen=_MAX_SAMPLES)
+        self.samples: deque[float] = deque(maxlen=_MAX_SAMPLES)
 
 
 def _pct(sorted_vals, p: float) -> float:

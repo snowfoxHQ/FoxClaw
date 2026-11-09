@@ -105,7 +105,7 @@ class KnowledgeGraph:
         return result
 
     def stats(self) -> dict:
-        type_count = defaultdict(int)
+        type_count: defaultdict[str, int] = defaultdict(int)
         for e in self.edges:
             type_count[e.edge_type] += 1
         return {

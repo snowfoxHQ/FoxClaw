@@ -4,8 +4,14 @@
 助手降级为指令技能后,工具箱不能再绑在某个 Agent 上 —— 否则主管/财务/办公全都用不了技能,
 而"技能"恰恰是那两个下放的 Agent 的新家。故上移到 mixin,由基类统一混入。
 """
+from typing import Any, Callable
+
 
 class SkillBoxMixin:
+    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
+    # 不声明的话,检查器在每个 self._think / self._session_id 处报 attr-defined。
+    _session_id: str | None
+    _think: Callable[..., Any]
     def attach_skills(self, registry, adapter):
         """挂载 skill 接入层(注册表 + 执行适配器)。"""
         self.skill_registry = registry

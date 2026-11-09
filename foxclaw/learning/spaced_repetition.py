@@ -79,7 +79,7 @@ class SpacedRepetition:
     def learning_load(states: list, days: int = 7) -> dict:
         """学习负荷(对应财务烧钱速度):未来 N 天的复习量。"""
         from collections import defaultdict
-        by_day = defaultdict(int)
+        by_day: defaultdict[int, int] = defaultdict(int)
         for s in states:
             d = s.days_until_due
             if 0 <= d <= days:

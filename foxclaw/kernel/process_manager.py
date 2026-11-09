@@ -138,7 +138,7 @@ class ProcessManager:
 
     def stats(self) -> dict:
         with self._lock:
-            counts = {}
+            counts: dict[str, int] = {}
             for r in self._processes.values():
                 counts[r.state] = counts.get(r.state, 0) + 1
             return {"total": len(self._processes), "by_state": counts,

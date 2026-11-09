@@ -73,7 +73,7 @@ def _hours_left(state) -> float:
 
 def _load7(learned) -> dict:
     """未来 7 天(0..6)的复习负荷,口径与队列一致。"""
-    by_day = {}
+    by_day: dict[str, int] = {}
     for s in learned:
         d = 0 if s.is_due else _days_left(s)
         if d <= 6:

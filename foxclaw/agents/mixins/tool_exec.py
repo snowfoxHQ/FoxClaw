@@ -15,6 +15,7 @@ import time
 from ._context import _taint_get, _taint_raise, _untrusted_get
 from ...core import settings
 from ...core.injection_guard import redact_obj, redact_secrets
+from typing import Any
 
 #: 同轮最多并发几个工具(再多也是网络等待,收益递减;避免打爆 provider/搜索服务)
 MAX_PARALLEL = 4
@@ -381,6 +382,11 @@ def _run_tool_calls(agent, calls: list) -> list:
 
 
 class ToolExecMixin:
+    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
+    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
+    AGENT_ID: str
+    router: Any
+    system_prompt: str
     # 以下四个方法均为薄包装:真实 agent 走 self.xxx;单测可用 SimpleNamespace 直接调
     # 模块级函数或 `CognitiveAgent._dispatch_tool(fake, ...)`(鸭子类型)。
     def _guard_tool(self, name: str, args: dict):

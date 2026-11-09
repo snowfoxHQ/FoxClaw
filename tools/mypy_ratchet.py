@@ -31,8 +31,9 @@ SUMMARY = re.compile(r"Found (\d+) errors? in (\d+) files?")
 DETAIL = re.compile(r"^(?P<file>[^:\n]+?\.py):\d+: error: .*\[(?P<code>[a-z-]+)\]$")
 # 失败时最多打印多少个文件/错误码,避免 CI 日志被刷屏
 TOP_N = 30
-# run_mypy 填充的原始错误样本(失败时打印,定位本地/CI 差异用)
-SAMPLES: list[str] = []
+# run_mypy 填充的原始错误样本(失败时打印,定位本地/CI 差异用)。
+# 按文件分组:只打全局前 30 条没用——差异最大的那几个文件往往排在字母序后面打不到。
+SAMPLES: dict[str, list[str]] = {}
 
 # Windows GBK 控制台遇到 ✓/✗ 会 UnicodeEncodeError,直接把输出钉成 utf-8。
 for _s in (sys.stdout, sys.stderr):
@@ -73,7 +74,7 @@ def run_mypy() -> tuple[int, int, dict[str, int], dict[str, int]]:
             f = d.group("file").replace("\\", "/")
             by_file[f] = by_file.get(f, 0) + 1
             by_code[d.group("code")] = by_code.get(d.group("code"), 0) + 1
-            SAMPLES.append(f"{f}: {line.strip().split('error: ', 1)[-1]}")
+            SAMPLES.setdefault(f, []).append(line.strip().split("error: ", 1)[-1])
     m = SUMMARY.search(out)
     if m:
         return int(m.group(1)), int(m.group(2)), by_file, by_code
@@ -95,9 +96,12 @@ def report(by_file: dict[str, int], by_code: dict[str, int]) -> None:
         for f, n in sorted(by_file.items(), key=lambda kv: -kv[1])[:TOP_N]:
             print(f"    {n:4d}  {f}")
     if SAMPLES:
-        print(f"  错误样本(前 {min(len(SAMPLES), TOP_N)} 条):")
-        for s in SAMPLES[:TOP_N]:
-            print(f"    {s}")
+        # 对大文件集中的问题,给出「错误最多的 5 个文件」各自前 4 条样本。
+        top_files = sorted(by_file.items(), key=lambda kv: -kv[1])[:5]
+        print("  错误样本(按错误最多的文件取前 4 条):")
+        for f, _ in top_files:
+            for s in SAMPLES.get(f, [])[:4]:
+                print(f"    {f}: {s}")
 
 
 def toolchain() -> str:

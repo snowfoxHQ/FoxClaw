@@ -3,9 +3,16 @@
 从 `foxclaw/agents/base.py` 搬移出来的偏好相关方法。
 """
 import os
+from typing import Any, Callable
 
 
 class PreferenceMixin:
+    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
+    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
+    AGENT_ID: str
+    hmr: Any
+    _think: Callable[..., Any]
+    _store_memory: Callable[..., Any]
     # 注入近期偏好(不管当前 query),让"越用越懂你"真生效。默认开;FOXCLAW_PREF_CAPTURE=0 关采集。
     _PREF_MARKERS = ("我喜欢", "我不喜欢", "我讨厌", "我希望", "别再", "不要再", "以后都",
                      "以后请", "记住", "我的偏好", "我习惯", "下次请", "下次记得", "我倾向",

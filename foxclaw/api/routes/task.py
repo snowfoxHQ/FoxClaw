@@ -79,7 +79,7 @@ _ATTACH_TEXT_TOTAL = 60000             # 全部附件正文累计上限(≈1.5 �
 def _sanitize_images(images):
     """校验/裁剪前端传来的多模态图片:限数量、限单图大小、限累计总量、白名单类型。
     防超大 payload/OOM(前端已缩放,这是对直连/恶意客户端的后端自保)。"""
-    out = []
+    out: list[dict] = []
     total = 0
     if not isinstance(images, list):
         return out
@@ -103,7 +103,7 @@ def _sanitize_attachments(attachments):
     """校验/裁剪前端传来的聊天附件:限数量、字段清洗、正文长度上限 + 累计上限。
     附件是前端经 /api/upload 上传后带回的引用({name,size,mime,url,text});这里只做
     直连/恶意客户端的自保,不信任 text 之外任何字段用于文件系统操作(下载按 url 里的 id 白名单)。"""
-    out = []
+    out: list[dict] = []
     total = 0
     if not isinstance(attachments, list):
         return out

@@ -5,9 +5,15 @@
 import os
 
 from ._context import _taint_raise
+from typing import Any, Callable
 
 
 class AugmentMixin:
+    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
+    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
+    _think: Callable[..., Any]
+    available_abilities: Any
+    _call_llm: Callable[..., Any]
     def _web_augment(self, query: str, messages: list[dict]) -> list[dict]:
         """若问题含时效性,联网搜索并把结果注入 messages(放在用户问题前)。
         DeepSeek/OpenAI 等基础 API 不自带联网,这里用百度 AI 搜索补上。失败则原样返回。"""
