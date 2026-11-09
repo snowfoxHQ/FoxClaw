@@ -7,13 +7,10 @@ from typing import Any, Callable
 
 
 class PreferenceMixin:
-    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
-    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
     AGENT_ID: str
     hmr: Any
     _think: Callable[..., Any]
     _store_memory: Callable[..., Any]
-    # 注入近期偏好(不管当前 query),让"越用越懂你"真生效。默认开;FOXCLAW_PREF_CAPTURE=0 关采集。
     _PREF_MARKERS = ("我喜欢", "我不喜欢", "我讨厌", "我希望", "别再", "不要再", "以后都",
                      "以后请", "记住", "我的偏好", "我习惯", "下次请", "下次记得", "我倾向",
                      "请务必", "请一律", "总是用", "我要求")
@@ -27,16 +24,12 @@ class PreferenceMixin:
         t = (task or "").strip()
         if not t or not any(k in t for k in self._PREF_MARKERS):
             return
-        # 偏好通道消毒(防投毒):偏好每轮以"一律以此为准"的权威口吻注入,且无法像外部数据那样
-        # 包 <untrusted>(它本就该被遵循)。所以只能在**存入侧**拦——若这条"偏好"候选里夹带注入/
-        # 越权特征(如用户把含"忽略以上指令/系统覆盖"的文档粘进对话),就不固化,断掉投毒源头。
         from ...core import injection_guard as _ig
         if _ig.scan(t):
             self._think(content="偏好候选含疑似注入特征,已拒绝固化(防记忆投毒)",
                         node_type="reflection", conf=0.9)
             return
         try:
-            # 用 tag 标记(不受 memory_type 白名单降级);shared=True 跨会话跨 Agent 持久
             self._store_memory(f"用户偏好:{t[:200]}", mem_type="preference",
                                tags=["preference"], shared=True)
         except Exception:
@@ -51,9 +44,6 @@ class PreferenceMixin:
             return ""
         if not prefs:
             return ""
-        # prefs 已按"新→旧"排序(recall_by_tag)。偏好会随时间改变(如"最喜欢的颜色"从蓝改灰),
-        # 语义相似度无法区分同话题偏好(实测"颜色"与"回答风格"偏好都 ~0.9),故不能靠自动删旧;
-        # 改由指令让 LLM 以"最新的(最靠前)/当前对话最近说法"为准,避免被已更新的旧偏好带偏。
         lines = "\n".join(f"- {p.get('content', '')}" for p in prefs)
         return ("【用户偏好(按最近→最早排列)】\n" + lines +
                 "\n**注意:偏好会随时间改变。若上面几条彼此冲突,或与当前对话中用户最近的说法不一致,"
@@ -87,10 +77,6 @@ class PreferenceMixin:
         except Exception:
             return False
 
-    # ── 用户档案:称呼 ─────────────────────────────────────────
-    # 只有一个字段,刻意复用 preference 通道(每轮无条件注入 + shared 跨会话),
-    # 而不是新建 users 表:foxclaw 是本地单用户,账号体系在这里没有对应物,
-    # 「怎么称呼你」本质就是一条用户声明,和「我喜欢简短回答」同一类。
     _NICK_PREFIXES = ("称呼我为", "叫我", "我的名字是", "我的名字叫")
 
     def remember_preference(self, text: str) -> bool:

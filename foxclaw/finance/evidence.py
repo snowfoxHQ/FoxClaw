@@ -17,9 +17,9 @@ from datetime import datetime
 @dataclass
 class RiskFactor:
     """单个风险因子:是什么、证据、权重。"""
-    factor: str                  # 风险因子名(如"超预算")
-    evidence: str                # 人类可读证据(如"餐饮已用 120%,超 ¥240")
-    weight: float                # 权重 0-1(对总风险的贡献)
+    factor: str
+    evidence: str
+    weight: float
 
     def to_dict(self) -> dict:
         return {"factor": self.factor, "evidence": self.evidence,
@@ -29,14 +29,14 @@ class RiskFactor:
 @dataclass
 class EvidenceChain:
     """结构化决策证据链 —— 财务决策的可审计输出。"""
-    decision_type: str                                  # 决策类型(如 budget_risk / anomaly)
-    risk_score: float = 0.0                             # 综合风险分 0-1
-    risk_factors: list = field(default_factory=list)    # [RiskFactor]
-    mitigating_factors: list = field(default_factory=list)  # 缓解因素(降低风险的)
-    rationale: str = ""                                 # 决策理由(人类可读)
-    recommended_action: str = ""                        # 建议动作
-    confidence: float = 0.0                             # 置信度 0-1
-    additional_checks: list = field(default_factory=list)  # 还需补充的检查
+    decision_type: str
+    risk_score: float = 0.0
+    risk_factors: list = field(default_factory=list)
+    mitigating_factors: list = field(default_factory=list)
+    rationale: str = ""
+    recommended_action: str = ""
+    confidence: float = 0.0
+    additional_checks: list = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     def add_factor(self, factor: str, evidence: str, weight: float):
@@ -53,10 +53,10 @@ class EvidenceChain:
             self.risk_score = 0.0
             return 0.0
         weights = sorted((f.weight for f in self.risk_factors), reverse=True)
-        score = weights[0]                          # 最大因子为主
+        score = weights[0]
         for w in weights[1:]:
-            score += w * (1 - score) * 0.5          # 其余因子衰减叠加(饱和,不会超过1)
-        mitigation = min(0.2, 0.1 * len(self.mitigating_factors))  # 缓解最多减0.2
+            score += w * (1 - score) * 0.5
+        mitigation = min(0.2, 0.1 * len(self.mitigating_factors))
         self.risk_score = max(0.0, min(1.0, round(score - mitigation, 3)))
         return self.risk_score
 
@@ -100,7 +100,6 @@ class FinanceExplainer:
             cat = b.get("category", "?")
             if ratio >= 1.0:
                 over = b.get("spent", 0) - b.get("monthly_limit", 0)
-                # 权重随超支程度递增:超10%→0.5,超50%→0.65,超100%+→0.8(上限)
                 w = min(0.8, 0.45 + (ratio - 1.0) * 0.35)
                 ec.add_factor("超预算", f"{cat} 已用 {ratio*100:.0f}%,超支 ¥{over:.0f}",
                               weight=w)
@@ -109,13 +108,11 @@ class FinanceExplainer:
                 ec.add_factor("接近预算上限",
                               f"{cat} 已用 {ratio*100:.0f}%,接近上限", weight=0.25)
                 near_budgets.append(cat)
-        # 缓解因素:有预算分类未超支
         healthy = [b.get("category") for b in budget_status
                    if b.get("usage_ratio", 0) < 0.8]
         if healthy:
             ec.mitigating_factors.append(f"{len(healthy)} 个分类预算健康")
         ec.compute_risk()
-        # 理由 + 建议
         if over_budgets:
             ec.rationale = f"{','.join(over_budgets)} 已超预算,需立即关注"
             ec.recommended_action = f"削减 {over_budgets[0]} 支出或调整预算"
@@ -134,7 +131,6 @@ class FinanceExplainer:
         ec = EvidenceChain(decision_type="anomaly", confidence=0.85)
         for a in anomalies[:5]:
             z = a.get("z_score", 0)
-            # z 分数越高,权重越大(裁剪到 0.6)
             w = min(0.6, 0.15 + z * 0.05)
             ec.add_factor("异常大额支出",
                           f"{a.get('entity','?')} ¥{abs(a.get('amount',0)):.0f}"

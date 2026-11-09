@@ -14,15 +14,11 @@ import yaml
 from ..core.thought_chain import ThoughtNode
 from ._base import HarnessResult
 
-if TYPE_CHECKING:  # 仅类型期导入,避免与宿主模块形成运行时循环
+if TYPE_CHECKING:
     from .event_bus import HarnessEventBus
 
 
 class PolicyMixin:
-    # ── 宿主注入的状态(纯声明,不产生运行时属性)────────────────
-    # 这些字段由 Harness.__init__ 赋值,mixin 自身不初始化。不在此声明的话,
-    # 检查器在每个 self._policy / self.bus / self.agent_id 处都报 attr-defined
-    # (共 30+ 条),而运行期一直是好的 —— 属于缺失的静态契约而非缺陷。
     agent_id: str
     bus: "HarnessEventBus"
     policy_path: Path
@@ -32,7 +28,6 @@ class PolicyMixin:
     _baseline: Any
     _delta_history: list[float]
 
-    # ── 学习规则的 action 编译 / 应用 ─────────────────────────
 
     def _reindex_learned_actions(self):
         """把 self._policy['rules'] 里已学习的 action 编译成 check() 用得上的结构。
@@ -53,7 +48,6 @@ class PolicyMixin:
             elif atype == "restrict_scope":
                 lim = action.get("entity_expansion_limit")
                 if isinstance(lim, int):
-                    # 多条 restrict 取最严(最小)上限
                     scope_limit = lim if scope_limit is None else min(scope_limit, lim)
         self._penalized_tools = penalized
         self._scope_limit = scope_limit
@@ -64,11 +58,7 @@ class PolicyMixin:
             return False
         return any(tool_name == p or p in tool_name for p in self._penalized_tools)
 
-    # ── Policy 学习(P0-1:影子验证 + 回滚 + 边界)────────────────
 
-    # 【P0-1 边界】可生成影子规则的维度。semantic 可学但**仅权重级**(不生成规则——
-    # 原 increase_semantic_threshold 规则本就无规则级应用,判定行为不变);
-    # 不在 weights 里的未知维度 → 只记录不学习(fail-closed,防未来新维度被默认自学)。
     _LEARNABLE_RULE_DIMS = frozenset({"tool", "scope"})
 
     def _trigger_policy_learning(self, node: ThoughtNode, result: HarnessResult):
@@ -82,14 +72,12 @@ class PolicyMixin:
         """
         dim = result.dominant_dim
 
-        # ── 边界:未知维度 fail-closed,只记录不学习(权重也不动)──
         if dim not in self.weights:
             self._record_history("skip", "",
                                  note=f"未知维度 '{dim}' 禁止自学习(fail-closed)")
             self._save_policy()
             return
 
-        # ── 规则级:tool/scope 生成影子候选;semantic 仅权重级 ──
         if dim in self._LEARNABLE_RULE_DIMS:
             new_rule: dict[str, Any] = {
                 "id": f"rule_{node.id}",
@@ -102,8 +90,6 @@ class PolicyMixin:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "source": "harness_learned",
                 "agent_id": self.agent_id,
-                # 影子账本:observations=适用次数;would_block=若生效会多拦;
-                # would_pass=若生效会多放。三者是 promote/discard 的全部证据。
                 "shadow": {
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "observations": 0, "would_block": 0, "would_pass": 0,
@@ -113,19 +99,12 @@ class PolicyMixin:
             self._policy.setdefault("shadow_rules", []).append(new_rule)
             self._record_history("propose", new_rule["id"],
                                  note=f"{dim} 维度 BLOCK → 影子观察")
-            # 不 _reindex_learned_actions —— 影子规则**不得**影响判定
             self.bus.emit("shadow_rule_proposed", {
                 "agent_id": self.agent_id, "rule_id": new_rule["id"],
                 "dominant_dim": dim,
                 "action_type": new_rule["action"].get("type", ""),
             })
 
-        # 更新权重：触发截断的维度权重 +δ
-        # 必须**先把新权重算完整再整体赋值**,不能"原地 +0.05 再归一化":
-        # 后者会让 self.weights 出现「各维之和 = 1.05」的瞬时中间态,而此刻若有人读到它
-        # (get_policy_summary / policy_updated 的监听者),拿到的就是未归一化的错值。
-        # 实测:同一份 summary 持有的 weights 引用会被读出 0.35,而稍后再取是 0.333 —— 正是
-        # 这个中间态被观察到。
         bumped = dict(self.weights)
         bumped[dim] = min(bumped[dim] + 0.05, 0.8)
         total = sum(bumped.values())
@@ -139,7 +118,6 @@ class PolicyMixin:
             "new_weights": dict(self.weights),
         })
 
-    # ── 影子观察(双轨判定)──────────────────────────────────
 
     def _observe_shadow_rules(self, node: ThoughtNode, result: HarnessResult,
                               real_scores: dict):
@@ -164,7 +142,6 @@ class PolicyMixin:
 
             sh["observations"] = sh.get("observations", 0) + 1
 
-            # 双轨:把该规则的 action 应用到 scores 副本,用**同一套权重与阈值**判定
             shadow_status = self._status_with_action(rule, node, real_scores)
             real_blocked = result.is_blocked
             shadow_blocked = shadow_status == "BLOCK"
@@ -181,7 +158,7 @@ class PolicyMixin:
                 self._discard_rule(rule, "影子证据不达标")
                 need_save = True
             elif sh["observations"] % 10 == 0:
-                need_save = True                    # 计数节流持久化
+                need_save = True
         if need_save:
             self._save_policy()
 
@@ -194,13 +171,9 @@ class PolicyMixin:
         if atype == "penalize_tool":
             pat = action.get("tool_pattern", "")
             tool_name = getattr(node, "tool_name", "") or ""
-            # 与 _is_penalized_tool 同语义:**仅当前工具命中 pattern 才抬分**。
-            # 若不看匹配、凡 tool 分非零就抬,会把「毫不相干工具的场景」误记成
-            # would_block —— 影子证据完全失真,好规则会被冤判成误伤 discard。
             if pat and tool_name and (tool_name == pat or pat in tool_name):
                 scores["tool"] = 1.0
         elif atype == "restrict_scope":
-            # 与 check() 里 restrict_scope 的判定同构:新增实体超限则抬 scope
             lim = action.get("entity_expansion_limit")
             baseline = self._baseline
             if isinstance(lim, int) and baseline is not None and baseline.baseline_entities:
@@ -220,10 +193,8 @@ class PolicyMixin:
         if obs < self.promote_min_obs:
             return None
         wb, wp = sh.get("would_block", 0), sh.get("would_pass", 0)
-        # 会多拦很多(可能误伤)→ 不 promote
         if wb / max(obs, 1) > 0.3:
             return False
-        # 几乎不改变判定 → promote 没意义
         if wb == 0 and wp == 0:
             return False
         return True
@@ -232,7 +203,7 @@ class PolicyMixin:
         """影子 → 生效:移入 rules、重建索引、记 history、发事件。"""
         rule.get("shadow", {})["status"] = "promoted"
         self._policy.setdefault("shadow_rules", []).remove(rule)
-        rule.pop("shadow", None)                      # 生效规则不再背影子账本
+        rule.pop("shadow", None)
         self._policy.setdefault("rules", []).append(rule)
         self._reindex_learned_actions()
         self._record_history("promote", rule["id"],
@@ -321,7 +292,6 @@ class PolicyMixin:
                 "delta": -0.05,
             }
 
-    # ── 阈值校准 ───────────────────────────────────────────
 
     def _calibrate_thresholds(self):
         """Shadow mode 结束 — 用真实 Δ 分布校准阈值。
@@ -329,22 +299,15 @@ class PolicyMixin:
         只有真正离群的(如完全跑题)才被拦截。
         否则用中位数附近的分位数会拦掉一半正常流量。
         """
-        # 用 np.float64 而不是内置 float:后者会被 numpy stubs 推成 `dtype[float]`,
-        # 不满足 std() 的 ArrayT 约束(`dtype[floating[Any]]`),mypy 会报 misc。
         arr = np.array(sorted(self._delta_history), dtype=np.float64)
         if arr.size == 0:
-            # 空历史(理论上不会发生,因调用前每次 check 都 append)→ 用默认阈值,避免 nan
             self._shadow_mode = False
             return
         mean = float(arr.mean())
         std = float(arr.std())
         p90 = float(np.percentile(arr, 90))
-        # BLOCK 阈值取"高分位 / 均值+1.5σ"的较大者,再留 10% 余量,
-        # 保证正常任务(集中在均值附近)不被误拦
         block = max(p90, mean + 1.5 * std) * 1.10
-        # WARN 阈值取 block 的 0.8 倍,给出渐进预警区
         warn = block * 0.8
-        # 下限保护:阈值不低于默认值,避免样本噪声把阈值压得过紧
         self._block_threshold = max(block, 0.25)
         self._warn_threshold = max(warn, 0.18)
         self._shadow_mode = False
@@ -357,13 +320,11 @@ class PolicyMixin:
             "std": round(std, 3),
         })
 
-    # ── Policy 持久化 ──────────────────────────────────────
 
     def _load_policy(self) -> dict:
         if self.policy_path.exists():
             with open(self.policy_path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
-        # 默认 Policy 骨架（格式从第一天锁定）
         return {
             "version": 1,
             "agent_id": self.agent_id,

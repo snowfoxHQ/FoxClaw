@@ -26,13 +26,11 @@ class ItineraryRuntime:
     def amap_enabled(self) -> bool:
         return self.amap.enabled
 
-    # ── 采集行程点 ────────────────────────────────────────
     def add_waypoint(self, name: str, address: str = "", lng: float | None = None,
                      lat: float | None = None, start_time: str | None = None,
                      duration_min: int = 0, city: str = "") -> dict:
         wp = Waypoint(name=name, address=address, lng=lng, lat=lat,
                       start_time=start_time, duration_min=duration_min, city=city)
-        # 没坐标但有地址 → 尝试高德地理编码
         if not wp.has_coord and address and self.amap_enabled:
             geo = self.amap.geocode(address, city)
             if geo:
@@ -63,7 +61,6 @@ class ItineraryRuntime:
                 count += 1
         return count
 
-    # ── 真实路线(高德优先,否则估算)─────────────────────
     def real_leg(self, a: Waypoint, b: Waypoint, mode: str = "driving"):
         """两点路线:高德可用且有坐标时用真实数据,否则直线估算。"""
         if self.amap_enabled and a.has_coord and b.has_coord:
@@ -77,7 +74,6 @@ class ItineraryRuntime:
                                 duration_min=r["duration_min"], source="amap")
         return self.reasoning.estimate_leg(a, b, mode)
 
-    # ── 综合分析(行政 Agent 核心输出)────────────────────
     def plan(self, mode: str = "driving", optimize: bool = True) -> dict:
         """完整行程规划:优化顺序 + 冲突检测 + 聚类 + 守门人裁决。"""
         opt = (self.reasoning.optimize_order(self.waypoints, mode)
@@ -97,7 +93,6 @@ class ItineraryRuntime:
             "map_data": self._to_amap_mapdata(opt),
         }
 
-    # ── 行程守门人 ────────────────────────────────────────
     def _gatekeeper(self, conflicts, clusters, dens) -> list:
         verdicts = []
         for c in conflicts:
@@ -126,7 +121,6 @@ class ItineraryRuntime:
                 payload={"cluster": cl}))
         return verdicts
 
-    # ── 导出高德可视化格式(MapTaskData)──────────────────
     def _to_amap_mapdata(self, opt) -> list:
         """转成高德 MapTaskData(POI + route),可喂给高德生成可视化地图。"""
         data = []

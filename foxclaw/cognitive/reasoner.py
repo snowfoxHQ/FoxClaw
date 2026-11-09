@@ -15,10 +15,10 @@ from typing import Any
 
 @dataclass
 class Evidence:
-    factor: str                 # 证据因子(如规则 id / 历史频率 / 预算余量)
-    detail: str = ""            # 具体说明
-    weight: float = 1.0         # 权重(0~1)
-    raw: Any = None             # 原始证据对象(如 PolicyVerdict),供裁决内部使用
+    factor: str
+    detail: str = ""
+    weight: float = 1.0
+    raw: Any = None
 
     def to_dict(self) -> dict:
         return {"factor": self.factor, "detail": self.detail, "weight": self.weight}
@@ -26,11 +26,11 @@ class Evidence:
 
 @dataclass
 class ReasonedVerdict:
-    decision: str               # approve | confirm | reject
-    rationale: str              # 裁决说明(人类可读)
-    evidence: list = field(default_factory=list)      # [Evidence]
-    hypotheses: list = field(default_factory=list)    # [str]
-    source: str = "rules"       # rules | llm(哪层做出的裁决)
+    decision: str
+    rationale: str
+    evidence: list = field(default_factory=list)
+    hypotheses: list = field(default_factory=list)
+    source: str = "rules"
 
     def to_dict(self) -> dict:
         return {"decision": self.decision, "rationale": self.rationale,
@@ -61,7 +61,6 @@ class DomainReasoner:
         ev = self.gather_evidence(subject, obs)
         return self.arbitrate(subject, obs, hyps, ev)
 
-    # ── 双层增强的通用工具(v2 ③ Step4:itinerary/learning 复用)────────────
     @staticmethod
     def llm_available(llm, enabled: bool) -> bool:
         """LLM 是否真正可用:启用 + 非空 + 非 stub(无真实模型时视为不可用)。"""

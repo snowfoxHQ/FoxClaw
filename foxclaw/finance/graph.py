@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 @dataclass
 class GraphNode:
     node_id: str
-    node_type: str                 # transaction/category/entity/account/budget
+    node_type: str
     label: str
     attrs: dict = field(default_factory=dict)
 
@@ -31,7 +31,7 @@ class GraphNode:
 class GraphEdge:
     src: str
     dst: str
-    rel: str                       # belongs_to/paid_to/charged_on/monitors
+    rel: str
     attrs: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -45,15 +45,13 @@ class FinancialDataGraph:
     def __init__(self):
         self.nodes: dict[str, GraphNode] = {}
         self.edges: list[GraphEdge] = []
-        self._adj: dict[str, list] = defaultdict(list)        # 出边邻接
-        self._radj: dict[str, list] = defaultdict(list)       # 入边邻接
+        self._adj: dict[str, list] = defaultdict(list)
+        self._radj: dict[str, list] = defaultdict(list)
 
-    # ── 构建 ──
     def _ensure_node(self, node_id: str, node_type: str, label: str, **attrs):
         if node_id not in self.nodes:
             self.nodes[node_id] = GraphNode(node_id, node_type, label, dict(attrs))
         else:
-            # 已存在 → 累加统计类属性
             self.nodes[node_id].attrs.update(attrs)
         return self.nodes[node_id]
 
@@ -73,7 +71,6 @@ class FinancialDataGraph:
             self._ensure_node(tid, "transaction", f"{t.entity} ¥{abs(t.amount):.0f}",
                               amount=t.amount, timestamp=t.timestamp,
                               is_expense=t.is_expense)
-            # 分类节点 + 边(消费统计只累加支出,收入/退款不计入'花费')
             cat_id = f"cat:{t.category}"
             cnode = self._ensure_node(cat_id, "category", t.category)
             if t.is_expense:
@@ -82,19 +79,16 @@ class FinancialDataGraph:
             else:
                 cnode.attrs["income"] = cnode.attrs.get("income", 0) + abs(t.amount)
             self._add_edge(tid, cat_id, "belongs_to")
-            # 商户节点 + 边(同样只把支出计入消费)
             ent_id = f"ent:{t.entity}"
             enode = self._ensure_node(ent_id, "entity", t.entity)
             if t.is_expense:
                 enode.attrs["total"] = enode.attrs.get("total", 0) + abs(t.amount)
                 enode.attrs["count"] = enode.attrs.get("count", 0) + 1
             self._add_edge(tid, ent_id, "paid_to")
-            # 账户节点 + 边
             acc_id = f"acc:{t.account}"
             self._ensure_node(acc_id, "account", t.account)
             self._add_edge(tid, acc_id, "charged_on")
 
-        # 预算节点 + 监管边(预算 monitors 分类)
         for b in (budgets or []):
             bid = f"bud:{b.category}"
             self._ensure_node(bid, "budget", f"{b.category}预算",
@@ -104,7 +98,6 @@ class FinancialDataGraph:
                 self._add_edge(bid, cat_id, "monitors")
         return self
 
-    # ── 查询 ──
     def neighbors(self, node_id: str, rel: str | None = None) -> list:
         """出边邻居(可按关系过滤)。"""
         return [self.nodes[e.dst] for e in self._adj.get(node_id, [])
@@ -122,8 +115,7 @@ class FinancialDataGraph:
         by_entity: defaultdict[str, float] = defaultdict(float)
         for t in txns:
             if not t.attrs.get("is_expense"):
-                continue   # 只统计支出,排除收入/退款
-            # 找这笔交易付给了谁
+                continue
             for e in self._adj.get(t.node_id, []):
                 if e.rel == "paid_to":
                     by_entity[self.nodes[e.dst].label] += abs(t.attrs.get("amount", 0))
@@ -139,7 +131,6 @@ class FinancialDataGraph:
         cat = self.nodes[cat_id]
         spent = cat.attrs.get("total", 0)
         limit = self.nodes[bud_id].attrs.get("monthly_limit") if bud_id in self.nodes else None
-        # 主要贡献者(商户)
         contributors = self.top_entities_in_category(category, top=3)
         result = {
             "category": category, "found": True,

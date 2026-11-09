@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from foxclaw.kernel import PolicyGate
 
 
-class _HR:                          # 假 HarnessResult
+class _HR:
     def __init__(self, blocked=False, warned=False, reason=""):
         self._b, self._w, self.reason = blocked, warned, reason
     @property
@@ -31,7 +31,7 @@ class _Harness:
     def check(self, node): self.calls += 1; return self.hr
 
 
-class _PD:                          # 假 PermissionDecision
+class _PD:
     def __init__(self, decision, reason=""):
         self.decision, self.stage, self.reason, self.trust_downgrade = decision, 2, reason, False
 
@@ -81,7 +81,6 @@ def test_integration_skill_path():
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         seen = []
         os_.event_spine.project(lambda e: seen.append(e.topic))
-        # 发邮件是副作用 skill → 需确认 → 经 PolicyGate 发 policy.decision.confirm
         os_.supervisor.use_skill("帮我发邮件给客户",
                                 args={"to": "a@b.com", "subject": "x", "body": "y"})
         assert any(t.startswith("policy.decision") for t in seen), \

@@ -24,14 +24,12 @@ from . import ChannelAdapter, InboundMessage, OutboundMessage, SendResult
 DISCORD_API_BASE = "https://discord.com/api/v10"
 DISCORD_GATEWAY = "wss://gateway.discord.gg/?v=10&encoding=json"
 
-# Gateway opcodes
 OP_DISPATCH = 0
 OP_HEARTBEAT = 1
 OP_IDENTIFY = 2
 OP_HELLO = 10
 OP_HEARTBEAT_ACK = 11
 
-# Intents(收消息内容需要 GUILD_MESSAGES + MESSAGE_CONTENT)
 INTENT_GUILD_MESSAGES = 1 << 9
 INTENT_DIRECT_MESSAGES = 1 << 12
 INTENT_MESSAGE_CONTENT = 1 << 15
@@ -47,20 +45,18 @@ class DiscordAdapter(ChannelAdapter):
         self.bot_token = bot_token
         self.intents = intents
         self.timeout = timeout
-        self._bot_user_id = ""     # 自己的 bot user id(用于忽略自己的消息)
+        self._bot_user_id = ""
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bot {self.bot_token}",
                 "Content-Type": "application/json",
                 "User-Agent": "Foxclaw (https://github.com, 1.0)"}
 
-    # ── 入站:标准化 Gateway MESSAGE_CREATE 事件 ───────────
     def normalize(self, raw: dict) -> Optional[InboundMessage]:
         """Discord Gateway 事件 → 标准 InboundMessage。
 
         raw 可以是完整 Gateway 帧({op,t,d})或直接是 MESSAGE_CREATE 的 data。
         """
-        # 取出 data 部分
         if "op" in raw:
             if raw.get("op") != OP_DISPATCH or raw.get("t") != "MESSAGE_CREATE":
                 return None
@@ -70,15 +66,13 @@ class DiscordAdapter(ChannelAdapter):
         if not data:
             return None
         author = data.get("author", {})
-        # 忽略机器人消息(含自己),避免自循环
         if author.get("bot"):
             return None
         if self._bot_user_id and str(author.get("id")) == self._bot_user_id:
             return None
         text = data.get("content", "")
         if not text:
-            return None       # 非文本(纯附件/嵌入)暂忽略
-        # 有 guild_id = 服务器频道(群),无 = 私信
+            return None
         is_group = bool(data.get("guild_id"))
         return InboundMessage(
             channel=self.CHANNEL,
@@ -90,7 +84,6 @@ class DiscordAdapter(ChannelAdapter):
             is_group=is_group,
             raw=data)
 
-    # ── 出站:REST 发送 ────────────────────────────────────
     def send(self, msg: OutboundMessage) -> SendResult:
         """POST /channels/{channel_id}/messages 发文本。"""
         try:
@@ -156,10 +149,8 @@ class DiscordAdapter(ChannelAdapter):
             raise RuntimeError("需要 websockets 库:pip install websockets")
         import asyncio
         async with websockets.connect(DISCORD_GATEWAY, max_size=None) as ws:
-            # 1. HELLO:拿心跳间隔
             hello = json.loads(await ws.recv())
             heartbeat_ms = hello["d"]["heartbeat_interval"]
-            # 2. IDENTIFY
             await ws.send(json.dumps(self.build_identify()))
             self._running = True
 

@@ -24,7 +24,6 @@ from .models import RawEvidence, EvidenceGraph, EvidenceNode, EvidenceEdge
 _SIMILARITY_SUPPORT = 0.6
 _SIMILARITY_DUP = 0.92
 
-# 否定词:ASCII 按词边界(防 not⊂another/notebook、no⊂know);中文按子串(中文无词边界)
 _NEG_ASCII = ("not", "no longer", "never", "cannot", "isn't", "aren't", "won't")
 _NEG_CJK = ("不是", "并非", "并不", "没有", "无法", "不会", "未能")
 _NEG_ASCII_RE = re.compile(
@@ -37,9 +36,6 @@ def _has_neg(text: str) -> bool:
 
 
 def _sem_model_name() -> str:
-    # 【P2·单 embedding 入口】解析链:与 harness.py 一致 ——
-    # 显式传参 > EMBEDDING_MODEL(单入口) > HKC_EMBEDDING_MODEL > FOXCLAW_EVIDENCE_MODEL > HKC_KEE_SEMANTIC_MODEL > MiniLM 兜底。
-    # 与 KEE 默认同名 → get_st_model 共享同一实例;可经环境变量换任意 ST 模型(模型无关)
     return (os.environ.get("FOXCLAW_EVIDENCE_MODEL")
             or os.environ.get("EMBEDDING_MODEL")
             or os.environ.get("HKC_EMBEDDING_MODEL")

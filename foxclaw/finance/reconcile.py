@@ -24,9 +24,9 @@ class ExternalRecord:
     """外部流水记录(来自银行/支付宝账单)。"""
     amount: float
     entity: str
-    date: str                      # ISO 日期或 YYYY-MM-DD
+    date: str
     account: str = ""
-    ref: str = ""                  # 外部流水号
+    ref: str = ""
 
     def to_dict(self) -> dict:
         return {"amount": self.amount, "entity": self.entity,
@@ -95,7 +95,7 @@ class Reconciler:
 
     def __init__(self, tolerance_days: int = 3, amount_tolerance: float = 0.01):
         self.tolerance_days = tolerance_days
-        self.amount_tolerance = amount_tolerance   # 金额绝对差容忍(<=此值视为相等)
+        self.amount_tolerance = amount_tolerance
 
     def _amount_eq(self, a: float, b: float) -> bool:
         """金额模糊相等:绝对值在容差范围内 且 收支方向一致(都支出或都收入)。"""
@@ -105,12 +105,11 @@ class Reconciler:
     def reconcile(self, transactions: list, external: list) -> ReconciliationResult:
         """对账主流程。transactions=系统交易,external=[ExternalRecord]。"""
         res = ReconciliationResult()
-        used_ext = set()      # 已匹配的外部记录索引
+        used_ext = set()
 
         for t in transactions:
             t_date = _date_only(t.timestamp)
-            best = None       # (ext_idx, match_type)
-            # 1. 精确匹配:金额 + 商户 + 同日
+            best = None
             for j, ext in enumerate(external):
                 if j in used_ext:
                     continue
@@ -118,7 +117,6 @@ class Reconciler:
                         and _entity_similar(t.entity, ext.entity)
                         and _days_apart(t_date, ext.date) == 0):
                     best = (j, "exact"); break
-            # 2. 模糊匹配:金额同 + 日期容忍内 + 商户相似
             if best is None:
                 for j, ext in enumerate(external):
                     if j in used_ext:
@@ -127,7 +125,6 @@ class Reconciler:
                             and _entity_similar(t.entity, ext.entity)
                             and _days_apart(t_date, ext.date) <= self.tolerance_days):
                         best = (j, "fuzzy_date"); break
-            # 3. 金额不符匹配:商户同 + 日期接近 + 同方向 + 金额不等(可能手续费)
             if best is None:
                 for j, ext in enumerate(external):
                     if j in used_ext:
@@ -140,7 +137,6 @@ class Reconciler:
                         best = (j, "amount_mismatch"); break
 
             if best is None:
-                # 系统有、外部无
                 res.unmatched_internal.append(self._txn_brief(t))
                 res.audit_log.append(
                     f"[未匹配·内部] 「{t.entity} ¥{abs(t.amount):.0f}」"
@@ -165,7 +161,6 @@ class Reconciler:
                 res.audit_log.append(
                     f"[已匹配·{mtype}] 「{t.entity} ¥{abs(t.amount):.0f}」({t_date})")
 
-        # 剩余未匹配的外部记录:外部有、系统无
         for j, ext in enumerate(external):
             if j not in used_ext:
                 res.unmatched_external.append(ext.to_dict())

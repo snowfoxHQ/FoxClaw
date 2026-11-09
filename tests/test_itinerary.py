@@ -40,8 +40,6 @@ def main():
     print(f"  方法: {opt['method']}")
     print(f"  最优顺序: {' → '.join(opt['order_names'])}")
     print(f"  总距离: {opt['total_km']} km · 总通勤: {opt['total_min']} 分钟")
-    # 核心不变式:TSP 是"重排",不是"筛选" —— 所有行程点必须一个不少地出现在最优序里。
-    # 这是最容易被静默破坏的一点(丢点不报错,只是路线变短)。
     check(len(opt["order_names"]) == n,
           f"最优路线包含全部 {n} 个点,无遗漏(实为 {len(opt['order_names'])} 个)")
     check(opt["total_km"] > 0 and opt["total_min"] > 0,
@@ -86,7 +84,6 @@ def main():
     routes = [x for x in md if x["type"] == "route"]
     print(f"  {len(pois)} 个 POI 点 + {len(routes)} 条路线段")
     print("  → 可喂给高德 MCP 生成专属地图,导入高德 APP 一键导航")
-    # 结构不变式:n 个点的高德图层 = n 个 POI + (n-1) 条连接段。少一段图就画不连贯。
     check(len(pois) == n, f"POI 点数 = 行程点数({len(pois)} == {n})")
     check(len(routes) == n - 1, f"路线段数 = 点数-1,首尾连贯({len(routes)} == {n - 1})")
 

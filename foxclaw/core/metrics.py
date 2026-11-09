@@ -5,7 +5,7 @@ import time
 import threading
 from collections import defaultdict, deque
 
-_MAX_SAMPLES = 500   # 每个 key 保留最近 N 次延迟(有界,防内存涨)
+_MAX_SAMPLES = 500
 
 
 class _Stat:
@@ -29,8 +29,8 @@ class MetricsCollector:
 
     def __init__(self):
         self._lock = threading.RLock()
-        self._ep: dict = defaultdict(_Stat)     # endpoint(路由模板) -> _Stat
-        self._llm: dict = defaultdict(_Stat)    # provider -> _Stat
+        self._ep: dict = defaultdict(_Stat)
+        self._llm: dict = defaultdict(_Stat)
         self._start = time.time()
 
     def record_request(self, endpoint: str, status: int, ms: float):
@@ -85,5 +85,4 @@ class MetricsCollector:
         return "\n".join(out) + "\n"
 
 
-# 进程级单例:中间件 + router 都往这里写,端点从这里读。
 METRICS = MetricsCollector()

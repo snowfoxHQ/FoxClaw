@@ -31,7 +31,6 @@ import sys
 from pathlib import Path
 
 
-# ── vendor 隔离硬阻断(等价于 test_vendor_path_isolation.py 闸门 2-4) ────────
 from hkc_search.hybrid import HybridSearch
 from hkc_search.vector_search import VectorIndex
 from hkc_search.embedding_backends import StubBackend
@@ -64,8 +63,6 @@ for _cls_name, _cls in [
 ]:
     _assert_vendor_path(_cls, _cls_name)
 
-
-# ── E1~E2: CREATED → append ─────────────────────────────────────
 
 class TestEventCreatedAppendsToIndex:
     def test_create_single_ku_appends(self, tmp_path):
@@ -104,8 +101,6 @@ class TestEventCreatedAppendsToIndex:
             reset_container()
 
 
-# ── E3~E4: UPDATED → update_ku(hash 变重编 / hash 同跳过) ─────────
-
 class TestEventUpdatedEncodesOrSkips:
     def test_updated_changes_text_hash_reencodes(self, tmp_path):
         """内容变(text_hash 变)→ 重编码,vector_size 不变。"""
@@ -119,8 +114,7 @@ class TestEventUpdatedEncodesOrSkips:
                 "payload": {"ku_ids": ["KU_E3"]},
             })
             assert c.search.vector.size() == 1
-            # 改 summary → text_hash 变
-            old_hash = list(c.search.vector._text_hashes)  # 备份
+            old_hash = list(c.search.vector._text_hashes)
             ku_new = ConceptKU(ku_id="KU_E3", name="x", summary="x 的描述升级了", domain="d")
             c.graph_store.put(ku_new)
             c.event_bus.publish({
@@ -129,7 +123,6 @@ class TestEventUpdatedEncodesOrSkips:
                 "payload": {"ku_ids": ["KU_E3"]},
             })
             assert c.search.vector.size() == 1
-            # 5 个 list 长度一致(_ku_ids 不变,text_hashes 已经替换)
             new_hash = c.search.vector._text_hashes[0]
             assert new_hash != old_hash[0], "应换新 hash"
         finally:
@@ -148,7 +141,6 @@ class TestEventUpdatedEncodesOrSkips:
                 "payload": {"ku_ids": ["KU_E4"]},
             })
             old_hash = list(c.search.vector._text_hashes)
-            # 再次 put 完全相同内容的 KU(text_hash 必同)
             ku_same = ConceptKU(ku_id="KU_E4", name="x", summary="x", domain="d")
             c.graph_store.put(ku_same)
             c.event_bus.publish({
@@ -156,15 +148,12 @@ class TestEventUpdatedEncodesOrSkips:
                 "source":  "test",
                 "payload": {"ku_ids": ["KU_E4"]},
             })
-            # size 仍 1,hash 未变
             assert c.search.vector.size() == 1
             assert c.search.vector._text_hashes[0] == old_hash[0]
         finally:
             c.close()
             reset_container()
 
-
-# ── E5: status 变 superseded → remove ──────────────────────────
 
 class TestEventUpdatedStatusChangeRemoves:
     def test_claim_superseded_removes_from_vector(self, tmp_path):
@@ -181,7 +170,6 @@ class TestEventUpdatedStatusChangeRemoves:
                 "payload": {"ku_ids": ["KU_E5"]},
             })
             assert "KU_E5" in c.search.vector._ku_ids
-            # 把 claim_status 改 superseded
             ku.claim_status = ClaimStatus.SUPERSEDED
             c.graph_store.put(ku)
             c.event_bus.publish({
@@ -196,8 +184,6 @@ class TestEventUpdatedStatusChangeRemoves:
             reset_container()
 
 
-# ── E6: DELETED → remove ──────────────────────────────────────
-
 class TestEventDeletedRemoves:
     def test_deleted_event_removes_from_vector(self, tmp_path):
         c = init_container(data_dir=str(tmp_path), embedding_kind="stub")
@@ -210,8 +196,6 @@ class TestEventDeletedRemoves:
                 "payload": {"ku_ids": ["KU_E6"]},
             })
             assert c.search.vector.size() == 1
-            # 模拟 routes.delete_source 的真实顺序:先 store.delete(返 bool 不发事件)
-            # 再 publish DELETED 事件,让 _sync_ku 走分支 1/2 → remove
             assert c.graph_store.delete("KU_E6") is True
             c.event_bus.publish({
                 "event":   KEPEvents.KNOWLEDGE_DELETED,
@@ -223,8 +207,6 @@ class TestEventDeletedRemoves:
             c.close()
             reset_container()
 
-
-# ── E7: sqlite_store.delete 返 bool ─────────────────────────────
 
 class TestSQLiteStoreDeleteReturnsBool:
     def test_delete_existing_returns_true(self, tmp_path):
@@ -255,25 +237,19 @@ class TestSQLiteStoreDeleteReturnsBool:
             store.close()
 
 
-# ── E8~E11: KEE 4 个 put 点 publish UPDATED ────────────────────
-
 class TestKEEPublishesUpdated:
     def test_process_new_claim_status_change_publishes_updated(self, tmp_path):
         """E8:_process_new_claim 状态机变化后 publish UPDATED。"""
         c = init_container(data_dir=str(tmp_path), embedding_kind="stub")
         try:
             from hkc_core.models.enums import ClaimStatus
-            # 把 KU 直接放到 disputed 状态(不经过 KEE 完整流程)
             ku = ClaimKU(ku_id="KU_E8", name="c", statement="some claim",
                          domain="d", claim_status=ClaimStatus.PENDING, confidence=0.1)
             c.graph_store.put(ku)
-            # 订阅 UPDATED
             captured: list[dict] = []
             c.event_bus.subscribe(KEPEvents.KNOWLEDGE_UPDATED,
                                    lambda e: captured.append(e))
-            # 直接调 KEE 的 _process_new_claim(注:对短语句、短领域,pengding→rejected)
             c.kee._process_new_claim(ku)
-            # 应至少 publish 一次 UPDATED(因为 status 变了)
             assert any(
                 e["payload"].get("ku_id") == "KU_E8" or
                 "KU_E8" in e["payload"].get("ku_ids", [])
@@ -303,7 +279,6 @@ class TestKEEPublishesUpdated:
                         confidence=0.45)
             c.graph_store.put(a)
             c.graph_store.put(b)
-            # 造 OPEN conflict 卡
             card = ConflictCard(
                 conflict_id="CONF_E9",
                 claim_a_id="KU_E9A",
@@ -313,19 +288,15 @@ class TestKEEPublishesUpdated:
                 resolution_strategy=ResolutionStrategy.EVIDENCE_WEIGHT,
             )
             c.graph_store.save_conflict(card)
-            # 订阅 UPDATED
             captured: list[dict] = []
             c.event_bus.subscribe(KEPEvents.KNOWLEDGE_UPDATED,
                                    lambda e: captured.append(e))
-            # 直接调 _try_auto_resolve —— confidence gap = 0.5 > 0.20 必裁决
             c.kee._try_auto_resolve(card, a, b)
             updated_payloads = [
                 e["payload"] for e in captured
                 if e.get("event") == KEPEvents.KNOWLEDGE_UPDATED
             ]
-            # 必有 1 条 UPDATED(ku_ids 含 winner+loser)
             assert len(updated_payloads) >= 1, f"应至少 1 条 UPDATED: {captured}"
-            # 至少一条要同时涉及 a 和 b(both winner and loser in ku_ids)
             assert any(
                 set(e.get("ku_ids", [])) >= {"KU_E9A", "KU_E9B"}
                 for e in updated_payloads
@@ -344,18 +315,16 @@ class TestKEEPublishesUpdated:
             b = ClaimKU(ku_id="KU_E10B", name="b", statement="moon is rock",
                         domain="astro", claim_status=ClaimStatus.ACTIVE, confidence=0.6)
             a.supports = ["EVD_1"]
-            b.supports = ["EVD_2"]   # 不同 EVD
+            b.supports = ["EVD_2"]
             c.graph_store.put(a)
             c.graph_store.put(b)
             c.event_bus.publish({
                 "event": KEPEvents.KNOWLEDGE_CREATED, "source": "test",
                 "payload": {"ku_ids": ["KU_E10A", "KU_E10B"]},
             })
-            # 订阅 UPDATED
             captured: list[dict] = []
             c.event_bus.subscribe(KEPEvents.KNOWLEDGE_UPDATED,
                                    lambda e: captured.append(e))
-            # _merge_evidence(a, b) → b 的 EVD_2 合并入 a → a store.put → publish UPDATED
             c.kee._merge_evidence(b, a)
             assert any(
                 e["payload"].get("ku_id") == "KU_E10A" or
@@ -371,14 +340,12 @@ class TestKEEPublishesUpdated:
         c = init_container(data_dir=str(tmp_path), embedding_kind="stub")
         try:
             from hkc_core.models.enums import ClaimStatus, ConflictStatus, ResolutionStrategy
-            # 注:enum 实际值是 MANUAL(不是 HUMAN)
             a = ClaimKU(ku_id="KU_E11A", name="a", statement="the sea is calm today",
                         domain="sea", claim_status=ClaimStatus.ACTIVE, confidence=0.9)
             b = ClaimKU(ku_id="KU_E11B", name="b", statement="the sea is rough today",
                         domain="sea", claim_status=ClaimStatus.ACTIVE, confidence=0.5)
             c.graph_store.put(a)
             c.graph_store.put(b)
-            # 造一张 conflict 卡 —— 必须设 resolution_strategy(否则 save_conflict 报 NoneType)
             card = ConflictCard(
                 conflict_id="CONF_E11",
                 claim_a_id="KU_E11A",
@@ -388,11 +355,9 @@ class TestKEEPublishesUpdated:
                 resolution_strategy=ResolutionStrategy.MANUAL,
             )
             c.graph_store.save_conflict(card)
-            # 订阅 UPDATED
             captured: list[dict] = []
             c.event_bus.subscribe(KEPEvents.KNOWLEDGE_UPDATED,
                                    lambda e: captured.append(e))
-            # 人工裁决 a 胜出
             ok = c.kee.manual_resolve("CONF_E11", "KU_E11A", note="test")
             assert ok is True
             updated_payloads = [
@@ -409,8 +374,6 @@ class TestKEEPublishesUpdated:
             reset_container()
 
 
-# ── E12: routes.delete_source 级联删 publish DELETED ─────────────
-
 class TestDeleteSourcePublishesDeleted:
     def test_cascade_delete_publishes_deleted(self, tmp_path):
         """routes.delete_source 级联删应发 DELETED,vector 同步 remove。
@@ -425,7 +388,6 @@ class TestDeleteSourcePublishesDeleted:
                 "payload": {"ku_ids": ["EVD_E12"]},
             })
             assert c.search.vector.size() == 1
-            # 调级联删 helper(按 book1.md)
             from hkc_api.routes.knowledge import _delete_source_cascade
             _delete_source_cascade(c, "book1.md")
             assert c.search.vector.size() == 0, "vector 应被同步清空"
@@ -434,15 +396,12 @@ class TestDeleteSourcePublishesDeleted:
             reset_container()
 
 
-# ── E13: 重复 KU 被 KEE 软删后 CREATED 处理器不加入索引 ──────────
-
 class TestDedupedKUDoesNotEnterIndex:
     def test_deduped_duplicate_ku_skipped_in_index(self, tmp_path):
         """用户原话:重复 KU 被 KEE 软删后,CREATED 处理器不会重新加入索引。
         这里用 ConceptKU + 相同 name(主身份键)触发 dedup。"""
         c = init_container(data_dir=str(tmp_path), embedding_kind="stub")
         try:
-            # 第一个 KU 触发正常 CREATED
             a = ConceptKU(ku_id="KU_E13A", name="重复名", summary="第一个",
                           domain="d")
             c.graph_store.put(a)
@@ -451,24 +410,19 @@ class TestDedupedKUDoesNotEnterIndex:
                 "payload": {"ku_ids": ["KU_E13A"]},
             })
             assert c.search.vector.size() == 1
-            # 第二个 KU 同名(主身份键冲突)+ 不同 ID
             b = ConceptKU(ku_id="KU_E13B", name="重复名", summary="第二个",
                           domain="d")
             c.graph_store.put(b)
-            # publish CREATED → KEE._on_knowledge_created 内部 dedup 删 b → _sync_ku 拿不到
             c.event_bus.publish({
                 "event": KEPEvents.KNOWLEDGE_CREATED, "source": "test",
                 "payload": {"ku_ids": ["KU_E13B"]},
             })
-            # vector 不应含 b(被 dedup 软删,CREATED 处理器 _sync_ku 拿不到 KU)
             assert "KU_E13B" not in c.search.vector._ku_ids
             assert c.search.vector.size() == 1
         finally:
             c.close()
             reset_container()
 
-
-# ── E14~E15: _sync_ku 五分支显式测 ─────────────────────────────
 
 class TestSyncKUBranches:
     def test_sync_ku_append_when_not_in_vector(self, tmp_path):
@@ -477,7 +431,6 @@ class TestSyncKUBranches:
         try:
             ku = ConceptKU(ku_id="KU_E14", name="x", summary="x", domain="d")
             c.graph_store.put(ku)
-            # 不 publish 事件,直接调 _sync_ku
             c._sync_ku("KU_E14")
             assert c.search.vector.size() == 1
             assert "KU_E14" in c.search.vector._ku_ids
@@ -493,9 +446,8 @@ class TestSyncKUBranches:
             ku = ClaimKU(ku_id="KU_E15", name="c", statement="x",
                          domain="d", claim_status=ClaimStatus.ACTIVE, confidence=0.8)
             c.graph_store.put(ku)
-            c._sync_ku("KU_E15")   # 先入 vector
+            c._sync_ku("KU_E15")
             assert c.search.vector.size() == 1
-            # 改 status → superseded
             ku.claim_status = ClaimStatus.SUPERSEDED
             c.graph_store.put(ku)
             c._sync_ku("KU_E15")
@@ -504,8 +456,6 @@ class TestSyncKUBranches:
             c.close()
             reset_container()
 
-
-# ── E16: 批量 DELETED ──────────────────────────────────────────
 
 class TestBatchDeletedEvent:
     def test_bulk_delete_event_removes_all(self, tmp_path):
@@ -520,7 +470,6 @@ class TestBatchDeletedEvent:
                 "payload": {"ku_ids": [f"KU_E16_{i}" for i in range(5)]},
             })
             assert c.search.vector.size() == 5
-            # 必须先 store.delete(返 bool 不发事件)再 publish DELETED(让 _sync_ku 走分支 1/2 → remove)
             for i in range(5):
                 assert c.graph_store.delete(f"KU_E16_{i}") is True
             c.event_bus.publish({

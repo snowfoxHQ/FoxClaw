@@ -7,18 +7,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 from ._base import TOOL_CATEGORIES
 
 
-# 文本向量由 foxclaw.capability.embedding_service 统一提供(进程内共享,同名只加载一次)。
-# 不可用时该服务返回 None,SemanticDrift 自动降级为 n-gram 哈希嵌入。
-
-
 class SemanticDrift:
     """维度一：语义距离。优先 sentence-transformers,不可用则降级 n-gram 哈希嵌入。"""
 
     DIM = 256
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        # P0:走进程内共享 EmbeddingService,同名模型全系统只加载一次
-        # (原来每个 Harness 各 load 一份;5 Agent = 5 份 → 现 1 份共享,只读并发 encode 安全)。
         from ..capability.embedding_service import get_text_embedder
         self._model = get_text_embedder(model_name)
         self._mode = "transformer" if self._model is not None else "hash"
@@ -58,8 +52,6 @@ class SemanticDrift:
             return 0.0
         node_vec = self._encode(content)
         sim = cosine_similarity([baseline_vec], [node_vec])[0][0]
-        # 余弦相似度范围 [-1, 1],哈希嵌入带符号累加可能产生负相似度,
-        # 1 - sim 会超过 1.0 → 必须双向裁剪到 [0, 1],否则漂移分超出阈值范围使判定失真。
         return float(min(1.0, max(0.0, 1.0 - sim)))
 
 
@@ -72,17 +64,13 @@ class ToolIntentDrift:
         for cat, patterns in TOOL_CATEGORIES.items():
             if any(tool_name.startswith(p) or p in tool_name for p in patterns):
                 return 0.0 if cat in allowed_categories else 1.0
-        return 0.3  # 未知工具：中等风险
+        return 0.3
 
 
 class ScopeCreepDrift:
     """维度三：范围蔓延"""
 
     def score(self, node_entities: set[str], baseline_entities: set[str]) -> float:
-        # 空基线返回 0 是有意设计:范围蔓延是"相对基线的偏离",没有基线参照就无从
-        # 谈蔓延。若此处对空基线返回高分,会让所有尚未建立实体基线的早期任务被误判为
-        # 范围越界(误报)。范围检测的有效性依赖基线实体提取——若该维度长期为 0,
-        # 应排查实体提取(register_goal 的 entities)是否为空,而非改动本函数。
         if not baseline_entities:
             return 0.0
         new_entities = node_entities - baseline_entities

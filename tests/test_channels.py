@@ -23,7 +23,6 @@ def check(cond, msg):
 def test_abstraction():
     print("\n【1】渠道抽象层")
     from foxclaw.channels import ChannelAdapter, InboundMessage, SendResult, ChannelRegistry, OutboundMessage
-    # handle_raw 异常隔离:on_message 抛异常不冒泡
     class A(ChannelAdapter):
         CHANNEL = "t"
         def normalize(self, raw):
@@ -38,7 +37,6 @@ def test_abstraction():
     for txt in ["a", "bad", "c"]:
         ad.handle_raw({"text": txt})
     check(processed == ["a", "c"], "handle_raw 异常隔离(单条失败不影响其他)")
-    # 注册表
     reg = ChannelRegistry(); reg.register(ad)
     check(reg.get("t") is ad, "渠道注册表")
     check(not reg.send("nope", OutboundMessage("c", "x")).ok, "未注册渠道发送失败")
@@ -69,14 +67,12 @@ def test_weixin():
     check(h["Authorization"].startswith("Bearer "), "Bearer token")
     check(int(base64.b64decode(h["X-WECHAT-UIN"]).decode()) >= 0, "X-WECHAT-UIN 格式")
     check(wx._build_client_version("2.4.3") == 132099, "ClientVersion 计算")
-    # 标准化 + context_token 记忆
     msg = {"message_id": 1, "from_user_id": "u1", "session_id": "s",
            "message_type": MSG_FROM_USER, "context_token": "ctx1",
            "item_list": [{"type": ITEM_TEXT, "text_item": {"text": "你好"}}]}
     inb = wx._normalize_msg(msg)
     check(inb.text == "你好", "消息标准化")
     check(wx._context_tokens.get("u1") == "ctx1", "记住 context_token")
-    # bot 回显忽略
     check(wx._normalize_msg({"message_type": 2, "item_list": []}) is None, "bot 回显忽略")
 
 
@@ -84,10 +80,8 @@ def test_feishu():
     print("\n【4】飞书")
     from foxclaw.channels.feishu import FeishuAdapter
     fs = FeishuAdapter(app_id="x", app_secret="y", encrypt_key="my_secret_key_123")
-    # URL 验证
     r = fs.handle_event({"type": "url_verification", "challenge": "c1"})
     check(r.get("challenge") == "c1", "URL 验证 challenge")
-    # 加密解密端到端
     def encrypt(plaintext, key_str):
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         key = hashlib.sha256(key_str.encode()).digest()
@@ -100,10 +94,8 @@ def test_feishu():
     original = {"type": "event", "x": "测试"}
     dec = fs.decrypt_event(encrypt(json.dumps(original), "my_secret_key_123"))
     check(dec == original, "AES 加密解密端到端")
-    # 错误密钥明确报错
     fs2 = FeishuAdapter(app_id="x", app_secret="y", encrypt_key="wrong")
     check(fs2.decrypt_event(encrypt(json.dumps(original), "my_secret_key_123")) is None, "错误密钥解密失败")
-    # 消息标准化
     event = {"header": {"event_type": "im.message.receive_v1"},
              "event": {"message": {"message_id": "om1", "chat_id": "oc1", "chat_type": "p2p",
                                    "content": json.dumps({"text": "查日程"}), "create_time": "1718900000000"},
@@ -141,7 +133,7 @@ def test_closed_loop():
 
     import tempfile, shutil
     data_dir = tempfile.mkdtemp(prefix="foxclaw_ch_test_")
-    shutil.rmtree(data_dir, ignore_errors=True)   # 确保干净起步(防残留幂等记录污染)
+    shutil.rmtree(data_dir, ignore_errors=True)
     os_ = Foxclaw(data_dir=data_dir, shadow_rounds=50)
     disp = ChannelDispatcher(os_.supervisor)
     mock = Mock(); disp.register_channel(mock)
@@ -151,12 +143,10 @@ def test_closed_loop():
                              sender_id="u1", conversation_id="c1")
         r1 = await disp.handle(msg)
         check(r1["replied"], "闭环:收→主管→回")
-        # 幂等:同消息重发只处理一次
         r2 = await disp.handle(msg)
         check(r2.get("idempotent_skip"), "重发消息被幂等跳过")
         check(len(mock.sent) == 1, "重发只回复一次")
     asyncio.run(go())
-    # 清理
     import shutil
     shutil.rmtree(data_dir, ignore_errors=True)
 

@@ -8,8 +8,6 @@ from ._context import _suppress_memory
 
 
 class MemoryMixin:
-    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
-    # 不声明的话,检查器在每个 self.hmr / self._think 处报 attr-defined。
     AGENT_ID: str
     hmr: Any
     _think: Callable[..., Any]
@@ -32,7 +30,7 @@ class MemoryMixin:
     def _store_memory(self, content: str, mem_type: str = "concept", **kwargs):
         """存储新记忆到 HMR"""
         if _suppress_memory.get():
-            return   # MCP 外部驱动的任务:不写记忆(防污染)
+            return
         from foxclaw.core.tracing import span as _span
         with _span("memory.store", agent=self.AGENT_ID, type=mem_type):
             self.hmr.ingest(

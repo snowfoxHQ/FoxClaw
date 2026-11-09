@@ -22,20 +22,17 @@ import secrets
 from typing import Optional
 from . import ChannelAdapter, InboundMessage, OutboundMessage, SendResult
 
-# 官方网关与端点(来自 Tencent/openclaw-weixin 源码 src/auth/accounts.ts)
 WEIXIN_BASE_URL = "https://ilinkai.weixin.qq.com"
 EP_GET_UPDATES = "ilink/bot/getupdates"
 EP_SEND_MESSAGE = "ilink/bot/sendmessage"
 EP_GET_CONFIG = "ilink/bot/getconfig"
 EP_SEND_TYPING = "ilink/bot/sendtyping"
 
-# 消息 item 类型(来自 README MessageItem 表)
 ITEM_TEXT = 1
 ITEM_IMAGE = 2
 ITEM_VOICE = 3
 ITEM_FILE = 4
 ITEM_VIDEO = 5
-# message_type
 MSG_FROM_USER = 1
 MSG_FROM_BOT = 2
 
@@ -55,8 +52,7 @@ class WeixinAdapter(ChannelAdapter):
         self.ilink_app_id = ilink_app_id
         self.long_poll_timeout_ms = long_poll_timeout_ms
         self.timeout = timeout
-        self._cursor = ""        # get_updates_buf 同步游标
-        # 记录每个用户最近的 context_token(回复时必须带回)
+        self._cursor = ""
         self._context_tokens: dict[str, str] = {}
 
     @staticmethod
@@ -69,7 +65,6 @@ class WeixinAdapter(ChannelAdapter):
             major = minor = patch = 0
         return ((major & 0xFF) << 16) | ((minor & 0xFF) << 8) | (patch & 0xFF)
 
-    # ── 鉴权头(照官方 buildHeaders)──────────────────────
     @staticmethod
     def _random_wechat_uin() -> str:
         """X-WECHAT-UIN: 随机 uint32 → 十进制字符串 → base64。"""
@@ -100,7 +95,6 @@ class WeixinAdapter(ChannelAdapter):
                                timeout=timeout or self.timeout)
         return resp
 
-    # ── 入站:getUpdates 长轮询 ────────────────────────────
     def poll_once(self) -> list[InboundMessage]:
         """长轮询拉一批新消息。宿主在循环里反复调用即可持续接收。"""
         try:
@@ -114,7 +108,7 @@ class WeixinAdapter(ChannelAdapter):
                               {"get_updates_buf": self._cursor},
                               timeout=self.long_poll_timeout_ms / 1000 + 5)
         except Exception:
-            return []        # 长轮询超时/中断 → 空,下次重试
+            return []
         if resp.status_code != 200:
             return []
         try:
@@ -122,8 +116,7 @@ class WeixinAdapter(ChannelAdapter):
         except Exception:
             return []
         if data.get("ret") != 0:
-            return []        # errcode -14 = 会话超时,需重新登录
-        # 推进游标
+            return []
         new_buf = data.get("get_updates_buf")
         if new_buf is not None:
             self._cursor = new_buf
@@ -141,20 +134,18 @@ class WeixinAdapter(ChannelAdapter):
         return self._normalize_msg(raw)
 
     def _normalize_msg(self, msg: dict) -> Optional[InboundMessage]:
-        # 只处理用户发来的消息(message_type=1),忽略 bot 自己的回显
         if msg.get("message_type") not in (None, MSG_FROM_USER):
             return None
-        # 从 item_list 提取文本
         text = ""
         for item in msg.get("item_list", []) or []:
             if item.get("type") == ITEM_TEXT and item.get("text_item"):
                 text += item["text_item"].get("text", "")
         if not text:
-            return None       # 非文本(图片/语音等)暂忽略
+            return None
         from_user = str(msg.get("from_user_id", ""))
         ctx = msg.get("context_token", "")
         if from_user and ctx:
-            self._context_tokens[from_user] = ctx   # 记住,回复时带回
+            self._context_tokens[from_user] = ctx
         return InboundMessage(
             channel=self.CHANNEL,
             message_id=str(msg.get("message_id", "")),
@@ -162,11 +153,10 @@ class WeixinAdapter(ChannelAdapter):
             sender_id=from_user,
             sender_name="",
             conversation_id=str(msg.get("session_id", "") or from_user),
-            is_group=False,    # 个人号 DM;群聊当前插件能力未公开
+            is_group=False,
             timestamp=float(msg.get("create_time_ms", 0)) / 1000 or 0.0,
             raw=msg)
 
-    # ── 出站:sendMessage ──────────────────────────────────
     def send(self, msg: OutboundMessage) -> SendResult:
         """发文本消息。conversation_id 作为 to_user_id;context_token 从记录里取或由 extra 传入。"""
         try:

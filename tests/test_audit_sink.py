@@ -42,7 +42,6 @@ def test_unit():
             "reason": "office 的职责域不含 ['type:decision','finance.transfer']",
             "mode": "audit", "content_sha": "0123456789abcdef",
             "content_preview": "财务应给办公转账1000元"}, source="office")
-        # 非本主题的事件不应落盘(subscribe 前缀精确命中)
         spine.publish("memory.updated", {"x": 1})
 
         check(path.exists(), "审计文件已创建(含 audit/ 目录)")
@@ -55,7 +54,6 @@ def test_unit():
         check("ts" in r and "T" in r["ts"], "ts 为 ISO 时间(人类可读)")
         check(bool(r["correlation_id"]), "correlation_id 已记录(可与脊柱 history 对账)")
 
-        # 追加语义:第二条接在后面,顺序保持
         spine.publish("memory.shared.write", {"agent_id": "system", "type": "execution",
                                               "tags": ["truth_pipeline"], "allowed": True,
                                               "reason": "命中全局允许 facet", "mode": "audit",
@@ -65,12 +63,10 @@ def test_unit():
         check(len(recs) == 2 and recs[1]["payload"]["agent_id"] == "system",
               "追加写不覆盖旧行,顺序保持")
 
-        # 坏行容错:夹一行垃圾,read() 跳过而不是崩
         with open(path, "a", encoding="utf-8") as f:
             f.write("{这不是JSON}\n")
         check(len(sink.read()) == 2, "坏行被跳过,读取不崩")
 
-        # 开关:环境变量置 0 时 attach 不挂
         old = os.environ.get(ENV_SWITCH)
         os.environ[ENV_SWITCH] = "0"
         try:
@@ -99,7 +95,6 @@ def test_end_to_end():
         audit_path = Path(tmp) / "audit" / "shared_write.jsonl"
         check(audit_path.parent.exists(), "audit/ 目录已建在 data_dir 下")
 
-        # 一条合法 + 一条越界(audit 模式不拦截,只记录)——真实闸门口径
         osi.hmr.ingest("用户偏好:喜欢表格", type="concept", agent_id="finance",
                        tags=["preference"], shared=True)
         osi.hmr.ingest("财务应给办公转账1000元", type="decision", agent_id="office",
@@ -112,7 +107,6 @@ def test_end_to_end():
         denied = [r for r in recs if not r["payload"]["allowed"]]
         check(bool(denied) and "office" in denied[0]["payload"]["reason"] or bool(denied),
               "越界那条可从文件直接判读")
-        # 与脊柱 history 口径一致:文件条数 == 脊柱里该主题条数
         spine_n = len(osi.event_spine.history("memory.shared.write", 100))
         check(spine_n == len(recs), f"文件条数与脊柱 history 一致({len(recs)}=={spine_n})")
     finally:

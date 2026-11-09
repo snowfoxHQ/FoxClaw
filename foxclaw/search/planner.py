@@ -7,7 +7,7 @@ Query Planner —— 决定路由(HSR-I / HSR-E / HYBRID)，并把任务拆成�
 """
 from __future__ import annotations
 from .models import SearchPlan, SubQuery, RouteType
-from ..planning import planner as P   # 统一拆分原语(P1-2)
+from ..planning import planner as P
 
 _MEMORY_HINTS = ("我之前", "我们讨论过", "上次", "记得", "history", "之前说")
 _HYBRID_HINTS = ("为什么", "对比", "分析", "综合", "评估")
@@ -28,7 +28,7 @@ class QueryPlanner:
             steps = [SubQuery(id="s1", text=query)]
         elif route == RouteType.EXTERNAL:
             steps = self._decompose(query)
-        else:  # HYBRID：先查内部，再拆外部子问题
+        else:
             steps = [SubQuery(id="s1", text=query), *self._decompose(query, offset=2)]
 
         return SearchPlan(
@@ -38,7 +38,7 @@ class QueryPlanner:
         )
 
     def _decompose(self, query: str, offset: int = 1) -> list[SubQuery]:
-        parts = P.split_on(query, P.LIST_SEPS)   # 统一拆分原语(等价于原 [,，、；;])
+        parts = P.split_on(query, P.LIST_SEPS)
         if len(parts) <= 1:
             parts = [query]
         return [SubQuery(id=f"s{offset + i}", text=p) for i, p in enumerate(parts)]

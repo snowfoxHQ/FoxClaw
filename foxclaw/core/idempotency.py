@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 class _Record:
     key: str
     created: float
-    result: dict = field(default_factory=dict)   # 上次执行的结果(重发时原样返回)
+    result: dict = field(default_factory=dict)
 
 
 def make_key(domain: str, *parts: str, version: str = "v1") -> str:
@@ -59,9 +59,7 @@ class IdempotencyGuard:
         self.persist_path = persist_path
         self._store: dict[str, _Record] = {}
         self._lock = threading.RLock()
-        # 【P2-3】审计脊柱(可空,None 时静默)
         self._spine = spine
-        # 【P2-3】追加日志 + 定期 compact
         self._log_path = (persist_path + ".log") if persist_path else None
         self._compact_every = compact_every
         self._ops_since_compact = 0
@@ -92,7 +90,7 @@ class IdempotencyGuard:
                              result=self._store[key].result)
             need_compact = self._ops_since_compact >= self._compact_every
         if need_compact:
-            self._try_compact()     # 全量写盘放主锁外(见 _try_compact)
+            self._try_compact()
 
     def check_and_mark(self, key: str, result: dict | None = None) -> bool:
         """原子操作:若 key 未见过 → 标记并返回 True(应执行);
@@ -104,7 +102,7 @@ class IdempotencyGuard:
         with self._lock:
             self._evict_expired()
             if key in self._store:
-                return False        # 已处理过,跳过
+                return False
             self._store[key] = _Record(key=key, created=time.time(),
                                        result=dict(result or {}))
             self._enforce_capacity()
@@ -128,7 +126,6 @@ class IdempotencyGuard:
         if need_compact:
             self._try_compact()
 
-    # ── 内部:过期/容量/持久化 ──────────────────────────────
     def _evict_expired(self):
         if self.ttl <= 0:
             return
@@ -138,9 +135,6 @@ class IdempotencyGuard:
             del self._store[k]
 
     def _enforce_capacity(self):
-        # 超容量 → 淘汰最旧的(按 created)。
-        # 【P2-3】淘汰必须落 delete 日志:否则重启回放追加日志时,被淘汰的 key
-        # 会"复活"(mark 日志还在,没有对应的删除记录)。锁内调用。
         if len(self._store) <= self.max_size:
             return
         items = sorted(self._store.items(), key=lambda kv: kv[1].created)
@@ -148,7 +142,6 @@ class IdempotencyGuard:
             del self._store[k]
             self._persist_op("delete", k)
 
-    # ── 内部:持久化(追加日志 + 定期 compact)─────────────────
     def _persist_op(self, event: str, key: str, **fields):
         """【P2-3】追加一条日志(O(1) 写,不写全量)。锁内调用(append 很快,
         且在锁内可避免并发写同一文件交错)。失败计数 + 发事件,不影响主流程。"""
@@ -196,11 +189,10 @@ class IdempotencyGuard:
                             for k, r in self._store.items()
                             if self.ttl <= 0 or now - r.created <= self.ttl}
                 self._ops_since_compact = 0
-            # ── 以下为主锁外的慢 IO ──
             tmp = self.persist_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(snapshot, f, ensure_ascii=False)
-            os.replace(tmp, self.persist_path)   # 原子替换,防写一半损坏
+            os.replace(tmp, self.persist_path)
             if rotated and os.path.exists(rotated):
                 os.remove(rotated)
         except Exception:
@@ -222,7 +214,7 @@ class IdempotencyGuard:
             tmp = self.persist_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
-            os.replace(tmp, self.persist_path)   # 原子替换,防写一半损坏
+            os.replace(tmp, self.persist_path)
             if self._log_path and os.path.exists(self._log_path):
                 os.remove(self._log_path)
             self._ops_since_compact = 0
@@ -273,18 +265,18 @@ class IdempotencyGuard:
                         try:
                             ev = json.loads(line)
                         except Exception:
-                            continue    # 跳过损坏行(append 末行可能写一半)
+                            continue
                         self._apply_log_event(ev, now)
                         replayed = True
             if replayed:
                 self._compact()
         except Exception:
-            pass        # 加载失败 → 从空开始,不影响启动
+            pass
 
     def stats(self) -> dict:
         with self._lock:
             self._evict_expired()
             return {"size": len(self._store), "max_size": self.max_size,
                     "ttl_seconds": self.ttl, "persisted": bool(self.persist_path),
-                    "persist_failures": self._persist_failures,      # 【P2-3】
-                    "ops_since_compact": self._ops_since_compact}    # 【P2-3】
+                    "persist_failures": self._persist_failures,
+                    "ops_since_compact": self._ops_since_compact}

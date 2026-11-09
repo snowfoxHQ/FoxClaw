@@ -41,7 +41,7 @@ KEY_ID_HEADER = "X-Foxclaw-Key-Id"
 ENV_SECRET = "FOXCLAW_CHANNEL_SIGNING_SECRET"
 ENV_KEY_ID = "FOXCLAW_CHANNEL_SIGNING_KEY_ID"
 
-DEFAULT_TOLERANCE = 300.0     # 秒;超过即判过期(时钟漂移容忍)
+DEFAULT_TOLERANCE = 300.0
 
 
 def body_digest(body: bytes) -> str:
@@ -70,7 +70,7 @@ class ReplayGuard:
     def __init__(self, ttl: float = DEFAULT_TOLERANCE, max_entries: int = 4096):
         self.ttl = float(ttl)
         self.max_entries = max(16, int(max_entries))
-        self._seen: dict[str, float] = {}      # nonce -> 首次见到的时间
+        self._seen: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def purge(self, now: float | None = None) -> int:
@@ -85,7 +85,7 @@ class ReplayGuard:
     def seen(self, nonce: str, now: float | None = None) -> bool:
         """见过 → True(**这是重放**);没见过则登记并返回 False。"""
         if not nonce:
-            return True                        # 空 nonce 一律当重放/fail-closed
+            return True
         now = now if now is not None else time.time()
         with self._lock:
             cut = now - self.ttl

@@ -1,6 +1,4 @@
 <script setup>
-/* 复习面板 = SM-2 账本 + 今日队列 + 遗忘曲线。
-   卡片就是知识库里的 KU(复习状态在 KU.extra.review 里),不另存一份。 */
 import { computed, onMounted, ref } from 'vue'
 import PanelBox from './PanelBox.vue'
 import {
@@ -20,10 +18,6 @@ const pos = computed(() => Math.min(rv.index + 1, total.value))
 const masteryPct = computed(() => Math.round((st.value.avg_mastery || 0) * 100))
 const todo = computed(() => (st.value.due || 0) + (st.value.fresh || 0))
 
-/* 遗忘曲线:Ebbinghaus R = e^(-t/S)。
-   SM-2 的语义是「复习时保留率约 90%」,由 R=0.9 反推稳定度
-   S ≈ interval / ln(1/0.9) ≈ 9.49 × interval;EF 越高衰减越慢。
-   新卡没有 interval,给一个很小的 S,曲线会陡降 —— 这正是「不复习就忘」的直观样子。 */
 const W = 620
 const H = 130
 const DAYS = 30
@@ -32,8 +26,6 @@ const curve = computed(() => {
   const c = card.value
   const interval = c?.interval || 0
   const ef = c?.ease_factor || 2.5
-  /* 新卡没有 interval,S 给 1.2 让曲线在 30 天窗口里真能看出衰减;
-     取 0 会让整条曲线贴死底边,看上去像渲染坏了。 */
   const S = interval > 0 ? 9.49 * interval * (ef / 2.5) : 1.2
 
   const pts = []
@@ -50,13 +42,10 @@ const curve = computed(() => {
     due: showDot
       ? { x: (dueDay / DAYS) * W, y: H - Math.exp(-dueDay / S) * H }
       : null,
-    /* 今天的位置(曲线起点)保留率恒为 1 */
     now: { x: 0, y: 0 },
   }
 })
 
-/* by_day 是稀疏字典,补齐 7 天才能画成等距柱 */
-/* 不到一天时说「几小时后」比说「0 天后」有用得多 */
 const dueText = computed(() => {
   const c = card.value
   if (!c || !c.interval) return '新卡:曲线是「不复习就忘」的示意'
@@ -210,13 +199,10 @@ async function grade(g) {
   gap: 22px;
   align-items: start;
 }
-/* 断点看面板容器宽度,不是视口 —— 中栏只占窗口一半,
-   1600 的窗口里也只有 ~580px,按视口判断会永远两列挤成两条窄条。 */
 @container (max-width: 820px) {
   .rv-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
 }
 
-/* ── 卡片 ── */
 .card {
   padding: 16px 18px 18px;
   border-radius: var(--r-md);
@@ -269,7 +255,6 @@ async function grade(g) {
 .done p, .idle p { font-size: 12px; line-height: 1.8; color: var(--dim); margin: 6px 0 14px; }
 .idle b { color: var(--ink); }
 
-/* ── 曲线 ── */
 .curve {
   display: block; width: 100%; height: 130px;
   overflow: visible;
@@ -292,7 +277,6 @@ async function grade(g) {
   color: #8a6a24;
 }
 
-/* ── 7 天负荷 ── */
 .load { display: flex; align-items: flex-end; gap: 6px; padding: 8px 2px 0; }
 .load .bar {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;

@@ -24,14 +24,6 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 
-# ── BASE URL 规范化(自定义模型)─────────────────────────────────────────────
-# 病根:用户按厂商文档填 `https://api.deepseek.com`(无 /v1),OpenAI SDK 会拼成
-# `https://api.deepseek.com/chat/completions` —— 兼容网关多数只认 `/v1/chat/completions`,
-# 于是 404/401;/v1 又常被"看文档照抄"的人漏掉。两边都不该让用户自己猜:
-#   · 无 scheme → 补 https://
-#   · path 为空或 "/" → 补 /v1
-#   · 已有 path(/v1、/compatible-mode/v1、/openai/v1…)→ 原样保留
-# 幂等:normalize(normalize(x)) == normalize(x)。
 def normalize_base_url(url: str) -> str:
     """把用户填的 BASE URL 收拾成 SDK 可直接用的形式(带 scheme + 至少一段 path)。
 
@@ -56,15 +48,7 @@ def normalize_base_url(url: str) -> str:
     return urlunsplit((parts.scheme.lower(), parts.netloc, path, parts.query, ""))
 
 
-# ── 推理块剥离:openai-compatible 协议(DeepSeek-R1 / MiniMax-Text-01 等)把内部
-# reasoning 嵌进 content 字段,标签是 OPEN_TAG ... CLOSE_TAG(也兼容 reasoning / reflection
-# 变体)。流式一个字一个字 yield 时如果不在 LLM 咽喉处清理,会渗到前端 textContent /
-# SSE 流量 / 落库记忆。统一在 complete() / stream() 输出端 strip 是最稳的 single source。
-# ────────────────────────────────────────────────────────────────────
-# 用字符串拼接定义正则:避免 think 标签在源码里裸出现时被 markdown / 编辑器误处理。
 _THINK_RE = _re.compile("<" + "think" + ">.*?</" + "think" + ">", _re.DOTALL)
-# 部分模型(DeepSeek-R1 早期 / minimax 变体)用 <reasoning> / <reflection> 标签
-# 一并兼容,展示给用户时统一清掉。
 _EXTRA_THINK_RE = _re.compile(r"<(reasoning|reflection|reflexion)>.*?</\1>", _re.DOTALL)
 
 
@@ -115,7 +99,6 @@ class _ThinkStripper:
             if self._in_think:
                 end = text.find(self._CLOSE_TAG, i)
                 if end == -1:
-                    # 没遇到结束标签,剩余暂存,等下个 chunk 续上
                     self._buf = text[i:]
                     return "".join(out), "".join(think)
                 think.append(text[i:end])
@@ -125,10 +108,6 @@ class _ThinkStripper:
             else:
                 start = text.find(self._OPEN_TAG, i)
                 if start == -1:
-                    # 当前 chunk 没有 <think> 开始标签。
-                    # 但末尾可能正好切成 "<" / "<th" / "<thi" ... —— 不能直接
-                    # 整段 yield,否则下个 chunk 拼成 "<think>..." 时已经晚一步。
-                    # 策略:把最后一个 '<' 之前的安全段 yield,'<' 及其后暂存到 buf。
                     last_lt = text.rfind("<", i)
                     if last_lt == -1:
                         out.append(text[i:])
@@ -142,7 +121,6 @@ class _ThinkStripper:
         return "".join(out), "".join(think)
 
 
-# 各 provider 的默认模型(可被环境变量覆盖)
 DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-20250514",
     "openai":    "gpt-4o",
@@ -151,10 +129,9 @@ DEFAULT_MODELS = {
     "qwen":      "qwen-plus",
     "local":     "llama3",
     "minimax":   "MiniMax-Text-01",
-    "generic":   "",   # 通用 openai-compatible:必须显式给 model(.env: FOXCLAW_MODEL 或 GENERIC_LLM_MODEL)
+    "generic":   "",
 }
 
-# 分层模型:fast(便宜快,分诊/简单)/ smart(强,复杂/分析)。未列的 provider fast=smart=默认。
 TIER_MODELS = {
     "anthropic": {"fast": "claude-haiku-4-20250514", "smart": DEFAULT_MODELS["anthropic"]},
     "deepseek":  {"fast": "deepseek-chat",           "smart": "deepseek-reasoner"},
@@ -162,7 +139,6 @@ TIER_MODELS = {
     "qwen":      {"fast": "qwen-turbo",              "smart": "qwen-plus"},
 }
 
-# 任务复杂度触发 smart 档的词
 _SMART_HINTS = _re.compile(
     r"分析|规划|报告|方案|评估|深度|论证|拆解|设计|策略|analyz|plan|report|design|strateg|reason")
 
@@ -187,16 +163,15 @@ def _tier_model(provider: str, tier: str) -> str:
         return t[tier]
     return DEFAULT_MODELS.get(provider, "")
 
-# provider → 所需环境变量
 PROVIDER_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai":    "OPENAI_API_KEY",
     "deepseek":  "DEEPSEEK_API_KEY",
     "google":    "GOOGLE_API_KEY",
     "qwen":      "DASHSCOPE_API_KEY",
-    "local":     "LOCAL_LLM_BASE",   # 本地用 base_url 而非 key
-    "minimax":   "MINIMAX_API_KEY",  # MiniMax 官方 API;鉴权还需 MINIMAX_GROUP_ID
-    "generic":   "LLM_API_KEY",           # 【P2·单 LLM 入口】通用 openai-compatible;鉴权见 LLM_EXTRA_HEADERS
+    "local":     "LOCAL_LLM_BASE",
+    "minimax":   "MINIMAX_API_KEY",
+    "generic":   "LLM_API_KEY",
 }
 
 
@@ -207,15 +182,9 @@ def _chunk_text(text, size: int = 8):
         yield text[i:i + size]
 
 
-# ── 重试退避(M6)────────────────────────────────────────────────────
-# 病根:此前 fallback 链只有「换 provider」,无退避、无抖动 —— 循环内无任何 sleep,
-# 冷却固定 20s。多实例同时宕机时会同步解冻(惊群)并紧密重试,加剧上游压力。
-# 下面用指数退避 + **全抖动**(full jitter,sleep=random(0,min(cap,base*2^n))):
-# 上限保证不会无限等待,抖动保证多实例不会同步重试。
 import random as _rnd   # noqa: E402  (供下方 _backoff_delay 与冷却抖动使用)
 from . import settings
 
-# 冷却基准秒(乘抖动系数后使用)。可经 FOXCLAW_LLM_COOLDOWN 覆盖,线上调参不必改代码。
 _COOLDOWN_BASE = float(settings.get_float("FOXCLAW_LLM_COOLDOWN"))
 
 
@@ -231,41 +200,29 @@ class ModelRouter:
     """统一模型路由。Agent 只认 router.complete(),不关心背后是哪家模型。"""
 
     def __init__(self, provider: str | None = None, model: str | None = None):
-        # 默认 provider:按环境变量自动探测第一个可用的
         self.provider = provider or self._auto_detect()
-        # 【P2·单 LLM 入口】FOXCLAW_MODEL 已弃用,改读 LLM_MODEL(空值时回退默认模型)
         _env_model = os.environ.get("LLM_MODEL", "").strip()
-        self._locked_model: str | None = model or _env_model or ""   # 显式锁定 → 不分档(向后兼容)
+        self._locked_model: str | None = model or _env_model or ""
         self.model = self._locked_model or DEFAULT_MODELS.get(self.provider, "")
-        self._client: Any = None                         # 当前 provider 的 SDK client(_build_client 注入)
-        self._clients: dict[str, Any] = {}               # provider -> client(fallback 懒建缓存)
+        self._client: Any = None
+        self._clients: dict[str, Any] = {}
         self._client_lock = threading.Lock()
-        self._cooldown: dict[str, float] = {}            # provider -> 冷却截止 monotonic(断路器:跳过刚宕机的家)
+        self._cooldown: dict[str, float] = {}
         self.fallback_reason = ""
-        self.meter: Any = None   # 可选 TokenMeter,由 Foxclaw 注入(实现不固定,按 Any 处理)
-        # ── 降级状态(A 类修复)────────────────────────────────────────
-        # 区分两种「拿不到可用回复」,二者对外文案与副作用不同:
-        #   · never_configured —— 从未配置任何模型 key(离线演示/自测),stub 是合理兜底;
-        #   · call_failed      —— 配了 key 但调用失败/返回空串 → **故障**,禁止伪装成功。
-        # 后者由 _mark_degraded 标记,上游据此**禁止写入长期记忆**(故障文本会污染召回),
-        # 并在文案中显式声明未完成(与 base.py §二「真相优先」对齐)。
+        self.meter: Any = None
         self.degraded: bool = False
         self.degraded_reason: str = ""
-        # per-call 降级标记(单次请求生命周期内消费,不跨调用泄漏)
         self._call_degraded: bool = False
-        # 前端 LLM 管理选模型(写 .current_model → mtime 缓存 lazy reload,无需重启)
         self._selection_mtime: float = 0.0
         self._init_client()
 
     @staticmethod
     def _auto_detect() -> str:
         """选择 provider:优先 LLM_PROVIDER 显式指定,否则按优先级探测已配 key 的。"""
-        # 1. 显式指定(LLM_PROVIDER=deepseek 即可强制用 DeepSeek;兼容旧名 FOXCLAW_PROVIDER)
         forced = (os.environ.get("LLM_PROVIDER", "")
                   or os.environ.get("FOXCLAW_PROVIDER", "")).strip().lower()
         if forced and forced in PROVIDER_ENV:
             return forced
-        # 2. 自动探测:按优先级找第一个配了 key 的
         for p in ["anthropic", "openai", "deepseek", "google", "qwen", "local", "minimax", "generic"]:
             if os.environ.get(PROVIDER_ENV[p]):
                 return p
@@ -289,15 +246,11 @@ class ModelRouter:
                 return (anthropic.Anthropic(api_key=key, timeout=30.0) if key else None,
                         "" if key else "未配置 ANTHROPIC_API_KEY")
             elif p in ("openai", "deepseek", "qwen", "local", "minimax", "generic"):
-                # ── OpenAI-compatible 家族 ───────────────────────────
-                # 适配所有 OpenAI Chat Completion 协议兼容厂商。
-                # 鉴权默认 Bearer(api_key);特殊厂商(双 header / 自定义鉴权)通过
-                # default_headers 注入。generic 走完全 .env 驱动,任意厂商即插即用。
                 try:
                     from openai import OpenAI
                 except ImportError:
                     return None, "需安装 openai 库(pip install openai)"
-                extra = {}     # default_headers(双 header 鉴权用,例 MiniMax-Group-Id)
+                extra = {}
                 if p == "openai":
                     key = os.environ.get("OPENAI_API_KEY"); base = None
                 elif p == "deepseek":
@@ -309,16 +262,12 @@ class ModelRouter:
                     key = os.environ.get("LOCAL_LLM_KEY", "local")
                     base = os.environ.get("LOCAL_LLM_BASE", "http://localhost:11434/v1")
                 elif p == "minimax":
-                    # 官方域名,可用 MINIMAX_BASE_URL 自定义代理;group_id 可选(无则不传 header)
                     key = os.environ.get("MINIMAX_API_KEY")
                     base = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1")
                     group_id = os.environ.get("MINIMAX_GROUP_ID", "").strip()
                     if group_id:
                         extra = {"MiniMax-Group-Id": group_id}
-                else:  # generic
-                    # 【P2·单 LLM 入口】通用 openai-compatible:适配任意兼容厂商(MiniMax/GLM/Kimi/自建网关/三方代理)
-                    # 必填:LLM_API_KEY + LLM_BASE_URL
-                    # 可选:LLM_EXTRA_HEADERS(JSON object,适配双 header 鉴权)
+                else:
                     key = os.environ.get("LLM_API_KEY") or os.environ.get("GENERIC_LLM_API_KEY")
                     base = os.environ.get("LLM_BASE_URL") or os.environ.get("GENERIC_LLM_BASE_URL")
                     raw = os.environ.get("LLM_EXTRA_HEADERS", "").strip() \
@@ -374,9 +323,6 @@ class ModelRouter:
                 order.append(p)
         return order
 
-    # ── 前端 LLM 管理(写 .current_model → mtime 缓存 lazy reload)────────────────
-    # 配套文件 FOXCLAW_DATA_DIR/.current_model(由 foxclaw/api/routes/llm_admin.py 写)。
-    # 改动走 mtime 比对,正常 chat 路径上每请求 < 1ms;切完模型不用重启 foxclaw。
 
     def _selection_path(self) -> "Path":
         return Path(os.environ.get("FOXCLAW_DATA_DIR", "./foxclaw_data")) / ".current_model"
@@ -398,13 +344,11 @@ class ModelRouter:
         match = next((m for m in models if m.get("name") == name), None)
         if not match:
             return None, "", f"未找到自定义模型: {name}"
-        # key:OS 凭据库优先,回退 base64(旧记录)/ 更早的明文字段
         key = _secrets.load(name, match.get("api_key_obf", "") or "")
         if not key:
             key = match.get("api_key", "") or ""
         if not key:
             return None, "", "API key 为空"
-        # 老记录可能存成不带 /v1 的形式 → 构造时统一规范化(与 llm_admin 新增/编辑同源)
         try:
             base_url = normalize_base_url(match.get("base_url", ""))
         except ValueError as e:
@@ -436,10 +380,9 @@ class ModelRouter:
         except Exception:
             mtime = 0.0
         if mtime == self._selection_mtime:
-            return                                  # 没变 → 零开销
+            return
         self._selection_mtime = mtime
         if not p.exists():
-            # 删了 .current_model → 退回 .env 探测
             env_prov = self._auto_detect()
             if env_prov != self.provider:
                 self.provider = env_prov
@@ -457,8 +400,8 @@ class ModelRouter:
             new_prov = d["provider"]
             if new_prov != self.provider:
                 self.provider = new_prov
-                self._reset_locked_for_provider()    # 切 provider:FOXCLAW_MODEL 仅 generic-like 适用
-                self._init_client()                 # 重建 _client
+                self._reset_locked_for_provider()
+                self._init_client()
         elif src == "custom":
             name = d.get("name", "")
             client, model, err = self._build_custom_client(name)
@@ -466,12 +409,11 @@ class ModelRouter:
                 self.provider = "custom"
                 with self._client_lock:
                     self._clients["custom"] = client
-                self._client = client              # 同步 active
+                self._client = client
                 self.model = model
                 self._locked_model = model
                 self.fallback_reason = ""
             else:
-                # 构造失败:log + 保持旧 provider(不静默吞)
                 import sys as _sys
                 print(f"[model_router] 自定义模型构造失败: {err}", file=_sys.stderr)
 
@@ -483,10 +425,8 @@ class ModelRouter:
         ollama 调 → 404)。"""
         _env = os.environ.get("FOXCLAW_MODEL", "").strip()
         if self.provider in ("generic", "minimax", "custom"):
-            # 这些 provider 没固定默认,FOXCLAW_MODEL 适用
             self._locked_model = _env or None
         else:
-            # 其他 provider 用自己默认,忽略 FOXCLAW_MODEL 干扰
             self._locked_model = None
         self.model = self._locked_model or DEFAULT_MODELS.get(self.provider, "")
 
@@ -498,7 +438,6 @@ class ModelRouter:
         tier = _route_tier(agent_id, messages)
         if provider == self.provider:
             if provider == "generic":
-                # generic 没默认 model → 必须 .env 显式给;优先级 FOXCLAW_MODEL > GENERIC_LLM_MODEL
                 m = (os.environ.get("FOXCLAW_MODEL", "").strip() or
                      os.environ.get("GENERIC_LLM_MODEL", "").strip())
                 if m:
@@ -523,10 +462,7 @@ class ModelRouter:
             return messages
         text = msgs[idx].get("content")
         if not isinstance(text, str):
-            return messages                       # 已是多模态,不重复组装
-        # 首元素是 {"type","text"} 同构 dict,不注解会被推成 list[dict[str, str]];
-        # 两个分支后面都要 append 嵌套 dict,故统一声明为 list[dict[str, Any]]。
-        # 注解放在 if 之前:分支内各写一次会触发 no-redef。
+            return messages
         blocks: list[dict[str, Any]]
         if provider == "anthropic":
             blocks = [{"type": "text", "text": text}]
@@ -542,7 +478,7 @@ class ModelRouter:
                 blocks.append({"type": "image_url",
                                "image_url": {"url": f"data:{mt};base64,{d}"}})
         else:
-            return messages                       # google/未知:无视觉通道 → 纯文本
+            return messages
         msgs[idx]["content"] = blocks
         return msgs
 
@@ -563,15 +499,12 @@ class ModelRouter:
             u = getattr(resp, "usage", None)
             usage = ({"input_tokens": getattr(u, "prompt_tokens", None),
                       "output_tokens": getattr(u, "completion_tokens", None)} if u else None)
-            # 剥离内部推理块(DeepSeek-R1 / MiniMax-Text-01 / minimax-reasoner 等
-            # 把 <think>...</think> 嵌进 content,直接落库/转发会污染用户界面与记忆)
             return _strip_think(resp.choices[0].message.content or ""), usage
         elif provider == "google":
             prompt = system + "\n\n" + "\n".join(m["content"] for m in messages)
             return client.generate_content(prompt).text, None
         raise RuntimeError(f"unknown provider {provider}")
 
-    # ── 统一补全接口 ──────────────────────────────────────
     @staticmethod
     def _weekday_cn(dt) -> str:
         return "一二三四五六日"[dt.weekday()]
@@ -608,10 +541,9 @@ class ModelRouter:
         所有 LLM 调用的唯一咽喉——token 计量在此进行(若挂了 meter)。
         优先用 API 返回的真实 usage,拿不到则由 meter 离线估算。
         """
-        self._maybe_reload_selection()           # 前端切模型(.current_model)→ mtime 缓存 lazy reload
-        system = self._inject_runtime(system)   # 规则化:运行时事实基准统一在咽喉注入
+        self._maybe_reload_selection()
+        system = self._inject_runtime(system)
         if self.is_stub:
-            # stub 不消耗 token,但计入 LLM 调用量(可观测);链路里也要看得见"这次走了 stub"
             try:
                 from .metrics import METRICS
                 METRICS.record_llm("stub", True, 0.0)
@@ -624,17 +556,17 @@ class ModelRouter:
         last_err = None
         _now = _t.monotonic()
         for i, provider in enumerate(self._fallback_order()):
-            if self._cooldown.get(provider, 0) > _now:     # 断路器:跳过刚宕机的家,免每次等超时
+            if self._cooldown.get(provider, 0) > _now:
                 continue
             client = self._get_client(provider)
             if client is None:
                 continue
-            model = self._model_for(provider, agent_id, messages)   # 按任务/Agent 选档
+            model = self._model_for(provider, agent_id, messages)
             _t0 = _t.perf_counter()
             try:
                 from .tracing import span as _span
                 with _span("llm.complete", provider=provider, model=model):
-                    if images:   # 有图 → 传第 7 参数;无图保持 6 参数(兼容 test 里 6 参 monkeypatch)
+                    if images:
                         output, usage = self._call_provider(provider, client, model,
                                                             system, messages, max_tokens, images)
                     else:
@@ -642,18 +574,13 @@ class ModelRouter:
                                                             system, messages, max_tokens)
             except Exception as e:
                 self._rec_llm(provider, False, (_t.perf_counter() - _t0) * 1000.0)
-                # 冷却时长加抖动(D 类修复):原为固定 20.0,多实例同时宕机会**同步解冻**
-                # (惊群)。抖动后各实例解冻时间分散,上游有喘息窗口。
                 self._cooldown[provider] = _t.monotonic() + (
                     _COOLDOWN_BASE * (0.75 + 0.5 * _rnd.random()))
                 last_err = e
-                # 退避 + 全抖动(M6):换 provider 前让出时间,避免「快速遍历全部 provider
-                # 再快速重来」的紧密重试风暴。首次失败不等待(保 fallback 的快速感),
-                # 之后随尝试次数递增退避。
                 if i > 0:
                     _t.sleep(_backoff_delay(i))
-                continue                                   # → 试下一个已配 provider(fallback 链)
-            self._cooldown.pop(provider, None)             # 成功 → 解冻
+                continue
+            self._cooldown.pop(provider, None)
             self._rec_llm(provider, True, (_t.perf_counter() - _t0) * 1000.0)
             if output and getattr(self, "meter", None) is not None:
                 try:
@@ -664,11 +591,6 @@ class ModelRouter:
                     pass
             if i > 0:
                 self.fallback_reason = f"主 provider 失败,已回退到 {provider}"
-            # ── A 类修复:provider 返回空串 = 业务故障(内容过滤/截断/静默失败)──
-            # 旧代码 `output or self._stub()` 会短路到 stub,而 stub 文案声称「已完成处理」
-            # → 违反 base.py §二「真相优先」铁律,且该文本会经 base._store_memory 落入
-            # 长期记忆,造成「一次故障 → 长期污染」(后续召回持续复读)。
-            # 新代码:置 degraded 标志(上游据此禁写记忆),返回显式失败文本。
             if not (output or "").strip():
                 self._mark_degraded(
                     f"provider={provider} model={model} 返回空响应"
@@ -677,9 +599,6 @@ class ModelRouter:
                         "可能原因:内容被模型安全策略过滤,或 max_tokens 过小被截断。"
                         "建议:调整提问方式或提高 max_tokens 后重试。")
             return output
-        # 全部 provider 都失败:显式失败 + 降级标志,**不再拼接 stub 成功文案**。
-        # 保留「全部模型失败」这一精确措辞 —— 它是故障语义(而非"未配置模型"的降级),
-        # 运维与测试都靠它识别真实故障。
         self._mark_degraded(f"全部 provider 调用失败: {last_err}")
         return (f"【全部模型失败】已尝试 {len(self._fallback_order())} 个 provider 均失败,"
                 f"本次任务未完成。最后错误:"
@@ -704,11 +623,8 @@ class ModelRouter:
         与正文内嵌 <think> 块都从这里出去,作为独立 SSE thinking 事件;正文不受影响。"""
         def _stopped():
             return stop_event is not None and stop_event.is_set()
-        # 前端切模型(.current_model)→ mtime 缓存 lazy reload。
-        # 病根:此前只有 complete() 里 reload,而聊天主路径是 stream() —— 用户在"模型选择器"
-        # 里切完自定义模型后,流式对话仍拿旧 provider/旧 client(表现为"填了不生效")。
         self._maybe_reload_selection()
-        system = self._inject_runtime(system)   # 规则化:与 complete 同一咽喉注入运行时事实基准
+        system = self._inject_runtime(system)
         if self.is_stub:
             try:
                 from .metrics import METRICS
@@ -731,7 +647,7 @@ class ModelRouter:
         parts = []
         import time as _t
         _t0 = _t.perf_counter()
-        model = self._model_for(self.provider, agent_id, messages)   # 按任务/Agent 选档
+        model = self._model_for(self.provider, agent_id, messages)
 
         def _rec(ok):
             ms = (_t.perf_counter() - _t0) * 1000.0
@@ -740,7 +656,7 @@ class ModelRouter:
                 METRICS.record_llm(self.provider, ok, ms)
             except Exception:
                 pass
-            try:    # 链路追踪:流式是 chat 主路径,不能漏(span 归属发起请求的 trace)
+            try:
                 from .tracing import current_trace
                 tr = current_trace()
                 if tr is not None:
@@ -760,12 +676,6 @@ class ModelRouter:
                         if t:
                             parts.append(t); yield t
             elif self.provider in self._OPENAI_FAMILY:
-                # P1 阶段的回归修复:此处原本只列了 openai/deepseek/qwen/local,
-                # generic/minimax 走 else 分支退化为 complete() 一次性 yield
-                # —— 既不是真"流式",也把
-                # 这里使用 _OPENAI_FAMILY 与 supports_tools / tools 同步,保证
-                # 任何 openai-compatible 厂商(minimax / generic / custom 等)都走
-                # 真正的逐 token 流 + 在 LLM 咽喉处统一剥离 think 块。
                 msgs = [{"role": "system", "content": system}] + mm
                 st = self._client.chat.completions.create(
                     model=model, max_tokens=max_tokens, messages=msgs, stream=True)
@@ -775,9 +685,6 @@ class ModelRouter:
                         st.close() if hasattr(st, "close") else None
                         return
                     d = c.choices[0].delta.content if c.choices else None
-                    # 原生推理通道:deepseek-reasoner / 部分 openai-compatible 厂商把思考放在
-                    # delta.reasoning_content(少数用 reasoning)。此前整段被丢弃(只读 content),
-                    # 用户完全看不到推理;现在转成 thinking 事件,正文仍只走 content。
                     if c.choices and on_thinking is not None:
                         _delta = c.choices[0].delta
                         _rt = (getattr(_delta, "reasoning_content", None)
@@ -789,7 +696,7 @@ class ModelRouter:
                     parts.append(d)
                     cleaned, _think_txt = stripper.feed_events(d)
                     if _think_txt and on_thinking is not None:
-                        on_thinking(_think_txt)      # 内嵌 <think> 块 → 推理事件,不进正文
+                        on_thinking(_think_txt)
                     if cleaned:
                         yield cleaned
             elif self.provider == "google":
@@ -804,8 +711,6 @@ class ModelRouter:
                 parts.append(out); yield out
         except Exception as e:
             _rec(False)
-            # 脱敏(M1 A 类修复):不把原始异常对象吐给用户 —— 它可能含内部端点、
-            # 文件路径或请求细节。只给异常类型 + 降级语义,完整原因进 tracing。
             self._mark_degraded(f"stream 失败: {type(e).__name__}")
             yield f"【模型流式中断】{type(e).__name__},本次未获得完整回复。\n"
             for w in _chunk_text(self._stub(messages)):
@@ -822,15 +727,6 @@ class ModelRouter:
             except Exception:
                 pass
 
-    # ── P2 function-calling(工具调用)──────────────────────────────────────────
-    # 病根修复:让模型**自己决定**调哪个工具,取代"调 LLM 前用关键词表拍板"。
-    # 模型无关:openai 家族(openai/deepseek/qwen/local,含 openai-compatible 万能通道)走
-    # OpenAI tools 格式;anthropic 走原生 tool_use block(P0-2);google/stub 不支持 →
-    # supported=False,由上层自动回退关键词增强链(fallback,不破坏)。
-    # ⚠ "custom"(前端选中的自定义模型)必须在这里 —— 它是**运行时**才出现的 openai-compatible
-    # 通道,漏掉会让 stream() 退化为 complete() 一次性输出(前端表现为"不流式"),且
-    # supports_tools() 变 False → 工具体系静默降级。凡新增 openai 兼容 provider,
-    # 只改这一处(调用点已统一引用本元组)。
     _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom")
     _TOOL_PROVIDERS = _OPENAI_FAMILY + ("anthropic",)
 
@@ -905,11 +801,9 @@ class ModelRouter:
                         model, system, messages, tools, tool_choice, max_tokens)
         except Exception as e:
             self._rec_llm(self.provider, False, (_t.perf_counter() - _t0) * 1000.0)
-            # 工具调用失败(端点不支持 tools 等)→ 当作不支持,让上层降级
             return {"supported": False, "text": "", "tool_calls": [],
                     "assistant_msg": None, "error": str(e)}
         self._rec_llm(self.provider, True, (_t.perf_counter() - _t0) * 1000.0)
-        # 计量(工具决策轮也算调用)
         if getattr(self, "meter", None) is not None:
             try:
                 self.meter.measure_call(system=system, messages=messages,
@@ -937,15 +831,10 @@ class ModelRouter:
             try:
                 args = _json.loads(raw_args)
                 if not isinstance(args, dict):
-                    # 模型偶发返回数组/标量(JSON 合法但结构不符)→ 同样按解析失败处理
                     args, parse_failed = {}, True
             except Exception:
                 args, parse_failed = {}, True
             if parse_failed:
-                # 静默 {} 会让模型以为工具已执行(实际参数全丢)→ 错误必须可见。
-                # 此处**保留空 args 继续分发**:由 base._dispatch_tool 的参数校验闸
-                # 把错误回注给模型,下一轮即可自修正;这里额外记 span,便于事后归因
-                # (此前完全无痕迹,模型错了都不知道)。
                 try:
                     from .tracing import span as _span
                     with _span("llm.tool_args_unparsable",
@@ -1032,7 +921,6 @@ class ModelRouter:
                 f"恢复方式:配置任一模型 Key(见 .env.example)后重试。\n"
                 f"(STUB · 此为降级占位,非真实结果)")
 
-    # ── 降级状态(A 类修复)────────────────────────────────────────────
     def _mark_degraded(self, reason: str) -> None:
         """标记本次调用为「故障降级」(区别于 is_stub 的「从未配置」)。
 
@@ -1070,7 +958,7 @@ class ModelRouter:
         """运行时切换 provider(多模型路由的核心能力)。
         显式给 model → 锁定该模型(不分档,尊重用户选择);只切 provider(model 空)→ 清锁用分档。"""
         self.provider = provider
-        self._locked_model = (model or "").strip()   # 修复:显式模型必须生效(否则被 tiering 覆盖)
+        self._locked_model = (model or "").strip()
         self.model = self._locked_model or DEFAULT_MODELS.get(provider, self.model)
         self._init_client()
         return self.info()
@@ -1080,11 +968,6 @@ class ModelRouter:
             "provider": self.provider,
             "model": self.model,
             "active": not self.is_stub,
-            # ── 降级可见性(A 类修复)────────────────────────────────
-            # 原先只报 provider + active。当 provider=anthropic 但 SDK 缺失时,
-            # 运维看到的是「配置了但没激活」,真实原因(SDK 未安装)被吞掉。
-            # degraded / degraded_reason / fallback_reason / client_ready 四者一起,
-            # 才说得清「为什么没模型可用」。
             "degraded": self.degraded,
             "degraded_reason": self.degraded_reason[:200],
             "fallback_reason": self.fallback_reason,

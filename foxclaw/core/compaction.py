@@ -25,7 +25,6 @@ import re
 from dataclasses import dataclass, field
 
 
-# 粗略 token 估算:中文约 1 字符 ≈ 1 token,英文约 4 字符 ≈ 1 token。
 def estimate_tokens(text: str) -> int:
     if not text:
         return 0
@@ -38,8 +37,6 @@ def estimate_messages_tokens(messages: list) -> int:
     return sum(estimate_tokens(str(m.get("content", ""))) for m in messages)
 
 
-# 关键标识符:不能在摘要中丢失的(ID、长数字、订单号、哈希、金额等)
-# 不用外层 \b:¥/逗号不是单词字符,会导致金额匹配失败。
 _IDENTIFIER_PAT = re.compile(
     r"[a-zA-Z]{2,}_[a-zA-Z0-9]{4,}|[a-f0-9]{8,}|[0-9]{6,}|¥[\d,]+(?:\.\d+)?")
 
@@ -56,14 +53,14 @@ def extract_identifiers(messages: list) -> list[str]:
 
 @dataclass
 class CompactionResult:
-    messages: list = field(default_factory=list)     # 压缩后的消息列表
-    method: str = "none"                             # llm_summary/partial_summary/truncate/none
+    messages: list = field(default_factory=list)
+    method: str = "none"
     original_count: int = 0
     compacted_count: int = 0
     original_tokens: int = 0
     compacted_tokens: int = 0
     preserved_identifiers: list = field(default_factory=list)
-    note: str = ""                                   # 说明(如压缩跳过原因)
+    note: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -101,8 +98,6 @@ def group_tool_calls(messages: list) -> list:
         m = messages[i]
         buf.append(m)
         if m.get("role") == "assistant" and (m.get("tool_calls") or []):
-            # 本 assistant 声明了工具调用 → 把紧随其后、id 匹配的 tool 结果
-            # 全部并入同一组,确保「声明与结果同进同出」。
             ids = {tc.get("id") for tc in (m.get("tool_calls") or [])}
             j = i + 1
             while j < n:
@@ -125,10 +120,10 @@ class Compactor:
 
     def __init__(self, router=None, max_tokens: int = 6000,
                  keep_recent: int = 4, oversized_token: int = 2000):
-        self.router = router                 # ModelRouter,用于 LLM 摘要(可空→走截断兜底)
-        self.max_tokens = max_tokens         # 超过此 token 触发压缩
-        self.keep_recent = keep_recent       # 最近保留几条原样
-        self.oversized_token = oversized_token  # 单条超此值视为"超大消息"
+        self.router = router
+        self.max_tokens = max_tokens
+        self.keep_recent = keep_recent
+        self.oversized_token = oversized_token
 
     def needs_compaction(self, messages: list) -> bool:
         return estimate_messages_tokens(messages) > self.max_tokens
@@ -146,13 +141,9 @@ class Compactor:
             res.compacted_tokens = res.original_tokens
             return res
 
-        # 分区:系统消息 / 待压缩的早期消息 / 保留的近期消息
         system_msgs = [m for m in messages if m.get("role") == "system"]
         non_system = [m for m in messages if m.get("role") != "system"]
         keep = max(0, self.keep_recent)
-        # 按**原子组**保留(而非按条数),保证 assistant.tool_calls 与其 tool 结果
-        # 同进同出。按条数切会在「一轮多工具」时把 tool 结果与其声明切散 →
-        # provider 报 400。详见 group_tool_calls docstring。
         _groups = group_tool_calls(non_system)
         if keep and _groups:
             recent = [m for g in _groups[-keep:] for m in g]
@@ -161,8 +152,6 @@ class Compactor:
             recent, to_compress = [], non_system
         else:
             recent, to_compress = [], non_system
-        # 防御:若仍不配对(极端边界/上游已产生的畸形序列),宁可放弃压缩,
-        # 也不产出非法消息序列 —— 压缩不生效只是浪费 token,发出去 400 是整轮失败。
         _declared = {tc.get("id") for m in (recent + to_compress)
                      for tc in (m.get("tool_calls") or [])}
         _orphans = [m for m in (recent + to_compress)
@@ -185,15 +174,12 @@ class Compactor:
 
         res.preserved_identifiers = extract_identifiers(to_compress)
 
-        # —— 渐进降级 ——
         summary = None
         method = "truncate"
-        # 1. LLM 完整摘要
         if self.router is not None:
             summary = self._try_summarize(to_compress, res.preserved_identifiers)
             if summary:
                 method = "llm_summary"
-        # 2. 部分摘要:排除超大消息后再试
         if summary is None and self.router is not None:
             trimmed = [m for m in to_compress
                        if estimate_tokens(str(m.get("content", ""))) <= self.oversized_token]
@@ -201,7 +187,6 @@ class Compactor:
                 summary = self._try_summarize(trimmed, res.preserved_identifiers)
                 if summary:
                     method = "partial_summary"
-        # 3. 截断兜底
         if summary is None:
             summary = self._truncate_fallback(to_compress, res.preserved_identifiers)
             method = "truncate"
@@ -211,14 +196,11 @@ class Compactor:
         compacted = system_msgs + [summary_msg] + recent
         compacted_tokens = estimate_messages_tokens(compacted)
 
-        # 校验:压缩须真的显著变小(至少省 10%),否则放弃——避免系统消息过大时
-        # 压缩无效还白加摘要导致反而更大。
         if compacted_tokens >= res.original_tokens * 0.9:
             res.messages = list(messages)
             res.method = "skipped_ineffective"
             res.compacted_count = len(messages)
             res.compacted_tokens = res.original_tokens
-            # 提示:压缩无效通常因系统消息/近期消息本身已占满预算
             sys_tokens = estimate_messages_tokens(system_msgs)
             res.note = (f"压缩跳过:有效压缩空间不足(系统消息占 {sys_tokens} token)。"
                         f"建议精简系统提示或调大上下文预算。")
@@ -242,7 +224,7 @@ class Compactor:
                 return list(messages), None
             res = self.compact(messages)
             if res.method == "none" or res.method.startswith("skipped"):
-                return list(messages), res      # 压缩没生效 → 原样,结果仅用于观测
+                return list(messages), res
             return res.messages, res
         except Exception:
             return list(messages), None

@@ -1,9 +1,3 @@
-# tools/check_log.ps1
-# 检查 uvicorn 日志中是否有 IVF 升级关键字(行扫描 + FileShare.ReadWrite 兼容锁文件)。
-# 用法:
-#   powershell -NoProfile -File tools\check_log.ps1            # 查 stdout(uvicorn.log)
-#   powershell -NoProfile -File tools\check_log.ps1 err        # 查 stderr(uvicorn.err.log)
-#   powershell -NoProfile -File tools\check_log.ps1 err grep   # 仅 grep 'VectorIndex 升级' 行
 param(
     [ValidateSet("stdout","err")] $which = "stdout",
     [switch] $grep
@@ -18,8 +12,6 @@ if (-not (Test-Path $log)) {
     exit 1
 }
 
-# 用 [System.IO.File]::Open + FileShare.ReadWrite 兼容 python 文件正在写入的日志
-# (PowerShell 5.1 Get-Content 在 UTF-8 + 文件被锁场景会返空,见 review [2])
 $fs = [System.IO.File]::Open($log, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
 $reader = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
 $content = $reader.ReadToEnd()

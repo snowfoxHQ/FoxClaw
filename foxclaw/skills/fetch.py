@@ -26,7 +26,7 @@ from pathlib import Path
 from .archive import PackageError, has_code, read_package
 
 DEFAULT_REGISTRY = "https://clawhub.ai"
-MAX_BYTES = 10 * 1024 * 1024        # 单次下载上限
+MAX_BYTES = 10 * 1024 * 1024
 UA = "foxclaw-skills/1 (+https://github.com/snowfoxHQ/FoxClaw)"
 _ARCHIVE_EXT = (".zip", ".tar.gz", ".tgz", ".tar")
 _LOCAL_ID = re.compile(r"^@?([A-Za-z0-9][\w.-]*)/([\w.-]+)$")
@@ -47,8 +47,8 @@ class MalwareBlocked(PackageError):
 @dataclass
 class SkillPackage:
     skill_md: str
-    source: str                       # clawhub | github | url | local
-    origin: str                       # 可复现的定位串(写进安装结果,便于日后更新/追责)
+    source: str
+    origin: str
     files: list = field(default_factory=list)
     meta: dict = field(default_factory=dict)
     version: str = ""
@@ -146,7 +146,6 @@ def _from_clawhub(owner: str, slug: str, timeout: float) -> SkillPackage:
     data, ctype = _http_get(
         f"{base}/api/v1/download?slug={q_slug}&ownerHandle={q_owner}", timeout)
     if data[:1] == b"{" or "json" in ctype:
-        # GitHub 托底技能不代理字节,只给交接信息(含 archiveUrl)→ 改下 tarball
         try:
             handoff = json.loads(data.decode("utf-8", "replace")) or {}
         except Exception:

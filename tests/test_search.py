@@ -39,7 +39,6 @@ def test_empty_sources_terminates():
 def test_memory_evidence():
     print("\n【2】内部记忆证据进证据图(MEMORY 来源)")
     rt = SearchRuntime(hmr=FakeHMR(), knowledge_port=None, external_ports=[])
-    # "分析" 是 HYBRID 触发词 → 会查内部记忆(见 planner._HYBRID_HINTS)
     r = rt.search("分析活字印刷的历史", agent_id="office")
     nodes = list(r.graph.nodes.values())
     mem = [n for n in nodes if n.source == SourceType.MEMORY]
@@ -62,11 +61,9 @@ def test_via_foxclawos_lazy():
     try:
         from foxclaw import Foxclaw
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
-        # 【P1-3】search_runtime 由能力中枢惰性构造:未访问前未缓存
         assert "search_runtime" not in os_.capabilities._caps, "未访问前不该构造"
-        rt = os_.search_runtime   # 触发构造(顺带惰性装配 HKC 作知识端口)
+        rt = os_.search_runtime
         assert rt is not None and os_.search_runtime is rt, "应缓存同一实例"
-        # 不联网:替换外部端口为空,跑一次
         rt.external_ports = []
         r = rt.search("测试查询", agent_id="supervisor")
         assert r.confidence is not None
@@ -124,7 +121,6 @@ def test_agent_port_all_subsources():
     assert any("thoughtchain" in o for o in origins("预算风险")), "推理链应连通"
     assert any("capability:skill" in o for o in origins("发邮件")), "能力目录应连通"
     assert any(":hmr:" in o for o in origins("任意")), "各Agent记忆应连通"
-    # 全部证据都标记为 AGENT 源
     evs = port.query("星巴克", top_k=8)
     assert all(e.source == SourceType.AGENT for e in evs)
     print("  ✓ 财务/学习/行程/推理链/能力/各Agent记忆 六路均连通,来源标记 AGENT")
@@ -137,20 +133,16 @@ def test_bidirectional_and_internal_only():
         from foxclaw import Foxclaw
         from foxclaw.search import SourceType
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
-        # 往财务内核放一笔交易
         from foxclaw.finance.models import Transaction
         os_.finance_runtime.add_transaction(
             Transaction(entity="蔚来汽车", amount=-260000, category="购车",
                         account="alipay", timestamp="2026-05-01T10:00:00"),
             run_gatekeeper=False)
-        # 触发 search_runtime 装配(会把自身注入各 Agent)
         _ = os_.search_runtime
-        # 财务 Agent 反向调用内部搜索
         res = os_.finance.search_internal("蔚来汽车")
         assert res is not None, "search_internal 应返回 SearchResult"
         agent_ev = [n for n in res.graph.nodes.values() if n.source == SourceType.AGENT]
         assert any("蔚来" in n.fact for n in agent_ev), "应从财务内核检索到该交易"
-        # internal_only:轨迹里不应出现 web 证据来源
         assert all(n.source != SourceType.WEB for n in res.graph.nodes.values())
         print(f"  ✓ os_.finance.search_internal('蔚来汽车') → AGENT证据 {len(agent_ev)} 条,无联网")
         asyncio.run(os_.aclose())
@@ -168,7 +160,6 @@ def test_internal_source_isolation():
             from foxclaw.search.models import RawEvidence
             return [RawEvidence(id="k1", fact=f"知识:{text}", source=SourceType.KNOWLEDGE,
                                 origin="hkc:k1", confidence=0.7)]
-    # agent_port 抛异常 + memory(FakeHMR)正常 + knowledge 正常 → search 不崩,仍返回其它源证据
     rt = SearchRuntime(hmr=FakeHMR(), knowledge_port=_OKKnow(),
                        agent_port=_BoomPort(), external_ports=[])
     r = rt.search("测试查询", agent_id="finance", internal_only=True)
@@ -176,7 +167,6 @@ def test_internal_source_isolation():
     assert any("知识" in f for f in facts), "知识源应仍返回(不受 agent 源崩溃影响)"
     assert any("记忆" in f for f in facts), "记忆源应仍返回"
     print(f"  ✓ agent 源抛异常被隔离,其它源正常:{len(r.graph.nodes)} 节点")
-    # 全部内部源都抛异常 → search 仍不崩,返回空图(优雅降级)
     rt2 = SearchRuntime(hmr=None, knowledge_port=_BoomPort(),
                         agent_port=_BoomPort(), external_ports=[])
     r2 = rt2.search("测试", internal_only=True)

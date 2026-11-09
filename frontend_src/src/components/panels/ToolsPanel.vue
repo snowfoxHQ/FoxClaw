@@ -44,9 +44,6 @@ async function flip(s) {
   busy.value = ''
 }
 
-/* ── 单技能测试:POST /ahs/skills/{id}/test ──
-   走真管线(权限/断路器/SSRF),所以界面要能填参数,也要把 needs_confirmation /
-   blocked / circuit_open 这些非成功态原样显示,不能只画个绿勾。 */
 const tId = ref('')
 const tArgs = ref({})
 const tBusy = ref(false)
@@ -74,7 +71,6 @@ function beginTest(s) {
   err.value = ''
 }
 
-/* params 是 {名: 类型} 的朴素 schema,类型只是提示;这里按声明做最小转换,其余原样送字符串 */
 function coerce(params, args) {
   const out = {}
   for (const [k, ty] of Object.entries(params || {})) {
@@ -133,7 +129,6 @@ async function dropSkill(s) {
 
 const splitList = (t) => String(t || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
 
-/* "city:str, days:int" → {city:"str", days:"int"} */
 function parseParams(txt) {
   const out = {}
   for (const part of String(txt || '').split(/[,，;\n]/)) {
@@ -145,7 +140,6 @@ function parseParams(txt) {
   return out
 }
 
-/* "Authorization: Bearer x" 每行一条 → dict(空行 / 无冒号行忽略) */
 function parseHeaders(txt) {
   const out = {}
   for (const line of String(txt || '').split('\n')) {
@@ -155,8 +149,6 @@ function parseHeaders(txt) {
   return out
 }
 
-/* ── 安装技能:POST /ahs/skills ──
-   后端只收 web_api / mcp;审核门 deny → 403, warn → 409 needs_ack(要再点一次「已知风险」) */
 const SIDE = { read: 'read · 只读', write: 'write · 写入', send: 'send · 代发', pay: 'pay · 付款' }
 const showIns = ref(false)
 const insBusy = ref(false)
@@ -220,11 +212,6 @@ async function doInstall(ack = false) {
   }
 }
 
-/* ── 指令技能安装:POST /ahs/md-skills ──
-   两种输入:粘贴 SKILL.md 正文,或选 .md / OpenClaw zip(转 base64 走 package_b64)。
-   后端只取 SKILL.md 与 _meta.json,包内 scripts/ 不落地 —— 这句必须写在界面上,
-   否则从 ClawHub 抓来的「指挥 agent 跑脚本」的技能会被当成能用的。
-   未确认时后端回 409 {needs_ack},和「安装技能」一样要点第二次。 */
 const MI_MAX = 4 * 1024 * 1024
 const miOpen = ref(false)
 const miBusy = ref(false)
@@ -312,8 +299,6 @@ async function doMdInstall(ack = false) {
   }
 }
 
-/* ── 连接器:POST|DELETE /ahs/mcp/servers ──
-   接入会真连一次 server 拉工具清单(可能几十秒);连不上是 502,原样显示 */
 const showMcpAdd = ref(false)
 const mcpBusy = ref(false)
 const mcpErr = ref('')
@@ -357,7 +342,6 @@ async function addMcp(ack = false) {
   }
 }
 
-/* 重连:server 那边的工具会变,POST .../refresh 增量对齐注册表 */
 async function refreshMcp(s) {
   if (mcpBusy.value) return
   mcpBusy.value = true
@@ -674,7 +658,6 @@ async function delMcp(s) {
 .sw.on { background: rgba(26, 157, 95, 0.12); color: var(--green); }
 .sw:disabled { opacity: 0.5; }
 
-/* 行内小按钮:测试 / 删除 / 新增 —— 原来「执行技能」整行是死的,点了没反应 */
 .mbtn {
   flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
   font-size: 11px; font-family: var(--mono); color: var(--dim);
@@ -686,7 +669,6 @@ async function delMcp(s) {
 .mbtn.danger:hover { color: var(--red); border-color: rgba(229, 72, 77, 0.35); }
 .mbtn:disabled { opacity: 0.5; }
 
-/* ── 表单(安装技能 / 接入连接器 / 技能测试)── */
 .tk-form, .tk-test {
   margin: 4px 0 6px;
   padding: 11px 12px;
@@ -719,7 +701,6 @@ async function delMcp(s) {
 .f textarea { resize: vertical; line-height: 1.6; }
 .f input:focus, .f select:focus, .f textarea:focus { border-color: var(--line); background: #fff; }
 .f input::placeholder, .f textarea::placeholder { color: var(--dim); }
-/* 文件选择:原生控件边距偏大,压一下和 .f 里其它控件对齐 */
 .f input[type='file'] { padding: 4px 6px; font-size: 11.5px; color: var(--dim); }
 
 .chk {
@@ -748,7 +729,6 @@ async function delMcp(s) {
 .tip.ok { color: var(--green); }
 .tip.bad { color: var(--red); white-space: normal; }
 
-/* 测试结果:成功/失败都原文展示,失败(needs_confirmation/blocked)不涂成成功色 */
 .tk-res {
   margin-top: 4px; padding: 8px 10px; border-radius: var(--r-sm);
   background: rgba(23, 32, 26, 0.03); border: 1px solid var(--line-soft);

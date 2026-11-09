@@ -10,14 +10,10 @@ import foxclaw.api as _api
 from .. import app
 
 
-# ── 浏览器子系统(HIR-Browser)：AI 用的浏览器 ─────────────────
-# 感知网页→压缩语义结构→执行动作→校验结果。async 安全(专用工作线程),
-# playwright 缺失时结构化降级(available=False),不崩溃。受 /api 鉴权保护。
-
 class BrowserActPayload(BaseModel):
-    type: str                         # navigate|click|type|scroll|extract|wait
-    target: str | None = None         # 元素编号;navigate 时为 URL
-    value: object | None = None       # type 的文本;scroll 的方向
+    type: str
+    target: str | None = None
+    value: object | None = None
     meta: dict = {}
 
 

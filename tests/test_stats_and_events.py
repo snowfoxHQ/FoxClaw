@@ -33,14 +33,13 @@ def _adapter_with(hmr_obj):
     return s
 
 
-# ── 1. 记忆统计 ────────────────────────────────────────────────────────────────
 def test_stats_counts_from_memory_fs_not_vector_store():
     """核心回归:记忆在 memory_fs;vector_store 没有 count/size/memories 也不能让 total 归零。"""
     mems = [_mem(["agent:supervisor"]), _mem(["agent:supervisor"]),
             _mem(["agent:finance", "shared"]), _mem(["agent:office"])]
     hmr = types.SimpleNamespace(
         memory_fs=types.SimpleNamespace(list_memories=lambda: mems),
-        vector_store=types.SimpleNamespace(),      # 故意:没有 count/size/memories(复现旧 bug 条件)
+        vector_store=types.SimpleNamespace(),
         memory_graph=None)
     out = HMRAdapter.stats(_adapter_with(hmr))
     assert out["total_memories"] == 4, "必须从 memory_fs 数出真实记忆数"
@@ -75,14 +74,13 @@ def test_stats_survives_broken_hmr():
     assert out["total_memories"] == 0 and out["relations"] == 0
 
 
-# ── 1b. 记忆标题可读性 ─────────────────────────────────────────────────────────
 def test_derive_title_from_content():
     d = HMRAdapter._derive_title
     assert d("对话:你好 → 你好呀！周五中午,正是一周里…") == "你好"
     assert d("用户偏好:我喜欢简洁的回答") == "我喜欢简洁的回答"
     assert d("把这份报告存入HMR → 好的,我现在") == "把这份报告存入HMR"
     assert d("") == ""
-    assert len(d("很长" * 50)) <= 24          # 限长
+    assert len(d("很长" * 50)) <= 24
 
 
 def test_recent_replaces_timestamp_titles():
@@ -109,7 +107,6 @@ def test_recent_keeps_meaningful_title():
     assert s.recent(5)[0]["title"] == "季度财务复盘"
 
 
-# ── 2. 活动事件 ────────────────────────────────────────────────────────────────
 def test_chat_publishes_activity_event(monkeypatch):
     """核心回归:对话完成后必须往事件脊柱发 chat.completed,否则"活动"页永远空。"""
     monkeypatch.setenv("FOXCLAW_TOOL_USE", "1")

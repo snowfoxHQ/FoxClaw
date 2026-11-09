@@ -23,15 +23,15 @@ from ..core.thought_chain import NodeType, ThoughtChain, ThoughtNode
 @dataclass
 class GovResult:
     """一步治理判定的结果(框架无关,不泄露 Foxclaw 内部类型)。"""
-    status: str                      # PASS / WARN / BLOCK
+    status: str
     blocked: bool
     warned: bool
     delta: float
-    dimension: str                   # 主导漂移维度 semantic/tool/scope
+    dimension: str
     reason: Optional[str]
     node_id: str
-    scores: dict = field(default_factory=dict)   # 各维度分 semantic/tool/scope
-    loop: Optional[dict] = None      # 若检出工具死循环,填充告警
+    scores: dict = field(default_factory=dict)
+    loop: Optional[dict] = None
 
     @property
     def tool_violation(self) -> bool:
@@ -88,15 +88,11 @@ class GovernanceSession:
             goal_text=goal,
             allowed_tool_categories=set(allowed_tools or {"read"}),
             baseline_entities=set(entities or []))
-        # shadow_rounds<=0:中间件默认**即时按默认阈值判定**(warn 0.15 / block 0.25),
-        # 不做"拿第一个样本自校准"(那会让首步逃逸并用单样本污染阈值)。想用真实分布
-        # 校准的调用方,显式传 shadow_rounds>0 走观测期。
         if shadow_rounds <= 0:
             self.harness._shadow_mode = False
         self._loop = ToolLoopDetector()
         self._blocked_count = 0
 
-    # ── 核心:观测一步 ────────────────────────────────────────
     def observe(self, content: str, tool: str | None = None, entities=None,
                 node_type: str | None = None, conf: float = 0.9,
                 semantic: bool = True) -> GovResult:
@@ -128,7 +124,6 @@ class GovernanceSession:
             raise GovernanceBlocked(r)
         return r
 
-    # ── 审计 ────────────────────────────────────────────────
     def audit(self) -> list[dict]:
         """取回本会话的完整可审计推理链(带每步 Harness 判定)。"""
         return [n.to_dict() for n in
@@ -158,9 +153,6 @@ def governed(session: GovernanceSession, tool_name: str | None = None, entities=
         def delete_row(...): ...     # 调用即被拦(delete 不在 read 允许集)
     """
     def _check(name):
-        # 工具装饰器只对"这个工具授权了吗"负责 → semantic=False 只按 tool/scope 判定
-        # (语义是 observe() 的职责;工具名对目标的语义距离是噪声,跨语言时更会饱和,
-        # 不能作为工具授权依据)。这样中间件语言无关、行为确定、审计不被语义噪声污染。
         r = session.observe(f"tool call: {name}", tool=name, entities=entities,
                             semantic=False)
         if r.blocked or r.tool_violation or r.scope_violation:

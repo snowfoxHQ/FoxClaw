@@ -13,15 +13,11 @@ import foxclaw.api as _api
 from .. import app
 
 
-# ── 认知搜索(HSR)：内部记忆 + 内部知识 + 联网,统一证据融合 ─────────
-# 一次 search() 统一"查 HMR 记忆 / 查 HKC 知识 / 联网(百度)",走 planner→retriever→
-# fusion→strategy 迭代循环(有上限),只产出证据图,不写任何持久化(边界:不代 Agent 决策)。
-
 class SearchQueryPayload(BaseModel):
     query: str
     agent_id: str = "supervisor"
     context: dict = {}
-    internal_only: bool = False   # True=只查内部(HMR+HKC+Agent态势),跳过联网
+    internal_only: bool = False
 
 
 @app.post("/api/search/query")

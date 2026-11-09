@@ -20,21 +20,20 @@ class LearningRuntime:
     """office Agent 的学习内核。"""
 
     def __init__(self, hmr=None, hkc_provider=None, persist_path=None):
-        self.items: dict = {}               # id -> KnowledgeItem(内存缓存;知识真源=HKC)
-        self.review_states: dict = {}       # item_id -> ReviewState
+        self.items: dict = {}
+        self.review_states: dict = {}
         self.sr = SpacedRepetition()
         self.hmr = hmr
-        self._hkc_provider = hkc_provider   # 惰性拿 HKC(知识真源);None=纯内存(测试用)
-        self._lock = threading.RLock()      # 跨线程写/改内存加锁(与全系统线程安全铁律一致)
+        self._hkc_provider = hkc_provider
+        self._lock = threading.RLock()
         embedder = None
         if hmr is not None and hasattr(hmr, "_hmr"):
             embedder = self._make_embedder(hmr)
         self.graph = KnowledgeGraph(embedder=embedder)
-        # persist_path 现在只作「离线兜底队列 + 旧 learning.json 迁移源」;知识真源是 HKC。
         self._persist_path = Path(persist_path) if persist_path else None
-        self._hkc_loaded = False            # HKC 首次成功载入的门闩(惰性,见 _ensure_hkc_loaded)
-        self._load_file()                   # 先把离线队列/旧文件载入内存(__init__ 时 HKC 常未就绪)
-        self._ensure_hkc_loaded()           # HKC 若已就绪则立即从真源载入;否则留待后续调用重试
+        self._hkc_loaded = False
+        self._load_file()
+        self._ensure_hkc_loaded()
 
     def _make_embedder(self, hmr):
         """尝试复用 HMR 的 embedding;失败则返回 None(图谱自动降级哈希)。"""
@@ -46,7 +45,6 @@ class LearningRuntime:
             pass
         return None
 
-    # ── 存储:知识内容+笔记+复习状态 全落 HKC(真源);HKC 拿不到时落离线队列(兜底 A)──
     def _graph_store(self):
         """惰性拿 HKC 的 graph_store。拿不到(HKC 未装配/未配/异常)返回 None。"""
         if not self._hkc_provider:
@@ -126,9 +124,9 @@ class LearningRuntime:
         if self._hkc_loaded:
             return
         gs = self._graph_store()
-        if gs is None:                          # HKC 还没就绪 → 下次调用再试
+        if gs is None:
             return
-        try:                                    # 1) 从 HKC 载入(内存已有的以文件版为准,不覆盖)
+        try:
             for ku in gs.query_all(limit=5000):
                 ex = getattr(ku, "extra", {}) or {}
                 if ex.get("kind") != "learning_note":
@@ -146,9 +144,9 @@ class LearningRuntime:
                     except Exception:
                         pass
         except Exception:
-            return                              # 载入失败不置门闩,留待下次重试
+            return
         self._hkc_loaded = True
-        if self._persist_path and self._persist_path.exists():   # 2) 文件残留回迁 HKC + 删文件
+        if self._persist_path and self._persist_path.exists():
             self._save()
 
     def _save(self):
@@ -166,11 +164,11 @@ class LearningRuntime:
             if ok:
                 if self._persist_path and self._persist_path.exists():
                     try:
-                        self._persist_path.unlink()   # 已全部进 HKC → 删掉本地队列文件
+                        self._persist_path.unlink()
                     except Exception:
                         pass
                 return
-        if self._persist_path:                  # 离线兜底:HKC 不可用/部分失败 → 落队列文件
+        if self._persist_path:
             try:
                 data = {
                     "items": [asdict(it) for it in items],
@@ -183,7 +181,6 @@ class LearningRuntime:
             except Exception:
                 pass
 
-    # ── 采集 + 沉淀 ───────────────────────────────────────
     def learn(self, content: str, topic: str = "general",
               source: str = "", tags: list | None = None) -> dict:
         """采集一个知识点 → 存进 HKC(知识真源)+ 间隔重复队列 + 图谱。
@@ -195,7 +192,7 @@ class LearningRuntime:
             self.items[item.id] = item
             self.review_states[item.id] = ReviewState(item_id=item.id)
             self.graph.add_item(item)
-        self._save()   # 存进 HKC(HKC 不可用则离线队列兜底,恢复后自动补进)
+        self._save()
         return {"item": item.to_dict(),
                 "review": self.review_states[item.id].to_dict()}
 
@@ -212,7 +209,6 @@ class LearningRuntime:
                 count += 1
         return count
 
-    # ── 固化:复习 ────────────────────────────────────────
     def review(self, item_id: str, grade: int) -> dict:
         """复习一个知识点,提交回忆质量评分(0~5),更新掌握度。"""
         self._ensure_hkc_loaded()
@@ -237,7 +233,7 @@ class LearningRuntime:
         gs = self._graph_store()
         if gs is not None:
             try:
-                gs.delete(item_id)   # HKC 软删除(status='deleted')
+                gs.delete(item_id)
             except Exception:
                 pass
         if found:
@@ -256,7 +252,7 @@ class LearningRuntime:
                 return {"error": "未知知识点"}
             item.notes.append({"text": text, "ts": datetime.now().isoformat()})
             notes = list(item.notes)
-        self._save()   # 只有新增了笔记才落盘
+        self._save()
         return {"notes": notes}
 
     def due_today(self) -> list:
@@ -265,7 +261,6 @@ class LearningRuntime:
         return [{"item": self.items[s.item_id].to_dict(),
                  "review": s.to_dict()} for s in due]
 
-    # ── 连接:构建图谱 ────────────────────────────────────
     def build_connections(self, semantic_threshold: float = 0.55) -> dict:
         """自动构建知识连接(同主题 + 语义)。"""
         topic_edges = self.graph.auto_link_by_topic()
@@ -283,13 +278,11 @@ class LearningRuntime:
                             "edge_type": etype, "weight": weight, "reason": reason})
         return out
 
-    # ── 学习策略(对应财务守门人)─────────────────────────
     def strategy_check(self, daily_cap: int = 20) -> list:
         """学习策略裁决:复习提醒、薄弱主题、负荷预警、连接建议。"""
         verdicts = []
         states = list(self.review_states.values())
 
-        # 到期复习
         due = self.sr.due_items(states)
         if due:
             verdicts.append(LearningVerdict(
@@ -297,7 +290,6 @@ class LearningRuntime:
                 message=f"今天有 {len(due)} 个知识点待复习",
                 payload={"count": len(due)}))
 
-        # 遗忘风险(薄弱项)
         risky = self.sr.forgetting_risk(states)
         if risky:
             verdicts.append(LearningVerdict(
@@ -305,7 +297,6 @@ class LearningRuntime:
                 message=f"{len(risky)} 个知识点处于高遗忘风险,建议优先复习",
                 payload={"risky": risky[:5]}))
 
-        # 负荷预警
         load = self.sr.learning_load(states)
         if load["total_due"] > daily_cap:
             verdicts.append(LearningVerdict(
@@ -313,7 +304,6 @@ class LearningRuntime:
                 message=f"未来复习量 {load['total_due']} 超过每日上限 {daily_cap},建议分批",
                 payload=load))
 
-        # 孤立知识点(无连接)→ 建议建立关联
         connected = set()
         for e in self.graph.edges:
             connected.add(e.source_id)
@@ -326,14 +316,12 @@ class LearningRuntime:
                 payload={"isolated_count": len(isolated)}))
         return verdicts
 
-    # ── 综合分析(office Agent 核心输出)──────────────────
     def analyze(self) -> dict:
-        self._ensure_hkc_loaded()   # HKC 就绪后从真源载回知识(迁移删文件后重启也不丢)
+        self._ensure_hkc_loaded()
         states = list(self.review_states.values())
         masteries = [s.mastery for s in states]
         avg_mastery = round(sum(masteries) / len(masteries), 3) if masteries else 0.0
 
-        # 按主题统计掌握度
         from collections import defaultdict
         topic_mastery = defaultdict(list)
         for iid, item in self.items.items():

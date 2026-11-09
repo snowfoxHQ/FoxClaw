@@ -10,12 +10,10 @@ import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-# 本测试要精确控制 FOXCLAW_API_KEY 的有/无;若 .env 带真实 key 会污染判定
-# (见 foxclaw/api.py 中 FOXCLAW_SKIP_DOTENV 的说明),故关掉 .env。
 os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
 
 import tempfile
-os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_test_")  # 不污染仓库根
+os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_test_")
 from fastapi.testclient import TestClient
 from foxclaw.api import app
 
@@ -44,7 +42,6 @@ def main():
               "正确 key → 200")
 
         print("\n【3】WebSocket 鉴权(端点内 ?key=,http 中间件管不到 ws)")
-        # 无 key → 握手被拒(端点 close 1008)
         rejected = False
         try:
             with c.websocket_connect("/ws/harness"):
@@ -52,7 +49,6 @@ def main():
         except Exception:
             rejected = True
         check(rejected, "WS 无 key → 握手被拒")
-        # 带 ?key= → 连上
         connected = False
         try:
             with c.websocket_connect("/ws/harness?key=secret-123"):

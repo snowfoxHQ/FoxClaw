@@ -152,9 +152,9 @@ def _invoke_plan_tool(router, system: str, user_content: str, agent_catalog: dic
         return None
     calls = res.get("tool_calls") or []
     if not calls:
-        return None                      # 模型未调用工具 → 不可用，回退
+        return None
     if calls[0].get("args_parse_failed"):
-        return None                      # 参数 JSON 解析失败 → 不可信，回退
+        return None
     args = calls[0].get("args") or {}
     steps = args.get("steps")
     if not isinstance(steps, list):
@@ -168,7 +168,7 @@ def _invoke_plan_tool(router, system: str, user_content: str, agent_catalog: dic
             continue
         agent = str(s.get("agent") or "office").strip()
         if agent not in agent_catalog:
-            agent = "office"             # 幻觉出不存在的 Agent(含已下放的 assistant/admin)→ 兜底办公学习
+            agent = "office"
         dep = s.get("depends_on") or []
         if not isinstance(dep, list):
             dep = []

@@ -19,18 +19,14 @@ from ...mcp_server import _RateLimiter as _RL
 from ...core import settings
 
 
-# ── 请求模型 ───────────────────────────────────────────────
-
 class TaskRequest(BaseModel):
     task: str
     agent_id: str = "supervisor"
     context: dict = {}
-    images: list = []       # 多模态对话:[{media_type,data(base64)}];仅 /chat/stream 消费
-    history: list = []      # 多轮上下文:[{role:'user'/'assistant',content}];前端带最近几轮,
-                            # 后端拼进 LLM messages,让对话连贯(否则每轮无状态、记不住上一句)
-    session_id: str = ""    # 会话归属:非空则本轮问答落盘到该会话(供"会话历史"回看)
-    attachments: list = []  # 聊天附件:[{name,size,mime,url,text}];text 为提取正文(可为空),
-                            # 仅 /chat/stream 消费;随问题注入 LLM + 落盘会话供回看
+    images: list = []
+    history: list = []
+    session_id: str = ""
+    attachments: list = []
 
 
 class GoalRequest(BaseModel):
@@ -39,8 +35,6 @@ class GoalRequest(BaseModel):
     allowed_tools: list[str] = []
     entities: list[str] = []
 
-
-# ── 任务执行 ───────────────────────────────────────────────
 
 @app.post("/api/task")
 async def run_task(req: TaskRequest):
@@ -53,7 +47,6 @@ async def run_task(req: TaskRequest):
       同一线程池,故无嵌套线程池死锁;
     · harness 累积态已在 harness.py 用 RLock 保护(嵌入在锁外,故并行不受锁影响)。"""
     def _work():
-        # 经微内核调度器准入(默认无上限=直通;设了 FOXCLAW_MAX_CONCURRENCY 才背压)+ 生命周期事件
         return _api.os_instance().scheduler.run(
             lambda: asyncio.run(_api.os_instance().run(req.task, req.agent_id,
                                                       context=req.context)),
@@ -61,19 +54,18 @@ async def run_task(req: TaskRequest):
     return await asyncio.to_thread(_work)
 
 
-# 流式限流 + 并发上限(防刷爆/资源耗尽;env 可配)
-_STREAM_LIMITER = _RL(settings.get_int("FOXCLAW_STREAM_RATE"))                   # 次/分
+_STREAM_LIMITER = _RL(settings.get_int("FOXCLAW_STREAM_RATE"))
 _STREAM_SEM = _threading.Semaphore(settings.get_int("FOXCLAW_STREAM_CONCURRENCY"))
 
 
 _MAX_IMAGES = 6
-_MAX_IMG_B64 = 10 * 1024 * 1024        # 单图 base64 上限 ~10MB(≈7.5MB 原图)
-_MAX_IMG_TOTAL = 20 * 1024 * 1024      # 所有图 base64 累计上限(防 6×10MB=60MB 聚合 payload)
+_MAX_IMG_B64 = 10 * 1024 * 1024
+_MAX_IMG_TOTAL = 20 * 1024 * 1024
 _ALLOWED_IMG_MT = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
-_MAX_ATTACHMENTS = 6                   # 单次问答最多附件数
-_ATTACH_TEXT_MAX = 20000               # 单附件提取正文上限
-_ATTACH_TEXT_TOTAL = 60000             # 全部附件正文累计上限(≈1.5 万 token,防撑爆上下文)
+_MAX_ATTACHMENTS = 6
+_ATTACH_TEXT_MAX = 20000
+_ATTACH_TEXT_TOTAL = 60000
 
 
 def _sanitize_images(images):
@@ -92,7 +84,7 @@ def _sanitize_images(images):
             continue
         if not isinstance(d, str) or not d or len(d) > _MAX_IMG_B64:
             continue
-        if total + len(d) > _MAX_IMG_TOTAL:    # 累计超总上限 → 停(丢弃其余)
+        if total + len(d) > _MAX_IMG_TOTAL:
             break
         total += len(d)
         out.append({"media_type": mt, "data": d})
@@ -114,10 +106,10 @@ def _sanitize_attachments(attachments):
         text = str(a.get("text") or "")[:_ATTACH_TEXT_MAX]
         if not name and not text:
             continue
-        if total + len(text) > _ATTACH_TEXT_TOTAL:   # 累计正文超总上限 → 截断(丢弃后续正文)
+        if total + len(text) > _ATTACH_TEXT_TOTAL:
             text = text[:_ATTACH_TEXT_TOTAL - total]
         total += len(text)
-        try:                                        # size 可能是脏值("big"/None),护栏绝不因此抛异常
+        try:
             raw_size = a.get("size")
             size = int(raw_size) if raw_size else 0
         except (TypeError, ValueError):
@@ -148,7 +140,7 @@ async def chat_stream(req: TaskRequest, request: Request):
     atts = _sanitize_attachments(req.attachments)
 
     async def async_sse():
-        if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)
+        if not _STREAM_SEM.acquire(blocking=False):
             yield "data: " + json.dumps({"error": "busy, try again later"}) + "\n\n"
             return
         q: asyncio.Queue = asyncio.Queue()
@@ -159,12 +151,9 @@ async def chat_stream(req: TaskRequest, request: Request):
             _parts = []
 
             def _on_thinking(delta: str) -> None:
-                # 推理走独立事件,不混进正文:前端折叠展示,正文仍只收 {"delta"}。
                 loop.call_soon_threadsafe(q.put_nowait, {"thinking": delta})
 
             def _on_evidence(evs: list) -> None:
-                # 执行证据(核验结论 + 来源链接/文件)整块送:前端挂在答案下方供核对,
-                # 不进正文(正文是给用户读的答案,证据是给人查的凭据)。
                 loop.call_soon_threadsafe(q.put_nowait, {"evidence": evs})
 
             try:
@@ -178,7 +167,6 @@ async def chat_stream(req: TaskRequest, request: Request):
             except Exception as e:
                 loop.call_soon_threadsafe(q.put_nowait, {"error": str(e)})
             finally:
-                # 落盘会话历史(问 + 答),供"会话/所有会话"回看。断连中止也保留已生成部分。
                 if req.session_id:
                     try:
                         _api.os_instance().sessions.append(req.session_id, "user", req.task, attachments=atts)
@@ -187,13 +175,13 @@ async def chat_stream(req: TaskRequest, request: Request):
                             _api.os_instance().sessions.append(req.session_id, "assistant", _reply)
                     except Exception:
                         pass
-                loop.call_soon_threadsafe(q.put_nowait, None)   # 结束哨兵
+                loop.call_soon_threadsafe(q.put_nowait, None)
 
         _threading.Thread(target=_producer, daemon=True, name="chat-stream").start()
         try:
             while True:
                 if await request.is_disconnected():
-                    stop.set(); break                 # 断连 → 终止 LLM 流
+                    stop.set(); break
                 try:
                     item = await asyncio.wait_for(q.get(), timeout=0.5)
                 except asyncio.TimeoutError:
@@ -201,15 +189,11 @@ async def chat_stream(req: TaskRequest, request: Request):
                 if item is None:
                     break
                 if "thinking" in item:
-                    # 命名事件(SSE 规范):event: thinking + data。老客户端只认 data: 行也不会被
-                    # 误导成正文(delta 字段不存在);新前端按事件名折叠展示。
                     yield ("event: thinking\ndata: "
                            + json.dumps({"thinking": item["thinking"]}, ensure_ascii=False)
                            + "\n\n")
                     continue
                 if "evidence" in item:
-                    # 与 thinking 同理走命名事件:老客户端拿不到这个事件名也不会把凭据
-                    # 当成正文拼进回答。
                     yield ("event: evidence\ndata: "
                            + json.dumps({"evidence": item["evidence"]}, ensure_ascii=False)
                            + "\n\n")
@@ -237,15 +221,12 @@ async def task_stream(req: TaskRequest, request: Request):
         return StreamingResponse(_rl(), media_type="text/event-stream")
 
     agent = _api.os_instance()._agents.get(req.agent_id)
-    # 【P3-3】P1-1 落地后主管走统一 pipeline(supervisor_stages),支持 run_task_stream,
-    # 不再回落 assistant(助手已下放为技能)。未知 agent_id 仍回落主管兼容旧客户端
-    # (旧前端可能还传 "assistant"/"admin"),但打 warning 不静默。
     if agent is None:
         print(f"[Foxclaw API] ⚠ /api/task/stream 收到未知 agent_id={req.agent_id},回落 supervisor")
         agent = _api.os_instance().supervisor
 
     async def async_sse():
-        if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)
+        if not _STREAM_SEM.acquire(blocking=False):
             yield "data: " + json.dumps({"error": "busy, try again later"}) + "\n\n"
             return
         q: asyncio.Queue = asyncio.Queue()
@@ -260,13 +241,13 @@ async def task_stream(req: TaskRequest, request: Request):
             except Exception as e:
                 loop.call_soon_threadsafe(q.put_nowait, {"error": str(e)})
             finally:
-                loop.call_soon_threadsafe(q.put_nowait, None)   # 结束哨兵
+                loop.call_soon_threadsafe(q.put_nowait, None)
 
         _threading.Thread(target=_producer, daemon=True, name="task-stream-sse").start()
         try:
             while True:
                 if await request.is_disconnected():
-                    stop.set(); break                 # 断连 → 停管线 + 停 act LLM
+                    stop.set(); break
                 try:
                     item = await asyncio.wait_for(q.get(), timeout=0.5)
                 except asyncio.TimeoutError:

@@ -22,12 +22,10 @@ from ..core.governance_audit import new_decision_id
 @dataclass
 class Verdict:
     allowed: bool
-    level: str                 # allow | warn | deny | confirm
+    level: str
     reason: str = ""
-    source: str = ""           # harness | permission
-    raw: Any = None            # 原始 HarnessResult / PermissionDecision(调用方按需取用)
-    # 【P3-4】每次裁决的唯一 ID(P1-2 治理审计的关联键)。放最后+默认值:既有位置参数
-    # 构造(如 Verdict(True,"allow",...,"permission",None))不受影响。
+    source: str = ""
+    raw: Any = None
     decision_id: str = field(default="")
 
 
@@ -35,9 +33,7 @@ class PolicyGate:
     def __init__(self, spine=None, action_evaluator: Optional[Callable] = None,
                  auditor=None):
         self._spine = spine
-        self._eval = action_evaluator   # skills.permission.evaluate,注入(避免 kernel→skills 环)
-        # 【P1-2】统一治理审计(可空:standalone 无审计)。鸭子类型注入,避免 kernel→core 之外
-        # 的装配环;core.governance_audit.GovernanceAuditor 是唯一预期实现。
+        self._eval = action_evaluator
         self._auditor = auditor
 
     @property
@@ -45,7 +41,6 @@ class PolicyGate:
         """SkillAdapter 经此取审计器,把执行终态关联到裁决 decision_id(P3-4 跨层关联)。"""
         return self._auditor
 
-    # ── 推理准入(Harness)──────────────────────────────────────
     def check_reasoning(self, harness, node) -> Verdict:
         """经统一门做推理漂移准入。底层仍是那一次 harness.check(同一 HarnessResult),
         Harness 自身已 emit harness_block/warn 事件,门面**不重复 emit**。行为一致。
@@ -64,7 +59,6 @@ class PolicyGate:
                                 "dominant_dim": getattr(r, "dominant_dim", "")})
         return v
 
-    # ── 动作准入(skill-guard)──────────────────────────────────
     def check_action(self, skill, args: dict, rules=None,
                      confirmed: bool = False, mode: str = "strict",
                      taint_level: int = 0, taint_threshold: int = 0) -> Verdict:

@@ -24,7 +24,6 @@ class _StubGate:
                      taint_level=0, taint_threshold=0):
         assert skill.side_effect == "write" and skill.external is True
         assert confirmed is False, "外部驱动不能用 confirmed 自证"
-        # Verdict 的字段是 level(allow|warn|deny|confirm),不是 decision
         return SimpleNamespace(level=self.decision, reason="stub",
                                raw=SimpleNamespace(reason_code=self.code),
                                decision_id="d")

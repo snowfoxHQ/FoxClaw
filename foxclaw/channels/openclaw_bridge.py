@@ -47,13 +47,12 @@ class OpenClawBridgeAdapter(ChannelAdapter):
         关键:保留 OpenClaw 侧的 channel(真实渠道,如 wechat)和 conversation 引用,
         以便回复时让 OpenClaw 发回正确的原渠道。
         """
-        # OpenClaw 消息常见结构:{channel, message:{id,text}, sender:{id,name}, conversation:{id,isGroup}}
         msg = raw.get("message") or raw
         if not isinstance(msg, dict):
             return None
         text = msg.get("text") or msg.get("content") or ""
         if not text:
-            return None       # 非文本事件忽略
+            return None
         sender = raw.get("sender") or msg.get("sender") or {}
         conv = raw.get("conversation") or msg.get("conversation") or {}
         return InboundMessage(
@@ -64,7 +63,7 @@ class OpenClawBridgeAdapter(ChannelAdapter):
             sender_name=str(sender.get("name") or sender.get("username") or ""),
             conversation_id=str(conv.get("id") or conv.get("conversation_id") or ""),
             is_group=bool(conv.get("isGroup") or conv.get("is_group") or False),
-            raw=raw)       # 原始 payload 留底(含 upstream channel 等回发所需信息)
+            raw=raw)
 
     def _upstream_channel(self, inbound_raw: dict) -> str:
         return (inbound_raw.get("channel")
@@ -86,21 +85,17 @@ class OpenClawBridgeAdapter(ChannelAdapter):
         }
         if msg.reply_to:
             payload["reply_to"] = msg.reply_to
-        # 若上层指明了真实渠道(从入站 raw 透传),带上,确保发回正确渠道
         if msg.extra.get("upstream_channel"):
             payload["channel"] = msg.extra["upstream_channel"]
         headers = {}
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
-        # 先序列化成 bytes 再发:签名必须覆盖**实际发出去的字节**,否则网关侧
-        # 重新序列化(键序/转义差异)会导致验签失败。content= 而非 json=,
-        # 就是为了保证"签的就是发的"。
         try:
             body = json.dumps(payload, ensure_ascii=False,
                               sort_keys=True).encode("utf-8")
         except Exception as e:
             return SendResult(False, error=f"出站 payload 序列化失败: {e}")
-        headers["Content-Type"] = "application/json"   # content= 不走 httpx 的 json= 推断
+        headers["Content-Type"] = "application/json"
         if self.signer is not None and self.signer.enabled:
             try:
                 headers.update(self.signer.headers(body))

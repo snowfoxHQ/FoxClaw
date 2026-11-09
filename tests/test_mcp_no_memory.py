@@ -6,9 +6,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_mcp_no_memory():
     os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"      # 隔离开发机 .env,保证测试环境自洽
+    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
     os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
-    os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试,直接用本地缓存
+    os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_nomem_")
 
@@ -16,7 +16,7 @@ def test_mcp_no_memory():
 
     o = Foxclaw(data_dir=os.environ["FOXCLAW_DATA_DIR"])
     calls = []
-    o.hmr.ingest = lambda *a, **k: calls.append(1)   # spy:数 HMR 写入次数
+    o.hmr.ingest = lambda *a, **k: calls.append(1)
 
 
     async def dispatch_suppressed():

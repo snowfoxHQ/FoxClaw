@@ -37,10 +37,10 @@ def load_env_file(path: str | Path) -> List[str]:
     shadows: List[str] = []
     for key, value in (dotenv_values(target) or {}).items():
         if not key:
-            continue                    # 文件里的注释行会解出 None 键
+            continue
         value = (value or "").strip()
         if not value:
-            continue                    # 空值 = 未配置,不覆盖系统环境
+            continue
         current = os.environ.get(key, "").strip()
         if current and current != value:
             shadows.append(key)

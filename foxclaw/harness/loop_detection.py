@@ -22,8 +22,8 @@ from dataclasses import dataclass
 @dataclass
 class LoopVerdict:
     stuck: bool = False
-    level: str = "ok"             # ok / warning / critical
-    detector: str = ""           # repeat / ping_pong / no_progress
+    level: str = "ok"
+    detector: str = ""
     count: int = 0
     message: str = ""
 
@@ -35,9 +35,9 @@ class LoopVerdict:
 
 @dataclass
 class _ToolCall:
-    signature: str               # 工具名+参数的指纹
+    signature: str
     tool_name: str
-    result_hash: str = ""        # 结果指纹(判 no_progress)
+    result_hash: str = ""
 
 
 class ToolLoopDetector:
@@ -45,14 +45,11 @@ class ToolLoopDetector:
 
     def __init__(self, history_size: int = 30, warning: int = 6,
                  critical: int = 12, circuit_break: int = 20):
-        # 阈值单调递增保证(warning < critical < circuit_break)
         self.warning = max(2, warning)
         self.critical = max(self.warning + 1, critical)
         self.circuit_break = max(self.critical + 1, circuit_break)
         self.history: deque = deque(maxlen=max(history_size, self.circuit_break))
         self._last_verdict: LoopVerdict | None = None
-        # 【深审·线程安全】SkillAdapter 持单个共享实例,invoke(含管线内 dispatch)可被并发任务
-        # 同时调 record → history.append + _detect(list(history)) 非原子,需锁(线程安全铁律)。
         self._lock = threading.RLock()
 
     @staticmethod
@@ -76,7 +73,7 @@ class ToolLoopDetector:
         """记录一次工具调用并即时检测。返回 LoopVerdict。"""
         sig = self._signature(tool_name, args or {})
         rhash = self._result_sig(result) if result is not None else ""
-        with self._lock:                      # append + _detect 必须原子(并发 record 会交错)
+        with self._lock:
             self.history.append(_ToolCall(sig, tool_name, rhash))
             verdict = self._detect()
             self._last_verdict = verdict
@@ -84,7 +81,7 @@ class ToolLoopDetector:
 
     def _level_for(self, count: int) -> str:
         if count >= self.circuit_break:
-            return "critical"      # 达熔断阈值仍按 critical 等级(由 stuck+建议中止体现)
+            return "critical"
         if count >= self.critical:
             return "critical"
         if count >= self.warning:
@@ -96,7 +93,6 @@ class ToolLoopDetector:
         if len(h) < self.warning:
             return LoopVerdict()
 
-        # 1. repeat / no_progress:末尾连续相同签名
         last_sig = h[-1].signature
         streak = 0
         for c in reversed(h):
@@ -106,8 +102,6 @@ class ToolLoopDetector:
                 break
         if streak >= self.warning:
             lvl = self._level_for(streak)
-            # no_progress 优先:同签名重复 且 (有结果的那些)结果都相同
-            # (只比对非空 result_hash,避免混合有/无 result 时漏判轮询卡死)
             streak_calls = h[-streak:]
             with_result = [c.result_hash for c in streak_calls if c.result_hash]
             if len(with_result) >= 2 and len(set(with_result)) == 1:
@@ -115,13 +109,11 @@ class ToolLoopDetector:
                     stuck=True, level=lvl, detector="no_progress", count=streak,
                     message=(f"工具「{h[-1].tool_name}」轮询 {streak} 次结果无变化"
                              + ("(已达熔断阈值,建议中止)" if streak >= self.circuit_break else "")))
-            # 否则按 repeat
             return LoopVerdict(
                 stuck=True, level=lvl, detector="repeat", count=streak,
                 message=(f"工具「{h[-1].tool_name}」连续重复调用 {streak} 次"
                          + ("(已达熔断阈值,建议中止)" if streak >= self.circuit_break else "")))
 
-        # 3. ping_pong:末尾两签名交替(A→B→A→B)
         if len(h) >= 4:
             a, b = h[-1].signature, h[-2].signature
             if a != b:

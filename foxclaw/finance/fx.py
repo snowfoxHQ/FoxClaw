@@ -15,7 +15,6 @@ from pathlib import Path
 
 BASE_CURRENCY = "CNY"
 
-# 参考价(1 单位外币 = 多少 CNY)。宁可粗,但要能改。
 DEFAULT_RATES = {
     "CNY": 1.0,
     "USD": 7.2,
@@ -54,7 +53,6 @@ class FxTable:
                 if data.get("note"):
                     self.note = data["note"]
         except Exception:
-            # 汇率表坏了不能拖垮记账:退回出厂参考价,下次保存时自动覆盖
             pass
 
     def save(self) -> bool:

@@ -20,15 +20,15 @@ import time
 @dataclass
 class InboundMessage:
     """标准化的入站消息(各平台 normalize 后的统一格式)。"""
-    channel: str                       # 来源渠道(telegram/slack/...)
+    channel: str
     message_id: str
     text: str
-    sender_id: str                     # 发送者唯一 ID(平台内)
+    sender_id: str
     sender_name: str = ""
-    conversation_id: str = ""          # 会话 ID(群=群ID,私聊=对方ID)
+    conversation_id: str = ""
     is_group: bool = False
     timestamp: float = field(default_factory=time.time)
-    raw: dict = field(default_factory=dict)   # 平台原始数据(留底,便于调试)
+    raw: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"channel": self.channel, "message_id": self.message_id,
@@ -41,9 +41,9 @@ class InboundMessage:
 @dataclass
 class OutboundMessage:
     """标准化的出站消息(上层产出,各适配器转成平台格式发送)。"""
-    conversation_id: str               # 发往哪个会话
+    conversation_id: str
     text: str
-    reply_to: str = ""                 # 可选:回复某条消息
+    reply_to: str = ""
     extra: dict = field(default_factory=dict)
 
 
@@ -63,13 +63,12 @@ class ChannelAdapter(ABC):
     - 入站统一回调 on_message,上层无需关心平台差异
     """
 
-    # 子类覆盖:渠道名
     CHANNEL = "base"
 
     def __init__(self, on_message: Callable[[InboundMessage], None] | None = None):
         self.on_message = on_message
         self._running = False
-        self.last_error = ""       # 最近一次处理错误(便于排查,不抛断轮询)
+        self.last_error = ""
 
     @abstractmethod
     def normalize(self, raw: dict) -> Optional[InboundMessage]:
@@ -93,12 +92,11 @@ class ChannelAdapter(ABC):
             self.last_error = f"normalize 失败: {e}"
             return None
         if inbound is None:
-            return None       # 非消息事件(如已读回执),忽略
+            return None
         if self.on_message:
             try:
                 self.on_message(inbound)
             except Exception as e:
-                # on_message(主管处理)失败:记录但不抛,保证整批轮询不中断
                 self.last_error = f"on_message 失败: {e}"
         return inbound
 

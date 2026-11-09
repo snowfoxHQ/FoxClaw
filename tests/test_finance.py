@@ -25,8 +25,6 @@ def main():
     print("B 阶段 · 财务 Agent 内核(资金行为操作系统)")
     print("=" * 60)
 
-    # policy 落临时目录:原先写 ./b_finance_policy.yaml 再 os.remove —— 一旦中途抛异常
-    # 就会在仓库根留下垃圾文件。改临时目录后无需清理,也不会污染工作区。
     fr = FinanceRuntime(policy_path=str(Path(tempfile.mkdtemp()) / "b_finance_policy.yaml"))
     n = fr.import_csv(CSV)
     fr.set_budget("food", 400)
@@ -85,11 +83,6 @@ def main():
             print(f"    第 {t['month']} 月预计余额 {t['projected_balance']}")
         check(len(cf["trajectory"]) == 3, "现金流预测给出 3 个月轨迹")
 
-    # ⚠ burn_rate 是**相对 now 的 30 天窗口**,而 examples/sample_transactions.csv 的交易
-    # 日期固定在 2026-06 —— 随真实时间推移,样例必然滑出窗口,于是上面那段会**静默变成 0
-    # 却毫无报错**(本测试此前不断言,故退化无人发现)。这里做两件事:
-    #   (a) 用"当下日期"的交易构造可控用例,把 burn/cashflow 的算术真正锁住;
-    #   (b) 断言其与 now-30天 窗口严格一致,把这个耦合显式写出来(而非假装它是稳定值)。
     _cutoff = datetime.now() - timedelta(days=30)
     in_window = [t for t in fr.transactions if t.dt >= _cutoff]
     expect_expense = round(sum(abs(t.amount) for t in in_window if t.is_expense), 2)
@@ -135,8 +128,6 @@ def main():
     req = fr.request_action("cancel_subscription", {"entity": "YouTube", "save": 12.0})
     print(f"  请求: {req['action']} · 状态: {req['status']}")
     print(f"  说明: {req['note']}")
-    # 本文件 docstring 的承诺是"不真实动钱":执行层必须只产出**待批**状态。
-    # 若哪天有人把它改成自动执行(EXECUTED/DONE),这里必须红。
     check("PENDING" in str(req["status"]).upper(),
           f"执行层只产出待批状态,不自动动钱(status={req['status']})")
 

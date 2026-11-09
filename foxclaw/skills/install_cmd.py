@@ -200,11 +200,9 @@ def remove(args) -> int:
 
 
 def run(args) -> int:
-    # 技能名/描述来自第三方,可能带 emoji。Windows 控制台是 cp936 + strict,
-    # 一个 emoji 就能让整个安装抛 UnicodeEncodeError —— 只放宽错误处理,不改编码。
     for stream in (sys.stdout, sys.stderr):
         try:
-            cast(Any, stream).reconfigure(errors="replace")   # reconfigure 不在 TextIO 声明里
+            cast(Any, stream).reconfigure(errors="replace")
         except Exception:
             pass
     action = getattr(args, "skills_action", None)

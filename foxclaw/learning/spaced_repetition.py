@@ -22,19 +22,16 @@ class SpacedRepetition:
     @staticmethod
     def review(state: ReviewState, grade: int) -> ReviewState:
         """根据本次回忆质量,更新间隔重复状态。返回更新后的 state。"""
-        # grade 钳制到 SM-2 定义域 [0,5],防止越界输入让 EF 公式算出无意义值
         grade = max(0, min(5, int(grade)))
         now = datetime.now()
         state.total_reviews += 1
         state.last_review = now.isoformat()
 
         if grade < 3:
-            # 没记住:重置,短期内再复习
             state.repetitions = 0
             state.interval = 1
             state.lapses += 1
         else:
-            # 记住了:按 SM-2 推进间隔
             if state.repetitions == 0:
                 state.interval = 1
             elif state.repetitions == 1:
@@ -43,11 +40,9 @@ class SpacedRepetition:
                 state.interval = round(state.interval * state.ease_factor)
             state.repetitions += 1
 
-        # 更新难度因子(SM-2 公式)
         ef = state.ease_factor + (0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02))
         state.ease_factor = max(1.3, round(ef, 3))
 
-        # 下次复习时间
         state.due_date = (now + timedelta(days=state.interval)).isoformat()
         return state
 
@@ -85,7 +80,7 @@ class SpacedRepetition:
             if 0 <= d <= days:
                 by_day[d] += 1
             elif d < 0:
-                by_day[0] += 1   # 逾期的算今天
+                by_day[0] += 1
         total_due = sum(by_day.values())
         return {
             "window_days": days,

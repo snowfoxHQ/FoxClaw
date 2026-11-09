@@ -55,14 +55,12 @@ def test_behavior_and_generic_routing():
         os_.learning_runtime.import_csv(str(Path("examples/sample_knowledge.csv")))
         os_.itinerary_runtime.import_csv(str(Path("examples/sample_itinerary.csv")))
 
-        # 态势通用聚合
         sit = os_.supervisor.global_situation()
         assert set(sit["finance"]) >= {"transactions"} and "total_items" in sit["learning"]
         assert "waypoints" in sit["itinerary"]
         print(f"  ✓ 态势聚合: fin={sit['finance']}, learn.items={sit['learning']['total_items']}, "
               f"itin.wp={sit['itinerary']['waypoints']}, alerts={len(sit['alerts'])}")
 
-        # 裁决行为保持(由目标 Agent 守门人裁决)
         r_small = os_.supervisor.cross_request("admin", "finance", "budget_request",
             {"amount": 150, "category": "travel", "entity": "高铁", "account": "default"}, "小额")
         r_big = os_.supervisor.cross_request("admin", "finance", "budget_request",
@@ -74,15 +72,11 @@ def test_behavior_and_generic_routing():
         assert r_sched["status"] in ("needs_confirmation", "approved"), r_sched
         print(f"  ✓ 小额={r_small['status']} 大额={r_big['status']} 日程={r_sched['status']}(委托目标守门人)")
 
-        # 通用性:路由到不存在的 Agent → 转人工确认,不崩(P1-0)
-        # 原断言锁的是 status == "approved" —— 那等于"没有任何 Agent 处理过,却回报批准",
-        # 是 fail-open:发起方会据此继续推进(如拿到"预算已批"去下单)。
         r_unknown = os_.supervisor.cross_request("x", "nonexistent", "budget_request", {}, "未知目标")
         assert r_unknown["status"] == "needs_confirmation", r_unknown
         assert "不存在" in r_unknown["verdict"]
         print(f"  ✓ 路由到不存在 Agent → {r_unknown['status']}(不再 fail-open 放行,仍不崩)")
 
-        # 深审修复:守门人裁决崩溃(畸形 payload)必须 fail-safe → 转人工确认,绝不自动放行
         r_bad = os_.supervisor.cross_request("x", "admin", "schedule_request",
             {"start_time": "不是合法时间"}, "畸形时间")
         assert r_bad["status"] == "needs_confirmation", f"裁决崩溃应 fail-safe,实得 {r_bad}"

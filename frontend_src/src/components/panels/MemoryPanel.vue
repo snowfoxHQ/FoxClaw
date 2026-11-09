@@ -13,7 +13,6 @@ onMounted(() => loadPanel('memory'))
 const ready = computed(() => !!p.stats.backend)
 const byAgent = computed(() => Object.entries(p.stats.by_agent || {}))
 
-/* 记忆没有「单条详情」端点,但 recent 已经带了 summary 全文 —— 直接进正文皮肤,不再打一次后端 */
 function open(m) {
   openDoc({
     id: `mem:${m.id}`,

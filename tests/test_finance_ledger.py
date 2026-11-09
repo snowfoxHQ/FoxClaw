@@ -33,7 +33,6 @@ def _one(text, now=NOW):
     return ps[0]
 
 
-# ── 1. 用户原话 ────────────────────────────────────────────
 def test_今天买衣服105块():
     p = _one("今天买了一件衣服花了105块")
     assert (p.amount, p.currency, p.direction) == (105.0, "CNY", "expense")
@@ -56,7 +55,6 @@ def test_后天洗车100():
     assert p.when.date() == datetime(2026, 11, 9).date()
 
 
-# ── 2. 币种 ───────────────────────────────────────────────
 def test_货币单位识别():
     assert _one("花了105块").currency == "CNY"
     assert _one("花了105块钱").currency == "CNY"
@@ -90,7 +88,6 @@ def test_中文数字():
     assert _one("两千三买了个手机").amount == 2300.0
 
 
-# ── 3. 时间关键词 ──────────────────────────────────────────
 def test_过去时间词():
     assert _one("昨天买了个杯子30").when.date() == datetime(2026, 11, 6).date()
     assert _one("前天买了个杯子30").when.date() == datetime(2026, 11, 5).date()
@@ -113,7 +110,6 @@ def test_上个月与上月():
 
 def test_几月与几号():
     assert _one("9月买衣服105").when.strftime("%Y-%m") == "2026-09"
-    # 本月已过的 5 号 → 本月;本月还没到的 28 号 → 上个月
     assert _one("5号买衣服105", now=datetime(2026, 11, 7)).when.strftime("%Y-%m") == "2026-11"
     assert _one("28号买衣服105", now=datetime(2026, 11, 7)).when.strftime("%Y-%m") == "2026-10"
 
@@ -124,7 +120,6 @@ def test_时间词不会被当成金额():
     assert p.when.date() == datetime(2026, 10, 5).date()
 
 
-# ── 4. 多笔与分类 ──────────────────────────────────────────
 def test_一句话多笔拆分():
     ps = parse("今天买衣服105，还买了大米45", now=NOW)
     assert [p.amount for p in ps] == [105.0, 45.0]
@@ -148,7 +143,6 @@ def test_收入方向():
     assert p.category == "income"
 
 
-# ── 5. 不该记账的句子 ──────────────────────────────────────
 def test_无金额不解析():
     assert parse("今天几号", now=NOW) == []
     assert parse("本月预算怎么分配", now=NOW) == []
@@ -178,7 +172,6 @@ def test_主管把花费报备路由给财务():
     assert not SupervisorAgent._is_expense_report("今天几号")
 
 
-# ── 6. 记账与汇总 ──────────────────────────────────────────
 def test_记账回执与账本(tmp_path):
     rt = _rt(tmp_path)
     rec = rt.record_text("今天买了一件衣服花了105块")
@@ -197,15 +190,15 @@ def test_计划支出不进本月已花(tmp_path):
     rt.record_text("明天买一袋大米花了45")
 
     led = rt.ledger()
-    assert led["expense"] == 105.0               # 45 还没发生
+    assert led["expense"] == 105.0
     assert led["planned"]["count"] == 1
     assert led["planned"]["expense"] == 45.0
-    assert rt.analyze()["transaction_count"] == 1  # 分析也不能把未来算进来
+    assert rt.analyze()["transaction_count"] == 1
 
 
 def test_多币种折成本位币(tmp_path):
     rt = _rt(tmp_path)
-    rt.record_text("花了100美元")           # 内置汇率 7.2
+    rt.record_text("花了100美元")
     led = rt.ledger()
     assert led["expense"] == 720.0
     usd = [c for c in led["by_currency"] if c["currency"] == "USD"][0]
@@ -219,7 +212,7 @@ def test_汇率可改(tmp_path):
     rt.fx.set_rate("USD", 7.0)
     rt.record_text("花了100美金")
     assert rt.ledger()["expense"] == 700.0
-    assert _rt(tmp_path).fx.rate("USD") == 7.0      # 汇率也落盘
+    assert _rt(tmp_path).fx.rate("USD") == 7.0
 
 
 def test_按天与分类汇总(tmp_path):
@@ -246,7 +239,7 @@ def test_记账后账本可持久化(tmp_path):
 
 def test_未配置汇率按1比1并提示(tmp_path):
     rt = _rt(tmp_path)
-    rt.fx.rates.pop("JPY", None)          # 模拟"币种认识但没配汇率"
+    rt.fx.rates.pop("JPY", None)
     rec = rt.record_text("花了100日元")
     assert any("汇率" in w for w in rec["recorded"][0]["warnings"])
     assert rt.ledger()["expense"] == 100.0

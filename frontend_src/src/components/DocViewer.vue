@@ -10,13 +10,10 @@ const lines = computed(() =>
   (props.doc.content || '').replace(/\n$/, '').split('\n')
 )
 
-/* 文字版正文走 lib/md.js 的共用渲染器:技能 SKILL.md 与记忆摘要都带
-   # / ** / - / > / ```,这里原来自带一套只认前四样,代码块原样倒出来。 */
 const readHTML = computed(() => mdToHTML(props.doc.content))
 </script>
 
 <template>
-  <!-- 代码 → CLI 皮肤:暗色、等宽、行号、横向滚动。整栏不变暗,只有正文块变暗。 -->
   <div v-if="doc.kind === 'code'" class="cli">
     <div class="term-bar">
       <span class="tl" /><span class="tl" /><span class="tl" />
@@ -31,7 +28,6 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
     </div>
   </div>
 
-  <!-- 文字 → 阅读版:衬线正文、68ch 行宽、留白优先 -->
   <article v-else class="read scroll">
     <header class="read-head">
       <h2>{{ doc.title }}</h2>
@@ -45,7 +41,6 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
 </template>
 
 <style scoped>
-/* ═══ CLI 皮肤 ═══ */
 .cli {
   flex: 1; min-width: 0; display: flex; flex-direction: column;
   margin: 8px; border-radius: var(--r-mid); overflow: hidden;
@@ -87,7 +82,6 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
 }
 .code { color: var(--cli-ink); padding-right: 24px; }
 
-/* ═══ 阅读皮肤 ═══ */
 .read { flex: 1; overflow-y: auto; padding: 34px 8px 60px; }
 .read-head, .read-body { max-width: 68ch; margin: 0 auto; }
 .read-head { padding: 0 20px 18px; border-bottom: 1px solid var(--line-soft); }
@@ -101,7 +95,6 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
 }
 .read-meta code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
 .read-body { padding: 20px 20px 0; }
-/* 正文是 v-html 生成的,没有 scoped 属性,必须 :deep */
 .read-body :deep(p) {
   font-family: var(--serif);
   font-size: 15px; line-height: 1.92; color: #24302a;
@@ -149,7 +142,6 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
   margin: 26px 0 10px;
 }
 
-/* 代码块:md.js 现在真会把 ``` 渲染成 <pre><code>,以前是整段原样倒出来 */
 .read-body :deep(pre) {
   margin: 0 0 15px; padding: 11px 13px;
   background: var(--cli-bg); border-radius: var(--r-sm);
@@ -160,7 +152,6 @@ const readHTML = computed(() => mdToHTML(props.doc.content))
   font-size: 12px; line-height: 1.72;
 }
 
-/* 表格 */
 .read-body :deep(table) { width: 100%; border-collapse: collapse; margin: 0 0 15px; }
 .read-body :deep(th),
 .read-body :deep(td) {

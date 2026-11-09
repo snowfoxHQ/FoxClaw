@@ -11,8 +11,6 @@ import foxclaw.api as _api
 from .. import app
 
 
-# ── 主管编排端点（全局态势 + 跨 Agent)──────────────────────
-
 @app.get("/api/orchestration/situation")
 async def global_situation():
     """主管全局态势:三内核状态汇总 + 跨域告警(驾驶舱视图)。"""

@@ -33,8 +33,6 @@ from types import SimpleNamespace
 from .shared_write import guard_shared_write
 from typing import Any
 
-# Foxclaw 的 type 白名单 → vecRecall 的 memory_type(episodic/semantic/procedural)。
-# 分错不影响读写，但影响 vecRecall 的遗忘曲线与 procedural 精确匹配。
 _FOXCLAW_TO_VR = {
     "concept": "semantic",
     "project": "semantic",
@@ -53,7 +51,6 @@ _VR_TO_FOXCLAW = {
 }
 _VALID_TYPES = set(_FOXCLAW_TO_VR)
 
-# 偏好类记忆走 topic_key（精确查询），因为"总是注入的偏好"不该做语义模糊匹配。
 _PREFERENCE_TAG = "preference"
 
 
@@ -86,8 +83,6 @@ class _HKCSharedEmbedding:
             from hkc_search.embedding_backends import get_st_model
             model = get_st_model(self.model_name)
             if model is None:
-                # 不回退到直连 SentenceTransformer：那会绕过 HKC 的进程级共享缓存、
-                # 多加载一份模型(bge-m3 常驻约 1GB)。失败就明确报错让工厂回退 HMR。
                 raise RuntimeError(
                     f"embedding 模型不可用: {self.model_name}(HKC 共享缓存加载失败)")
             self._model = model
@@ -106,7 +101,6 @@ class _HKCSharedEmbedding:
         if self._dim is None:
             try:
                 model = self._load()
-                # ST 6.x 把 get_sentence_embedding_dimension 改名了,两个都试
                 getter = (getattr(model, "get_embedding_dimension", None)
                           or getattr(model, "get_sentence_embedding_dimension", None))
                 self._dim = (int(getter() or 0) or None) if getter else None
@@ -134,9 +128,6 @@ class VecRecallAdapter:
         self.wing = wing
         self.storage_path = str(storage_path)
         self.version = self._resolve_version()
-        # vecRecall 本体没有任何锁（只有 REST server 层有 RLock），而它用的是
-        # check_same_thread=False 的单条 sqlite 连接 + 内存 dict 索引。并行子 Agent
-        # 同时 add/search 属于未定义行为，和 HMR 是同一类坑 —— 这里沿用同一套串行化。
         self._lock = threading.RLock()
 
         self._emb = embedding_backend or _HKCSharedEmbedding(
@@ -153,7 +144,6 @@ class VecRecallAdapter:
             **extra,
         )
 
-    # ── 构造辅助 ──────────────────────────────────────────
     @staticmethod
     def _resolve_version() -> str:
         try:
@@ -189,14 +179,13 @@ class VecRecallAdapter:
         except Exception:
             return
         dims = {int(r[0]) for r in rows}
-        want = getattr(self._emb, "dim", None)   # 轻量后端无 dim 属性时跳过
+        want = getattr(self._emb, "dim", None)
         if dims and want and dims != {int(want)}:
             raise RuntimeError(
                 f"已有向量维度 {sorted(dims)} 与当前嵌入维度 {want} 不一致。"
                 f"换 embedding 模型必须重建索引：删除 {self.storage_path} 后重启"
             )
 
-    # ── 摄入 ──────────────────────────────────────────────
     _AUTO_TITLE = re.compile(r"^[A-Za-z_]+\s+\d{1,2}:\d{2}$")
 
     @staticmethod
@@ -232,8 +221,6 @@ class VecRecallAdapter:
         if not title:
             title = self._derive_title(content) or ""
 
-        # 【P0-3】共享层写入闸门：必须在落库之前判定，语义与 HMR 路径完全一致，
-        # 否则同一个策略在两个后端上表现不同。
         if shared:
             guard_shared_write(self, agent_id, content, mtype, meta_tags)
 
@@ -241,8 +228,6 @@ class VecRecallAdapter:
         if "confidence" in kwargs:
             metadata["confidence"] = kwargs["confidence"]
 
-        # execution 是审计证据：被遗忘曲线衰减或被去重合并，就无法再证明"当时确实
-        # 这么做了"。vecRecall 的 immutable 同时免于衰减与去重，正好对上这个语义。
         retention = "immutable" if mtype == "execution" else "decay"
         topic_key = kwargs.get("topic_key") or (
             _PREFERENCE_TAG if _PREFERENCE_TAG in meta_tags else "")
@@ -261,7 +246,6 @@ class VecRecallAdapter:
                 topic_key=topic_key,
             )
 
-    # ── 召回 ──────────────────────────────────────────────
     def _visible(self, mem, agent_id: str | None, include_shared: bool) -> bool:
         """可见性判定，与 vecRecall `_visible_to` 规则保持同源。
 
@@ -301,9 +285,6 @@ class VecRecallAdapter:
                 results = list(getattr(bundle, "l2_topic_context", []) or []) + \
                           list(getattr(bundle, "l3_deep_results", []) or [])
                 if not results and (query or "").strip():
-                    # L2 有 0.55 阈值：命中偏弱时整层为空。HMR 的 recall 是无条件
-                    # 返回 top_k，为不改变上层"总能拿到几条"的预期，退化到全量语义
-                    # 检索，再在下面用 _visible 补上隔离（search 本身不隔离）。
                     results = list(self._vr.search(query, n=fetch_k) or [])
         except Exception:
             return []
@@ -385,8 +366,7 @@ class VecRecallAdapter:
             row["_ts"] = getattr(m, "timestamp", "") or ""
             rows.append(row)
 
-        rows.sort(key=lambda x: str(x.get("_ts")), reverse=True)   # 新近优先
-        # 同一偏好反复表达会存成多条，去重保留最新，否则会挤满 limit
+        rows.sort(key=lambda x: str(x.get("_ts")), reverse=True)
         deduped, seen_c = [], set()
         for x in rows:
             if x["content"] in seen_c:
@@ -402,7 +382,6 @@ class VecRecallAdapter:
             except Exception:
                 return False
 
-    # ── 展示 ──────────────────────────────────────────────
     def recent(self, limit: int = 20) -> list:
         """最近的记忆条目（新→旧），供前端右栏"记忆信息条"。"""
         rows = []
@@ -436,11 +415,6 @@ class VecRecallAdapter:
             })
         return rows
 
-    # ── HMR 专有接口的占位 ────────────────────────────────
-    # vecRecall 没有"会话工作区 / 运行时快照"这两个概念。留占位而不是让调用方
-    # AttributeError：上层有统一的"后端接口"假设，缺方法会炸在一个与被调用能力
-    # 无关的地方。agents/base.py 取到 workspace 后并不读其字段（active_goal 的
-    # 写入已移除），所以空壳没有实际成本。
     def get_workspace(self, agent_id: str):
         return SimpleNamespace(agent_id=agent_id, active_goal="", status="idle",
                                push_task=lambda _t: None)
@@ -454,7 +428,6 @@ class VecRecallAdapter:
     def restore_runtime_state(self):
         return None
 
-    # ── 状态 ──────────────────────────────────────────────
     def get_system_status(self):
         return {"backend": self.backend, "version": self.version, "wing": self.wing}
 

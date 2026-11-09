@@ -1,12 +1,3 @@
-/* 极简 Markdown → HTML。对话气泡与文档阅读共用这一份渲染器。
- *
- * 之前是两套:DocViewer 自带 readHTML/inl(支持标题、列表、行内代码、粗体、链接,
- * 但**不支持 ``` 代码块**),而 MessageStream 直接 {{ m.content }} 原样输出 ——
- * 于是模型的 `## 标题`、`**粗体**`、`- 列表`、反引号代码块在对话里全是原文。
- *
- * 安全边界:先全量转义 & < > ",之后只把识别到的标记换成标签;
- * 所有标签都由本文件产出,链接只放行 http(s)。
- */
 
 const esc = (s) =>
   String(s ?? '')
@@ -71,8 +62,6 @@ function renderTable(rows) {
   return `<table><thead><tr>${th}</tr></thead>${body.length ? `<tbody>${trs}</tbody>` : ''}</table>`
 }
 
-/* src 为空 → 空串。流式时最后一段代码块可能还没闭合,
- * 这里把它当"开着"的代码块渲染,而不是把三个反引号当正文甩出来。 */
 export function mdToHTML(src) {
   const text = String(src ?? '').replace(/\r\n?/g, '\n').replace(/\n$/, '')
   if (!text.trim()) return ''
@@ -114,7 +103,6 @@ export function mdToHTML(src) {
       continue
     }
 
-    /* 围栏代码块 —— 对话里最常出现,优先级最高 */
     const fence = RE_FENCE.exec(line)
     if (fence) {
       flush()
@@ -137,7 +125,6 @@ export function mdToHTML(src) {
       continue
     }
 
-    /* 表格:当前行是 | ... | 且下一行是分隔行 */
     if (RE_TABLE_ROW.test(line) && i + 1 < lines.length && RE_TABLE_SEP.test(lines[i + 1]) && lines[i + 1].includes('-')) {
       flush()
       const rows = [splitRow(line)]
@@ -154,7 +141,6 @@ export function mdToHTML(src) {
     const h = RE_HEADING.exec(line)
     if (h) {
       flush()
-      /* # → h2, #### 及以下 → h5,不再往下掉(对话里 h6 太小) */
       const lv = Math.min(h[1].length + 1, 5)
       out.push(`<h${lv}>${inline(h[2])}</h${lv}>`)
       i += 1

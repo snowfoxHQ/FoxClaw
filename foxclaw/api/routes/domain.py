@@ -18,11 +18,9 @@ from foxclaw.core.paths import resolve_import_path
 from .. import app
 
 
-# ── 领域内核端点（B 阶段三内核）─────────────────────────────
-
 class ImportPayload(BaseModel):
     csv_path: Optional[str] = None
-    rows: Optional[list] = None     # 也可直接传记录数组
+    rows: Optional[list] = None
 
 
 def _resolve_csv_path(raw: str) -> str:
@@ -61,7 +59,6 @@ async def finance_import(p: ImportPayload):
             from foxclaw.finance import Transaction
             n = 0
             for row in p.rows:
-                # save=False:整批导完再落盘一次,别在循环里做 N 次磁盘 IO
                 rt.add_transaction(Transaction(**row), run_gatekeeper=False, save=False)
                 n += 1
             if n:
@@ -73,12 +70,10 @@ async def finance_import(p: ImportPayload):
         raise HTTPException(400, f"导入失败: {e}")
 
 
-# ── 自然语言记账(第一线)────────────────────────────────────
-
 class RecordPayload(BaseModel):
     text: str
     account: str = "default"
-    dry_run: bool = False           # 只解析预览,不落账
+    dry_run: bool = False
 
 
 class FxPayload(BaseModel):
@@ -202,9 +197,6 @@ async def itinerary_import(p: ImportPayload):
         raise HTTPException(400, f"导入失败: {e}")
 
 
-# ── 领域导入:超越 csv_path，支持上传 csv / xlsx / json ─────────────────────
-# 三领域运行时的 import_csv 是"列→类型转换"的唯一权威。多格式文件在此统一解析成 rows,
-# 再桥接成运行时认识的临时 CSV → 复用 import_csv 的转换逻辑(不碰运行时,单一真源)。
 _IMPORT_MAX_BYTES = 10 * 1024 * 1024
 _IMPORT_COLUMNS = {
     "finance":   ["amount", "category", "entity", "account", "timestamp", "tags"],

@@ -52,11 +52,9 @@ def test_process_manager():
     check(pm.get(p.process_id).state == "completed", "完整生命周期到 completed")
     check(pm.get(p.process_id).state_history == ["created", "queued", "scheduled", "running", "completed"],
           "状态历史完整")
-    # 幂等:已终态再标记不崩溃,且**不重复扣减**活跃计数
     r = pm.mark_failed(p.process_id, "二次")
     check(r is not None and r.state == "completed", "终态重复标记幂等不崩溃")
     check(pm.active_count() == 0, "终态重复标记不重复扣减活跃计数(仍为0,不为负)")
-    # 非法流转拦截
     p2 = pm.create("x", schedule={"priority": 0.1})
     p2.state = "created"
     try:
@@ -89,7 +87,6 @@ def test_truth_pipeline():
     bus = SystemBus()
     hmr = FakeHMR()
     tp = TruthPipeline(bus, hmr=hmr)
-    # 【P3-9】TruthPipeline.emit_execution 已删除:事件名即契约,直接经 bus 入队。
     bus.publish("execution.completed", {"agent_id": "finance", "task": "分析预算",
                                         "result": "预算正常", "blocked": False})
     check(tp.last_trace is not None, "执行→审计 trace 生成")
@@ -110,11 +107,9 @@ def test_cognitive_state():
     s = t.snapshot()
     check(s["active_goal"] == "分析财务", "活跃目标聚合")
     check(s["semantic_focus"] == "reasoning", "语义焦点聚合")
-    # 去重
     for _ in range(5):
         bus.publish("memory.updated", {"memory_update": {"content": "同样"}})
     check(len(t.snapshot()["activated_memories"]) == 1, "重复记忆去重")
-    # None 防护
     class M: payload = None
     t._on_exec(M())
     check(True, "None payload 不崩溃")
@@ -147,8 +142,7 @@ def test_trust_single_source():
     from foxclaw.skills import permission as perm
     from foxclaw.skills.permission import evaluate
     check(not hasattr(perm, "TRUST_LEVEL"), "permission.TRUST_LEVEL 死字典已删(不再双真源)")
-    # 3 个合法 kind × 两种 source:permission 的 downgrade 恒等于 (trust_level()=='low'),且行为不变
-    expect = {"local": False, "web_api": False, "mcp": True}   # behavior-preserving 基线
+    expect = {"local": False, "web_api": False, "mcp": True}
     for kind, want_dg in expect.items():
         for source in ("builtin", "user"):
             s = SkillSpec(id=f"s_{kind}_{source}", name="t", description="d",
@@ -174,7 +168,6 @@ def test_breaker_hooks():
     check(ad.breaker.status("flaky")["state"] == "open", "连续失败3次断路器开闸")
     r = ad.invoke(reg.get("flaky"), {})
     check(r.status == "circuit_open", "开闸后停止调用")
-    # 钩子
     log = []
     hm = HookManager()
     hm.register("pre_skill", lambda ctx: log.append("pre"))
@@ -193,13 +186,10 @@ def test_ahs_pipeline():
     reg = build_default_registry()
     ad = SkillAdapter(reg)
     pipe = AHSPipeline(reg, ad)
-    # router 否定词
     r = route("不要计算", reg)
     check(r.primary != "calculator", "否定词检测:不要计算→不选calculator")
-    # planner 拆解
     p = plan("先算 5+5 然后再算 9*9", reg)
     check(len(p.tasks) == 2, "planner 多步拆解")
-    # 端到端
     res = pipe.run("帮我算一下 12*12")
     check(res.success, "AHS 执行链端到端成功")
 

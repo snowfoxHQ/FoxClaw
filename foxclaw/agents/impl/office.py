@@ -23,8 +23,6 @@ class OfficeAgent(CognitiveAgent):
     AGENT_NAME = "办公学习 Agent"
     ALLOWED_TOOL_CATEGORIES = {"read", "write", "network", "calendar"}
 
-    # 日程类任务的触发词:命中则按"行政"话术走(不索要 knowledge JSON)。
-    # 与 skills/schedule-itinerary/SKILL.md 的 triggers 保持一致。
     SCHEDULE_HINTS = ("日程", "行程", "会议", "出差", "预约", "日历", "路线", "几点", "提醒")
 
     def attach_runtime(self, runtime):
@@ -38,7 +36,6 @@ class OfficeAgent(CognitiveAgent):
         """
         self.itin = runtime
 
-    # ── 编排协作(P3:领域态势从编排层下沉至此)──────
     def situation(self) -> dict:
         """一次自报两个领域:学习 + 行程。编排层按 `domains` 聚合(缺一个不影响另一个)。"""
         return {"domains": {"learning": self._learning_status(),
@@ -83,11 +80,8 @@ class OfficeAgent(CognitiveAgent):
         return [{"domain": "itinerary", "severity": "critical", "msg": c["reason"]}
                 for c in conflicts]
 
-    # ── 行程/日程(原 AdminAgent)────────────────────────────────
-    # 差旅预算让步:每轮降一档;低于原始的 60% 就不再让(那已不是同一趟出差了,
-    # 硬压下去只会规划出一个没法执行的行程 —— 宁可认输转由人决定)。
-    CONCEDE_STEP = 0.75          # 每轮降到上一轮的 75%(改高铁/换酒店/减一天的量化近似)
-    CONCEDE_FLOOR = 0.60         # 相对**原始**申请额的下限
+    CONCEDE_STEP = 0.75
+    CONCEDE_FLOOR = 0.60
 
     def concede(self, req, verdict: str):
         """【协商闭环·发起方】差旅预算被财务守门人拒 → 降标准重报。
@@ -104,11 +98,9 @@ class OfficeAgent(CognitiveAgent):
         if amount <= 0:
             return None
         original = float(req.payload.get("_original_amount") or amount)
-        # 降一档,但**夹到下限**而不是跌破就放弃 —— 否则步长过冲时会在下限之上提前认输
-        # (8000→6000→(4500 破线)放弃),白白浪费 4800 这个本来能过的方案。
         new_amount = max(round(amount * self.CONCEDE_STEP), round(original * self.CONCEDE_FLOOR))
         if new_amount <= 0 or new_amount >= amount:
-            return None                      # 已到下限,再降就破线 → 认输(维持 rejected,不硬闯)
+            return None
         p = dict(req.payload)
         p["amount"] = new_amount
         p["_original_amount"] = original
@@ -154,14 +146,12 @@ class OfficeAgent(CognitiveAgent):
         )
         return report
 
-    # ── 学习/知识(原 OfficeAgent)────────────────────────────────
     @staticmethod
     def _strip_knowledge_json(text: str) -> str:
         """从回复中剥离 {"new_knowledge": [...]} 结构化块,只保留自然语言。"""
         if not text or "new_knowledge" not in text:
             return text
         import re
-        # 去掉 {"new_knowledge": [ ... ]} 整块(含可能的 markdown 代码围栏)
         cleaned = re.sub(r'`{0,3}\s*\{\s*"new_knowledge".*?\}\s*\]\s*\}\s*`{0,3}',
                          '', text, flags=re.DOTALL)
         return cleaned.strip()
@@ -172,8 +162,6 @@ class OfficeAgent(CognitiveAgent):
         if rt is None:
             return {"error": "学习内核未挂载"}
         report = rt.analyze()
-        # 给前端「知识库」轮播提供知识条目明细:analyze 本身只有统计、无明细,
-        # 否则前端读 analysis.items 拿不到 → 一直显示"知识库为空"(即便已录入)。
         try:
             with rt._lock:
                 _vals = list(rt.items.values())
@@ -220,7 +208,7 @@ Hermes 自学原则（像赫尔墨斯那样）：
 你的知识是活的，会生长的。"""
 
     _task_entities = lambda self, task: ["学习", "知识", "文档", "日程", "行程", "会议"]
-    _recall_topk = 8   # 办公学习 Agent 广泛召回
+    _recall_topk = 8
 
     def _recall_query(self, task: str) -> str:
         """学习 + 日程两类记忆都要召回(合并后单一 Agent 覆盖两个域)。"""
@@ -244,7 +232,6 @@ Hermes 自学原则（像赫尔墨斯那样）：
                 f"- {_fmt_mem(m, 80)}" for m in memories[:6]
             ])
 
-        # 接入学习内核:若已挂载且有知识点,做真实分析(待复习/掌握度)作为依据
         kernel_insight = ""
         learn_rt = getattr(self, "learn_rt", None)
         if learn_rt is not None and getattr(learn_rt, "items", None):
@@ -262,9 +249,8 @@ Hermes 自学原则（像赫尔墨斯那样）：
                     node_type="reflection", conf=0.9,
                 )
             except Exception:
-                pass   # 内核失败不阻断,降级纯 LLM
+                pass
 
-        # 接入行程内核:若已挂载且有路点,做真实规划(路线/冲突)作为 LLM 依据
         itin = getattr(self, "itin", None)
         if itin is not None and getattr(itin, "waypoints", None):
             try:
@@ -285,7 +271,7 @@ Hermes 自学原则（像赫尔墨斯那样）：
                         node_type="reflection", conf=0.9,
                     )
             except Exception:
-                pass   # 内核失败不阻断,降级纯 LLM
+                pass
 
         if schedule:
             prompt = f"""行程/日程任务：{task}
@@ -310,13 +296,11 @@ Hermes 自学原则（像赫尔墨斯那样）：
 
         new_knowledge_count = 0
         if not schedule:
-            # 提取并存储新知识(括号平衡解析:正确处理内容含 []{} 的情况)
             try:
                 start = response.find('{"new_knowledge"')
                 if start < 0:
                     start = response.find('{ "new_knowledge"')
                 if start >= 0:
-                    # 从 start 起做花括号配对,找到完整 JSON 对象的结束位置
                     depth, end, in_str, esc = 0, -1, False, False
                     for i in range(start, len(response)):
                         c = response[i]
@@ -346,9 +330,8 @@ Hermes 自学原则（像赫尔墨斯那样）：
                             )
                             new_knowledge_count += 1
             except Exception:
-                pass  # 解析失败不影响主流程
+                pass
 
-            # 从返回文本中剥离 new_knowledge JSON 块(不展示给用户)
             response = self._strip_knowledge_json(response)
 
         self._think(

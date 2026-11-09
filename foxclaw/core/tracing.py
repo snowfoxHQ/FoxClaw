@@ -34,10 +34,6 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ── 采样策略 ────────────────────────────────────────────────
-# 内存环存只留最近 N 条、重启即失 → 查不了"昨天那次慢请求"。持久化解决它,但不能无脑全存:
-# 正常请求的 trace 数量大、价值低。故:**慢的 / 出错的必存**(那才是你要查的),
-# 其余按采样率(默认 0 —— 个人 OS 留下的每条都值得看)。
 def _slow_ms() -> float:
     return float(settings.get_safe("FOXCLAW_TRACE_SLOW_MS"))
 
@@ -51,14 +47,9 @@ def _retain() -> int:
 
 _current: contextvars.ContextVar = contextvars.ContextVar("foxclaw_trace", default=None)
 
-MAX_SPANS_PER_TRACE = 200          # 单条 trace 的 span 上限,防病态循环把内存撑爆
+MAX_SPANS_PER_TRACE = 200
 
 
-# ── W3C Trace Context(零依赖跨进程传播)────────────────────────
-# 为什么不上 opentelemetry-sdk:Foxclaw 是单进程 + local-first,为它装 SDK/exporter/grpc、
-# 再要求跑个 Jaeger,代价远大于收益。但它确实有一条真实跨进程边界——**MCP 双向**。
-# traceparent 是 W3C 标准、纯字符串、零依赖,恰好覆盖这条边界:
-#   00-{trace_id:32hex}-{span_id:16hex}-{flags:2hex}
 _TP_RE = __import__("re").compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
 
 
@@ -70,7 +61,7 @@ def parse_traceparent(header: str):
     if not m:
         return None
     tid = m.group(1)
-    if tid == "0" * 32:                       # 全零非法(规范要求)
+    if tid == "0" * 32:
         return None
     return tid
 
@@ -90,7 +81,6 @@ def current_traceparent():
 
 class Trace:
     def __init__(self, name: str, trace_id: str | None = None):
-        # 32 hex:直接符合 W3C traceparent 的 trace-id 规格(跨进程可对齐)
         self.trace_id = trace_id or uuid.uuid4().hex
         self.name = name
         self.start_ts = time.time()
@@ -138,7 +128,6 @@ class TraceStore:
         self._lock = threading.Lock()
         self._db_path: str | None = None
 
-    # ── 持久化 ───────────────────────────────────────────
     def attach_db(self, path):
         """开启持久化并建表。连接**即建即弃、不跨线程复用**(与 ThoughtChain 同款):
         SQLite 连接不可跨线程共享,而 trace 写入发生在请求线程/to_thread 工作线程。"""
@@ -159,17 +148,17 @@ class TraceStore:
             raise RuntimeError("trace 持久化未启用:先 attach_db")
         conn = sqlite3.connect(self._db_path, timeout=5.0)
         try:
-            conn.execute("PRAGMA journal_mode=WAL")   # 单写多读,降锁竞争
+            conn.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError:
             pass
         return conn
 
     def _should_persist(self, tr: Trace) -> bool:
         if tr.has_error():
-            return True                                   # 出错的必留
+            return True
         if (tr.duration_ms or 0) >= _slow_ms():
-            return True                                   # 慢的必留(正是要查的)
-        return random.random() < _sample_rate()           # 其余按采样率(默认 0)
+            return True
+        return random.random() < _sample_rate()
 
     def _persist(self, tr: Trace):
         d = tr.to_dict()
@@ -179,7 +168,6 @@ class TraceStore:
                           (tr.trace_id, tr.name, tr.start_ts, tr.duration_ms,
                            d["span_count"], 0 if tr.has_error() else 1,
                            json.dumps(d["spans"], ensure_ascii=False)))
-                # 保留上限:超出删最旧 → 有界增长(不会把磁盘吃光)
                 c.execute("DELETE FROM traces WHERE trace_id IN ("
                           "SELECT trace_id FROM traces ORDER BY start_ts DESC "
                           "LIMIT -1 OFFSET ?)", (_retain(),))
@@ -190,10 +178,10 @@ class TraceStore:
         with self._lock:
             self._d.append(tr)
         if self._db_path and self._should_persist(tr):
-            self._persist(tr)                             # 锁外落库(慢 I/O 不挡内存环)
+            self._persist(tr)
         try:
-            OTLP.submit(tr)                               # 可选导出:未配 endpoint 即 no-op;
-        except Exception:                                 # 队列满则丢,绝不阻塞请求
+            OTLP.submit(tr)
+        except Exception:
             pass
 
     def get(self, trace_id: str):
@@ -253,10 +241,6 @@ class TraceStore:
             self._d.clear()
 
 
-# ── OTLP/HTTP-JSON 导出(可选、零依赖)────────────────────────
-# 想接 Jaeger/Tempo/collector 的人设 FOXCLAW_OTLP_ENDPOINT 即可;不设则完全不启用、零成本。
-# 刻意**不引 opentelemetry-sdk**:OTLP 有 HTTP+JSON 传输,stdlib urllib 就能发。
-# 铁律:遥测**绝不能拖慢请求** —— 后台守护线程 + 有界队列,满了就丢(宁丢遥测不拖请求)。
 def _otlp_endpoint() -> str:
     return os.environ.get("FOXCLAW_OTLP_ENDPOINT", "").strip().rstrip("/")
 
@@ -275,16 +259,16 @@ def _trace_to_otlp(tr: "Trace") -> dict:
     root_id = uuid.uuid4().hex[:16]
     dur = (tr.duration_ms or 0.0) / 1000.0
     spans = [{
-        "traceId": tr.trace_id, "spanId": root_id, "name": tr.name, "kind": 2,   # SERVER
+        "traceId": tr.trace_id, "spanId": root_id, "name": tr.name, "kind": 2,
         "startTimeUnixNano": t_ns(tr.start_ts),
         "endTimeUnixNano": t_ns(tr.start_ts + dur),
         "status": {"code": 2 if tr.has_error() else 1},
     }]
     for s in tr.to_dict()["spans"]:
-        st = s.get("ts", tr.start_ts)                       # 缺 ts(手工 add_span)→ 兜底
+        st = s.get("ts", tr.start_ts)
         spans.append({
             "traceId": tr.trace_id, "spanId": uuid.uuid4().hex[:16], "parentSpanId": root_id,
-            "name": s.get("name", "span"), "kind": 1,       # INTERNAL
+            "name": s.get("name", "span"), "kind": 1,
             "startTimeUnixNano": t_ns(st),
             "endTimeUnixNano": t_ns(st + (s.get("ms", 0.0) / 1000.0)),
             "attributes": _attrs(s.get("meta")),
@@ -322,7 +306,7 @@ class _OtlpExporter:
         try:
             self._q.put_nowait(tr)
         except queue.Full:
-            self.dropped += 1        # 宁可丢遥测,也不让导出拖住请求线程
+            self.dropped += 1
 
     def _run(self):
         import urllib.request
@@ -341,7 +325,7 @@ class _OtlpExporter:
                 self.sent += 1
             except Exception as e:
                 self.failed += 1
-                if self.failed <= 3:      # 限量告警,别把日志刷爆
+                if self.failed <= 3:
                     logger.warning("OTLP 导出失败(不影响请求): %s", e)
 
     def stats(self) -> dict:
@@ -378,8 +362,6 @@ def span(name: str, **meta):
         yield None
         return
     t0 = time.perf_counter()
-    # ts:span 开始的 epoch 秒。内部只需 ms 就够,但 OTLP 要求每个 span 有 start/end 绝对时刻,
-    # 故一并记下(开销可忽略;缺失时导出侧会优雅兜底)。
     rec = {"name": name, "ts": time.time(), "ok": True,
            **({"meta": meta} if meta else {})}
     try:

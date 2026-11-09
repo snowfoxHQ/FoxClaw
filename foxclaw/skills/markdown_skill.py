@@ -16,11 +16,11 @@ class MarkdownSkill:
     body: str = ""
     enabled: bool = True
     source: str = "user"
-    version: str = ""                                  # OpenClaw 包的版本(_meta.json/frontmatter),可空
-    builtin: bool = False                              # 随包分发的内置技能(repo skills/*/SKILL.md)
+    version: str = ""
+    builtin: bool = False
 
     def to_dict(self) -> dict:
-        d = asdict(self); d["trust"] = "low"; return d   # 指令注入=提示词操纵面,信任=低
+        d = asdict(self); d["trust"] = "low"; return d
 
     def to_meta(self) -> dict:
         d = self.to_dict(); d.pop("body", None); return d
@@ -75,7 +75,7 @@ def load_builtin_dir(reg: MarkdownSkillRegistry, root) -> list:
             try:
                 s = parse_skill_md(p.read_text(encoding="utf-8", errors="replace"))
             except Exception:
-                continue                   # 单个技能坏掉不影响其余
+                continue
             if not s.builtin or reg.get(s.id) is not None:
                 continue
             reg.register(s)
@@ -89,7 +89,7 @@ class MarkdownSkillRegistry:
     def __init__(self):
         self._skills = {}
         self._lock = threading.RLock()
-        self.policy = None                     # 全局封杀策略(宿主注入);被封的不参与注入
+        self.policy = None
 
     def register(self, s: MarkdownSkill):
         with self._lock:
@@ -120,7 +120,7 @@ class MarkdownSkillRegistry:
             if not s.enabled:
                 continue
             if pol is not None and pol.is_blocked(s.id):
-                continue                       # 被封杀 → 不注入(kill-switch)
+                continue
             if s.triggers:
                 if any(k.lower() in t_low for k in s.triggers):
                     out.append(s)

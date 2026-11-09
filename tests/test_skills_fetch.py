@@ -47,7 +47,6 @@ def _mock_http(monkeypatch, routes: dict) -> None:
     monkeypatch.setattr(fetch_mod, "_http_get", fake)
 
 
-# ── 归档层 ────────────────────────────────────────────────────────────────
 def test_read_zip_root_skill_md():
     pkg = read_package(_zip({"SKILL.md": MD, "_meta.json": '{"slug": "demo"}'}))
     assert pkg["skill_md"] == MD
@@ -56,7 +55,7 @@ def test_read_zip_root_skill_md():
 
 def test_read_targz_picks_shallowest():
     pkg = read_package(_tgz({
-        "repo-abc/SKILL.md": MD,                        # 顶层副本:最浅,应被选中
+        "repo-abc/SKILL.md": MD,
         "repo-abc/docs/SKILL.md": "更深的同名副本应被忽略",
     }))
     assert pkg["skill_md"] == MD
@@ -83,7 +82,6 @@ def test_has_code_detects_scripts():
     assert not has_code(["SKILL.md", "skill-card.md"])
 
 
-# ── ref 解析 ──────────────────────────────────────────────────────────────
 def test_ref_routes_scoped_name_to_clawhub(monkeypatch):
     seen: dict = {}
 
@@ -115,7 +113,6 @@ def test_local_dir_without_skill_md(tmp_path):
         fetch_mod.fetch(str(tmp_path))
 
 
-# ── ClawHub ───────────────────────────────────────────────────────────────
 def test_clawhub_blocks_malware(monkeypatch):
     _mock_http(monkeypatch, {
         "/api/v1/skills/": (json.dumps({
@@ -167,7 +164,6 @@ def test_github_subpath(monkeypatch):
     assert pkg.origin == "github:snowfox/repo/skills/demo@main"
 
 
-# ── CLI 落地(服务没跑 → 直接写 markdown_skills.json)─────────────────────
 def _src(tmp_path):
     src = tmp_path / "src"
     src.mkdir()

@@ -22,21 +22,20 @@ class Transaction:
     原币金额与币种另存 `original_amount` / `currency` / `fx_rate` —— 这样「100 美元」
     不会和「100 元」在求和时混在一起,同时账本里又看得到用户当时说的原话数额。
     """
-    amount: float                       # 负数=支出,正数=收入(本位币 CNY)
-    category: str                       # 分类:subscription/food/transport/salary...
-    entity: str                         # 商户/对手方:Netflix、星巴克、公司
-    account: str                        # 账户:credit_card_1、debit、alipay
+    amount: float
+    category: str
+    entity: str
+    account: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    tags: list = field(default_factory=list)   # ["recurring","media"]
+    tags: list = field(default_factory=list)
     note: str = ""
     id: str = field(default_factory=lambda: f"txn_{uuid.uuid4().hex[:10]}")
-    # —— 多币种 & 自然语言记账 ——
-    currency: str = "CNY"               # 原币种
-    original_amount: Optional[float] = None   # 原币金额(正负号与 amount 一致)
-    fx_rate: float = 1.0                # 记账时原币 → 本位币的折算率
-    description: str = ""               # 报备原话里的"买的什么"
-    status: str = "settled"             # settled=已发生 planned=未来计划
-    source: str = "manual"              # manual / text / csv / bank
+    currency: str = "CNY"
+    original_amount: Optional[float] = None
+    fx_rate: float = 1.0
+    description: str = ""
+    status: str = "settled"
+    source: str = "manual"
 
     @property
     def is_expense(self) -> bool:
@@ -72,8 +71,8 @@ class Transaction:
 class Budget:
     """某分类的预算状态"""
     category: str
-    monthly_limit: float                # 月度上限
-    spent: float = 0.0                  # 本期已花(绝对值)
+    monthly_limit: float
+    spent: float = 0.0
     period: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m"))
 
     @property
@@ -102,12 +101,12 @@ class FinancialEntity:
     """账户 / 商户 / 订阅"""
     name: str
     entity_type: EntityType
-    balance: Optional[float] = None     # 账户余额(仅 account)
-    recurring_amount: Optional[float] = None  # 周期金额(仅 subscription)
-    cycle: Optional[str] = None         # monthly/yearly(仅 subscription)
+    balance: Optional[float] = None
+    recurring_amount: Optional[float] = None
+    cycle: Optional[str] = None
     last_seen: str = ""
     txn_count: int = 0
-    total_amount: float = 0.0           # 累计金额
+    total_amount: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -119,16 +118,13 @@ class FinancePolicyRule:
     与 Harness 的 Policy YAML 同构,但作用于资金行为。
     """
     id: str
-    condition: str                      # 人类可读条件描述
+    condition: str
     action: Literal["alert", "require_confirmation", "freeze", "veto", "suggest"]
     threshold: Optional[float] = None
-    scope: str = "global"               # global 或某 category
+    scope: str = "global"
     severity: Literal["info", "warn", "critical"] = "warn"
     source: Literal["builtin", "user", "learned"] = "builtin"
     enabled: bool = True
-    # 自校准留痕:calibrated_value = 上次校准写下的阈值(用于判断"之后有没有人手动改过";
-    # 若 threshold 已偏离它,说明是人的决定,校准就此收手)。calibrated_from = 依据说明,
-    # 让阈值可解释 —— 用户看得到"这个 800 是怎么来的",才敢信它。
     calibrated_value: Optional[float] = None
     calibrated_from: Optional[str] = None
 
@@ -144,7 +140,7 @@ class PolicyVerdict:
     severity: str
     message: str
     transaction_id: Optional[str] = None
-    requires_user_action: bool = False  # 是否需要用户确认/介入
+    requires_user_action: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)

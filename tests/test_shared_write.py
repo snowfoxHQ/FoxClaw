@@ -83,7 +83,6 @@ def test_modes():
             raised = True
         check(raised == should_raise, f"mode={mode} → 越界写入{'被拦截' if should_raise else '放行'}")
 
-    # 放行的情况下也必须留下事件(audit 的价值就在"看得见")
     be = _Backend(); be.shared_write_policy = SharedWritePolicy(mode="audit")
     be.shared_write_spine = _FakeSpine()
     guard_shared_write(be, "office", "x", "decision", ["finance"])
@@ -112,7 +111,6 @@ def test_audit_payload_privacy():
         pass
     be = _B(); be.shared_write_policy = SharedWritePolicy(mode="audit")
     be.shared_write_spine = _FakeSpine()
-    # 造一条**明显长于预览上限**的内容,才能验证"截断"这件事本身
     secret = "开头" + "填" * 120 + "结尾不应出现"
     guard_shared_write(be, "office", secret, "decision", ["finance"])
     p = be.shared_write_spine.events[0]["payload"]
@@ -126,16 +124,12 @@ def test_existing_legitimate_writes_pass():
     from foxclaw.core.shared_write import SharedWritePolicy
     p = SharedWritePolicy(mode="audit")
 
-    # 逐条取自真实调用点(memory_adapter 之前 grep 出的 shared=True 处)
     cases = [
-        # (说明, agent_id, memory_type, tags)  —— 取自 agents.py 主管分发路径
         ("主管·多步记录",   "supervisor", "decision", ["dispatch", "multi_step", "to:office"]),
         ("主管·并行记录",   "supervisor", "decision", ["dispatch", "parallel", "to:finance"]),
         ("主管·自答记录",   "supervisor", "decision", []),
-        # 取自 base.py 偏好共享(任何 Agent 都可能执行,这里取 office 这个"最受限"的)
         ("偏好共享(办公)", "office",     "preference", ["preference"]),
         ("偏好共享(助手)", "assistant",  "preference", ["preference"]),
-        # 取自 truth_pipeline.py 真值沉淀
         ("真值沉淀",        "system",     "execution", ["truth_pipeline"]),
     ]
     bad = [(n, p.evaluate(a, t, g).reason) for n, a, t, g in cases
@@ -152,7 +146,6 @@ def test_end_to_end_mock_backend():
     be = MockHMR()
     spine = _FakeSpine()
 
-    # 不共享的写入:不该产生任何共享事件
     be.ingest("普通记忆", agent_id="office")
     check(not spine.events, "shared=False → 闸门不介入(零事件)")
 

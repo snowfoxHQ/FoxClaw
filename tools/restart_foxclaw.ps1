@@ -1,13 +1,7 @@
-# tools/restart_foxclaw.ps1
-# 杀旧进程 → 后台启新(带 --reload 自动加载源码修改) → 等 /stats 可达
-# 用法: powershell -NoProfile -File tools\restart_foxclaw.ps1
 $ErrorActionPreference = "Continue"
 
 $root = Split-Path -Parent $PSScriptRoot
 
-# 1. python 路径:优先用仓库内 .venv。
-#    此前取 PATH 里的 python,在多项目共用的机器上会落到系统环境 ——
-#    实测那套挂着 278 条已知漏洞,且版本与本项目 pyproject 毫无关系。
 $py = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
     Write-Host "[1] WARN: .venv missing, fallback to PATH python (see README quick start)"
@@ -16,7 +10,6 @@ if (-not (Test-Path $py)) {
 if (-not $py) { $py = "python" }
 Write-Host "[1] python = $py"
 
-# 2. 找 LISTENING on :8000
 Write-Host "[2] Find LISTENING on :8000"
 $targetPid = $null
 $netstatLines = netstat -ano | Select-String ":8000"
@@ -36,7 +29,6 @@ if ($targetPid) {
     Write-Host "  -> No LISTEN on :8000 (may already be down)"
 }
 
-# 3. 启服务(后台,隐藏窗口,带 --reload + 日志 redirect)
 $logDir = Join-Path $root "foxclaw_data"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $outLog = Join-Path $logDir "uvicorn.log"
@@ -59,7 +51,6 @@ Start-Process $py -ArgumentList $uviArgs `
     -RedirectStandardError  $errLog | Out-Null
 Write-Host "  -> Started, polling /stats up to 30s"
 
-# 4. 轮询 /stats 等就绪
 $ready = $false
 for ($i=0; $i -lt 15; $i++) {
     try {

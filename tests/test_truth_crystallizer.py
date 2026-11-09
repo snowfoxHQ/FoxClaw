@@ -72,13 +72,12 @@ def test_pending_bounded_no_leak():
     print("\n【3b】深审回归:持续结晶下 _pending 不无界增长(prune 已完成 Future)")
     hkc = _HKC()
     tc = TruthCrystallizer(hkc_provider=lambda: hkc, enabled=True)
-    for i in range(200):                      # 模拟长期运行:大量 truth.appended
+    for i in range(200):
         tc.on_truth(_msg({"truth": {"fact": f"事实{i}"}, "agent_id": "office"}))
-    tc.drain()                                # 等全部结晶完成
-    # 再来一发触发 prune,此时之前 200 个都已 done → 被清掉
+    tc.drain()
     tc.on_truth(_msg({"truth": {"fact": "末尾"}, "agent_id": "office"}))
     import time as _t
-    for _ in range(50):                       # 等末尾这发也完成
+    for _ in range(50):
         if all(f.done() for f in tc._pending):
             break
         _t.sleep(0.02)
@@ -95,9 +94,8 @@ def test_integration_wiring():
         from foxclaw import Foxclaw
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
         fake = _HKC()
-        os_.truth_crystallizer._hkc_provider = lambda: fake   # 换成假 HKC(不调 LLM)
+        os_.truth_crystallizer._hkc_provider = lambda: fake
         os_.truth_crystallizer.enabled = True
-        # 真值链末端事件 → 结晶器应被 Foxclaw 订阅到并触发
         os_.system_bus.publish("truth.appended",
                                {"truth": {"fact": "测试真值事实"}, "agent_id": "finance"})
         os_.truth_crystallizer.drain()

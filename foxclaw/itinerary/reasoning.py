@@ -12,14 +12,12 @@ from typing import Any, cast
 from .models import RouteLeg, TravelMode, Waypoint
 
 
-# 各出行方式的估算平均速度(km/h),接高德后用真实数据替换
 MODE_SPEED = {"walking": 5, "cycling": 15, "transit": 25, "driving": 35}
 
 
 class ItineraryReasoning:
     """行程推理:把地点+时间变成可决策的行程智能。"""
 
-    # ── 距离与可达性(直线估算)──────────────────────────
     @staticmethod
     def haversine_km(a: Waypoint, b: Waypoint) -> float:
         """两点直线距离(km)。Haversine 公式。"""
@@ -39,7 +37,7 @@ class ItineraryReasoning:
     def estimate_leg(a: Waypoint, b: Waypoint, mode: str = "driving") -> RouteLeg:
         """估算两点路线段(直线距离 × 1.3 绕路系数 / 速度)。"""
         straight = ItineraryReasoning.haversine_km(a, b)
-        road_km = straight * 1.3                       # 绕路系数
+        road_km = straight * 1.3
         speed = MODE_SPEED.get(mode, 35)
         duration = (road_km / speed) * 60 if speed else 0
         return RouteLeg(
@@ -49,7 +47,6 @@ class ItineraryReasoning:
             duration_min=round(duration, 1), source="estimated",
         )
 
-    # ── 路线优化(TSP)────────────────────────────────────
     @staticmethod
     def optimize_order(waypoints: list, mode: str = "driving",
                        fixed_start: bool = True) -> dict:
@@ -65,7 +62,6 @@ class ItineraryReasoning:
                        for i in range(len(seq)-1))
 
         if len(pts) <= 8:
-            # 精确解
             start = pts[0] if fixed_start else None
             rest = pts[1:] if fixed_start else pts
             best: list = []
@@ -78,7 +74,6 @@ class ItineraryReasoning:
             method = "exact"
             ordered = best
         else:
-            # 最近邻启发式
             remaining = pts[1:]
             ordered = [pts[0]]
             while remaining:
@@ -88,7 +83,6 @@ class ItineraryReasoning:
                 remaining.remove(nxt)
             method = "nearest_neighbor"
 
-        # 计算总距离/时间
         legs = [ItineraryReasoning.estimate_leg(ordered[i], ordered[i+1], mode)
                 for i in range(len(ordered)-1)]
         return {
@@ -100,7 +94,6 @@ class ItineraryReasoning:
             "method": method,
         }
 
-    # ── 时间冲突 + 可达性 ─────────────────────────────────
     @staticmethod
     def detect_conflicts(waypoints: list, mode: str = "driving") -> list:
         """按时间排序的行程,检测:① 时间重叠 ② 通勤赶不及。"""
@@ -110,7 +103,6 @@ class ItineraryReasoning:
         for i in range(len(timed) - 1):
             cur, nxt = timed[i], timed[i+1]
             cur_end = cur.dt + timedelta(minutes=cur.duration_min)
-            # 时间重叠
             if cur_end > nxt.dt:
                 issues.append({
                     "type": "time_conflict",
@@ -120,7 +112,6 @@ class ItineraryReasoning:
                               f"晚于「{nxt.name}」开始({nxt.dt.strftime('%H:%M')})",
                 })
                 continue
-            # 可达性:中间通勤时间够不够
             if cur.has_coord and nxt.has_coord:
                 leg = ItineraryReasoning.estimate_leg(cur, nxt, mode)
                 gap_min = (nxt.dt - cur_end).total_seconds() / 60
@@ -136,7 +127,6 @@ class ItineraryReasoning:
                     })
         return issues
 
-    # ── 地理聚类(顺路归组)───────────────────────────────
     @staticmethod
     def cluster_by_proximity(waypoints: list, radius_km: float = 3.0) -> list:
         """把相近的行程点聚成簇,建议"顺路一起办"。"""
@@ -154,9 +144,8 @@ class ItineraryReasoning:
                     cluster.append(other)
                     used.add(other.id)
             clusters.append([c.name for c in cluster])
-        return [c for c in clusters if len(c) > 1]   # 只返回有2+点的簇
+        return [c for c in clusters if len(c) > 1]
 
-    # ── 行程密度 ──────────────────────────────────────────
     @staticmethod
     def density(waypoints: list, mode: str = "driving") -> dict:
         """行程密度:总点数、总通勤、跨城。"""

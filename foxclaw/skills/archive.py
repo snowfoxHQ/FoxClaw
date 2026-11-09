@@ -11,10 +11,8 @@ import json
 import tarfile
 import zipfile
 
-MAX_TOTAL = 8 * 1024 * 1024   # 技能包是提示词文本,8MB 远超正常
+MAX_TOTAL = 8 * 1024 * 1024
 
-# 包内出现这些扩展名 → 该技能带可执行代码。foxclaw 只注入 SKILL.md、不跑脚本,
-# 该标记是给用户看的告警依据,不是执行开关。
 _CODE_EXT = (".py", ".sh", ".bash", ".ps1", ".js", ".mjs", ".cjs", ".ts",
              ".rb", ".pl", ".bat", ".cmd", ".exe")
 

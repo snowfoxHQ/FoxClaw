@@ -42,21 +42,12 @@ from typing import Iterable, Optional
 MODE_ENV = "FOXCLAW_SHARED_WRITE_MODE"
 VALID_MODES = ("audit", "warn", "enforce")
 
-# 与写入方无关、任何 Agent 都可写的 facet(设计上就该跨 Agent 共享的东西):
-#   preference     —— 用户偏好:base.py 明确以 shared=True 写入,意在跨会话跨 Agent 生效
-#   truth_pipeline —— 真值管线沉淀(truth_pipeline.py),写入方是 agent_id="system"
 GLOBAL_ALLOWED_FACETS = frozenset({"preference", "truth_pipeline"})
 
-# 各 Agent 的「职责域」允许 facet。facet 取自一次写入的 {type:<记忆类型>} ∪ tags,
-# 支持 fnmatch 通配(如 finance.* 可匹配 finance.budget)。
-#
-# 注意:这是**起始假设**,不是已验证的结论 —— 默认 audit 模式的目的正是用真实流量验证它。
 DEFAULT_SHARED_WRITE_ALLOWED = {
-    "supervisor": {"*"},      # 主管:分发/协调记录,语义上允许任意
-    "system":     {"*"},      # 系统(真值管线、后台任务)
+    "supervisor": {"*"},
+    "system":     {"*"},
     "finance":    {"finance.*"},
-    # 行政并入办公后,办公学习 Agent 同时拥有学习与行程两个写域;
-    # 助手已下放为技能(不再有独立 agent_id),不再单列 ACL 条目。
     "office":     {"learning.*", "itinerary.*", "schedule.*"},
 }
 
@@ -104,8 +95,6 @@ class SharedWritePolicy:
         m = (mode or os.environ.get(MODE_ENV, "") or "audit").strip().lower()
         return m if m in VALID_MODES else "audit"
 
-    # 纯标记类 tag:描述"这条记忆的归属/去向",不描述"内容是什么"。
-    # 让它们参与内容域匹配只会稀释策略表 —— 尤其 "shared" 在本闸门语境下恒为真,零信息量。
     _MARKER_TAGS = ("agent:", "shared")
 
     @staticmethod
@@ -170,7 +159,6 @@ def guard_shared_write(backend, agent_id: str | None, content: str,
                 "allowed": decision.allowed,
                 "reason": decision.reason,
                 "mode": decision.mode,
-                # 只留摘要哈希 + 短预览,不把共享层正文原样灌进事件流
                 "content_sha": hashlib.sha256(
                     str(content or "").encode("utf-8")).hexdigest()[:16],
                 "content_preview": str(content or "")[:60],

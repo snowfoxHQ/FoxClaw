@@ -46,11 +46,9 @@ from . import audit_chain
 ENV_SWITCH = "FOXCLAW_GOVERNANCE_AUDIT"
 TOPIC = "governance.decision"
 
-# verdict 合法取值(文档用,不做硬校验——审计不该因词汇笔误崩掉主流程)
-VERDICTS_RULING = ("allow", "warn", "deny", "confirm")   # 裁决类
-VERDICTS_EXECUTION = ("success", "failed")               # 执行类
+VERDICTS_RULING = ("allow", "warn", "deny", "confirm")
+VERDICTS_EXECUTION = ("success", "failed")
 
-# 已知层名(同上,仅文档)
 LAYERS = ("harness", "permission", "orchestration", "skill")
 
 
@@ -71,7 +69,6 @@ class GovernanceAuditor:
         self._spine = spine
         self._path = Path(sink_path) if sink_path else None
         self._lock = threading.Lock()
-        # 链尾 hash:首次落盘时从文件尾部补齐(重启后接着上一条链,而不是重开 GENESIS)
         self._last_hash: str | None = None
 
     @property
@@ -95,7 +92,7 @@ class GovernanceAuditor:
             "actor": actor,
             "action": action,
             "verdict": verdict,
-            "reason": (reason or "")[:200],          # 理由截断,防巨型异常串灌爆审计
+            "reason": (reason or "")[:200],
             "detail": detail or {},
             "ts": datetime.now(timezone.utc).isoformat(),
         }
@@ -103,7 +100,6 @@ class GovernanceAuditor:
         self._persist(rec)
         return did
 
-    # ── 内部:两个通道,各自独立 fail-safe ─────────────────────
 
     def _emit(self, rec: dict) -> None:
         if self._spine is None:

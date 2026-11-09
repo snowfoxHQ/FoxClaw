@@ -37,10 +37,8 @@ class BrowserService:
         self._executor: Optional[ThreadPoolExecutor] = None
         self._closed = False
         self._launch_error: Optional[str] = None
-        # 保护 executor/session 的创建与关闭（仅协调，不进浏览器调用）
         self._guard = threading.Lock()
 
-    # ── 能力探测 ────────────────────────────────────────────────
     @staticmethod
     def available() -> bool:
         """playwright 包是否可导入。注意：这不保证 chromium 内核已 install，
@@ -56,7 +54,6 @@ class BrowserService:
             "launch_error": self._launch_error,
         }
 
-    # ── 工作线程上运行的同步实现 ──────────────────────────────────
     def _get_executor(self) -> ThreadPoolExecutor:
         with self._guard:
             if self._closed:
@@ -92,7 +89,6 @@ class BrowserService:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._get_executor(), fn, *args)
 
-    # ── 对外 async API ─────────────────────────────────────────
     async def perceive(self) -> dict:
         """只感知当前页面语义结构，不改变页面状态。"""
         if not self.available():
@@ -110,9 +106,9 @@ class BrowserService:
             return {"ok": False, "error": "非法动作：需 {type, target?, value?}"}
         try:
             return {"ok": True, **await self._run(self._act_sync, action)}
-        except ValueError as e:  # 不支持的动作类型 / 非法编号
+        except ValueError as e:
             return {"ok": False, "error": str(e)}
-        except KeyError as e:    # 元素编号过期
+        except KeyError as e:
             return {"ok": False, "error": str(e).strip('"')}
         except Exception as e:
             return self._handle_error(e)
@@ -126,13 +122,11 @@ class BrowserService:
             executor = self._executor
         if executor is not None:
             try:
-                # 会话的 close 必须回到工作线程执行（Playwright 对象线程亲和）
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(executor, self._close_sync)
             finally:
                 executor.shutdown(wait=True)
 
-    # ── 错误/降级处理 ──────────────────────────────────────────
     def _unavailable(self) -> dict:
         return {
             "ok": False,
@@ -143,7 +137,6 @@ class BrowserService:
 
     def _handle_error(self, e: Exception) -> dict:
         msg = str(e)
-        # chromium 内核未安装是最常见的 launch 失败，给出可操作提示
         if "playwright install" in msg or "Executable doesn't exist" in msg:
             self._launch_error = msg
             return {"ok": False, "available": False,

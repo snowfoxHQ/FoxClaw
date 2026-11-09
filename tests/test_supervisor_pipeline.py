@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import foxclaw.core.web_search as ws
-ws.needs_search = lambda q: False      # 自答/兜底路径不触发联网,保持离线
+ws.needs_search = lambda q: False
 
 from foxclaw import Foxclaw
 from foxclaw.agents.base import CognitiveAgent, HarnessBlockedError
@@ -59,7 +59,7 @@ def main():
     check(_names() == EXPECTED_STAGES, f"主管 stage 序列={EXPECTED_STAGES}(实为 {_names()})")
 
     os_ = Foxclaw(data_dir=tempfile.mkdtemp(prefix="foxclaw_svpipe_"))
-    os_.router.provider = "stub"        # 共享 router,五 Agent 同源 → 全离线确定性
+    os_.router.provider = "stub"
     os_.router._client = None
     sup = os_.supervisor
 
@@ -74,7 +74,7 @@ def main():
           "返回体由 base 模板统一组装(agent/session_id/thought_summary)")
 
     print("\n【3】单 Agent 分发:返回体顶层键与旧实现逐字一致")
-    r = asyncio.run(sup.run_task("帮我做个预算分析"))       # "预算" 命中 finance
+    r = asyncio.run(sup.run_task("帮我做个预算分析"))
     res = r["result"]
     check(res.get("dispatched_to") == "finance", f"关键词命中 → finance(实为 {res.get('dispatched_to')})")
     for k in ("schedule", "plan", "process_id"):
@@ -91,7 +91,7 @@ def main():
     print("\n【5】统一 execution.completed(文稿 Step 4)")
     spine = os_.event_spine
     before = len(spine.history("execution.completed"))
-    asyncio.run(sup.run_task("同时查今天的日程、分析本月理财、总结这篇论文"))   # 并行 3 子任务
+    asyncio.run(sup.run_task("同时查今天的日程、分析本月理财、总结这篇论文"))
     evts = spine.history("execution.completed")
     new_evts = evts[before:]
     check(len(new_evts) == 1,
@@ -112,7 +112,6 @@ def main():
     new_evts = spine.history("execution.completed")[before:]
     check(len(new_evts) == 1 and new_evts[0]["payload"].get("blocked") is True,
           "被拦任务的执行事件 blocked=True → 真值链不沉淀")
-    # 还原 finance,别污染后续用例
     del os_.finance._execute
 
     print("\n【6】流式:run_task_stream 八 stage + 子 Agent token 传播 + 中断")

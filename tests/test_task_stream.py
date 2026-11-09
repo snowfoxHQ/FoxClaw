@@ -9,11 +9,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def test_task_stream():
     os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
     os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
-    os.environ["FOXCLAW_STREAM_RATE"] = "60"   # 放开限流(限流由 test_streaming 覆盖),这里只验通路
+    os.environ["FOXCLAW_STREAM_RATE"] = "60"
     os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_taskstream_")
-    # 强制 stub(离线/确定性/免费):关掉 .env,使进程环境变量成为唯一来源。
-    # (旧写法是逐个把 key 置空以依赖 load_dotenv(override=False)——但那挡不住「先 pop 再
-    #  import」的路径,也挡不住 .env 里的 FOXCLAW_MCP_SERVER 等非 key 变量。见 api.py 说明。)
     os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
     for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                "GOOGLE_API_KEY", "DASHSCOPE_API_KEY", "FOXCLAW_API_KEY"):
@@ -24,16 +21,11 @@ def test_task_stream():
     from fastapi.testclient import TestClient
     import foxclaw.api as _api
     from foxclaw.api import app
-    # pytest 同进程下,test_streaming.py 可能已把模块级流式限流桶设为 rate=1(并耗尽),
-    # 而本测试要放开限流跑两条流式通路 —— 复位桶容量/速率/余量(限流语义由 test_streaming 覆盖)。
     _api._STREAM_LIMITER.capacity = 60
     _api._STREAM_LIMITER.rate = 1.0
     _api._STREAM_LIMITER.tokens = 60.0
 
     with TestClient(app) as c:
-        # 1) 正常流式:SSE 收到 stage 进度 + act delta + 恰一个 result,无 error
-        #    拓扑 5 → 3:领域 Agent 才走 DEFAULT_STAGES(含 act),主管走路由管线
-        #    (recall→route→dispatch→aggregate),不会产出 act —— 故此处用 office。
         with c.stream("POST", "/api/task/stream",
                       json={"task": "帮我分析一下本月开销", "agent_id": "office"}) as resp:
             assert resp.status_code == 200, resp.status_code
@@ -53,9 +45,6 @@ def test_task_stream():
             assert results[0].get("agent") == "office" and "result" in results[0], results[0]
         print(f"[1] /api/task/stream SSE(stage={len(stages)} delta={len(deltas)} result=1) OK")
 
-        # 2) 【P3-3】主管不再回落领域 Agent:P1-1 pipeline 化后主管自身支持流式,
-        #    stage 事件是主管管线七阶段,result.agent=supervisor,路由结论照常(stub 无关键词
-        #    → 主管自身处理)。
         with c.stream("POST", "/api/task/stream",
                       json={"task": "随便问问", "agent_id": "supervisor"}) as resp:
             assert resp.status_code == 200, resp.status_code

@@ -28,32 +28,27 @@ class PipelineContext:
     反对的是"跨任务/并发共享可变状态"(改一半被读到不一致);ctx 不属于该反模式,可变安全。
     并发隔离由 test_pipeline.py::test_concurrent_ctx_isolation 锁定(24 并发任务零串)。
     (会话指针 _session_id/_parent_node_id 另经 contextvar 隔离,见 base.py。)"""
-    agent: Any                      # 执行本任务的 Agent(CognitiveAgent)
+    agent: Any
     task: str
     context: dict = field(default_factory=dict)
     session_id: str = ""
-    # 各 stage 逐步填充的产物
-    perceived: dict = field(default_factory=dict)   # perceive stage 的输入理解
+    perceived: dict = field(default_factory=dict)
     memories: list = field(default_factory=list)
-    plan: dict = field(default_factory=dict)        # plan stage 的任务结构(多步?并行?)
-    route: dict = field(default_factory=dict)       # route stage 的路由决策(target)
+    plan: dict = field(default_factory=dict)
+    route: dict = field(default_factory=dict)
     result: Any = None
     extra: dict = field(default_factory=dict)
-    verified: dict = field(default_factory=dict)   # verify stage 汇总的 Harness 校验结果
-    reflect: dict = field(default_factory=dict)     # reflect stage 的决策(accept/retry + 次数)
-    trace: list = field(default_factory=list)   # 逐 stage 轨迹(后续步骤 emit 用)
-    # ── 协作式中断(P3,opt-in)──────────────────────────────
-    stop_event: Any = None      # 置位则在下一 stage 边界 / reflect 重试迭代前优雅停止;默认 None=永不停
-    interrupted: bool = False   # 被 stop_event 提前中断(供调用方识别"部分完成、未跑完全部 stage")
-    # ── 【P1-1】主管路由专用字段(领域 Agent 不用,默认空)──────────
-    # 主管 pipeline(supervisor_stages.SUPERVISOR_STAGES)在 schedule/route/plan/dispatch
-    # 各 stage 间经这些字段传递路由决策;领域 Agent 的 DEFAULT_STAGES 从不读它们。
-    sched: Any = None                       # schedule stage 的 ScheduleDecision
-    target: str = ""                        # route stage 的分诊目标(子 Agent id)
-    plan_obj: Any = None                    # plan stage 的 planner 拆解结果(多步计划)
-    step_routes: list = field(default_factory=list)   # [(子任务文本, 目标 Agent)]
-    multi_agent: bool = False               # 是否跨多 Agent(顺序链式 / 并行 fork-join)
-    dispatch_result: dict = field(default_factory=dict)  # dispatch stage 的原始分发返回
+    verified: dict = field(default_factory=dict)
+    reflect: dict = field(default_factory=dict)
+    trace: list = field(default_factory=list)
+    stop_event: Any = None
+    interrupted: bool = False
+    sched: Any = None
+    target: str = ""
+    plan_obj: Any = None
+    step_routes: list = field(default_factory=list)
+    multi_agent: bool = False
+    dispatch_result: dict = field(default_factory=dict)
 
 
 def _emit_stage(ctx: "PipelineContext", stage_name: str) -> None:
@@ -96,16 +91,10 @@ class CognitivePipeline:
         回调异常被吞(fail-safe):流式反馈绝不拖垮任务执行。"""
         from foxclaw.core.tracing import span as _span
         for stage in self.stages:
-            # 协作式中断点(P3):stage **边界**检查 stop_event。opt-in——默认 stop_event=None 恒不触发,
-            # 与改前逐字一致。置位时优雅停:标记 interrupted、保留已完成 stage 的 ctx 产物、不跑后续 stage。
-            # 粒度=stage 边界:一般无法中止已在执行的单个 stage;但**流式路径(run_task_stream,D1)**下
-            # act 的 LLM 生成经 `_act_stream` 的**同一** stop_event 串到 `router.stream`,可 **token 级**
-            # 即时停 → 断连时二者协同:停后续 stage(此处)+ 停 act 生成(base._call_llm),省 token。
             if _stop_requested(ctx):
                 ctx.interrupted = True
                 break
             name = getattr(stage, "stage_name", getattr(stage, "__name__", "stage"))
-            # 单一 stage 循环 → 一处埋点覆盖全部 stage(链路里能看到 perceive→…→reflect 各自耗时)
             with _span(f"stage.{name}", agent=getattr(ctx.agent, "AGENT_ID", "")):
                 r = stage(ctx)
                 if inspect.isawaitable(r):
@@ -114,14 +103,11 @@ class CognitivePipeline:
             _emit_stage(ctx, name)
             if on_stage is not None:
                 try:
-                    on_stage(name, ctx)         # D1:逐 stage 吐进度给流式路径
+                    on_stage(name, ctx)
                 except Exception:
-                    pass                        # 流式回调故障不拖垮任务执行(fail-safe)
+                    pass
         return ctx
 
-
-# ── Stages(Step 1:recall / act)──────────────────────────────
-# stage 是操作 ctx 的可调用;命名 stage_* 便于事件与轨迹标注。
 
 @named_stage("perceive")
 def stage_perceive(ctx: PipelineContext) -> None:
@@ -153,7 +139,7 @@ def _record_plan_node(ctx: PipelineContext) -> None:
     计划节点不参与准入裁决,也不被 act 读取(见下方「informational」边界说明)。
     """
     agent = getattr(ctx, "agent", None)
-    think = getattr(agent, "_think", None)      # 轻量替身/测试 Agent 可能没有 _think
+    think = getattr(agent, "_think", None)
     if think is None:
         return
     try:
@@ -189,27 +175,10 @@ def stage_plan(ctx: PipelineContext) -> None:
         steps, flow = [task], "single"
     ctx.plan = {"steps": steps, "flow": flow, "multi_step": len(steps) > 1}
     _record_plan_node(ctx)
-# ⚠【预留·informational,不驱动执行】(2026-07-17 V3·B1 审核标注)
-# stage_plan 写 ctx.plan 供观测/审计,但**没有任何 _execute 读取它**,故不改变执行
-# (act 整段交 LLM/skill)。让 act 真按 plan 多步执行是**行为改变**,须 opt-in + 每步
-# confirm 挂起 + fail-safe(见 V2_ROADMAP「Skill 接入认知管线」),不在此顺手做。
-# (B1 自审:曾在此加 `stage_plan.informational=True` 属性,但无任何消费者=又一个死标记,
-#  已删——注释足以说明,不造没人读的假结构化标记。)
 
 
-# 默认自动派发的门槛(A·Step5,2026-07-16:从"默认关"改为"默认开但严格受限")。
-# 背景:此前 route/dispatch 双双默认关 → 工具中心/MCP 连接器/技能台**在正常对话里根本够不着**
-# (「帮我算 3+5」助手只会用 LLM 硬答,计算器技能不会被调用)。整套工具生态形同虚设。
-# 放量策略:只自动派发**只读**技能、且要求**高置信**;有副作用的(write/send/pay/destructive)
-# 一律不自动选中,仍须显式 use_skill —— 自动执行绝不越过"会改变世界"的那条线。
-# 阈值取 0.6 —— 这是**量出来的**,不是拍的。router 实测分值只有三档:
-#   0.600 强匹配(触发词直接命中,如「帮我计算…」→calculator)
-#   0.480 弱匹配(如「查下去公司的路线」→amap_route、「发邮件给张三」→gmail_send)
-#   0.000 无匹配(闲聊/写代码)
-# 故 (0.48, 0.60] 区间内的任何值都等价于"只要强匹配";再高(如 0.75)则**一个都选不中**、
-# 功能形同虚设。0.6 已是最保守的可用值 —— "比 0.6 更保守"是伪命题。
 AUTO_ROUTE_THRESHOLD = 0.6
-AUTO_ROUTE_READ_ONLY = True      # 只自动派发只读技能(有副作用的绝不自动动手)
+AUTO_ROUTE_READ_ONLY = True
 
 
 def _is_read_only(skill) -> bool:
@@ -262,28 +231,23 @@ def stage_route(ctx: PipelineContext) -> None:
         return
     reg = getattr(ctx.agent, "skill_registry", None)
     if reg is None:
-        return                      # 无工具箱(finance/admin/office)→ 保持 self
+        return
     try:
         from ..skills.pipeline import route as skill_route
         r = skill_route(ctx.task, reg)
     except Exception:
-        return                      # 选路失败不影响主流程 → 保持 self(fail-safe)
+        return
     if r.primary and r.confidence >= policy["threshold"]:
         sk = reg.get(r.primary)
-        # 只读闸:有副作用的技能(write/send/pay/destructive)**绝不自动选中**——
-        # 自动执行不得越过"会改变世界"的线;要用仍可显式 use_skill(那时用户是知情的)。
         if policy["read_only"] and sk is not None and not _is_read_only(sk):
-            return                      # 保持 self → LLM 作答,不自动动手
-        # 外泄闸:问的是**用户自己的数据**(账本/行程/学习)→ 绝不自动发给**外部**技能。
-        # 与 needs_search 共用同一判定(单一真源)。否则「查一下最新的本月支出」会把私人
-        # 财务问题自动送去外部搜索——那正是 needs_search 已挡住、却从技能这条旁路漏回来的 bug。
+            return
         if sk is not None and getattr(sk, "external", False):
             try:
                 from ..core.web_search import is_personal_query
                 if is_personal_query(ctx.task):
-                    return              # 私人问题不外发 → 保持 self
+                    return
             except Exception:
-                pass                    # 判定不可用 → 不因此放行外部技能之外的行为(保持原逻辑)
+                pass
         ctx.route = {"target": "skill", "skill_id": r.primary,
                      "confidence": round(float(r.confidence), 3),
                      "reason": f"router 选中 skill「{r.primary}」"
@@ -340,7 +304,7 @@ async def _act_via_skill(ctx: "PipelineContext"):
     reg = getattr(agent, "skill_registry", None)
     adp = getattr(agent, "skill_adapter", None)
     if reg is None or adp is None:
-        return None                       # 无工具箱(finance/admin/office)→ 回落 _execute
+        return None
     sid = (ctx.route or {}).get("skill_id")
     if not isinstance(sid, str) or not sid:
         return None
@@ -351,12 +315,10 @@ async def _act_via_skill(ctx: "PipelineContext"):
     from ..skills import set_loop_session, reset_loop_session
     args = _build_args(skill, ctx.task, {})
     confirmed = _confirmed_for(ctx.context, sid)
-    token = set_loop_session(getattr(ctx, "session_id", None))   # 循环检测按会话分槽
+    token = set_loop_session(getattr(ctx, "session_id", None))
     try:
         res = await asyncio.to_thread(adp.invoke, skill, args, confirmed)
     except Exception as e:
-        # invoke 理应自兜底(catches _dispatch 异常);万一权限评估等意外抛错 → **fail-closed**:
-        # 结构化 error 回传,**绝不回落 LLM**(路由到发邮件却让 LLM 代答=幻觉/危险),也不崩整个任务。
         return ({"skill": sid, "status": "error", "message": f"skill dispatch 异常: {e}",
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})
     finally:
@@ -364,8 +326,6 @@ async def _act_via_skill(ctx: "PipelineContext"):
     extra = {"via": "skill", "skill_id": sid, "skill_status": res.status}
     if res.success:
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)
-    # 非成功:无副作用已发生(权限门+confirmed=False保证)。结构化回传,绝不当完成、绝不回落 LLM
-    # (路由到发邮件却让 LLM 代答=危险/幻觉);needs_confirmation 待用户确认后重跑(带 _confirmed)。
     return ({"skill": sid, "status": res.status, "message": res.message,
              "pending": res.status == "needs_confirmation"}, extra)
 
@@ -403,16 +363,13 @@ def stage_verify(ctx: PipelineContext) -> None:
     except Exception:
         nodes = []
     warns = sum(1 for n in nodes if getattr(n, "harness_status", "") == "WARN")
-    deltas = [n.harness_delta for n in nodes            # get_chain 按 timestamp 升序
+    deltas = [n.harness_delta for n in nodes
               if getattr(n, "harness_delta", None) is not None]
     ctx.verified = {
-        "passed": True,                          # 未被 BLOCK
+        "passed": True,
         "nodes": len(nodes),
         "warns": warns,
-        "max_delta": round(max(deltas), 3) if deltas else 0.0,   # 全 session 峰值(信息量)
-        # last_delta = 最近一次推理的漂移(本次尝试的最终状态)。reflect 用它作重试信号——
-        # 深审修复:max_delta 是 max over 累积历史(单调不减),重试追加节点后仍是旧峰值,
-        # 会让重试永远到上限、无法因"重试改善"提前退出;last_delta 反映当前尝试,可正确早退。
+        "max_delta": round(max(deltas), 3) if deltas else 0.0,
         "last_delta": round(deltas[-1], 3) if deltas else 0.0,
     }
 
@@ -429,7 +386,7 @@ def _reflect_policy(agent, context: dict) -> dict:
     if p is True:
         p = {}
     return {"enabled": True,
-            "max_retries": int(p.get("max_retries", 1)),          # 硬上限,防成环
+            "max_retries": int(p.get("max_retries", 1)),
             "drift_threshold": float(p.get("drift_threshold", 0.5))}
 
 
@@ -444,34 +401,23 @@ async def stage_reflect(ctx: PipelineContext) -> None:
     policy = _reflect_policy(ctx.agent, ctx.context)
     decision, retries = "accept", 0
     if policy["enabled"]:
-        # 用 last_delta(当前尝试的最终漂移)作重试信号,而非 max_delta(累积峰值,单调不减)——
-        # 否则重试改善了也无法早退。重试若把漂移降到阈值内,下一轮 last_delta 达标即停止。
         while (ctx.verified.get("last_delta", 0.0) > policy["drift_threshold"]
                and retries < policy["max_retries"]):
-            # 协作式中断点(P3):每次重试都是一次 `_execute`(LLM 调用)——这里是本管线里最接近
-            # 范式"agentic loop 每轮检查中断"的地方。置位则停在下一轮 LLM 调用**之前**(省 token),
-            # 保留已有最好结果。opt-in:stop_event=None 恒不触发,重试行为逐字不变。
             if _stop_requested(ctx):
-                # 中断:decision 统一记 "interrupted",已发生的重试次数由 retries 字段承载。
-                # (B2 审核 F1:此前分 interrupted/retry_interrupted 两值,其中 retries==0 一支仅在
-                #  外部线程于"pre-reflect 边界检查"与"首个 while 检查"之间置位才可达——单线程测试无法
-                #  稳定覆盖。合并为单值消除该未覆盖分支,信息量不减: retries 已表达重试了几次。)
                 ctx.interrupted = True
                 decision = "interrupted"
                 break
-            prev_result, prev_extra = ctx.result, ctx.extra   # 重试前的最好结果
+            prev_result, prev_extra = ctx.result, ctx.extra
             try:
                 retries += 1
                 decision = "retry"
                 ctx.result, ctx.extra = await ctx.agent._execute(
                     ctx.task, ctx.context, ctx.session_id, ctx.memories)
-                stage_verify(ctx)                              # 重新汇总校验(刷新 last_delta)
+                stage_verify(ctx)
             except Exception:
-                # 重试出错(含重跑被 BLOCK)→ 回滚到上一次好结果,停止重试(不让重试变差)
                 ctx.result, ctx.extra = prev_result, prev_extra
                 decision = "retry_reverted"
                 break
-        # 重试后 last_delta 已达标 → 视为改善接受
         if decision == "retry" and ctx.verified.get("last_delta", 0.0) <= policy["drift_threshold"]:
             decision = "retry_accepted"
     ctx.reflect = {"decision": decision, "retries": retries,
@@ -479,6 +425,5 @@ async def stage_reflect(ctx: PipelineContext) -> None:
                    "final_max_delta": ctx.verified.get("max_delta", 0.0)}
 
 
-# 默认管线的 stage 序列(完整八阶段之七;persist=run_task 里的 emit + 领域 _store_memory)。
 DEFAULT_STAGES = [stage_perceive, stage_recall, stage_plan, stage_route,
                   stage_act, stage_verify, stage_reflect]

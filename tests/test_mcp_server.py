@@ -13,14 +13,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 )
 def test_mcp_server():
     os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
-    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"      # 用进程环境变量自洽测试,不加载开发机 .env
+    os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
     os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_mcpsrv_")
-    os.environ["FOXCLAW_API_KEY"] = "mcp-test-key"              # ★ 开鉴权,测真实暴露
+    os.environ["FOXCLAW_API_KEY"] = "mcp-test-key"
     os.environ["FOXCLAW_MCP_SERVER"] = "1"
     os.environ["FOXCLAW_MCP_AGENTS"] = "1"
-    os.environ["FOXCLAW_MCP_RATE_AGENT"] = "1"                  # ask_foxclaw 限 1/桶,测限流
+    os.environ["FOXCLAW_MCP_RATE_AGENT"] = "1"
     os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
-    os.environ["HF_HUB_OFFLINE"] = "1"         # 无网环境:跳过 huggingface 联网重试(否则模型加载拖 2 分钟,服务器赶不上就绪窗口)
+    os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     import uvicorn
     import httpx
@@ -35,13 +35,12 @@ def test_mcp_server():
                      daemon=True).start()
     for _ in range(60):
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2); break   # /health 开放
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2); break
         except urllib.error.HTTPError:
             break
         except Exception:
             time.sleep(1)
 
-    # [0] 防后门:设了 key,不带/错 key 访问 /api/mcp/ 必须 401(未被鉴权绕过)
     with httpx.Client(timeout=8) as c:
         body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
         hdr = {"Accept": "application/json, text/event-stream"}
@@ -55,7 +54,6 @@ def test_mcp_server():
     async def probe():
         from mcp.client.streamable_http import streamablehttp_client
         from mcp import ClientSession
-        # 带正确 key 连接
         async with streamablehttp_client(f"http://127.0.0.1:{PORT}/api/mcp/",
                                          headers={"X-API-Key": KEY}) as (r, w, _):
             async with ClientSession(r, w) as s:
@@ -64,7 +62,7 @@ def test_mcp_server():
                 assert tools == {"knowledge_search", "knowledge_get", "memory_recall", "ask_foxclaw"}, tools
                 print("[1] 带key initialize + list_tools(3 只读 + ask_foxclaw) OK")
 
-                res = await s.call_tool("knowledge_search", {"query": "anything", "top_k": 999999})  # 试超大 top_k(应被钳制不崩)
+                res = await s.call_tool("knowledge_search", {"query": "anything", "top_k": 999999})
                 assert res.content is not None
                 print("[2] knowledge_search 可调 + top_k 钳制不崩 OK")
 
@@ -82,7 +80,6 @@ def test_mcp_server():
                 assert "dispatched_to" in txt or "reply" in txt or "error" in txt, txt
                 print("[5] ask_foxclaw Agent 调度可调(返回 reply/dispatched_to) OK")
 
-                # [6] 限流:agent 桶设 1,上面已消耗 → 再调应被限流
                 res = await s.call_tool("ask_foxclaw", {"task": "再来一次"})
                 txt = res.content[0].text if res.content else ""
                 assert "rate limited" in txt, f"限流未生效: {txt}"

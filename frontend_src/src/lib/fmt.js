@@ -1,7 +1,4 @@
-/* 7 个面板共用的时间/数字格式化。集中一份,避免每个组件各写一遍还写得不一样。 */
 
-/* 后端时间戳三种形态都有:秒 float(事件总线)、毫秒 int、ISO 字符串(记忆 created_at)。
-   字符串交给 Date 自己解析,数字按量级判断。 */
 function toDate(ts) {
   if (!ts) return null
   if (typeof ts === 'string') {
@@ -41,7 +38,6 @@ export function fmtMs(ms) {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`
 }
 
-/* 截断到 n 个字符(中文按 1 计),用于行内摘要 */
 export function clip(s, n = 46) {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim()
   return t.length > n ? t.slice(0, n) + '…' : t

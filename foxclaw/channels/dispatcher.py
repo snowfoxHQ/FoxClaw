@@ -27,7 +27,7 @@ class ChannelDispatcher:
         """
         self.supervisor = supervisor
         self.registry = registry or ChannelRegistry()
-        self._pending: set = set()    # 持有运行中的 task 引用,防止被 GC 回收
+        self._pending: set = set()
         if idempotency is None:
             from ..core.idempotency import IdempotencyGuard
             idempotency = IdempotencyGuard(ttl_seconds=3600)
@@ -61,23 +61,18 @@ class ChannelDispatcher:
             running = None
 
         if running is not None:
-            # 在异步环境:发任务 + 持有引用(防止无引用 task 被 GC 静默回收)
             task = running.create_task(self.handle(msg))
             self._pending.add(task)
             task.add_done_callback(self._pending.discard)
         else:
-            # 同步环境(轮询渠道):跑到完成,调用方得到完整处理结果
             asyncio.run(self.handle(msg))
 
     async def handle(self, msg: InboundMessage) -> dict:
         """处理一条入站消息:主管思考 → 回复原渠道。返回处理结果。"""
-        # 幂等检查:同一渠道+消息ID只处理一次(防平台重发/轮询游标边界导致重复回复)
         from ..core.idempotency import make_key
         if msg.message_id:
             idem_key = make_key("message", msg.channel, msg.message_id, msg.sender_id)
         else:
-            # 无稳定 message_id 的渠道/消息:用 渠道+发送者+内容+时间窗(10秒)
-            # 算 fallback key——退化但仍能挡住短时间内的重发,不留盲区。
             import time as _t
             window = int(_t.time() // 10)
             idem_key = make_key("message_fallback", msg.channel, msg.sender_id,
@@ -86,7 +81,6 @@ class ChannelDispatcher:
             return {"handled": True, "replied": False, "reason": "重复消息,已跳过",
                     "idempotent_skip": True}
 
-        # 交给主管处理,带上渠道上下文(便于主管知道来源)
         context = {
             "channel": msg.channel,
             "session_id": self._session_key(msg),
@@ -94,14 +88,7 @@ class ChannelDispatcher:
             "sender_name": msg.sender_name,
             "is_group": msg.is_group,
         }
-        # 渠道入站文本来自外部(Telegram/Discord/…),默认按**不可信数据**处理:
-        # 此前 msg.text 原样当任务喂主管,等于把任意外部聊天用户当指令源(无发送者
-        # 白名单、无 <untrusted> 包裹)。可信发送者用 FOXCLAW_CHANNEL_TRUSTED_SENDERS
-        # 显式声明,逗号分隔,支持 `sender_id` 或 `channel:sender_id`,`*` 为该渠道全信任。
         context["sender_trusted"] = self._sender_trusted(msg)
-        # 下传给权限判定:不可信来源驱动的任务里,写/发送/外发动作一律按「已接触敏感数据」
-        # 处理(见 agents/_context._untrusted_get → tool_exec._guard_tool / skillbox)。
-        # 只影响带此键的入口(渠道),本地 HTTP 对话不带 → 行为不变。
         context["untrusted_source"] = not context["sender_trusted"]
         text = msg.text
         if not context["sender_trusted"]:
@@ -114,12 +101,10 @@ class ChannelDispatcher:
         except Exception as e:
             result = {"error": f"主管处理失败: {e}"}
 
-        # 提取回复文本
         reply_text = self._extract_reply(result)
         if not reply_text:
             return {"handled": True, "replied": False, "reason": "无回复内容"}
 
-        # 通过原渠道回复
         adapter = self.registry.get(msg.channel)
         if adapter is None:
             return {"handled": True, "replied": False, "reason": f"渠道 {msg.channel} 未注册"}
@@ -141,9 +126,6 @@ class ChannelDispatcher:
             return False
         sid = str(getattr(msg, "sender_id", "") or "")
         chan = str(getattr(msg, "channel", "") or "")
-        # 裸 `*` 曾等于「所有渠道的所有发送者都可信」——一次手滑就把任意外部聊天用户提成
-        # 指令源,而列表里看不出它比 channel:sender_id 宽多少。现在必须二选一:
-        # 写 `channel:*`(限定渠道,推荐),或用 FOXCLAW_CHANNEL_TRUST_ALL=1 显式确认全局信任。
         trust_all = _os.environ.get("FOXCLAW_CHANNEL_TRUST_ALL", "").strip() in ("1", "true", "True")
         for item in (x.strip() for x in raw.split(",")):
             if not item:
@@ -169,16 +151,12 @@ class ChannelDispatcher:
             return str(result) if result else ""
 
         inner = result.get("result")
-        # 情况1:result 直接是字符串
         if isinstance(inner, str) and inner.strip():
             return inner
-        # 情况2:result 是嵌套字典(主管分诊结果)
         if isinstance(inner, dict):
-            # 单 Agent:sub_result
             sub = inner.get("sub_result")
             if isinstance(sub, str) and sub.strip():
                 return sub
-            # 多 Agent:拼接每步输出
             steps = inner.get("multi_steps")
             if isinstance(steps, list) and steps:
                 parts = []
@@ -188,17 +166,14 @@ class ChannelDispatcher:
                         parts.append(str(out))
                 if parts:
                     return "\n\n".join(parts)
-            # 元问题自答等:answer / summary
             for k in ("answer", "summary", "response"):
                 v = inner.get(k)
                 if isinstance(v, str) and v.strip():
                     return v
-        # 情况3:顶层的 summary/response/output
         for key in ("summary", "response", "output"):
             val = result.get(key)
             if isinstance(val, str) and val.strip():
                 return val
-        # 出错兜底
         if result.get("error"):
             return f"抱歉,处理时遇到问题:{result['error']}"
         return ""

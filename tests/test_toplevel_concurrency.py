@@ -70,7 +70,6 @@ def test_same_instance_concurrent(os_):
         per[sid] = per.get(sid, 0) + 1
     cross = sum(1 for _id, sid, p in rows for par in json.loads(p)
                 if par in sid_of and sid_of[par] != sid)
-    # goal 归属:每个返回会话的 goal 节点含本任务标记
     ok_goal = 0
     for i, r in enumerate(res):
         g = con.execute("SELECT content FROM thought_nodes WHERE session_id=? "
@@ -90,9 +89,9 @@ def test_supervisor_concurrent(os_):
 
     async def run():
         return await asyncio.gather(
-            sup.run_task("分析本月理财预算"),      # → finance
-            sup.run_task("总结这篇论文的要点"),    # → office(学习)
-            sup.run_task("你能做什么"),            # 元问题 → supervisor 自答
+            sup.run_task("分析本月理财预算"),
+            sup.run_task("总结这篇论文的要点"),
+            sup.run_task("你能做什么"),
         )
     res = asyncio.run(run())
     routed = [r["result"].get("dispatched_to") for r in res]

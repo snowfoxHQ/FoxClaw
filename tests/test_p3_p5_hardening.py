@@ -30,7 +30,6 @@ def check(cond, label):
         print(f"  ✗ {label}")
 
 
-# 测试环境自洽:不读 .env,不打外部 API,不写真实数据目录(在任何 foxclaw import 之前)
 os.environ["FOXCLAW_SKIP_DOTENV"] = "1"
 os.environ.setdefault("FOXCLAW_EMBEDDING_MODEL", "foxclaw-nonexistent-fast")
 os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_b7_")
@@ -39,7 +38,6 @@ for _k in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
     os.environ[_k] = ""
 
 
-# ═══════════════ [1][2] P3-1 / P3-8 辅助函数行为 ═══════════════
 def test_helpers():
     print("\n【1】P3-1:_constant_time_eq 常量时间比较")
     from foxclaw.api import _constant_time_eq, _is_guarded_path
@@ -60,7 +58,6 @@ def test_helpers():
     check(_is_guarded_path("/docs") is False, "/docs 不受保护")
 
 
-# ═══════════════ [3] P3-1+P3-8 接线防退化(源码级) ═══════════════
 def test_wiring_source():
     print("\n【3】P3-1+P3-8 接线防退化:中间件/WS 统一走辅助函数(源码级断言)")
     import foxclaw.api as api_mod
@@ -83,7 +80,6 @@ def test_wiring_source():
     check("provided != api_key" not in src_ws, "WS 端点无残留 !=")
 
 
-# ═══════════════ [4] P3-7 isinstance 异常分类 ═══════════════
 def _run_ability_with(exc):
     """用抛指定异常的假 HKC 驱动 knowledge_ability 端点,返回 (status, body)。"""
     import foxclaw.api as api_mod
@@ -115,12 +111,10 @@ def test_ability_isinstance():
 
     check(api_mod._HKCInsuffCov is not None, "vendor 下 hkc_sdk.exceptions 可 import")
 
-    # a) 真 HKCInsufficientCoverage → 证据 gate(sufficient=False,非 404)
     from hkc_sdk.exceptions import HKCInsufficientCoverage
     try:
         raise HKCInsufficientCoverage("覆盖不足测试")
     except HKCInsufficientCoverage as e:
-        # 尽量补上端点要读的属性(不同版本构造签名可能不同)
         if not hasattr(e, "missing_skills"):
             e.missing_skills = ["s1"]
         if not hasattr(e, "coverage"):
@@ -129,7 +123,6 @@ def test_ability_isinstance():
     check(status == 200 and body.get("sufficient") is False,
           f"真 HKC 覆盖不足 → 证据 gate(实为 {status}: {str(body)[:80]})")
 
-    # b) 【精确化核心价值】带 missing_skills 属性的**非 HKC** 异常 → 404,不被误吞
     class _FakeInsuff(Exception):
         def __init__(self):
             super().__init__("鸭子异常")
@@ -140,7 +133,6 @@ def test_ability_isinstance():
     check(status == 404,
           f"isinstance 模式:鸭子异常不再误判为覆盖不足(实为 {status})")
 
-    # c) 回退:_HKCInsuffCov=None(模拟缺 vendor)时 hasattr 鸭子判断仍工作
     old = api_mod._HKCInsuffCov
     api_mod._HKCInsuffCov = None
     try:
@@ -153,7 +145,6 @@ def test_ability_isinstance():
         api_mod._HKCInsuffCov = old
 
 
-# ═══════════════ [5][6] P3-5 blocked 短路 + P3-0 system 归因 ═══════════════
 class _MockHMR:
     def __init__(self):
         self.calls = []
@@ -210,7 +201,6 @@ def test_truth_system_attribution():
     check(kw.get("shared") is True, "仍写共享层")
 
 
-# ═══════════════ [7] P3-6/P4-1 SystemBus exact ═══════════════
 def test_system_bus_exact():
     print("\n【7】P3-6/P4-1:SystemBus exact 参数")
     from foxclaw.core.system_bus import SystemBus
@@ -252,7 +242,6 @@ def test_system_bus_exact():
           f"前缀事件 execution.completed.extra 不触发真值链(沉淀 {len(hmr4.calls)} 次)")
 
 
-# ═══════════════ [8] P5-3 _transition 终态守卫 ═══════════════
 def test_transition_terminal_guard():
     print("\n【8】P5-3:ProcessManager._transition 终态守卫")
     from foxclaw.kernel.process_manager import ProcessManager
@@ -261,12 +250,10 @@ def test_transition_terminal_guard():
     pm.mark_running(rec.process_id)
     pm.mark_completed(rec.process_id)
     n = pm.active_count()
-    # 终态再 _transition(模拟未来新增的直接调用点)→ 幂等忽略
     pm._transition(rec, "failed")
     check(rec.state == "completed", "终态再流转 → 状态不变")
     check(pm.active_count() == n, "终态再流转 → 活跃计数不重复 -1")
     check(rec.state_history.count("completed") == 1, "终态再流转 → 历史不追加")
-    # 非终态的非法跳转仍 fail-fast(行为不变)
     rec2 = pm.create("t2")
     rec2.state = "created"
     try:
@@ -276,7 +263,6 @@ def test_transition_terminal_guard():
         check(True, "非终态非法跳转(created→completed)仍抛 ValueError")
 
 
-# ═══════════════ [9] P5-1 reason_code ═══════════════
 def test_reason_code():
     print("\n【9】P5-1:PermissionDecision.reason_code 分类")
     from foxclaw.skills import SkillSpec

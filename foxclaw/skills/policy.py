@@ -12,19 +12,15 @@ class SkillPolicy:
     def __init__(self, data_dir):
         self._path = Path(data_dir) / "skill_policy.json"
         self._lock = threading.RLock()
-        self._deny: set = set()    # user 层:运行时可 deny/undeny,持久化到 skill_policy.json
-        self._allow: set = set()   # 空 = 全放行
-        # E1 分层:policy 层 deny(管理员锁定,env FOXCLAW_POLICY_DENY + <data_dir>/policy.json)。
-        # 与 user 层物理分开、不写回 skill_policy.json;**不可被 undeny 撤销**。默认空 = 现状。
+        self._deny: set = set()
+        self._allow: set = set()
         from ..core.config import LayeredConfig, load_policy_layer
         policy_layer = load_policy_layer(data_dir)
-        # user 层传 self._deny(set 引用)→ 运行时增删被 merged_set 实时反映,无需重建 LayeredConfig
         self._layers = LayeredConfig(policy=policy_layer, user={"deny": self._deny})
         self._load()
 
     def is_blocked(self, skill_id: str) -> bool:
         with self._lock:
-            # deny = policy 层 ∪ user 层(只增不减);deny 压倒 allow
             if skill_id in self._layers.merged_set("deny"):
                 return True
             if self._allow and skill_id not in self._allow:
@@ -39,7 +35,7 @@ class SkillPolicy:
     def undeny(self, skill_id: str) -> bool:
         with self._lock:
             if skill_id in self._layers.policy_locked("deny"):
-                return False       # E1:policy 层为管理员锁定,用户 undeny 无效(deny 铁律)
+                return False
             existed = skill_id in self._deny
             self._deny.discard(skill_id)
         self._save()
@@ -53,15 +49,13 @@ class SkillPolicy:
     def snapshot(self) -> dict:
         with self._lock:
             return {"deny": sorted(self._deny), "allow": sorted(self._allow),
-                    "policy_deny": sorted(self._layers.policy_locked("deny"))}  # E1:管理员锁定项(只读)
+                    "policy_deny": sorted(self._layers.policy_locked("deny"))}
 
     def _load(self):
         if not self._path.exists():
             return
         try:
             d = json.loads(self._path.read_text(encoding="utf-8"))
-            # 就地更新 self._deny(不重新赋值!)——LayeredConfig.user 持有本 set 的引用,
-            # 重新赋值会断开引用,导致从盘加载的 user deny 不被 merged_set 反映(E1 集成的坑)。
             self._deny.clear()
             self._deny.update(d.get("deny") or [])
             self._allow = set(d.get("allow") or [])

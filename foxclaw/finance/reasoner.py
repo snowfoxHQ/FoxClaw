@@ -13,14 +13,11 @@ from ..cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
 class FinanceGatekeeperReasoner(DomainReasoner):
     """subject = (txn, account_balance)。"""
 
-    # Step3:LLM 只裁决"逼近阈值"的模糊带 [band×阈值, 阈值)——低于此=明显安全(省成本),
-    # 高于阈值=规则已触发确认(不在本路径)。
     AMBIGUITY_BAND = 0.7
 
     def __init__(self, policy, runtime=None, llm=None, llm_enabled: bool = False):
         self.policy = policy
-        self.runtime = runtime      # 可选:FinanceRuntime,用于 Step2 的情境证据(历史/预算/频率)
-        # Step3:模糊情形的 LLM 裁决器(可选、默认关)。llm 需有 complete(system,messages)->str + is_stub。
+        self.runtime = runtime
         self.llm = llm
         self.llm_enabled = bool(llm_enabled) and llm is not None and not getattr(llm, "is_stub", True)
 
@@ -39,12 +36,11 @@ class FinanceGatekeeperReasoner(DomainReasoner):
 
     def gather_evidence(self, subject, obs: dict) -> list:
         txn, bal = subject
-        verdicts = self.policy.evaluate_transaction(txn, bal)   # 规则=裁决证据(raw 非空)
+        verdicts = self.policy.evaluate_transaction(txn, bal)
         ev = [Evidence(factor=v.rule_id, detail=v.message, weight=1.0, raw=v)
               for v in verdicts]
         if not verdicts:
             ev.append(Evidence(factor="rules_clear", detail="未触发任何财务规则", weight=0.5))
-        # Step2:结构化情境证据(informational,raw=None → **不参与裁决**,只让证据链更丰满)
         ev += self._context_evidence(txn)
         return ev
 
@@ -79,15 +75,12 @@ class FinanceGatekeeperReasoner(DomainReasoner):
     def arbitrate(self, subject, obs: dict, hyps: list, ev: list) -> ReasonedVerdict:
         triggered = [e.raw for e in ev if e.raw is not None]
         if triggered:
-            # 【硬约束权威】规则触发 → 规则说了算(reject/confirm),**绝不问 LLM**。
             actions = [v.action for v in triggered]
             decision = "reject" if ("veto" in actions or "freeze" in actions) else "confirm"
             return ReasonedVerdict(decision, " / ".join(v.message for v in triggered),
                                    ev, hyps, "rules")
-        # 规则批准:若"逼近阈值"的模糊情形且启用了 LLM,让 LLM 就证据复核(**只能 approve/confirm**)。
         if self.llm_enabled and self._is_ambiguous(obs):
             return self._llm_arbitrate(obs, hyps, ev)
-        # 明显安全 / 未启用 LLM → 规则批准(rationale 与原守门人逐字一致)
         return ReasonedVerdict(
             "approve", f"财务批准:{obs['category']} 预算 {obs['amount']} 在规则内",
             ev, hyps, "rules")
@@ -102,7 +95,7 @@ class FinanceGatekeeperReasoner(DomainReasoner):
         thr = self._large_threshold()
         if thr <= 0 or not obs.get("is_expense"):
             return False
-        return self.AMBIGUITY_BAND * thr <= obs["amount"] < thr   # 逼近阈值但未触发规则
+        return self.AMBIGUITY_BAND * thr <= obs["amount"] < thr
 
     def _llm_arbitrate(self, obs: dict, hyps: list, ev: list) -> ReasonedVerdict:
         """【安全不变量】只在"规则已批准"的模糊情形被调;**只能返回 approve 或 confirm**,
@@ -124,6 +117,5 @@ class FinanceGatekeeperReasoner(DomainReasoner):
             return ReasonedVerdict(
                 "approve", f"财务批准:{obs['category']} 预算 {obs['amount']}(LLM 复核无异常)",
                 ev, hyps, "llm")
-        # 响应不明 → fail-safe(绝不因 LLM 含糊而自动放行)
         return ReasonedVerdict("confirm", "LLM 响应不明,保守转确认(fail-safe)",
                                ev, hyps, "llm_failsafe")

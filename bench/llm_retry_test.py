@@ -19,8 +19,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'vendor'))
 from hkc.hkc_kde.extractor import Extractor
 
 
-# ── Mock 异常类型 ────────────────────────────────────
-
 class FakeResponse:
     def __init__(self, headers=None):
         self.headers = headers or {}
@@ -53,7 +51,6 @@ class FakeRateLimitName(Exception):
     """模拟 openai.RateLimitError(type name 含 'RateLimit',无 status_code)"""
     def __init__(self, msg="rate"):
         super().__init__(msg)
-        # 不设 status_code;靠 type name 'RateLimit' 识别
 
 
 class FakeValueError(Exception):
@@ -63,9 +60,6 @@ class FakeValueError(Exception):
         self.status_code = 400
 
 
-# ── 测试实例化 ───────────────────────────────────────
-# KnowledgeExtractor __init__ 不调 LLM,只是记 provider/model 配置
-# _retry_llm 是 instance method,任意实例都能调
 ext = Extractor(provider="mock", model="mock-model")
 
 
@@ -133,8 +127,8 @@ def t3_429_exhaust():
             assert False, "应该 raise"
         except Fake429Error:
             pass
-        assert calls[0] == 4  # 1 + 3 retries
-        assert len(sleeps) == 3  # 3 次 retry 才 sleep
+        assert calls[0] == 4
+        assert len(sleeps) == 3
         print("  3. 429 4 次后 raise (1+3 retry): PASS, calls={}, sleeps={}".format(calls[0], sleeps))
     finally:
         restore_sleep(ex, original)
@@ -207,7 +201,6 @@ def t8_backoff():
             ext._retry_llm(func, max_retries=3, base_delay=1.0, max_delay=3.0)
         except Fake429Error:
             pass
-        # 3 次 retry:sleeps = [1, 2, 3] (4 cap at max_delay=3)
         assert sleeps == [1.0, 2.0, 3.0], f"expected [1,2,3], got {sleeps}"
         print("  8. 退避 1→2→3 (max_delay cap): PASS, sleeps={}".format(sleeps))
     finally:

@@ -15,16 +15,10 @@ import foxclaw.api as _api
 from .. import app
 
 
-# ============ AHS 执行链(Agent Harness Skills 标准)============
-
 class AHSRunPayload(BaseModel):
     task: str
     confirmed: bool = False
-    # 【P2-2】断点续跑:传上次响应里的 pending_confirmation(确认后连 confirmed=True 一起传)。
-    # Optional:pydantic v2 下 dict=None 字段收到显式 null 会 422,必须 Optional。
     resume_state: Optional[dict] = None
-    # 【P1】关键操作(send/pay/destructive)二次确认码:上次响应 pending_confirmation.confirm_nonce。
-    # 单次使用、绑定 skill+参数、默认 5 分钟过期。也可直接放在 resume_state 里,二者等价。
     confirm_nonce: str = ""
 
 
@@ -71,23 +65,21 @@ class SkillInstallPayload(BaseModel):
     id: str
     name: str
     description: str = ""
-    kind: str                                  # 只允许 "web_api" | "mcp"
+    kind: str
     triggers: list = []
-    side_effect: str = "write"                 # read/write/send/pay;不传按有副作用(会要求确认)
+    side_effect: str = "write"
     destructive: bool = False
     external: bool = True
     params: dict = {}
-    # web_api
     endpoint: str = ""
     http_method: str = "GET"
     http_headers: dict = {}
     param_location: str = "auto"
     allow_local: bool = False
     timeout: float = 10.0
-    # mcp
     mcp_server: str = ""
     mcp_tool: str = ""
-    acknowledged: bool = False                 # warn 级风险,用户确认后置 true
+    acknowledged: bool = False
 
 
 class SkillPatchPayload(BaseModel):
@@ -98,9 +90,6 @@ class SkillTestPayload(BaseModel):
     args: dict = {}
     confirmed: bool = False
     mode: str = "strict"
-    # 关键操作(send/pay/destructive)的二次确认码:上次响应里的 confirm_nonce。
-    # 宿主注入了 confirms(见 foxclaw/__init__.py)时,confirmed=True 只有配有效 nonce
-    # 才放行 —— 原先这个端点收不到 nonce,界面上点「确认」永远退回 needs_confirmation。
     confirm_nonce: str = ""
 
 
@@ -140,7 +129,7 @@ async def ahs_install_skill(p: SkillInstallPayload):
         param_location=p.param_location, allow_local=p.allow_local, timeout=p.timeout,
         mcp_server=p.mcp_server, mcp_tool=p.mcp_tool, source="user",
     )
-    verdict = review_install(spec)                       # 安装审核门
+    verdict = review_install(spec)
     if verdict["verdict"] == "deny":
         raise HTTPException(403, detail={"error": "install_denied", "reasons": verdict["reasons"]})
     if verdict["verdict"] == "warn" and not p.acknowledged:
@@ -183,7 +172,6 @@ async def ahs_test_skill(skill_id: str, p: SkillTestPayload):
     sp = reg.get(skill_id)
     if sp is None:
         raise HTTPException(404, "技能不存在")
-    # 阻塞 I/O(web_api httpx / mcp 桥,最长数十秒)放线程池,勿堵死事件循环(否则慢工具冻全站)
     res = await asyncio.to_thread(_api.os_instance().skill_adapter.invoke,
                                   sp, p.args, p.confirmed, p.mode,
                                   confirm_nonce=p.confirm_nonce)
@@ -195,7 +183,7 @@ class McpServerPayload(BaseModel):
     name: str = ""
     url: str
     headers: dict = {}
-    transport: str = "streamable_http"     # streamable_http | sse
+    transport: str = "streamable_http"
     acknowledged: bool = False
 
 
@@ -218,10 +206,9 @@ async def mcp_add_server(p: McpServerPayload):
     sentinel = getattr(_api.current_os(), "sentinel", None)
     try:
         if sentinel is not None:
-            # 守门人模式:headers 只在这次调用经手,发现由守门人代执行,主进程只存元数据。
             tools = await asyncio.to_thread(_api.os_instance().mcp_add_server_guardian, cfg)
         else:
-            tools = await asyncio.to_thread(_api.os_instance().mcp_manager.add_server, cfg)  # 桥阻塞→线程池
+            tools = await asyncio.to_thread(_api.os_instance().mcp_manager.add_server, cfg)
             _api.os_instance().mcp_store.save(_api.os_instance().mcp_manager.servers())
     except Exception as e:
         raise HTTPException(502, f"连接 MCP server 失败: {e}")
@@ -230,7 +217,7 @@ async def mcp_add_server(p: McpServerPayload):
     for tool in tools:
         reg.register(tool_to_spec(p.id, tool)); n += 1
     _api.os_instance().skill_store.save(reg)
-    _api.os_instance().sync_mcp_servers_to_sentinel()   # 元数据同步;守门人已持有 headers
+    _api.os_instance().sync_mcp_servers_to_sentinel()
     return {"ok": True, "server": {k: cfg[k] for k in ("id", "name", "url", "transport")},
             "tools_registered": n, "warnings": verdict["warnings"]}
 
@@ -261,7 +248,7 @@ async def mcp_remove_server(server_id: str):
         reg.unregister(sid)
     _api.os_instance().skill_store.save(reg)
     _api.os_instance().mcp_store.save(mgr.servers())
-    _api.os_instance().sync_mcp_servers_to_sentinel()   # 配置(含凭证)同步给守门人
+    _api.os_instance().sync_mcp_servers_to_sentinel()
     return {"ok": True, "removed_skills": len(removed)}
 
 
@@ -275,9 +262,9 @@ async def mcp_refresh_server(server_id: str):
     sentinel = getattr(_api.current_os(), "sentinel", None)
     try:
         if sentinel is not None:
-            tools = await asyncio.to_thread(sentinel.mcp_list_tools, server_id)  # 守门人代发现(失败抛异常)
+            tools = await asyncio.to_thread(sentinel.mcp_list_tools, server_id)
         else:
-            tools = await asyncio.to_thread(mgr.list_tools, server_id)  # 桥阻塞→线程池
+            tools = await asyncio.to_thread(mgr.list_tools, server_id)
     except Exception as e:
         raise HTTPException(502, f"刷新失败: {e}")
     reg = _api.os_instance().skill_registry
@@ -293,14 +280,14 @@ async def mcp_refresh_server(server_id: str):
 
 class MdSkillPayload(BaseModel):
     content: str = ""
-    package_b64: str = ""            # OpenClaw 包(zip)的 base64;有则优先,解包取 SKILL.md
+    package_b64: str = ""
     id: str = ""
     acknowledged: bool = False
 
 
 class MdSkillPatchPayload(BaseModel):
     enabled: bool | None = None
-    triggers: list | None = None            # 改触发词(免解压重打包);None=不动
+    triggers: list | None = None
 
 
 @app.post("/api/ahs/md-skills")
@@ -384,7 +371,6 @@ async def ahs_run(payload: AHSRunPayload):
     【P1】关键操作还需带 confirm_nonce(响应里的 pending_confirmation.confirm_nonce);
     缺/错/过期 → 仍返回 pending_confirmation 并换发新码,不会执行。"""
     from foxclaw.skills import set_loop_session, reset_loop_session
-    # 循环检测按执行链分槽:断点续跑复用同一 task_id,否则每次请求独立(消除跨请求污染)
     sid = (payload.resume_state or {}).get("task_id") or f"ahs_{uuid.uuid4().hex[:8]}"
     token = set_loop_session(sid)
     try:

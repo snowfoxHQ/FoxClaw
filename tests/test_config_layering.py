@@ -9,7 +9,6 @@ def test_config_layering():
 
     from foxclaw.core.config import LayeredConfig, load_policy_layer
 
-    # 1) LayeredConfig:标量高层覆盖;集合三层并集(只增不减);policy_locked
     cfg = LayeredConfig(policy={"model": "P", "deny": ["a"]},
                         user={"model": "U", "deny": ["b"]},
                         runtime={"model": "R", "deny": ["c"], "x": 1})
@@ -19,7 +18,6 @@ def test_config_layering():
     assert cfg.policy_locked("deny") == {"a"}, "policy 层锁定项"
     print("[1] LayeredConfig 标量覆盖 + 集合并集 + policy_locked OK")
 
-    # 2) load_policy_layer:env + policy.json 合并;默认空
     d = tempfile.mkdtemp(prefix="e1_")
     try:
         os.environ["FOXCLAW_POLICY_DENY"] = "gmail_send, danger_tool"
@@ -28,7 +26,6 @@ def test_config_layering():
         assert set(pl["deny"]) == {"gmail_send", "danger_tool", "file_delete"}, pl
         print(f"[2] load_policy_layer(env + policy.json) = {pl['deny']} OK")
 
-        # 3) SkillPolicy:policy 层 deny 生效 + undeny 撤不掉 + 从盘 user deny 生效(引用未断) + user 可撤
         (Path(d) / "skill_policy.json").write_text(
             json.dumps({"deny": ["user_denied"], "allow": []}), encoding="utf-8")
         from foxclaw.skills.policy import SkillPolicy
@@ -45,7 +42,6 @@ def test_config_layering():
         os.environ.pop("FOXCLAW_POLICY_DENY", None)
         shutil.rmtree(d, ignore_errors=True)
 
-    # 4) behavior-preserving:无 policy 层(无 env、无 policy.json)→ SkillPolicy 行为 = 现状
     d2 = tempfile.mkdtemp(prefix="e1b_")
     try:
         from foxclaw.skills.policy import SkillPolicy

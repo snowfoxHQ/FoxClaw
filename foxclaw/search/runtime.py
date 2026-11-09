@@ -69,17 +69,11 @@ class SearchRuntime:
     def __init__(self, hmr=None, knowledge_port=None, agent_port=None,
                  external_ports: list | None = None):
         self.hmr = hmr
-        # knowledge_port 由 foxclaw/__init__.py 在启动时构造好传进来
-        # (进程内直连的 HKCReadPort)。这里不做任何自动连接/默认值——
-        # 连不连 HKC、怎么连，是 Foxclaw 启动流程的事，不是 SearchRuntime 的事。
         self.knowledge_port = knowledge_port
-        # agent_port:内部搜索的「Agent」源(领域内核 + 推理链 + 各Agent记忆 + 能力/状态),
-        # 同样由 Foxclaw 启动时用各持有方引用构造好传进来。
         self.agent_port = agent_port
         self.planner = QueryPlanner()
         self.fusion = EvidenceFusion()
         self.strategy = SearchStrategy()
-        # 外部端口(联网)面向 AI/Agent:是证据/工具管线的一环,不是给人的搜索框。
         self.external_ports = (
             external_ports if external_ports is not None else [BaiduWebSearchPort()]
         )
@@ -101,7 +95,6 @@ class SearchRuntime:
         trace: list[str] = []
         plan = self.planner.plan(query, context)
         if internal_only and plan.route == RouteType.EXTERNAL:
-            # 只查内部时,把纯外部路由拉回内部,保证内部三源(记忆/知识/Agent)被检索
             plan.route = RouteType.INTERNAL
             trace.append("[internal_only] 路由改写为 HSR-I(仅内部)")
         trace.append(f"[plan] {plan.reasoning}")

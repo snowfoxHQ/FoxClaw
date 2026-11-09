@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from foxclaw.core.memory_adapter import create_memory_backend
 
 QUERY = "quarterly revenue growth and budget forecast analysis"
-N_FINANCE = 55           # > 老路径 fetch_k(50),< 压缩阈值(同类型 80)
+N_FINANCE = 55
 
 
 def check(cond, msg):
@@ -36,16 +36,13 @@ def main():
         print("  · HMR 不可用(降级 Mock),跳过 M4 测试")
         print("结果:跳过"); return
 
-    # office:一条与 query 相关的关键记忆 + 一条无关
     hmr.ingest("office quarterly revenue growth and budget forecast for planning",
                type="concept", agent_id="office", title="office-key")
     hmr.ingest("office meeting room booking schedule for next week",
                type="concept", agent_id="office", title="office-other")
-    # finance:大量与 query 强相关记忆(会在全局排序里淹没 office 的记忆)
     for i in range(N_FINANCE):
         hmr.ingest(f"finance quarterly revenue growth and budget forecast record {i}",
                    type="concept", agent_id="finance", title=f"fin-{i}")
-    # 一条共享记忆
     hmr.ingest("shared team quarterly planning memo", type="concept",
                agent_id="finance", shared=True, title="shared-memo")
 

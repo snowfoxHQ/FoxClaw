@@ -10,7 +10,6 @@ EmbeddingService 单例(P0 性能修复)测试 —— 全离线,不加载真实�
 """
 import os, sys
 from pathlib import Path
-# 必须在 import sentence-transformers 之前设离线,让 bogus 名快速失败(不走网络)
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -38,7 +37,7 @@ def test_five_harnesses_one_load():
     print("\n【2】5 个 SemanticDrift 用同名 → 只加载 1 次(P0 收敛核心)")
     name = "foxclaw-nonexistent-shared"
     before = embedding_stats()["load_attempts"]
-    drifts = [SemanticDrift(name) for _ in range(5)]   # 模拟 5 个 Agent 的 Harness
+    drifts = [SemanticDrift(name) for _ in range(5)]
     after = embedding_stats()["load_attempts"]
     assert after - before == 1, f"5 个 SemanticDrift 同名应只加载 1 次,实际 {after - before}(修复前=5)"
     assert all(d._model is drifts[0]._model for d in drifts), "5 个应共享同一模型引用"
@@ -64,7 +63,6 @@ def test_graceful_hash_fallback():
     assert d.mode == "hash", "bogus 模型加载失败应降级 hash"
     v = d.encode("活字印刷术由毕昇发明")
     assert isinstance(v, np.ndarray) and v.shape[0] == SemanticDrift.DIM
-    # 自身相对自身漂移应≈0;相对空基线返回 0
     s_self = d.score("活字印刷术由毕昇发明", d.encode("活字印刷术由毕昇发明"))
     s_none = d.score("任意", None)
     assert 0.0 <= s_self <= 0.05 and s_none == 0.0

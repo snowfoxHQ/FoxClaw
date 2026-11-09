@@ -13,13 +13,9 @@ const anchor = ref(null)
 const count = computed(() => state.sessions.length)
 const rail = railItems()
 
-/* 当前模块不属于常驻项 → 落在「更多」里。概览是默认落地页,不给它加后缀,否则
-   一进站就显示「更多 · 概览」,像是从一个隐藏入口进来的。 */
 const isMore = computed(() => !RAIL.includes(state.module))
 const moreCur = computed(() => (isMore.value && state.module !== 'overview' ? moduleLabel(state.module) : ''))
 
-/* 线性图标:统一 24 视框 + 描边,和右栏 / 顶栏的图形语言一致。
-   只放 path 的 d,颜色与线宽交给 CSS,换肤时不用动 JS。 */
 const ICONS = {
   book: [
     'M5 5.6A2.1 2.1 0 0 1 7.1 3.5H19v17H7.1A2.1 2.1 0 0 1 5 18.4z',
@@ -60,7 +56,6 @@ function toggleMenu() {
     return
   }
   const r = btnRef.value?.getBoundingClientRect()
-  /* 入口现在在栏顶,浮层必须往下长(原来的实现是贴着栏底往上长) */
   if (r) anchor.value = { left: r.left, bottom: r.bottom }
   menuOpen.value = true
 }
@@ -70,13 +65,11 @@ function pick(id) {
   menuOpen.value = false
 }
 
-/* 切会话 = 切左侧高亮 + 拉后端历史消息 */
 function pickSession(s) {
   openSession(s)
   loadSession(s.id)
 }
 
-/* ── 会话重命名 / 删除 ── */
 const editingId = ref('')
 const draft = ref('')
 let editEl = null
@@ -94,7 +87,6 @@ function cancelRename() {
   editingId.value = ''
 }
 
-/* enter / blur 都会走到这里:先清 editingId 再做守卫,重复提交自然变成空操作 */
 async function commitRename(s) {
   if (editingId.value !== s.id) return
   editingId.value = ''
@@ -105,7 +97,6 @@ async function commitRename(s) {
 
 async function removeSession(s) {
   const name = s.title || '新会话'
-  /* 删除会连对话历史一起删掉,不能手滑 —— 用系统确认框,不引新组件 */
   if (!confirm(`删除会话「${name}」?\n对话历史会一起删掉,不可恢复。`)) return
   await deleteSession(s.id)
 }
@@ -253,7 +244,6 @@ function meta(s) {
 .new-sess:hover { background: rgba(26, 157, 95, 0.17); }
 .new-sess:active { transform: scale(0.985); }
 
-/* ── 常驻功能入口 ── */
 .rail-nav { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 
 .rail-row { position: relative; display: flex; align-items: center; }
@@ -285,12 +275,9 @@ function meta(s) {
 .rail-row.on .rail-item .ic { color: var(--green); }
 .rail-row.on .rail-item b { font-weight: 600; }
 
-/* 停在子视图(复习 / 记忆中心)时,父项给一层更淡的高亮:既说明「你在这条线上」,
-   又不和真正选中的白卡混淆。 */
 .rail-row.sub .rail-item { background: rgba(255, 255, 255, 0.5); }
 .rail-row.sub .rail-item .ic { color: var(--green); }
 
-/* 成熟度标签:比正式入口新,或者语义还在变 */
 .beta {
   flex-shrink: 0;
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
@@ -299,7 +286,6 @@ function meta(s) {
   background: rgba(199, 116, 0, 0.12);
 }
 
-/* 同源数据的另一视图:只在 hover / 聚焦时出现,不占常驻视觉 */
 .rail-acts {
   position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
   display: flex; gap: 2px;
@@ -342,8 +328,6 @@ function meta(s) {
 
 .ns-list { display: flex; flex-direction: column; gap: 3px; flex: 1; margin: 0 -4px; padding: 0 4px; }
 
-/* 行容器负责底色/边框,hover 时右侧才浮出改名与删除 —— 常驻两个图标会把
-   12 个字的标题挤成 6 个字。 */
 .ns-row {
   position: relative; display: flex; align-items: center;
   border-radius: var(--r-sm);

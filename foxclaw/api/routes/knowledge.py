@@ -13,13 +13,9 @@ import foxclaw.api as _api
 from .. import app
 
 
-# ── 知识核心(HKC)：同进程 DirectClient,惰性装配,缺依赖降级 ─────────
-# HKC = Foxclaw Knowledge Core:KDE 抽取 → KEE 演化 → 混合检索(BM25+向量+图)。
-# 首次命中任一路由时才装配(见 Foxclaw.hkc 惰性属性);未 vendor/缺依赖时 available=False。
-
 class KnowledgeSearchPayload(BaseModel):
     query: str
-    mode: str = "hybrid"          # bm25 | vector | graph | hybrid
+    mode: str = "hybrid"
     top_k: int = 10
     domain: str = ""
 
@@ -38,10 +34,6 @@ def _hkc_or_none():
         return None
 
 
-# 【P3-7】异常分类用 isinstance 优先:hasattr(e, "missing_skills") 是鸭子判断,
-# 任何恰好带了同名属性的无关异常都会被误吞成「覆盖不足」证据 gate(真实错误被掩盖)。
-# 真实类型在 vendor 的 hkc_sdk.exceptions(test_hkc.py 同源引用);缺 vendor/hkc 时
-# import 失败降级 None,运行时回退 hasattr 判断,行为与旧版一致。
 try:
     from hkc_sdk.exceptions import HKCInsufficientCoverage as _HKCInsuffCov
 except Exception:
@@ -76,9 +68,6 @@ async def knowledge_ingest(p: KnowledgeIngestPayload):
             hkc.client.ingest_text, p.text, p.source_title, p.domain)
         return {"ku_count": res.ku_count, "ku_ids": res.ku_ids, "counts": res.counts}
     except Exception as e:
-        # 抽取全段失败时 KDE 现在会抛错(带 provider/model/最后一次 LLM 报错原文)。
-        # 不能像旧版那样返回 ku_count=0 + 200 —— 那会让「库里其实什么都没有」看起来
-        # 像「录入成功只是没内容」,复习板块于是永远 0 卡。
         msg = str(e).strip() or e.__class__.__name__
         raise HTTPException(502, f"摄入失败:{msg}")
 
@@ -103,7 +92,6 @@ async def knowledge_recent(limit: int = 10):
     except Exception as e:
         return {"available": True, "total": 0, "kus": [], "error": str(e)}
 
-    # ISO 字符串,字典序即时间序
     kus.sort(key=lambda k: getattr(k, "created_at", "") or "", reverse=True)
     n = max(1, min(int(limit or 10), 200))
     return {"available": True, "total": len(kus), "kus": [
@@ -114,7 +102,6 @@ async def knowledge_recent(limit: int = 10):
         for ku in kus[:n]]}
 
 
-# ── HKC 融合第 2 档 Step1:ACE 能力(只读查询面,无 LLM、零成本)─────────
 @app.get("/api/knowledge/abilities")
 async def knowledge_abilities():
     """列出可编译的能力 key(来自 ACE skill_taxonomy)。只读、确定性、无 LLM。"""
@@ -139,11 +126,6 @@ async def knowledge_ability(ability_key: str):
     try:
         ab = await asyncio.to_thread(hkc.client.compile_ability, ability_key)
     except Exception as e:
-        # 覆盖不足(HKCInsufficientCoverage 带 coverage/missing_skills)→ 证据 gate,非错误。
-        # 【P3-7】isinstance 可用时**只**用 isinstance(精确判断:带 missing_skills 属性的
-        # 无关异常不再被误吞成「覆盖不足」);import 失败(缺 vendor)才回退 hasattr 鸭子判断。
-        # 文稿骨架写的是 isinstance OR hasattr 叠加,与其自身设计决策(「失败才回退」=二选一)
-        # 不一致——OR 下鸭子判断永远生效,精确化形同虚设,故按设计决策实现。
         if _HKCInsuffCov is not None:
             is_insufficient = isinstance(e, _HKCInsuffCov)
         else:

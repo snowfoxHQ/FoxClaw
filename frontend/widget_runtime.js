@@ -1,39 +1,16 @@
-/* ════════════════════════════════════════════════════════════
-   FOXCLAW DECK — Widget Runtime
-   可插拔 widget 系统。新模块只需 registerWidget() 一次。
-   ════════════════════════════════════════════════════════════ */
 
 const WidgetRuntime = (() => {
 
-  // ── 注册表:定义有哪些 widget 类型 ──
   const registry = new Map();
 
-  // ── 实例:当前布局中存在的 widget ──
-  // { instanceId, widgetId, column, order }
   let instances = [];
 
-  // ── 事件订阅:widgetId -> Set<eventType> ──
   const eventSubs = new Map();
 
-  // ── 共享上下文,所有 widget 都能访问 ──
   let ctx = {};
 
-  // ── DOM 列引用 ──
   const columns = {};
 
-  /* ───────────────────────────────────────────
-     注册一个 widget 类型
-     spec = {
-       id, title, icon,
-       defaultColumn: 'left'|'center'|'right',
-       size: {minH, maxH, flex},
-       events: ['harness_block', ...],   // 关心的事件类型
-       render(el, ctx, instance),         // 渲染主体
-       onEvent(evt, el, ctx),             // 收到订阅事件
-       onAgentChange(agentId, el, ctx),   // 激活 Agent 变化
-       refresh(el, ctx, agentId),         // 数据刷新
-     }
-  ─────────────────────────────────────────── */
   function register(spec) {
     if (!spec.id) throw new Error('widget 必须有 id');
     registry.set(spec.id, {
@@ -46,14 +23,12 @@ const WidgetRuntime = (() => {
       refresh: null,
       ...spec,
     });
-    // 建立事件订阅索引
     (spec.events || []).forEach(ev => {
       if (!eventSubs.has(ev)) eventSubs.set(ev, new Set());
       eventSubs.get(ev).add(spec.id);
     });
   }
 
-  /* 初始化:绑定列容器 + 共享上下文 */
   function init(columnEls, sharedCtx) {
     columns.left   = columnEls.left;
     columns.center = columnEls.center;
@@ -61,7 +36,6 @@ const WidgetRuntime = (() => {
     ctx = sharedCtx || {};
   }
 
-  /* 设置布局(从默认或 localStorage 恢复) */
   function setLayout(layout) {
     instances = layout.map((item, i) => ({
       instanceId: item.instanceId || `inst_${item.widgetId}_${i}`,
@@ -72,7 +46,6 @@ const WidgetRuntime = (() => {
     renderAll();
   }
 
-  /* 默认布局:每个注册的 widget 放进它的 defaultColumn */
   function defaultLayout() {
     return [...registry.values()].map((spec, i) => ({
       instanceId: `inst_${spec.id}`,
@@ -82,7 +55,6 @@ const WidgetRuntime = (() => {
     }));
   }
 
-  /* 渲染全部实例 */
   function renderAll() {
     Object.values(columns).forEach(col => { if (col) col.innerHTML = ''; });
     const byCol = { left: [], center: [], right: [] };
@@ -96,7 +68,6 @@ const WidgetRuntime = (() => {
     });
   }
 
-  /* 挂载单个 widget 到 DOM */
   function mountWidget(inst, colName) {
     const spec = registry.get(inst.widgetId);
     if (!spec) return;
@@ -127,26 +98,22 @@ const WidgetRuntime = (() => {
     inst._el = panel;
     inst._body = body;
 
-    // 移除按钮
     panel.querySelector('.ph-remove').onclick = (e) => {
       e.stopPropagation();
       removeInstance(inst.instanceId);
     };
 
-    // 调用 widget 自己的渲染
     try {
       spec.render(body, ctx, inst);
     } catch (err) {
       body.innerHTML = `<div class="empty">渲染错误: ${err.message}</div>`;
     }
 
-    // 首次同步当前 Agent
     if (spec.onAgentChange && ctx.activeAgent) {
       try { spec.onAgentChange(ctx.activeAgent, body, ctx); } catch {}
     }
   }
 
-  /* 事件分发:把事件发给所有订阅的 widget 实例 */
   function dispatch(eventType, payload) {
     const subscribers = eventSubs.get(eventType);
     if (!subscribers) return;
@@ -159,7 +126,6 @@ const WidgetRuntime = (() => {
     });
   }
 
-  /* 通知所有 widget:激活 Agent 变了 */
   function notifyAgentChange(agentId) {
     ctx.activeAgent = agentId;
     instances.forEach(inst => {
@@ -170,7 +136,6 @@ const WidgetRuntime = (() => {
     });
   }
 
-  /* 刷新所有 widget 的数据 */
   function refreshAll(agentId) {
     instances.forEach(inst => {
       const spec = registry.get(inst.widgetId);
@@ -180,7 +145,6 @@ const WidgetRuntime = (() => {
     });
   }
 
-  /* 设置某个实例的 head status 文本 */
   function setStatus(instanceId, text) {
     const inst = instances.find(i => i.instanceId === instanceId);
     if (inst && inst._el) {
@@ -189,7 +153,6 @@ const WidgetRuntime = (() => {
     }
   }
 
-  /* ── 增删实例 ── */
   function addInstance(widgetId, column) {
     const spec = registry.get(widgetId);
     if (!spec) return;
@@ -214,7 +177,6 @@ const WidgetRuntime = (() => {
     saveLayout();
   }
 
-  /* ── 拖拽:重排实例 ── */
   function captureLayoutFromDOM() {
     const newInstances = [];
     ['left', 'center', 'right'].forEach(colName => {
@@ -239,7 +201,6 @@ const WidgetRuntime = (() => {
     saveLayout();
   }
 
-  /* ── 持久化 ── */
   function saveLayout() {
     try {
       const layout = instances.map(i => ({
@@ -256,7 +217,6 @@ const WidgetRuntime = (() => {
     try {
       const saved = JSON.parse(localStorage.getItem('foxclaw_widget_layout'));
       if (saved && saved.length) {
-        // 过滤掉已不存在的 widget 类型
         const valid = saved.filter(i => registry.has(i.widgetId));
         if (valid.length) { setLayout(valid); return true; }
       }
@@ -264,7 +224,6 @@ const WidgetRuntime = (() => {
     return false;
   }
 
-  /* ── 编辑模式:显示/隐藏移除按钮 ── */
   function setEditMode(on) {
     instances.forEach(inst => {
       if (!inst._el) return;
@@ -273,7 +232,6 @@ const WidgetRuntime = (() => {
     });
   }
 
-  /* ── 面板库:列出未激活的 widget 供添加 ── */
   function getLibrary() {
     return [...registry.values()].map(spec => ({
       id: spec.id,
@@ -283,7 +241,6 @@ const WidgetRuntime = (() => {
     }));
   }
 
-  /* 公开 API */
   return {
     register, init, setLayout, defaultLayout, renderAll,
     dispatch, notifyAgentChange, refreshAll, setStatus,

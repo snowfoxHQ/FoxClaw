@@ -35,11 +35,10 @@ def test_assemble_search_close():
         print(f"  ✓ stats: total_kus={s.get('total_kus')} embedding={s.get('embedding')!r}")
 
         svc.close()
-        svc.close()   # 幂等
+        svc.close()
         print("  ✓ close() 幂等")
     finally:
-        # 关键:close 后 4 个 SQLite 句柄全释放,才能删掉目录(此前 events.db/id_counters.db 泄漏)
-        shutil.rmtree(d)   # 不 ignore_errors:泄漏则抛 OSError → 测试失败
+        shutil.rmtree(d)
         ok_rmtree = True
     assert ok_rmtree
     print("  ✓ close 后 rmtree 成功 → H1 资源泄漏修复生效(无 WinError 32)")
@@ -51,11 +50,10 @@ def test_via_foxclawos_lazy_teardown():
     try:
         from foxclaw import Foxclaw
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
-        # 惰性:未访问 .hkc 前不该装配(不开句柄)
         assert os_._hkc_service is None and os_._hkc_inited is False
         print("  ✓ 构造 OS 后未装配 HKC(惰性,未开 db 句柄)")
 
-        hkc = os_.hkc   # 触发装配
+        hkc = os_.hkc
         assert os_._hkc_inited is True
         assert hkc is not None and hkc.available
         print("  ✓ 首次访问 os_.hkc 触发装配 available=True")
@@ -67,7 +65,7 @@ def test_via_foxclawos_lazy_teardown():
         asyncio.run(os_.aclose())
         print("  ✓ aclose() 释放浏览器 + HKC 资源")
     finally:
-        shutil.rmtree(d)   # aclose 已释放 HKC 句柄,应能删
+        shutil.rmtree(d)
     print("  ✓ teardown 后 rmtree 成功(HKC 句柄经 aclose 释放)")
 
 
@@ -79,11 +77,9 @@ def test_ability_readonly_surface():
         svc = init_hkc(d, api_key=None)
         assert svc is not None and svc.available
         from hkc_sdk.exceptions import HKCInsufficientCoverage, HKCNotFoundError
-        # list_abilities:返回 taxonomy 里定义的能力 key(静态,无需摄入)
         keys = svc.client.list_abilities()
         assert isinstance(keys, list) and len(keys) > 0, f"应有内置能力定义,实得 {keys}"
         print(f"  ✓ list_abilities 返回 {len(keys)} 个能力: {keys[:4]}...")
-        # compile_ability:空知识库 → 覆盖不足 → 证据 gate(抛 HKCInsufficientCoverage,带 missing/coverage)
         gated = False
         try:
             svc.client.compile_ability(keys[0])
@@ -92,9 +88,6 @@ def test_ability_readonly_surface():
             assert hasattr(e, "missing_skills") and hasattr(e, "coverage")
         assert gated, "空知识库编译能力应被证据 gate 拦(覆盖不足)"
         print("  ✓ 空库 compile_ability 被证据 gate 拦(覆盖不足→能力不予授予)")
-        # neighbors:不存在 KU → SDK 抛 HKCNotFoundError(契约)。注:/api/knowledge/ku/{id}/neighbors
-        # 端点已在 V3 接口清理删除(前端零用 + HKC router 的 /knowledge/ku/{id}/neighbors 有等价),
-        # 此处只验 SDK 层契约;SDK neighbors 仍被 ACE 能力/图查询内部使用,保留测试。
         raised = False
         try:
             svc.client.neighbors("KU_nonexistent", max_depth=2, top_k=10)
@@ -116,14 +109,12 @@ def test_agent_available_abilities():
     try:
         from foxclaw import Foxclaw
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
-        # 空知识库:所有能力都应 sufficient=False(证据 gate:没知识不予授予)
         abils = os_.finance.available_abilities()
         assert isinstance(abils, list) and len(abils) > 0, f"应枚举出能力,实得 {abils}"
         assert all(a["sufficient"] is False for a in abils), \
             f"空库→全部证据 gate 拦(sufficient=False),实得 {[a['sufficient'] for a in abils]}"
         assert all("missing_skills" in a for a in abils), "未达标应附 missing_skills"
         print(f"  ✓ 空库自省:{len(abils)} 个能力全 sufficient=False(证据 gate)")
-        # 各 Agent 看到一致(知识全局共享)
         assert len(os_.office.available_abilities()) == len(abils)
         print("  ✓ 各 Agent 一致(HKC 知识全局共享)")
         asyncio.run(os_.aclose())
@@ -143,14 +134,11 @@ def test_ability_context_injection():
         ag = os_.finance
         base = [{"role": "user", "content": "原始问题"}]
 
-        # (a) 默认关:不注入(行为逐字不变)
         assert ag._ability_augment("帮我做写作专家分析", list(base)) == base
 
-        # (b) 启用但无达标能力(真实空 HKC)→ no-op
         ag.ABILITY_AUGMENT = True
         assert ag._ability_augment("帮我做写作专家分析", list(base)) == base
 
-        # (c) 启用 + 注册假 HKC(有达标能力 + 检索命中)→ 注入知识上下文到 messages 前
         class _C:
             def list_abilities(self): return ["writing_expert"]
             def compile_ability(self, k):
@@ -165,7 +153,6 @@ def test_ability_context_injection():
         assert out[1] == base[0], "原消息应保留在注入内容之后"
         print("  ✓ 默认关不注入;空库 no-op;启用+达标+命中→注入知识上下文")
 
-        # (d) fail-safe:能力增强内部异常(search 抛错)→ 原样返回,不影响主流程
         class _Cbad(_C):
             def search(self, *a, **k): raise RuntimeError("boom")
         os_.capabilities.register("hkc", SimpleNamespace(available=True, client=_Cbad()))
@@ -187,7 +174,7 @@ def test_ability_as_skill_step4():
         def list_abilities(self): return ["writing_expert", "quant_analyst"]
         def compile_ability(self, k):
             if k == "quant_analyst":
-                raise RuntimeError("coverage 不足")      # 任何异常 → 证据 gate 跳过
+                raise RuntimeError("coverage 不足")
             return SimpleNamespace(ability_key=k, display_name="写作专家",
                                    domain="writing", coverage={"修辞": 0.9})
         def search(self, q, mode="hybrid", top_k=10, domain=""):
@@ -197,19 +184,16 @@ def test_ability_as_skill_step4():
     hkc = SimpleNamespace(available=True, client=_C())
     reg = SkillRegistry()
     ids = register_abilities_as_skills(reg, hkc)
-    # 证据 gate:只注册达标的 writing_expert;覆盖不足的 quant_analyst 不注册
     assert ids == ["ability:writing_expert"], ids
     assert reg.get("ability:quant_analyst") is None, "覆盖不足→不注册(证据 gate)"
     spec = reg.get("ability:writing_expert")
     assert spec is not None and spec.side_effect == "read", "能力 skill 为 read(无外部副作用)"
 
-    # 经 SkillAdapter(→PolicyGate 四阶段)调用:read → 放行 → handler 返回 domain 内知识
     res = SkillAdapter(reg).invoke(spec, {"query": "写作风格"})
     assert res.success and res.output.get("ability") == "writing_expert", res.to_dict()
     assert res.output["knowledge"] and res.output["knowledge"][0]["name"] == "修辞"
     print("  ✓ 证据 gate:达标能力注册为 read skill、覆盖不足不注册;经 PolicyGate 放行返回知识")
 
-    # 降级:HKC 不可用 / registry 缺失 → 不注册、不崩
     assert register_abilities_as_skills(SkillRegistry(), None) == []
     assert register_abilities_as_skills(None, hkc) == []
     print("  ✓ HKC 不可用/registry 缺失 → 优雅返回 []")
@@ -222,7 +206,6 @@ def test_ability_skill_prune_and_concurrency():
     from foxclaw.knowledge import register_abilities_as_skills
     from foxclaw.skills import SkillRegistry, SkillSpec
 
-    # (a) 陈旧清理:先达标注册 → 知识掉了不再达标 → re-sync 移除陈旧 ability skill
     class _Cdrop:
         def __init__(self): self.ok = True
         def list_abilities(self): return ["writing_expert"]
@@ -237,12 +220,11 @@ def test_ability_skill_prune_and_concurrency():
     reg = SkillRegistry()
     assert register_abilities_as_skills(reg, hkc) == ["ability:writing_expert"]
     assert reg.get("ability:writing_expert") is not None
-    c.ok = False                              # 知识掉了 → 不再达标
+    c.ok = False
     assert register_abilities_as_skills(reg, hkc) == []
     assert reg.get("ability:writing_expert") is None, "陈旧 ability skill 应在 re-sync 时被移除"
     print("  ✓ re-sync:覆盖掉了的 ability skill 被清理(不残留)")
 
-    # (b) 线程安全:并发 register + match/all/catalog 无 "dict changed size" 异常
     reg2 = SkillRegistry()
     errs = []
     def reg_worker():

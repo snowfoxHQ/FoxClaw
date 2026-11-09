@@ -1,28 +1,15 @@
-/* ═══════ 球体特效开关:默认关,需要时手动开 ═══════
-   ─ 手动开(任一即生效):
-     1) URL 加 ?visual=1                            临时(本次会话)
-     2) localStorage.foxclaw_visual = "1"            永久
-     3) 设置 → 界面偏好 → 背景全息球动画 勾选      永久(写 localStorage.foxclaw_lowpower=0,兼容旧 toggle)
-   ─ 系统级默认关(无需操作):
-     4) matchMedia('(prefers-reduced-motion: reduce)').matches
-     5) navigator.connection.saveData === true
-   ─ 默认:true(不启动 4 个 canvas 动画 + 粒子 emit,省 GPU/CPU,启动秒开) */
 const _lowpower = (() => {
   try {
-    // 显式开:URL / localStorage / 旧版 toggleBallAnim
     if (new URLSearchParams(location.search).get('visual') === '1') return false;
     if (localStorage.getItem('foxclaw_visual') === '1') return false;
     if (localStorage.getItem('foxclaw_lowpower') === '0') return false;   // 兼容旧版开关
-    // 显式关:URL ?low=1 仍生效(应急)
     if (new URLSearchParams(location.search).get('low') === '1') return true;
-    // 系统级 → 关
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
     if (navigator.connection && navigator.connection.saveData) return true;
   } catch {}
   return true;   // ← 默认:不启动(保护 GPU + 启动秒开)
 })();
 window._foxclawLowpower = _lowpower;   // 暴露给其他模块读
-// 暴露切换 API(控制台手动开:  foxclawVisual.on()  /  永久关:  foxclawVisual.off()  /  状态:  foxclawVisual.isOn())
 window.foxclawVisual = {
   isOn: () => !_lowpower,
   on()  { try { localStorage.setItem('foxclaw_visual', '1'); } catch{} location.reload(); },
@@ -36,7 +23,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
   return function(t) { if (t - last >= gap) { last = t; fn(t); } };
 }
 
-/* ====== 中央全息核心 ====== */
 (function(){
   if (_lowpower) return;        // 省电:不开中央全息核心(520 球面点 + 经纬弧 + 渐变 60fps)
   const c=document.getElementById('coreCanvas'), x=c.getContext('2d');
@@ -50,13 +36,11 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
     x.clearRect(0,0,c.width,c.height);
     const cx=c.width/2, cy=c.height/2, R=Math.min(cx,cy)*0.62;
     rot+=0.0024;
-    // 光环底座
     for(let k=0;k<3;k++){
       x.beginPath();
       x.ellipse(cx,cy+R*0.92,R*(1.05+k*0.18),R*(0.26+k*0.05),0,0,Math.PI*2);
       x.strokeStyle=`rgba(0,217,255,${0.18-k*0.04})`; x.lineWidth=2; x.stroke();
     }
-    // 球面点
     for(const pt of pts){
       const t=pt.t, p=pt.p+rot;
       const xx=Math.sin(t)*Math.cos(p), yy=Math.cos(t), zz=Math.sin(t)*Math.sin(p);
@@ -66,7 +50,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
       const hue=depth>0.5?'0,217,255':'255,194,75';
       x.fillStyle=`rgba(${hue},${depth*0.85+0.1})`; x.fill();
     }
-    // 经纬弧
     x.strokeStyle='rgba(41,243,255,.12)';x.lineWidth=1;
     for(let m=0;m<6;m++){
       x.beginPath();
@@ -75,7 +58,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
         const sx=cx+xx*R,sy=cy+yy*R; a?x.lineTo(sx,sy):x.moveTo(sx,sy);}
       x.stroke();
     }
-    // 中央辉光
     const g=x.createRadialGradient(cx,cy,0,cx,cy,R*0.5);
     g.addColorStop(0,'rgba(0,217,255,.28)');g.addColorStop(1,'transparent');
     x.fillStyle=g;x.beginPath();x.arc(cx,cy,R*0.5,0,Math.PI*2);x.fill();
@@ -84,7 +66,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
   loop();
 })();
 
-/* ====== 记忆向量空间 ====== */
 (function(){
   if (_lowpower) return;        // 省电:不开记忆向量空间动画
   const c=document.getElementById('memCanvas'); if(!c) return;   // 右栏改版后无此装饰画布 → 静默跳过
@@ -113,7 +94,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
   loop();
 })();
 
-/* ====== 中枢数据流:核心球↔Agent 信息流动 ====== */
 (function(){
   if (_lowpower) return;        // 省电:不开中枢数据流 + 2.2s 粒子 emit
   const cv=document.getElementById('streamCanvas'); if(!cv)return;
@@ -139,7 +119,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
     if(!targets.length)return;
     let t;
     if(targetAgent){
-      // 定向:射向指定 Agent(发任务时用)
       const cards=[...document.querySelectorAll('.acard')];
       const idx=cards.findIndex(c=>c.dataset.agent===targetAgent);
       t=idx>=0?targets[idx]:targets[Math.floor(Math.random()*targets.length)];
@@ -185,7 +164,6 @@ function _lpThrottle(fn, fps) {       // 30fps 节流(不关,但降频)— 关�
   setTimeout(emit, 800);
 })();
 
-/* ====== 系统活动波形(已移除,保留空值保护)====== */
 (function(){
   if (_lowpower) return;        // 省电:不开系统活动波形
   const c=document.getElementById('actCanvas'); if(!c)return;

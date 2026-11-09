@@ -23,11 +23,10 @@ import foxclaw.api as _api
 from .. import app
 
 
-_MAX_ATTACH_BYTES = 20 * 1024 * 1024        # 单附件上限 20MB
-_MAX_TEXT_CHARS = 20000                      # 单文件提取正文上限(防超长文件撑爆上下文)
+_MAX_ATTACH_BYTES = 20 * 1024 * 1024
+_MAX_TEXT_CHARS = 20000
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
-# 文本类扩展名 → 直接读正文;.pdf 走 fitz(可选依赖);其余二进制 → 降级为元数据提示
 _TEXT_EXTS = {
     ".txt", ".md", ".markdown", ".csv", ".json", ".yaml", ".yml", ".log",
     ".py", ".js", ".ts", ".html", ".css", ".xml", ".toml", ".ini", ".sh",
@@ -61,7 +60,7 @@ def _extract_text(path: Path, name: str) -> str:
             return ""
     if ext == ".pdf":
         try:
-            import fitz  # PyMuPDF(可选依赖 knowledge-files)
+            import fitz
         except ImportError:
             return ""
         try:
@@ -85,7 +84,7 @@ async def upload_attachment(file: UploadFile = File(...)):
     """通用聊天附件上传:落盘 + 尽力提取正文,返回 {id,name,size,mime,url,text}。
     text 为空表示不可提取(二进制/图片等),前端/LLM 降级为「文件名 + 元数据」提示。"""
     raw_name = (file.filename or "attachment").strip()
-    name = Path(raw_name).name or "attachment"     # 只留 basename,去路径分隔符
+    name = Path(raw_name).name or "attachment"
     data = await file.read()
     if not data:
         raise HTTPException(400, "空文件")

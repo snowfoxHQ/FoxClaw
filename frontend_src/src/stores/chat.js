@@ -1,4 +1,3 @@
-/* 对话与输入区状态:模式 / 附件 / 图片 / 摄入任务 / 消息流 / SSE */
 import { reactive } from 'vue'
 import { API, delJSON, getJSON, getRaw, postForm, postFormRaw, postJSON } from '../api.js'
 import { loadSessions, state as app } from './app.js'
@@ -14,12 +13,9 @@ export const chat = reactive({
   ingest: null, // {name,pct,status,ku,msg}
   toast: '',
 
-  /* 对话 */
   messages: [], // [{role,content,thinking,evidence,error,ts,streaming,stage,plan}]
   sessionId: null,
   streamState: 'idle', // idle | streaming | done | error
-  /* 错误落在具体那条消息的 m.error 上(界面上能看到 + 能点重试),
-     这里不再留一个没人读的 lastError */
 })
 
 let toastTimer = 0
@@ -35,7 +31,6 @@ export function setMode(m) {
   localStorage.setItem(MODE_KEY, m)
 }
 
-/* ── 附件:POST /api/upload → {id,name,size,mime,url,text} ── */
 export async function attachFile(file) {
   if (!file) return
   if (file.size > MAX_MB * 1048576) return say(`${file.name} 超过 ${MAX_MB}MB`)
@@ -50,7 +45,6 @@ export async function attachFile(file) {
   }
 }
 
-/* ── 图片:本地转 dataURL,不落盘 ── */
 export function attachImage(file) {
   if (!file) return
   if (!file.type.startsWith('image/')) return say('不是图片文件')
@@ -67,8 +61,6 @@ export function dropImage(i) {
   chat.images.splice(i, 1)
 }
 
-/* ── 摄入知识库:POST /knowledge/ingest/file/async → 轮询 /knowledge/ingest/jobs/{id}
-      注意路径无 /api 前缀:vendor/hkc 的 knowledge router 是根路径挂载的。 ── */
 export async function ingestFile(file, collection = '') {
   if (!file) return
   if (chat.ingest) return say('等当前文件摄入完成再传下一个')
@@ -90,7 +82,6 @@ export async function ingestFolder(files) {
   const list = [...files].filter(Boolean)
   for (const f of list) {
     await ingestFile(f)
-    /* ingestFile 内部已串行守卫:等当前 job 结束再投下一个 */
     while (chat.ingest && chat.ingest.status !== 'error') {
       if (chat.ingest.status === 'done') break
       await new Promise((r) => setTimeout(r, 600))
@@ -123,8 +114,6 @@ async function pollIngest(jobId) {
   say('摄入超时,后台可能仍在跑')
 }
 
-/* ══════════ 会话 ══════════ */
-
 const STAGE_CN = {
   perceive: '感知', recall: '召回', meta_check: '自检', schedule: '排程',
   route: '路由', plan: '规划', dispatch: '分发', act: '执行',
@@ -150,7 +139,6 @@ function adoptSession(id) {
   localStorage.setItem(SID_KEY, id)
 }
 
-/* 启动时恢复上次会话(后端 sessions 落盘,thinking/evidence 不落盘) */
 export async function bootChat() {
   const saved = localStorage.getItem(SID_KEY)
   if (saved) await loadSession(saved, { quiet: true })
@@ -173,14 +161,11 @@ export async function loadSession(id, { quiet = false } = {}) {
   }
 }
 
-/* 组件间的一次性信号:斜杠命令要调 ToolMenu 里的文件选择,又不能硬耦合。
-   (/设置 不再走这里 —— 它现在直接切到设置面板,见 ChatDock 的命令表) */
 export const ui = reactive({ ingestTick: 0 })
 export function requestIngest() {
   ui.ingestTick += 1
 }
 
-/* 纯本地消息(/帮助 之类),不经过后端 */
 export function pushLocal(content) {
   chat.messages.push({
     role: 'assistant', content, ts: Date.now(),
@@ -188,7 +173,6 @@ export function pushLocal(content) {
   })
 }
 
-/* 认知搜索(HSR):POST /api/search/query,结果作为一张证据卡挂在消息流里 */
 export async function runSearch(rawQuery) {
   const query = String(rawQuery || '').trim()
   if (!query) return say('用法:/搜索 关键词')
@@ -205,7 +189,6 @@ export async function runSearch(rawQuery) {
   const msg = chat.messages[chat.messages.length - 1]
 
   try {
-    /* internal_only=true:只查 HMR 记忆 + HKC 知识 + Agent 态势,不联网 —— 联网分支实测返回空图 */
     const d = await postJSON('/search/query', { query, agent_id: 'supervisor', internal_only: true })
     const nodes = (d.graph && d.graph.nodes) || []
     msg.search = {
@@ -242,7 +225,6 @@ export async function newSession() {
   }
 }
 
-/* 改标题:后端 rename 会把空串兜回「新会话」,这里先挡掉空提交,避免误清标题 */
 export async function renameSession(id, title) {
   const t = String(title || '').trim().slice(0, 60)
   if (!id || !t) return
@@ -255,8 +237,6 @@ export async function renameSession(id, title) {
   }
 }
 
-/* 删会话。删的是当前会话时落回列表里的下一条;一条不剩就新开一个 ——
-   否则界面会停在一个已经不存在的 sessionId 上,下一条消息直接 404。 */
 export async function deleteSession(id) {
   if (!id) return
   try {
@@ -271,7 +251,6 @@ export async function deleteSession(id) {
   else await newSession()
 }
 
-/* 重发:把这条回复对应的提问找回来,截断到它之前再投一次(附件/图片一起还原) */
 export async function retry(msg) {
   if (chat.streamState === 'streaming') return say('正在生成,先点停止')
   const i = chat.messages.indexOf(msg)
@@ -301,28 +280,20 @@ async function ensureSession() {
       adoptSession(saved)
       return saved
     } catch {
-      /* 后端已无此会话 → 落到下面新建 */
     }
   }
   return newSession()
 }
 
-/* ══════════ 发送 / 流式 ══════════ */
-
 let ctrl = null
-/* 每次 send 领一个代号。切会话 / 新建会话时把代号推进,在跑的那一路回来发现
-   代号变了就不再碰全局状态 —— 否则它会把新会话的 streamState 覆盖掉、还把 ctrl
-   清空,导致新流停不下来,两路 token 同时往不同消息里写。 */
 let gen = 0
 
-/* 掐断在跑的流:切会话、新建会话、重试前都先调一次 */
 function cutStream() {
   gen += 1
   if (ctrl) {
     try {
       ctrl.abort()
     } catch {
-      /* 已经收尾了 */
     }
     ctrl = null
   }
@@ -351,7 +322,6 @@ export async function send(rawText) {
   const attachments = chat.attachments.map((a) => ({
     name: a.name, size: a.size, mime: a.mime, url: a.url, text: a.text || '',
   }))
-  /* 后端只用最近 12 条拼上下文,与旧前端保持一致 */
   const history = chat.messages
     .filter((m) => m.content && m.role && !m.error)
     .slice(-12)
@@ -359,15 +329,12 @@ export async function send(rawText) {
 
   chat.messages.push({
     role: 'user', content: text, ts: Date.now(), attachments, streaming: false, thinking: '',
-    /* 存一份图片快照:重试时 send() 从 chat.images 取图,不带上就丢图了 */
     images: chat.images.map((im) => ({ ...im })),
   })
   chat.messages.push({
     role: 'assistant', content: '', thinking: '', evidence: [], error: '', notice: '',
     ts: Date.now(), streaming: true, stage: '', plan: null,
   })
-  /* 必须拿回数组里的响应式代理:直接改 push 进去的原始对象不会触发重渲染,
-     表现就是气泡永远停在「···」而内容其实早到了 */
   const reply = chat.messages[chat.messages.length - 1]
   chat.attachments = []
   chat.images = []
@@ -412,7 +379,6 @@ export async function send(rawText) {
 }
 
 function applyEvent(msg, name, ev) {
-  /* 命名事件与 JSON 键双判据:后端明确要求两者都认 */
   if (name === 'thinking' || ev.thinking) {
     msg.thinking += ev.thinking || ''
     return

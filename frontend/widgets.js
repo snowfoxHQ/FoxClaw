@@ -1,16 +1,7 @@
-/* ════════════════════════════════════════════════════════════
-   FOXCLAW DECK — Widget Definitions
-   每个 widget 是一个 registerWidget() 注册。
-   新增模块只需在这里加一个 register block。
-   ════════════════════════════════════════════════════════════ */
 
-/* 共享工具(由主文件注入到 ctx) */
 function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');}
 function _statusColor(s){return{PASS:'#1dffa6',WARN:'#ffb347',BLOCK:'#ff4060',BASELINE:'#b066ff',PENDING:'#3a4d68'}[s]||'#1de9ff';}
 
-/* ─────────────────────────────────────────────
-   WIDGET 1: AGENT 编队 (roster)
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'roster',
   title: 'AGENT 编队',
@@ -44,9 +35,6 @@ WidgetRuntime.register({
   },
 });
 
-/* ─────────────────────────────────────────────
-   WIDGET 2: 任务流 (tasks)
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'tasks',
   title: '任务流',
@@ -59,9 +47,6 @@ WidgetRuntime.register({
   },
 });
 
-/* ─────────────────────────────────────────────
-   WIDGET 3: 中央核心 (core) — 激活 Agent
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'core',
   title: '中央核心 · 激活单元',
@@ -94,7 +79,6 @@ WidgetRuntime.register({
         </div>
         <div class="chat-log" data-role="chat-log"></div>
       </div>`;
-    // orbit ticks
     const tick = el.querySelector('[data-role="orbit-tick"]');
     let h=''; for(let i=0;i<24;i++)h+=`<span style="transform:translateX(-50%) rotate(${i*15}deg)"></span>`;
     tick.innerHTML=h;
@@ -111,9 +95,6 @@ WidgetRuntime.register({
   },
 });
 
-/* ─────────────────────────────────────────────
-   WIDGET 4: HARNESS 遥测 (harness)
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'harness',
   title: 'HARNESS 遥测',
@@ -150,14 +131,10 @@ WidgetRuntime.register({
     ctx.loadHarnessInto(el, agentId);
   },
   onEvent(evt, el, ctx) {
-    // policy 更新或校准完成时立即刷新
     ctx.loadHarnessInto(el, ctx.activeAgent);
   },
 });
 
-/* ─────────────────────────────────────────────
-   WIDGET 5: 推理链 STREAM (thoughtchain)
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'thoughtchain',
   title: '推理链 STREAM',
@@ -175,9 +152,6 @@ WidgetRuntime.register({
   },
 });
 
-/* ─────────────────────────────────────────────
-   WIDGET 6: 事件流 LIVE (events)
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'events',
   title: '事件流 · LIVE',
@@ -206,10 +180,6 @@ WidgetRuntime.register({
   },
 });
 
-/* ─────────────────────────────────────────────
-   WIDGET 7: 协同 DAG (dag) — 多 Agent 星舰控制流
-   命令 → 主管分发 → 子 Agent → Harness 关卡 → 记忆汇聚
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'dag',
   title: '协同 DAG · 控制流',
@@ -243,7 +213,6 @@ WidgetRuntime.register({
   },
 });
 
-/* DAG 拓扑定义 */
 const _DAG_NODES = {
   command:    { x: 60,  y: 115, label: '指令', icon: '❯', kind: 'entry',  color: '#1de9ff' },
   supervisor: { x: 180, y: 115, label: '主管', icon: '🏢', kind: 'hub',    color: '#1de9ff' },
@@ -265,7 +234,6 @@ function _dagBuild(el, ctx) {
   const edgesG = el.querySelector('[data-role="dag-edges"]');
   const nodesG = el.querySelector('[data-role="dag-nodes"]');
 
-  // edges
   edgesG.innerHTML = _DAG_EDGES.map(([from, to], i) => {
     const a = _DAG_NODES[from], b = _DAG_NODES[to];
     const curve = (from === 'memory' && to === 'supervisor')
@@ -275,7 +243,6 @@ function _dagBuild(el, ctx) {
               fill="none" stroke="#1a2942" stroke-width="1.5" marker-end="url(#dagArrow)"/>`;
   }).join('');
 
-  // nodes
   nodesG.innerHTML = Object.entries(_DAG_NODES).map(([id, n]) => {
     const r = n.kind === 'hub' ? 17 : n.kind === 'gate' ? 16 : 14;
     const shape = n.kind === 'gate'
@@ -301,7 +268,6 @@ function _dagSetActive(el, agentId) {
   el.querySelectorAll('.dag-node').forEach(g => {
     g.classList.toggle('dag-dim', false);
   });
-  // highlight active agent path: command→supervisor→agent→harness→memory
   const path = ['command','supervisor', agentId, 'harness','memory'];
   el.querySelectorAll('.dag-node').forEach(g => {
     const id = g.dataset.nodeG;
@@ -353,7 +319,6 @@ function _dagFlashGate(el, color) {
   const gate = el.querySelector('[data-node="harness"]');
   if (!gate) return;
   const g = gate.closest('.dag-node') || gate;
-  // 注入一次性 keyframes(如未注入)
   if (!document.getElementById('dag-flash-style')) {
     const st = document.createElement('style');
     st.id = 'dag-flash-style';
@@ -371,7 +336,6 @@ function _dagFlashGate(el, color) {
   gate.classList.remove('dag-gate-flash');
   void gate.offsetWidth;             // 强制重排,允许动画重放
   gate.classList.add('dag-gate-flash');
-  // 同时让 HARNESS 文字标签也闪一下
   const label = el.querySelector('.dag-node[data-node-g="harness"] .dag-label');
   if (label) { label.style.fill = color; label.style.fontWeight = '700'; }
   setTimeout(() => {
@@ -381,11 +345,6 @@ function _dagFlashGate(el, color) {
   }, 1200);
 }
 
-/* ─────────────────────────────────────────────
-   WIDGET 8: 执行终端 (terminal) — Shell 执行流
-   命令回显 · 记忆检索 · 推理 · 工具调用 · Harness 校验
-   带打字机流式效果,营造 "AI 正在工作" 的真实感
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'terminal',
   title: '执行终端 · SHELL',
@@ -464,14 +423,9 @@ function _termWrite(el, text, type = 'out', stream = false) {
     txtEl.textContent = text;
   }
   out.scrollTop = out.scrollHeight;
-  // 限制行数
   while (out.children.length > 80) out.firstChild?.remove();
 }
 
-/* ─────────────────────────────────────────────
-   WIDGET 9: AI 浏览器 (browser) — 网页操作可视化
-   模拟 Agent 浏览网页:地址栏 · 加载流 · 操作高亮(点击/输入/滚动)
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'browser',
   title: 'AI 浏览器 · BROWSE',
@@ -507,14 +461,12 @@ function _brzNavigate(el, url, actions) {
   statusEl.textContent = 'LOADING';
   statusEl.className = 'brz-status loading';
 
-  // 进度条动画
   progEl.style.width = '0%';
   progEl.style.opacity = '1';
   setTimeout(() => progEl.style.width = '70%', 80);
   setTimeout(() => { progEl.style.width = '100%'; }, 700);
   setTimeout(() => { progEl.style.opacity = '0'; statusEl.textContent = 'LOADED'; statusEl.className = 'brz-status loaded'; }, 950);
 
-  // 渲染一个抽象的"网页骨架" + 操作高亮
   vp.innerHTML = `
     <div class="brz-page">
       <div class="brz-skel brz-skel-title"></div>
@@ -531,7 +483,6 @@ function _brzNavigate(el, url, actions) {
       <div class="brz-cursor" data-role="brz-cursor">➤</div>
     </div>`;
 
-  // AI 操作序列高亮
   const acts = actions || [
     { type: 'scan', label: '解析页面结构', x: 50, y: 20 },
     { type: 'click', label: '点击主内容区', x: 30, y: 45 },
@@ -548,7 +499,6 @@ function _brzNavigate(el, url, actions) {
     cursor.style.top = a.y + '%';
     cursor.setAttribute('data-label', a.label);
     cursor.className = `brz-cursor act-${a.type}`;
-    // 涟漪
     const ripple = document.createElement('div');
     ripple.className = 'brz-ripple';
     ripple.style.left = a.x + '%';
@@ -561,11 +511,6 @@ function _brzNavigate(el, url, actions) {
   setTimeout(runAct, 1000);
 }
 
-/* ─────────────────────────────────────────────
-   WIDGET 10: 语音输入 (voice) — 麦克风波形 + 语音识别
-   Web Audio API 真实波形 + 浏览器原生 SpeechRecognition
-   识别结果可直接作为指令传输给激活 Agent
-───────────────────────────────────────────── */
 WidgetRuntime.register({
   id: 'voice',
   title: '语音输入 · VOICE',
@@ -600,7 +545,6 @@ function _voiceInit(el, ctx) {
   let audioCtx = null, analyser = null, dataArr = null, rafId = null, stream = null;
   let recognition = null, recognizing = false, finalText = '';
 
-  // 语音识别(浏览器原生)
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SR) {
     recognition = new SR();
@@ -685,7 +629,6 @@ function _voiceInit(el, ctx) {
     const text = transcriptEl.textContent.trim();
     if (!text || text === '聆听中...') return;
     stopMic();
-    // 把识别结果填入控制台并传输
     const input = document.getElementById('consoleInput');
     if (input) { input.value = text; }
     if (typeof transmit === 'function') transmit();

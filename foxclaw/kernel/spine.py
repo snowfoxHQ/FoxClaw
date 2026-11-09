@@ -32,7 +32,6 @@ class Event:
     source: str = ""
     correlation_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
-    # ── 与旧 BusMessage 同形,便于 SystemBus 无痛门面化 ──
     @property
     def channel(self) -> str:
         return self.topic
@@ -46,8 +45,8 @@ class EventSpine:
     """进程内唯一事件脊柱。发布/订阅(前缀匹配) + 投影 + 有界历史。线程安全。"""
 
     def __init__(self, history_limit: int = 1000):
-        self._subs: list[tuple[str, Callable]] = []      # (topic_prefix, handler)
-        self._projections: list[Callable] = []           # 每条事件都收到
+        self._subs: list[tuple[str, Callable]] = []
+        self._projections: list[Callable] = []
         self._history: deque = deque(maxlen=history_limit)
         self._lock = threading.RLock()
 
@@ -70,7 +69,6 @@ class EventSpine:
             evt = Event(topic=topic, payload=payload or {}, source=source)
         with self._lock:
             self._history.append(evt)
-            # 锁内只做"快照",handler/sink 在锁外执行(避免与 pm/hmr 锁形成环)
             handlers = [h for pfx, h in self._subs if topic.startswith(pfx)]
             projections = list(self._projections)
         for h in handlers:
@@ -93,7 +91,6 @@ class EventSpine:
 
     def stats(self) -> dict:
         with self._lock:
-            # 【P4-2】补 history_limit(deque.maxlen):只报 history_size 无法判断「是否已满」。
             return {"subscriptions": len(self._subs),
                     "projections": len(self._projections),
                     "history_size": len(self._history),

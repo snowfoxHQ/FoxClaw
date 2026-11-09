@@ -20,12 +20,12 @@ from typing import Any, Callable, cast, Optional
 
 class TruthCrystallizer:
     def __init__(self, hkc_provider: Callable[[], object], enabled: bool = False):
-        self._hkc_provider = hkc_provider     # 惰性取 HKCService(或 None)
+        self._hkc_provider = hkc_provider
         self.enabled = enabled
         self._executor: Optional[ThreadPoolExecutor] = None
         self._closed = False
         self._lock = threading.Lock()
-        self._pending: list = []              # 供测试 drain
+        self._pending: list = []
 
     def _ex(self) -> Optional[ThreadPoolExecutor]:
         with self._lock:
@@ -41,7 +41,7 @@ class TruthCrystallizer:
         if not self.enabled:
             return
         p = getattr(msg, "payload", None) or {}
-        if p.get("blocked"):                  # 被拦截任务不结晶(与 TruthPipeline 一致)
+        if p.get("blocked"):
             return
         fact = ((p.get("truth") or {}).get("fact") or "").strip()
         if not fact:
@@ -52,9 +52,6 @@ class TruthCrystallizer:
             return
         fut = ex.submit(self._crystallize, fact, domain)
         with self._lock:
-            # 【深审修复·长期运行泄漏】_pending 原先只增不减(drain 仅在 close/测试时调用),
-            # 启用后每来一次 truth.appended 就永久累积一个已完成 Future → 无界内存泄漏。
-            # 改为每次提交时 prune 掉已完成的,_pending 只保留在飞行中的任务(仍支持测试 drain)。
             self._pending = [f for f in self._pending if not f.done()]
             self._pending.append(fut)
 

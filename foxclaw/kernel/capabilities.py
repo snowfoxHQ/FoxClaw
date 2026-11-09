@@ -25,8 +25,8 @@ class CapabilityRegistry:
     def __init__(self):
         self._caps: dict[str, Any] = {}
         self._lazy: dict[str, Callable[[], Any]] = {}
-        self._lock = threading.RLock()             # 只护 _caps/_lazy 表(快照,持锁时间极短)
-        self._build_locks: dict[str, threading.Lock] = {}   # name -> 构造锁(per-name)
+        self._lock = threading.RLock()
+        self._build_locks: dict[str, threading.Lock] = {}
 
     def register(self, name: str, handle: Any) -> None:
         """注册一个已构造好的能力实例(覆盖同名)。"""
@@ -54,12 +54,11 @@ class CapabilityRegistry:
             blk = self._build_locks.get(name)
             if blk is None:
                 blk = self._build_locks[name] = threading.Lock()
-        # 出全局锁,用 per-name 锁串行化"同一能力"的构造
         with blk:
             with self._lock:
-                if name in self._caps:      # 双检:构造期间可能已被别的线程建好
+                if name in self._caps:
                     return self._caps[name]
-            inst = factory()                # 慢构造:不持全局锁,不阻塞其它能力解析
+            inst = factory()
             with self._lock:
                 self._caps[name] = inst
                 return inst

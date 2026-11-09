@@ -32,7 +32,7 @@ class FakeAgent:
     def __init__(self, nodes=None, fail_on=None):
         self.thought_chain = _FakeChain(nodes or [])
         self.exec_count = 0
-        self._fail_on = fail_on          # 第 N 次 _execute 抛错(模拟重试期间 BLOCK/出错)
+        self._fail_on = fail_on
     def _recall_query(self, task): return f"q:{task}"
     def _recall_memory(self, query, top_k=5):
         self.last_recall = (query, top_k)
@@ -57,7 +57,6 @@ def test_default_pipeline():
     assert ctx.perceived.get("task_len") == 1, "perceive 记录输入特征"
     assert ctx.plan.get("multi_step") is False and ctx.route.get("target") == "self"
     assert ctx.verified.get("passed") is True, "verify 汇总校验结果到 ctx.verified"
-    # 默认 reflect:接受,不重试(behavior-preserving) → _execute 只调 1 次
     assert ctx.reflect["decision"] == "accept" and ctx.reflect["retries"] == 0
     assert a.exec_count == 1, "默认不重试,_execute 只调一次"
     print(f"  ✓ recall→plan→route→act→verify→reflect 按序;plan={ctx.plan['flow']} "
@@ -67,12 +66,10 @@ def test_default_pipeline():
 def test_plan_route_stage():
     print("\n【1c】plan/route stage:P1-2 引擎分析结构(informational,不改执行)")
     from foxclaw.pipeline import stage_plan, stage_route
-    # 多步任务(顺序连接词)
     ctx = PipelineContext(agent=FakeAgent(), task="先分析支出 然后 给出建议")
     stage_plan(ctx); stage_route(ctx)
     assert ctx.plan["multi_step"] is True and len(ctx.plan["steps"]) == 2, ctx.plan
     assert ctx.plan["flow"] == "sequential" and ctx.route["target"] == "self"
-    # 单步任务
     ctx2 = PipelineContext(agent=FakeAgent(), task="分析我的开支")
     stage_plan(ctx2)
     assert ctx2.plan["multi_step"] is False and ctx2.plan["steps"] == ["分析我的开支"]
@@ -94,7 +91,7 @@ def test_insertable_stage():
     print("\n【2】可插桩:插入自定义 stage 按位置执行")
     hits = []
     def stage_probe(ctx):
-        hits.append(("probe", len(ctx.memories)))   # 在 recall 之后、act 之前
+        hits.append(("probe", len(ctx.memories)))
     stage_probe.stage_name = "probe"
     a = FakeAgent()
     ctx = PipelineContext(agent=a, task="X")
@@ -133,14 +130,13 @@ def test_stage_events():
     print("\n【6】逐 stage 事件:每个 stage emit agent.cognition.<stage> 到脊柱")
     spine = _CapSpine()
     a = FakeAgent()
-    a._caps = _Caps(spine)                     # 注入能力中枢(解析出脊柱)
+    a._caps = _Caps(spine)
     ctx = PipelineContext(agent=a, task="E", session_id="s3")
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx))
     expected = ["agent.cognition." + n for n in
                 ["perceive", "recall", "plan", "route", "act", "verify", "reflect"]]
     assert spine.events == expected, f"逐 stage 事件,实得 {spine.events}"
-    # 无中枢时优雅跳过(不崩)
-    a2 = FakeAgent()   # 无 _caps
+    a2 = FakeAgent()
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(PipelineContext(agent=a2, task="X")))
     print("  ✓ 7 个 agent.cognition.* 事件按序 emit;无中枢时优雅跳过")
 
@@ -149,33 +145,25 @@ def test_route_skill_optin_inert():
     print("\n【7】A·Step5:route 默认自动选 skill(仅只读+高阈值);可关;有副作用的不自动选")
     from foxclaw.pipeline import stage_route
     from foxclaw.skills import build_default_registry
-    reg = build_default_registry()          # 含 calculator(触发词「计算」等)
+    reg = build_default_registry()
 
-    # (a) 【契约变更 2026-07-16】原为"默认关"(behavior-preserving 放量期)。
-    #     现默认**开**:此前 route/dispatch 双关导致工具中心/MCP/技能在正常对话里根本够不着
-    #     (「帮我算 3+5」只会 LLM 硬答)。现默认自动选中**只读**技能。
     a = FakeAgent(); a.skill_registry = reg
     ctx = PipelineContext(agent=a, task="帮我计算 (12+8)*5")
     stage_route(ctx)
     assert ctx.route["target"] == "skill" and ctx.route["skill_id"] == "calculator", \
         f"默认应自动选中只读的 calculator: {ctx.route}"
 
-    # (a2) 可关(显式 False / 环境变量)→ 回落 self,老行为随时可拿回
     ctx_off = PipelineContext(agent=a, task="帮我计算 (12+8)*5",
                               context={"_route_skill": False})
     stage_route(ctx_off)
     assert ctx_off.route["target"] == "self", ctx_off.route
 
-    # (b) 开启(显式阈值 0.5,避免耦合具体分值):计算类 → router 选中 calculator,target=skill
     ctx2 = PipelineContext(agent=a, task="帮我计算 (12+8)*5",
                            context={"_route_skill": {"threshold": 0.5}})
     stage_route(ctx2)
     assert ctx2.route["target"] == "skill" and ctx2.route["skill_id"] == "calculator", ctx2.route
     assert ctx2.route["confidence"] >= 0.5, ctx2.route
 
-    # (c) 【契约变更】原断言"act 不消费 route"(Step1 铺线期)。Step2 起 act 会真派发;
-    #     此处验证:选中 skill 但**无 skill_adapter**(FakeAgent 没挂)→ _act_via_skill 回落
-    #     _execute,fail-safe 不崩。
     a3 = FakeAgent(); a3.skill_registry = reg
     ctx3 = PipelineContext(agent=a3, task="帮我计算 (12+8)*5",
                            context={"_route_skill": {"threshold": 0.5}})
@@ -184,13 +172,11 @@ def test_route_skill_optin_inert():
     assert ctx3.result == "done:帮我计算 (12+8)*5#1" and a3.exec_count == 1, \
         "无 skill_adapter → 回落 _execute(fail-safe)"
 
-    # (d) 无 skill_registry 的 Agent(finance/admin/office)→ 恒 self(fail-safe 回落)
     a4 = FakeAgent()
     ctx4 = PipelineContext(agent=a4, task="计算 1+1", context={"_route_skill": True})
     stage_route(ctx4)
     assert ctx4.route["target"] == "self", "无 skill_registry → 回落 self"
 
-    # (e) 高阈值(>1)→ 实际不选,回落 self(阈值可调证明)
     ctx5 = PipelineContext(agent=a, task="帮我计算 1+1",
                            context={"_route_skill": {"threshold": 1.01}})
     stage_route(ctx5)
@@ -209,7 +195,6 @@ def test_act_skill_dispatch_step2():
         a = FakeAgent(); a.skill_registry = reg; a.skill_adapter = adapter
         return a
 
-    # (a) 开启 dispatch + 计算类 → 真正执行 calculator,结果=100,且领域 _execute(LLM) 不被调
     a = mk_agent()
     ctx = PipelineContext(agent=a, task="帮我计算 (12+8)*5",
                           context={"_route_skill": {"threshold": 0.5}, "_skill_dispatch": True})
@@ -219,9 +204,6 @@ def test_act_skill_dispatch_step2():
     assert ctx.result["output"]["result"] == 100, ctx.result
     assert a.exec_count == 0, "skill 执行了 → 领域 _execute(LLM) 不再被调(首个真改执行)"
 
-    # (b) 【安全铁律】开启 dispatch + 发邮件(destructive/send)未确认 → needs_confirmation,零副作用、不回落 LLM
-    #     注:默认的只读闸会挡住 gmail_send(有副作用不自动选),故此处**显式** read_only=False
-    #     表示"我就是要测有副作用的路由被 PolicyGate 拦住"。
     a2 = mk_agent()
     ctx2 = PipelineContext(agent=a2, task="帮我发送邮件给客户",
                            context={"_route_skill": {"threshold": 0.5, "read_only": False},
@@ -231,37 +213,31 @@ def test_act_skill_dispatch_step2():
     assert ctx2.result["status"] == "needs_confirmation" and ctx2.result["pending"] is True, ctx2.result
     assert a2.exec_count == 0, "未确认的危险 skill → 不执行、不回落 LLM(绝不 fail-open)"
 
-    # (c) 显式关 dispatch(只 route)→ 即便 target=skill,act 仍走 _execute(两道门相互独立)
-    #     注:dispatch 现在**默认开**,故此处显式 False 才能验证"关掉"这条路径。
     a3 = mk_agent()
     ctx3 = PipelineContext(agent=a3, task="帮我计算 (12+8)*5",
                            context={"_route_skill": {"threshold": 0.5}, "_skill_dispatch": False})
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx3))
     assert ctx3.route["target"] == "skill" and a3.exec_count == 1, "dispatch 关 → 回落 _execute"
 
-    # (d) 开 dispatch 但 Agent 无 skill_adapter → 回落 _execute(fail-safe)
-    a4 = FakeAgent(); a4.skill_registry = reg     # 有 registry 无 adapter
+    a4 = FakeAgent(); a4.skill_registry = reg
     ctx4 = PipelineContext(agent=a4, task="帮我计算 1+1",
                            context={"_route_skill": {"threshold": 0.5}, "_skill_dispatch": True})
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx4))
     assert a4.exec_count == 1, "无 adapter → 回落 _execute"
 
-    # (b2) 【新安全闸·A·Step5】默认(只读闸开)下,发邮件这类有副作用的技能**根本不会被自动选中**
-    #      —— 自动执行不得越过"会改变世界"的线;要用仍可显式 use_skill(那时用户是知情的)。
     a2b = mk_agent()
-    ctx2b = PipelineContext(agent=a2b, task="帮我发送邮件给客户")   # 全默认
+    ctx2b = PipelineContext(agent=a2b, task="帮我发送邮件给客户")
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx2b))
     assert ctx2b.route["target"] == "self", f"有副作用的技能不该被自动选中: {ctx2b.route}"
     assert a2b.exec_count == 1, "未自动动手 → 由 LLM 作答"
 
-    # (e) 【fail-closed 加固】invoke 意外抛错 → 结构化 error,不崩、不回落 LLM
     class _BoomAdapter:
         def invoke(self, skill, args, confirmed=False, mode="strict"):
             raise RuntimeError("dispatch 内部炸了")
     a5 = FakeAgent(); a5.skill_registry = reg; a5.skill_adapter = _BoomAdapter()
     ctx5 = PipelineContext(agent=a5, task="帮我计算 1+1",
                            context={"_route_skill": {"threshold": 0.5}, "_skill_dispatch": True})
-    asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx5))   # 不抛异常
+    asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx5))
     assert ctx5.result["status"] == "error" and "异常" in ctx5.result["message"], ctx5.result
     assert a5.exec_count == 0, "dispatch 异常 → fail-closed 结构化 error,绝不回落 LLM"
     print("  ✓ 开启:calculator 真执行(=100,不调LLM);发邮件未确认→needs_confirmation零副作用;"
@@ -303,35 +279,28 @@ def test_run_task_confirm_suspend_step3():
         ag = _Mini(hmr=_FakeHMR(), thought_chain=ThoughtChain(db_path=f"{d}/tc.db"),
                    data_dir=d, shadow_rounds=5)
         ag.skill_registry = reg; ag.skill_adapter = adapter
-        # read_only=False:本测试专门验证**写入类** skill 的 confirm 挂起路径,
-        # 而默认的只读闸不会自动选中它 —— 故显式声明(调用方自担风险的显式选择)。
         base_ctx = {"_route_skill": {"threshold": 0.4, "read_only": False},
                     "_skill_dispatch": True}
 
-        # 未确认:写 skill → run_task 顶层 status=needs_confirmation + pending_action,零副作用
         r1 = asyncio.run(ag.run_task("帮我记一下 买牛奶", dict(base_ctx)))
         assert r1.get("status") == "needs_confirmation", r1
         assert r1.get("pending_action", {}).get("skill_id") == "save_note", r1
         assert saved == [], "未确认 → handler 不执行(零副作用)"
 
-        # 【深审加固】确认绑定错 skill_id → 仍 needs_confirmation、不执行(防确认漂移)
         r_bad = asyncio.run(ag.run_task("帮我记一下 买牛奶",
                                         {**base_ctx, "_confirmed": "gmail_send"}))
         assert r_bad.get("status") == "needs_confirmation", r_bad
         assert saved == [], "确认绑定到别的 skill → 不执行本 skill(绑定优先)"
 
-        # 确认恢复:绑定到正确 skill_id 重跑 → skill 真执行,无 needs_confirmation
         r2 = asyncio.run(ag.run_task("帮我记一下 买牛奶",
                                      {**base_ctx, "_confirmed": "save_note"}))
         assert r2.get("status") != "needs_confirmation", r2
         assert len(saved) == 1, f"确认后 handler 执行(有副作用),saved={saved}"
 
-        # 向后兼容:_confirmed=True 概括确认仍生效
         saved.clear()
         r2b = asyncio.run(ag.run_task("帮我记一下 买酸奶", {**base_ctx, "_confirmed": True}))
         assert r2b.get("status") != "needs_confirmation" and len(saved) == 1, (r2b, saved)
 
-        # 纯 LLM 路径(dispatch 关)→ 无 status 字段(行为逐字不变)
         r3 = asyncio.run(ag.run_task("随便聊聊"))
         assert "status" not in r3 and r3["result"] == "llm:随便聊聊", r3
         print(f"  ✓ 未确认→顶层 needs_confirmation 零副作用;_confirmed 重跑→执行(saved={saved});"
@@ -343,7 +312,7 @@ def test_run_task_confirm_suspend_step3():
 def test_reflect_retry_optin():
     print("\n【4】reflect opt-in:漂移超阈值 → 有上限重试")
     from foxclaw.pipeline import stage_verify   # noqa
-    a = FakeAgent(nodes=[_Node("WARN", 0.8)])   # verify 得 max_delta=0.8 > 阈值 0.5
+    a = FakeAgent(nodes=[_Node("WARN", 0.8)])
     ctx = PipelineContext(agent=a, task="V",
                           context={"_reflect": {"max_retries": 2, "drift_threshold": 0.5}})
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx))
@@ -358,8 +327,8 @@ class _DynChain:
     def __init__(self, agent): self.agent = agent
     def get_chain(self, session_id, agent_id=None):
         if self.agent.exec_count <= 1:
-            return [_Node("WARN", 0.8)]                      # 初次:高漂移
-        return [_Node("WARN", 0.8), _Node("PASS", 0.2)]     # 重试后:旧高(0.8) + 新低(0.2)
+            return [_Node("WARN", 0.8)]
+        return [_Node("WARN", 0.8), _Node("PASS", 0.2)]
 
 
 def test_reflect_early_exit_on_improve():
@@ -369,10 +338,8 @@ def test_reflect_early_exit_on_improve():
     ctx = PipelineContext(agent=a, task="D",
                           context={"_reflect": {"max_retries": 3, "drift_threshold": 0.5}})
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx))
-    # 初次 exec=1 → last_delta=0.8>0.5 → 重试1 exec=2 → last_delta=0.2<=0.5 → 早退(非到上限3)
     assert a.exec_count == 2, f"改善后应只重试 1 次(而非到上限 3),实得 {a.exec_count}"
     assert ctx.reflect["decision"] == "retry_accepted" and ctx.reflect["retries"] == 1, ctx.reflect
-    # 关键:此时 max_delta 仍是 0.8(旧节点),若用它会错误地重试到上限;last_delta=0.2 才对
     assert ctx.verified["max_delta"] == 0.8 and ctx.verified["last_delta"] == 0.2
     print(f"  ✓ 早退:exec={a.exec_count} reflect={ctx.reflect['decision']} "
           f"(max_delta={ctx.verified['max_delta']} 仍高,但 last_delta={ctx.verified['last_delta']} 达标)")
@@ -380,7 +347,7 @@ def test_reflect_early_exit_on_improve():
 
 def test_reflect_failsafe_rollback():
     print("\n【5】reflect fail-safe:重试自身出错 → 回滚到重试前结果")
-    a = FakeAgent(nodes=[_Node("WARN", 0.8)], fail_on=2)   # 第 2 次 _execute(首个重试)抛错
+    a = FakeAgent(nodes=[_Node("WARN", 0.8)], fail_on=2)
     ctx = PipelineContext(agent=a, task="X",
                           context={"_reflect": {"max_retries": 2, "drift_threshold": 0.5}})
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx))
@@ -401,10 +368,10 @@ def test_concurrent_ctx_isolation():
 
     class SlowAgent(FakeAgent):
         async def _execute(self, task, context, session_id, memories):
-            await asyncio.sleep(0.005)          # 让出控制权 → 制造交错 → 暴露串状态
+            await asyncio.sleep(0.005)
             return f"done:{task}", {"task_echo": task}
 
-    a = SlowAgent()                             # 同一 agent 实例,被 24 个任务并发打
+    a = SlowAgent()
 
     async def run_one(task):
         ctx = PipelineContext(agent=a, task=task, session_id=f"s_{task}")
@@ -434,40 +401,35 @@ def test_cooperative_interrupt():
     import threading
     print("\n【7】P3 协作式中断:stop_event 在 stage 边界 / 重试迭代前优雅停")
 
-    # (a) 无 stop_event → 跑满 7 stage、interrupted=False(behavior-preserving)
     a = FakeAgent()
     ctx = PipelineContext(agent=a, task="T")
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx))
     assert ctx.interrupted is False and len(ctx.trace) == 7, (ctx.interrupted, ctx.trace)
 
-    # (b) 起步即置位 → 0 个 stage 执行、interrupted=True、无结果
     ev = threading.Event(); ev.set()
     ctx2 = PipelineContext(agent=FakeAgent(), task="T", stop_event=ev)
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx2))
     assert ctx2.interrupted is True and ctx2.trace == [] and ctx2.result is None, \
         (ctx2.interrupted, ctx2.trace, ctx2.result)
 
-    # (c) 中途置位(自定义 stage 跑完就 set)→ 停在下一边界,后续 stage 全不跑
     ev2 = threading.Event()
     def _tripwire(c): ev2.set()
     _tripwire.stage_name = "tripwire"
-    stages = DEFAULT_STAGES[:2] + [_tripwire] + DEFAULT_STAGES[2:]   # perceive,recall,tripwire,plan...
+    stages = DEFAULT_STAGES[:2] + [_tripwire] + DEFAULT_STAGES[2:]
     ctx3 = PipelineContext(agent=FakeAgent(), task="T", stop_event=ev2)
     asyncio.run(CognitivePipeline(stages).run(ctx3))
     assert ctx3.trace == ["perceive", "recall", "tripwire"], ctx3.trace
     assert ctx3.interrupted is True and ctx3.result is None, (ctx3.interrupted, ctx3.result)
     print(f"  ✓ 边界中断:无 stop 跑满 7;起步停 0 stage;中途停 trace={ctx3.trace}(后续未跑)")
 
-    # (d) reflect 重试循环中断:agent 在**首次重试的 _execute** 时置位 → 下一轮迭代前停,
-    #     证明重试在用尽 max_retries(=5)之前被截断。这是本管线最接近"agentic loop 每轮检查中断"处。
     ev3 = threading.Event()
     class _StopOnRetryAgent(FakeAgent):
         def __init__(self, e):
-            super().__init__(nodes=[_Node("WARN", 0.8)])   # 恒高漂移 → 不中断会一直重试到上限
+            super().__init__(nodes=[_Node("WARN", 0.8)])
             self._e = e
         async def _execute(self, task, context, session_id, memories):
             self.exec_count += 1
-            if self.exec_count == 2:            # 第 1 次重试的 LLM 调用时请求中断
+            if self.exec_count == 2:
                 self._e.set()
             return f"done:{task}#{self.exec_count}", {"call": self.exec_count}
     a4 = _StopOnRetryAgent(ev3)
@@ -485,18 +447,15 @@ def test_cooperative_interrupt():
 def test_on_stage_callback():
     """【8】D1:`pipeline.run(on_stage)` 逐 stage 回调(opt-in);无回调=行为不变;回调异常 fail-safe。"""
     print("\n【8】D1 on_stage 回调:逐 stage 通知 + opt-in + fail-safe")
-    # (a) 有回调:每 stage 完成后回调一次,顺序与 trace 一致
     seen = []
     ctx = PipelineContext(agent=FakeAgent(), task="T")
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(
         ctx, on_stage=lambda name, c: seen.append(name)))
     assert seen == ctx.trace == ["perceive", "recall", "plan", "route", "act", "verify", "reflect"], \
         (seen, ctx.trace)
-    # (b) 无回调:行为逐字不变(默认路径)
     ctx2 = PipelineContext(agent=FakeAgent(), task="T")
     asyncio.run(CognitivePipeline(DEFAULT_STAGES).run(ctx2))
     assert len(ctx2.trace) == 7 and ctx2.result == "done:T#1"
-    # (c) 回调抛异常:被吞,不影响管线跑完(fail-safe:流式反馈绝不拖垮任务)
     def _boom(name, c):
         raise RuntimeError("回调故障")
     ctx3 = PipelineContext(agent=FakeAgent(), task="T")

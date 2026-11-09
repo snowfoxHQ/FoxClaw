@@ -13,18 +13,15 @@ from foxclaw.core import settings
 
 @pytest.fixture(autouse=True)
 def _reset_warned(monkeypatch):
-    # _warned 是进程级的"只喊一次"账本,测试之间必须清,否则 get_safe 的日志断言会串
     monkeypatch.setattr(settings, "_warned", set())
 
 
-# ── 类型化读取 ───────────────────────────────────────────────────────────
 def test_get_int_reads_value(monkeypatch):
     monkeypatch.setenv("FOXCLAW_PORT", "9001")
     assert settings.get_int("FOXCLAW_PORT") == 9001
 
 
 def test_get_int_blank_means_default(monkeypatch):
-    # `.env` 里写 `FOXCLAW_PORT=` 曾经会 int("") 崩掉;空串按未设置处理
     monkeypatch.setenv("FOXCLAW_PORT", "   ")
     assert settings.get_int("FOXCLAW_PORT") == 8000
 
@@ -41,7 +38,6 @@ def test_get_int_bad_value_names_variable_and_caller(monkeypatch):
     msg = str(ei.value)
     assert "FOXCLAW_PORT" in msg and "80oo" in msg
     assert "期望" in msg and "8000" in msg
-    # 调用点必须是本测试文件,否则用户还是不知道该去哪改
     assert "test_settings.py" in msg
 
 
@@ -52,7 +48,6 @@ def test_get_int_below_min(monkeypatch):
 
 
 def test_fractional_timeout_allowed(monkeypatch):
-    # 工具超时可以小于 1 秒(tests/test_tool_parallel.py 就用 0.3 模拟慢工具)
     monkeypatch.setenv("FOXCLAW_TOOL_TIMEOUT", "0.3")
     assert settings.get_float("FOXCLAW_TOOL_TIMEOUT") == pytest.approx(0.3)
 
@@ -66,17 +61,16 @@ def test_get_safe_degrades_and_warns_once(monkeypatch, caplog):
     monkeypatch.setenv("FOXCLAW_TRACE_SLOW_MS", "慢")
     with caplog.at_level("WARNING", logger="foxclaw.config"):
         assert settings.get_safe("FOXCLAW_TRACE_SLOW_MS") == 1000.0
-        assert settings.get_safe("FOXCLAW_TRACE_SLOW_MS") == 1000.0   # 第二次不重复喊
+        assert settings.get_safe("FOXCLAW_TRACE_SLOW_MS") == 1000.0
     assert sum("FOXCLAW_TRACE_SLOW_MS" in r.message for r in caplog.records) == 1
 
 
 def test_get_safe_unknown_name_returns_default(monkeypatch):
     monkeypatch.setenv("SOME_UNDECLARED_KNOB", "abc")
-    assert settings.get_safe("SOME_UNDECLARED_KNOB", "dflt") == "abc"    # str 恒可解析
+    assert settings.get_safe("SOME_UNDECLARED_KNOB", "dflt") == "abc"
     assert settings.get_safe("NOT_SET_AT_ALL_X", 7) == 7
 
 
-# ── check():一次汇总所有问题 ─────────────────────────────────────────────
 def _clean(monkeypatch, *keys):
     """清掉一组变量,避免宿主机上真实存在的键干扰断言。"""
     for k in keys:
@@ -88,7 +82,6 @@ def test_check_flags_type_error_without_raising(monkeypatch):
     issues = settings.check({"FOXCLAW_PORT": "80oo", "DEEPSEEK_API_KEY": "x"})
     errs = [i for i in issues if i.level == "error"]
     assert len(errs) == 1 and errs[0].code == "type" and errs[0].name == "FOXCLAW_PORT"
-    # 提示不该与消息重复(Exception 里已写"期望")
     assert errs[0].hint == ""
 
 
@@ -110,13 +103,11 @@ def test_check_clean_env_has_no_error():
 
 
 def test_check_secret_value_is_masked_in_message():
-    # 密钥写错时不能把原文打进日志/终端
     issues = settings.check({"LLM_PROVIDER": "openai", "OPENAI_API_KEY": " sk-live-1234567890 "})
     msg = " ".join(i.message for i in issues)
     assert "sk-live-1234567890" not in msg
 
 
-# ── 语义检查:选了 provider 却没 key ────────────────────────────────────
 def test_provider_without_key_is_error():
     issues = settings.check({"LLM_PROVIDER": "deepseek", "ANTHROPIC_API_KEY": ""})
     hit = [i for i in issues if i.code == "provider_key"]
@@ -139,7 +130,6 @@ def test_no_key_at_all_is_warn_not_error():
     assert hit and hit[0].level == "warn"
 
 
-# ── 未知键:拼错的键必须被点名 + 给出正确写法 ────────────────────────────
 def test_typo_key_is_flagged_with_suggestion():
     issues = settings.check({"DEEPSEEK_API_KEY": "k", "FOXCLAW_TOOL_TIMEOUTS": "60"})
     hit = [i for i in issues if i.name == "FOXCLAW_TOOL_TIMEOUTS"]
@@ -153,7 +143,6 @@ def test_known_key_is_not_flagged():
 
 
 def test_system_env_vars_are_not_flagged():
-    # 不是我们的命名空间就不该管(PATH/HOME 之类)
     issues = settings.check({"PATH": "/usr/bin", "DEEPSEEK_API_KEY": "k"})
     assert not [i for i in issues if i.name == "PATH"]
 
@@ -166,7 +155,6 @@ def test_known_keys_covers_real_usage():
     assert "NOT_A_REAL_KEY_NAME" not in known
 
 
-# ── 组合矛盾 ────────────────────────────────────────────────────────────
 def test_signing_key_id_without_secret_warns():
     issues = settings.check({"DEEPSEEK_API_KEY": "k",
                              "FOXCLAW_CHANNEL_SIGNING_KEY_ID": "k2"})
@@ -190,7 +178,6 @@ def test_gateway_off_with_api_key_warns():
     assert [i for i in issues if i.code == "gateway_off"]
 
 
-# ── 输出 / 脱敏 ─────────────────────────────────────────────────────────
 @pytest.mark.parametrize("value,expect", [("", "(空)"), ("abcd", "****"),
                                           ("sk-1234567890", "sk******90")])
 def test_mask(value, expect):
@@ -221,7 +208,6 @@ def test_fatal_issues_only_type_and_choice():
     assert [i.name for i in settings.fatal_issues(issues)] == ["A"]
 
 
-# ── CLI ─────────────────────────────────────────────────────────────────
 def test_cli_config_check_exit_code_on_error(monkeypatch, capsys):
     monkeypatch.setenv("FOXCLAW_PORT", "80oo")
     assert cli.main(["config", "check"]) == 1
@@ -262,7 +248,6 @@ def test_cli_config_show_reveal(monkeypatch, capsys):
 
 
 def test_serve_aborts_before_starting_on_bad_type(monkeypatch):
-    # 关键:拦在 uvicorn 之前 —— 否则用户看到的是 40 行 traceback 里的 int()
     monkeypatch.setenv("FOXCLAW_PORT", "80oo")
     args = cli.build_parser().parse_args(["serve"])
     assert cli._cmd_serve(args) == 2
@@ -272,7 +257,6 @@ def test_serve_semantic_warning_does_not_block(monkeypatch):
     monkeypatch.setenv("FOXCLAW_CORS_ORIGINS", "*")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
     args = cli.build_parser().parse_args(["serve"])
-    # 走到 uvicorn.run 之前就返回,说明没有 fatal(用假 uvicorn 防止真的起服务)
     import sys
     import types
     fake = types.ModuleType("uvicorn")

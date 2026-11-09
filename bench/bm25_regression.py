@@ -155,7 +155,6 @@ def main():
     else:
         print("\n[4/4] 跳过一致率(无 rank_bm25 对照)")
 
-    # save/load roundtrip
     print("\n[bonus] save/load roundtrip ...")
     tmp = "_tmp_bm25.pkl"
     new_idx.save(tmp)

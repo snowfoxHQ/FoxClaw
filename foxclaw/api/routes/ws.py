@@ -45,21 +45,17 @@ async def harness_websocket(websocket: WebSocket):
     """
     api_key = os.environ.get("FOXCLAW_API_KEY", "").strip()
     if api_key:
-        # 【P3-loopback】与 HTTP 中间件同口径:本机(127.0.0.1 / ::1)WS 客户端免 ?key=
-        # 设 FOXCLAW_LOOPBACK_BYPASS=0 可关。详见 foxclaw.api.middleware._loopback_bypass_on
         ws_host = websocket.client.host if websocket.client else ""
         if not (_loopback_bypass_on() and _is_loopback_client(ws_host)):
             provided = (websocket.query_params.get("key")
                         or websocket.headers.get("x-api-key"))
-            # 【P3-1】常量时间比较(与 HTTP 中间件同一辅助函数);None 由 or "" 兜底——
-            # api_key 非空时 not eq("", api_key) 必为 True,与原 None != api_key 行为一致
             if not _constant_time_eq(provided or "", api_key):
-                await websocket.close(code=1008)   # policy violation
+                await websocket.close(code=1008)
                 return
     await manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()  # 保持连接
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 

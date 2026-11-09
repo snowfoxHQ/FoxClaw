@@ -21,7 +21,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# 关闭联网触发(chaos 只测 LLM 咽喉,不触发搜索)
 import foxclaw.core.web_search as ws  # noqa: E402
 ws.needs_search = lambda q: False
 
@@ -37,7 +36,7 @@ def _make_router(primary="deepseek", fallback=None):
     if fallback:
         os.environ[PROVIDER_ENV[fallback]] = "chaos-test-key"
     r = ModelRouter(provider=primary)
-    r._client = object()                     # 使 is_stub == False
+    r._client = object()
     r._clients[primary] = object()
     if fallback:
         r._clients[fallback] = object()
@@ -87,11 +86,11 @@ def case4_circuit_breaker():
     """[4] 断路器:provider 失败后进入冷却,立即重试被跳过(不再紧密重试)。"""
     r = _make_router("deepseek")
     r._call_provider = _boom
-    r.complete(_SYS, _MSG)                    # 第一次失败 → 进入 cooldown
+    r.complete(_SYS, _MSG)
     cooled = "deepseek" in r._cooldown
     t0 = time.perf_counter()
-    r.complete(_SYS, _MSG)                    # 第二次:cooldown 未过期 → 直接跳过,不等超时
-    fast = (time.perf_counter() - t0) < 0.5   # 跳过热 provider,应远快于真实超时
+    r.complete(_SYS, _MSG)
+    fast = (time.perf_counter() - t0) < 0.5
     ok = cooled and fast and r.is_degraded()
     return ok, (f"冷却中={cooled} 跳过耗时={((time.perf_counter()-t0)*1000):.0f}ms"), "断路器生效"
 
@@ -101,11 +100,10 @@ def case5_recovery():
     r = _make_router("deepseek")
     r._call_provider = _boom
     r.complete(_SYS, _MSG)
-    assert "deepseek" in r._cooldown           # 先确认在冷却
-    r._cooldown["deepseek"] = 0                # 模拟冷却过期
+    assert "deepseek" in r._cooldown
+    r._cooldown["deepseek"] = 0
     r._call_provider = lambda *a, **k: ("恢复后的正常回复", None)
     out = r.complete(_SYS, _MSG)
-    # 注:degraded 是「曾降级」的累积运维标志(不因恢复清零),恢复语义看「解冻 + 成功返回」。
     ok = (out == "恢复后的正常回复") and ("deepseek" not in r._cooldown)
     return ok, ("解冻=" + str("deepseek" not in r._cooldown)), out[:40]
 

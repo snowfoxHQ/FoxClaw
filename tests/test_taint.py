@@ -36,18 +36,15 @@ def _skill(side_effect="read", read_only=True, external=False, destructive=False
     )
 
 
-# ── 1. taint_level 分级 ───────────────────────────────────────────────
 def test_taint_level_grading():
     assert IG.taint_level("web_search") == IG.TAINT_EXTERNAL == 1
     assert IG.taint_level("knowledge") == IG.TAINT_PERSONAL == 2
     assert IG.taint_level("file") == IG.TAINT_PERSONAL == 2
     assert IG.taint_level("memory") == IG.TAINT_SENSITIVE == 3
-    assert IG.taint_level("unknown_source") == IG.TAINT_EXTERNAL   # 未知来源不低估
+    assert IG.taint_level("unknown_source") == IG.TAINT_EXTERNAL
 
 
-# ── 2. permission 污点门槛 ─────────────────────────────────────────────
 def test_permission_taint_default_off_behavior_unchanged():
-    # 不传污点参数(默认关闭)→ 外发工具走原有 Stage 4 副作用确认
     s = _skill(side_effect="send", read_only=False)
     d = PERM.evaluate(s, {})
     assert d.decision == "ask" and d.reason_code == PERM.SIDE_EFFECT_CONFIRM
@@ -77,19 +74,17 @@ def test_permission_taint_not_trigger_on_readonly():
 
 def test_permission_taint_not_trigger_below_threshold():
     s = _skill(side_effect="send", read_only=False)
-    # 污点只有 EXTERNAL(1) < 阈值 PERSONAL(2)→ 不因污点拦,走副作用确认
     d = PERM.evaluate(s, {}, taint_level=IG.TAINT_EXTERNAL,
                       taint_threshold=IG.TAINT_PERSONAL)
     assert d.reason_code == PERM.SIDE_EFFECT_CONFIRM
 
 
-# ── 3. base 污点传播 ───────────────────────────────────────────────────
 def test_taint_helpers_on_fake_agent():
     a = types.SimpleNamespace(_think=lambda **k: None)
     assert _taint_get(a) == 0
     _taint_raise(a, IG.TAINT_EXTERNAL)
     _taint_raise(a, IG.TAINT_SENSITIVE)
-    assert _taint_get(a) == IG.TAINT_SENSITIVE    # 单调不减
+    assert _taint_get(a) == IG.TAINT_SENSITIVE
     _taint_reset(a)
     assert _taint_get(a) == 0
 

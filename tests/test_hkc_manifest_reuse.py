@@ -35,7 +35,6 @@ import faiss
 import numpy as np
 import pytest
 
-# ── vendor 隔离硬阻断(等价于 test_vendor_path_isolation.py 闸门 2-4) ────────
 from hkc_search.vector_search import (
     VectorIndex,
     _MANIFEST_FORMAT_VERSION,
@@ -68,8 +67,6 @@ for _cls_name, _cls in [
     _assert_vendor_path(_cls, _cls_name)
 
 
-# ── Fixtures ────────────────────────────────────────────────────────
-
 @pytest.fixture
 def stub_vector(tmp_path) -> VectorIndex:
     """已 build 3 条 KU 的 vector,save 后留磁盘文件。"""
@@ -96,23 +93,18 @@ def _ku_text(ku) -> str:
     return " ".join(parts)
 
 
-# ── M1: roundtrip(全过) ───────────────────────────────────────────
-
 class TestManifestRoundtrip:
     def test_save_load_roundtrip(self, tmp_path, stub_vector):
         """save → load 完整,数据一致(ku_ids/names/summaries/text_hashes 全部保留)。"""
         vec_path = str(tmp_path / "search_vector")
         stub_vector.save(vec_path)
-        # 落盘了 v2 manifest
         meta = pickle.loads((Path(vec_path + ".meta")).read_bytes())
         assert meta["format_version"] == _MANIFEST_FORMAT_VERSION == 2
         assert meta["ku_text_version"] == _KU_TEXT_FORMAT_VERSION == 1
-        # backend 字段以"Stub("开头(StubBackend.name 形如 "Stub(dim=384)")
         assert meta["backend"].startswith("Stub("), meta["backend"]
         assert meta["dim"] == stub_vector.dim
         assert len(meta["ku_ids"]) == 3
         assert len(meta["text_hashes"]) == 3
-        # 加载
         fresh = VectorIndex(backend=StubBackend())
         assert fresh.load(vec_path) is True
         assert fresh.size() == 3
@@ -138,12 +130,10 @@ class TestManifestRoundtrip:
         """同文本 → 同 hash(阶段 B 跨进程比对、阶段 C 续跑检测都要靠这个稳定性)。"""
         a = _hash_text("alpha 一种希腊字母")
         b = _hash_text("alpha 一种希腊字母")
-        c = _hash_text("alpha 一种希腊字母 ")   # 末尾空格,文本不同
+        c = _hash_text("alpha 一种希腊字母 ")
         assert a == b
         assert a != c
 
-
-# ── M2~M9: 8 步校验各失败路径 ───────────────────────────────────
 
 class TestManifestValidation:
     def _fresh_v2_disk(self, tmp_path) -> str:
@@ -159,14 +149,11 @@ class TestManifestValidation:
     def test_v1_manifest_no_format_version_resets(self, tmp_path):
         """M2:旧 v1 manifest(无 format_version 字段)→ _reset。"""
         vec_path = self._fresh_v2_disk(tmp_path)
-        # 改写 meta 为 v1:仅 ku_ids/names/summaries/backend,无 format_version/dim/text_hashes
         with open(vec_path + ".meta", "wb") as f:
             pickle.dump({"ku_ids": ["X"], "names": ["x"],
                          "summaries": ["x"], "backend": "stub"}, f)
         v = VectorIndex(backend=StubBackend())
-        # 加载必失败 → 返 False
         assert v.load(vec_path) is False
-        # _reset 已清空
         assert v.size() == 0
         assert v._ku_ids == []
         assert v._text_hashes == []
@@ -224,7 +211,7 @@ class TestManifestValidation:
         vec_path = self._fresh_v2_disk(tmp_path)
         with open(vec_path + ".meta", "rb") as f:
             meta = pickle.load(f)
-        meta["text_hashes"] = meta["text_hashes"][:1]   # 只留 1 个,与 2 条 ku_ids 不一致
+        meta["text_hashes"] = meta["text_hashes"][:1]
         with open(vec_path + ".meta", "wb") as f:
             pickle.dump(meta, f)
         v = VectorIndex(backend=StubBackend())
@@ -233,8 +220,7 @@ class TestManifestValidation:
     def test_faiss_dim_mismatch_resets(self, tmp_path):
         """M8:faiss 实际维度与 meta["dim"] 不一致(切后端后常见)→ 校验失败。"""
         vec_path = self._fresh_v2_disk(tmp_path)
-        # 重建一个维度错的 faiss 文件
-        wrong_idx = faiss.IndexFlatIP(999)  # 错维度
+        wrong_idx = faiss.IndexFlatIP(999)
         wrong_idx.add(np.random.rand(2, 999).astype("float32"))
         faiss.write_index(wrong_idx, vec_path + ".faiss")
         v = VectorIndex(backend=StubBackend())
@@ -244,7 +230,6 @@ class TestManifestValidation:
     def test_faiss_ntotal_mismatch_resets(self, tmp_path):
         """M9:faiss 实际 ntotal 与 meta len(ku_ids) 不一致 → 校验失败。"""
         vec_path = self._fresh_v2_disk(tmp_path)
-        # 重建一个 ntotal=99 的 faiss(其他字段不动)
         wrong_idx = faiss.IndexFlatIP(stub_vector_dim := VectorIndex(backend=StubBackend()).dim)
         wrong_idx.add(np.random.rand(99, stub_vector_dim).astype("float32"))
         faiss.write_index(wrong_idx, vec_path + ".faiss")
@@ -266,8 +251,7 @@ class TestManifestValidation:
         v = VectorIndex(backend=StubBackend())
         kus = [ConceptKU(ku_id="KU_A", name="a", summary="a", domain="d")]
         v.build(kus)
-        # 故意破坏 invariant:删一个 text_hash
-        v._text_hashes = v._text_hashes[:0]   # 现在 _text_hashes=[] 但 _ku_ids=[KU_A]
+        v._text_hashes = v._text_hashes[:0]
         with pytest.raises(AssertionError):
             v.save(str(tmp_path / "search_vector"))
 
@@ -279,12 +263,6 @@ class TestManifestValidation:
             assert e.reason == "foo_reason"
             assert "foo msg" in str(e)
 
-
-# ── B1~B4: bm25 0 corpus 保护 ────────────────────────────────────
-# B 阶段把 BM25Index 重写为自实现倒排索引(不再包装 rank_bm25),旧私有属性
-# `_bm25` / `_ku_ids` / `_names` / `_summaries` / `_corpus` / `_rebuild_bm25`
-# 均已不存在。故断言改为验证**对外行为**(size / search),不再耦合私有结构 ——
-# 旧测试直接拼私有 list 再调私有 rebuild,是它在此次重构后失效的根因。
 
 class TestBM25EmptyCorpus:
     def test_build_empty_list(self):
@@ -313,5 +291,4 @@ class TestBM25EmptyCorpus:
     def test_search_with_no_bm25(self):
         """B4:未 build 时 search 返 []。"""
         b = BM25Index()
-        # 不 build,直接 search
         assert b.search("anything") == []

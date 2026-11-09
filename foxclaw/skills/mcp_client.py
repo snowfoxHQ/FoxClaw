@@ -11,7 +11,6 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.sse import sse_client
 
 
-# ── async→sync 桥:单例后台 loop 线程 ──────────────────────────
 class _Bridge:
     def __init__(self):
         self._loop = asyncio.new_event_loop()
@@ -27,7 +26,7 @@ class _Bridge:
         try:
             return fut.result(timeout=timeout)
         except BaseException:
-            fut.cancel()   # 超时/异常必须取消协程,否则挂起的连接会一直留在 loop 里泄漏
+            fut.cancel()
             raise
 
 
@@ -43,7 +42,6 @@ def _get_bridge() -> _Bridge:
         return _bridge
 
 
-# ── SSRF 防线:连接(含重定向的每一跳)都校验目标 host 不是内网/本地/元数据 ──────
 async def _ssrf_request_hook(request):
     """httpx 请求钩子:对每个即将发出的请求(初始 + 重定向 follow-up)校验 host。
     堵 redirect-SSRF + DNS 重绑定 + 配置漂移(恶意 server 把你导去内网/云元数据)。"""
@@ -59,12 +57,11 @@ def _safe_httpx_factory(headers=None, timeout=None, auth=None):
         headers=headers,
         timeout=timeout if timeout is not None else httpx.Timeout(30.0),
         auth=auth,
-        follow_redirects=True,                          # 允许(合法同源尾斜杠跳转),但每跳过钩子
+        follow_redirects=True,
         event_hooks={"request": [_ssrf_request_hook]},
     )
 
 
-# ── 底层 async 助手(测试可 monkeypatch 这两个) ─────────────────
 @asynccontextmanager
 async def _connect(url, headers, transport):
     if transport == "sse":
@@ -98,7 +95,6 @@ def _norm(cfg: dict) -> dict:
             "transport": cfg.get("transport") or "streamable_http"}
 
 
-# ── 工具 → SkillSpec(fail-closed) ─────────────────────────────
 def _get(tool, key, default=None):
     """兼容 dict(守门人序列化后) 与 mcp.types.Tool 对象(直连回退路径)。"""
     return tool.get(key, default) if isinstance(tool, dict) else getattr(tool, key, default)
@@ -119,7 +115,7 @@ def tool_to_spec(server_id: str, tool):
     elif de is True:
         se, destr = "write", True
     else:
-        se, destr = "write", False          # fail-closed:无注解按有副作用
+        se, destr = "write", False
     tname = _get(tool, "name", "") or ""
     return SkillSpec(
         id=f"mcp__{server_id}__{tname}", name=tname,
@@ -130,7 +126,6 @@ def tool_to_spec(server_id: str, tool):
     )
 
 
-# ── 供 SkillAdapter 的客户端代理 ──────────────────────────────
 class _ClientProxy:
     def __init__(self, mgr, sid):
         self._mgr, self._sid = mgr, sid
@@ -141,8 +136,6 @@ class _ClientProxy:
             raise RuntimeError(f"MCP server {self._sid} 未登记")
         from foxclaw.core.tracing import span as _span, current_traceparent
         with _span("mcp.call_tool", server=self._sid, tool=str(tool)):
-            # 跨进程传播:带上 W3C traceparent,对端(外部 MCP server)若支持即可接上同一条链。
-            # 这是 Foxclaw 唯一真实的跨进程边界,也是"分布式追踪"在本系统里唯一有意义之处。
             headers = dict(cfg["headers"] or {})
             tp = current_traceparent()
             if tp:

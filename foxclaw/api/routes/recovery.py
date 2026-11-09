@@ -34,7 +34,7 @@ async def recovery_status():
             "channel": t.channel,
             "status": t.status,
             "steps_count": len(steps),
-            "last_steps": steps[-10:],      # 只回最近 10 步,避免响应体失控
+            "last_steps": steps[-10:],
             "resume_hint": {"endpoint": "/api/task",
                             "context": {"_resume_task_id": t.task_id}},
         })

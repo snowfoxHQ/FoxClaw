@@ -17,9 +17,9 @@ class KnowledgeGraph:
     DIM = 256
 
     def __init__(self, embedder=None):
-        self.items: dict = {}           # id -> KnowledgeItem
-        self.edges: list = []           # KnowledgeEdge
-        self._embedder = embedder       # 可选:HMR 的向量能力
+        self.items: dict = {}
+        self.edges: list = []
+        self._embedder = embedder
 
     def add_item(self, item: KnowledgeItem):
         self.items[item.id] = item
@@ -30,7 +30,6 @@ class KnowledgeGraph:
         self.edges = [e for e in self.edges
                       if e.source_id != item_id and e.target_id != item_id]
 
-    # ── 三种连接 ──────────────────────────────────────────
     def link_manual(self, source_id: str, target_id: str, reason: str = ""):
         self.edges.append(KnowledgeEdge(
             source_id=source_id, target_id=target_id,
@@ -72,7 +71,6 @@ class KnowledgeGraph:
                     new_edges += 1
         return new_edges
 
-    # ── 图分析 ────────────────────────────────────────────
     def neighbors(self, item_id: str) -> list:
         """某知识点的所有关联点。"""
         out = []
@@ -115,7 +113,6 @@ class KnowledgeGraph:
             "clusters": len(self.clusters()),
         }
 
-    # ── 向量工具 ──────────────────────────────────────────
     def _embed(self, text: str):
         if self._embedder is not None:
             try:
@@ -138,8 +135,6 @@ class KnowledgeGraph:
 
     @staticmethod
     def _cosine(a, b) -> float:
-        # 自己归一化,不假设输入已是单位向量:外部 embedder(如 HMR)返回的向量
-        # 未必归一化,直接用点积当余弦会系统性偏高(threshold 失效,什么都连上)。
         import math
         dot = sum(x * y for x, y in zip(a, b))
         na = math.sqrt(sum(x * x for x in a))

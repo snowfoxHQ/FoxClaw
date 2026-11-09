@@ -46,7 +46,6 @@ def _parse(body: str) -> tuple[list, str]:
 
 
 def test_chat_stream_evidence_event_contract():
-    # ISOLATION_GUARD:依赖 import 期固化的单例(路由配置/限流器),须独立进程跑。
     if "foxclaw.api" in sys.modules:
         import pytest
         pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")
@@ -62,10 +61,10 @@ def test_chat_stream_evidence_event_contract():
                      attachments=None, on_thinking=None, on_evidence=None):
         seen["has_cb"] = on_evidence is not None
         if task == "plain":
-            yield "纯对话,没有动用工具。"      # 无工具步:不上报任何证据
+            yield "纯对话,没有动用工具。"
             return
-        yield "已完成。"                       # 正文先出
-        if on_evidence is not None:           # 证据后出(与真实实现一致:答案之后上报)
+        yield "已完成。"
+        if on_evidence is not None:
             on_evidence(EVIDENCE)
 
     original = CognitiveAgent.stream_reply
@@ -88,10 +87,8 @@ def test_chat_stream_evidence_event_contract():
     assert [i["tool"] for i in items] == ["web_search", "send_mail"]
     assert [i["status"] for i in items] == ["verified", "unverified"]
     assert items[0]["evidence"][0]["ref"] == "https://example.com/a"
-    # 凭据不得混进正文——正文是答案,不是证据仓库
     assert "example.com" not in delta_text
     assert delta_text.strip() == "已完成。"
 
-    # 纯对话:没有 evidence 事件,正文照常
     assert "event: evidence" not in plain_body
     assert "纯对话" in plain_body

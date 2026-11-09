@@ -14,8 +14,6 @@ from hkc.hkc_kde.extractor import Extractor
 from hkc.hkc_api.ingest_jobs import IngestJobRegistry
 
 
-# ── D1: IngestJobRegistry 4 thread 并发 ────────────────
-
 def d1_ingest_4_workers():
     """D1. 4 worker 真并发 peak=4,4 任务 ~0.3s 完成"""
     reg = IngestJobRegistry(max_workers=4)
@@ -36,7 +34,6 @@ def d1_ingest_4_workers():
     t0 = time.time()
     for j in jobs:
         reg.submit(j, work)
-    # wait done
     while True:
         statuses = [reg.get(j.job_id)["status"] for j in jobs]
         if all(s == "done" for s in statuses):
@@ -49,8 +46,6 @@ def d1_ingest_4_workers():
     print(f"  D1 PASS: peak={peak[0]}, 4 jobs in {elapsed*1000:.0f}ms (串行需 1.2s)")
 
 
-# ── D2: Extractor 16 chunk 限流雪崩 ────────────────────
-
 def d2_429_snowball():
     """D2. 16 chunk × 4 worker × 100% 429 永不成功,验证不死循环 + 总调用有上界"""
     state = {"calls": 0}
@@ -62,8 +57,6 @@ def d2_429_snowball():
         raise err
 
     ext = Extractor(provider="anthropic", model="m")
-    # 替换 _extract_chunk:走 _retry_llm 但传极小 base_delay 测试用
-    # 同时 monkey-patch time.sleep 避免真睡
     import hkc.hkc_kde.extractor as ex_mod
     orig_sleep = ex_mod.time.sleep
     sleeps = []
@@ -88,7 +81,6 @@ def d2_429_snowball():
         result = ext.extract(chunks)
         elapsed = time.time() - t0
 
-        # 期望:16 chunk 全 fail,总调用 = 16 * (1+3 retry) = 64,无死循环
         success = sum(1 for item in result.items if item is not None)
         assert success == 0, f"expected 0 success, got {success}"
         assert state["calls"] == 64, f"snowball: expected 64 calls, got {state['calls']}"
@@ -99,17 +91,13 @@ def d2_429_snowball():
         ex_mod.time.sleep = orig_sleep
 
 
-# ── D3: progress_cb 线程安全 ─────────────────────────
-
 def d3_progress_cb_thread_safe():
     """D3. progress_cb 在 as_completed 循环调,主线程串行;16 chunk 计数无重复无漏"""
     ext = Extractor(provider="anthropic", model="m")
 
-    # 替换 _extract_chunk 为 fast mock:50% 概率 fail(模拟 chunk 失败)
     import random
     random.seed(42)
     def mock_extract(chunk, timeout=60.0):
-        # 永远返 RawExtraction
         from hkc.hkc_kde.models import RawExtraction
         return RawExtraction()
     ext._extract_chunk = mock_extract
@@ -131,21 +119,16 @@ def d3_progress_cb_thread_safe():
     chunks = [MockChunk(i) for i in range(16)]
     result = ext.extract(chunks, progress_cb=cb)
 
-    # 验证:done_calls 长度 16(每个 chunk 一次)
     assert len(done_calls) == 16, f"expected 16 callbacks, got {len(done_calls)}"
-    # 验证:1..16 各一次(set 大小 = 16,排序后 1..16)
     assert sorted(done_calls) == list(range(1, 17)), \
         f"expected processed 1..16, got {sorted(done_calls)}"
     print(f"  D3 PASS: {len(done_calls)} callbacks, all 1..16 unique")
 
 
-# ── D4: max_retries 可调 ──────────────────────────────
-
 def d4_max_retries_configurable():
     """D4. _retry_llm 的 max_retries 真的生效"""
     ext = Extractor(provider="mock", model="m")
 
-    # 测 max_retries=2(默认 3):4 次后 raise
     call_count = [0]
     def always_fail():
         call_count[0] += 1
@@ -153,7 +136,6 @@ def d4_max_retries_configurable():
         err.status_code = 429
         raise err
 
-    # 用 monkey-patch 把 time.sleep 替换掉,这样不会真睡
     import hkc.hkc_kde.extractor as ex_mod
     orig_sleep = ex_mod.time.sleep
     sleeps = []
@@ -164,15 +146,12 @@ def d4_max_retries_configurable():
             assert False, "expected raise"
         except Exception:
             pass
-        # max_retries=2 + 1 = 3 次尝试
         assert call_count[0] == 3, f"max_retries=2 expected 3 calls, got {call_count[0]}"
         assert len(sleeps) == 2, f"max_retries=2 expected 2 sleeps, got {len(sleeps)}"
         print(f"  D4 PASS: max_retries=2 -> 3 calls, 2 sleeps")
     finally:
         ex_mod.time.sleep = orig_sleep
 
-
-# ── D5: retry + progress_cb 顺序 ─────────────────────
 
 def d5_retry_no_progress_leak():
     """D5. retry 期间 progress_cb 仍只调 1 次/chunk(不管 retry 几次)"""
@@ -209,9 +188,7 @@ def d5_retry_no_progress_leak():
                 cb_count[0] += 1
         chunks = [MockChunk(i) for i in range(8)]
         result = ext.extract(chunks, progress_cb=cb)
-        # 不管 retry 几次,每个 chunk 调 1 次 progress_cb
         assert cb_count[0] == 8, f"expected 8 progress, got {cb_count[0]}"
-        # 8 chunk 全 fail,总调用 = 8 * 4 = 32
         assert state["calls"] == 32, f"expected 32 calls, got {state['calls']}"
         success = sum(1 for item in result.items if item is not None)
         assert success == 0

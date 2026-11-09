@@ -1,13 +1,11 @@
 import { API } from './state.js';
 
-/* ===== 设置面板 ===== */
 const SETTINGS_TITLE={
   model:'模型路由',runtime:'运行参数',ui:'界面偏好',data:'数据管理',auth:'访问密钥',about:'关于',
   'ag-supervisor':'主管 Agent','ag-finance':'财务 Agent','ag-admin':'行政 Agent',
   'ag-office':'办公 Agent','ag-assistant':'助手 Agent',
   'mem-backend':'记忆后端','mem-layer':'双层记忆','mem-recall':'召回参数','mem-manage':'记忆管理',
 };
-// 界面偏好(纯前端,存内存)
 export const uiPref={ autoChat:true, ballAnim:false, mapStyle:'light' };  // ballAnim 默认 false(球体特效默认关,省 GPU;需要时手动勾)
 let _sysInfo=null;
 async function fetchSysInfo(){ try{ _sysInfo=await(await fetch(`${API}/system/info`)).json(); }catch(e){ _sysInfo=null; } return _sysInfo; }
@@ -15,7 +13,6 @@ async function fetchSysInfo(){ try{ _sysInfo=await(await fetch(`${API}/system/in
 async function renderSettingDetail(key){
   const body=document.getElementById('sdBody');
   body.innerHTML='<div class="sd-ph">加载中…</div>';
-  // ── Foxclaw 主系统 ──
   if(key==='model'){
     const d=await fetchSysInfo(); const m=d?.model||{};
     let h=`<div class="sd-card"><div class="sd-k">当前模型</div>
@@ -138,7 +135,6 @@ async function renderSettingDetail(key){
   }
 }
 
-/* 单个 Agent 设置详情(5 个共用 + 领域特定块)*/
 const AGENT_META={
   supervisor:{cn:'主管',en:'Supervisor',ac:'#ffc24b',role:'分诊调度 · 全局态势编排'},
   finance:{cn:'财务',en:'Finance',ac:'#00ffb2',role:'理财 · 预算 · 风控守门'},
@@ -159,7 +155,6 @@ async function renderAgentDetail(aid, body){
     <div class="sd-big" style="color:${meta.ac}">${meta.cn} <span>${meta.en}</span></div>
     <div class="sd-desc">${meta.role}</div></div>`;
 
-  // Harness 漂移检测
   h+='<div class="sd-sec">Harness 漂移检测<span class="badge ro">只读</span></div>';
   h+=`<div class="sd-kv"><span>运行模式</span><b style="color:${shadow?'var(--amber)':'var(--green)'}">${shadow?'影子校准中':'已激活拦截'}</b></div>`;
   h+=`<div class="sd-kv"><span>校准进度</span><b>${run} / ${rounds} 轮</b></div>`;
@@ -171,7 +166,6 @@ async function renderAgentDetail(aid, body){
     h+=`<div class="sd-kv"><span>三维权重</span><b>语义 ${fmt(w.semantic)} · 工具 ${fmt(w.tool)} · 范围 ${fmt(w.scope)}</b></div>`;
   }
 
-  // 守门人 Policy
   h+='<div class="sd-sec">守门人 Policy<span class="badge ro">只读</span></div>';
   if(pol.version!=null||pol.total_rules!=null){
     h+=`<div class="sd-kv"><span>Policy 版本</span><b>v${pol.version??'—'}</b></div>`;
@@ -181,7 +175,6 @@ async function renderAgentDetail(aid, body){
     h+='<div class="sd-desc">策略随运行自学习更新,当前无自定义规则覆盖。</div>';
   }
 
-  // 领域特定块
   if(aid==='admin'){
     h+='<div class="sd-sec">高德地图(行政专属)<span class="badge ro">只读</span></div>';
     const a=sys?.amap||{};
@@ -207,7 +200,6 @@ async function renderAgentDetail(aid, body){
   h+='<div class="sd-note">Agent 行为参数大多在后端 policy 与代码中定义,此处为只读状态展示。漂移阈值由影子校准期自动学习得出。</div>';
   body.innerHTML=h;
 
-  // 行政地图暗色开关联动
   const md=document.getElementById('pf-mapDark2');
   if(md) md.onchange=e=>{ uiPref.mapStyle=e.target.checked?'dark':'light'; };
 }
@@ -218,17 +210,12 @@ export async function switchProvider(prov){
 }
 function toggleBallAnim(on){
   const c=document.getElementById('coreCanvas'); if(c)c.style.display=on?'block':'none';
-  // 仅 display:none 不够(loop 还在 60fps 跑,吃 GPU)→ 同步设置 localStorage 标志,
-  // 引导用户硬刷一次(自动 reload)。visuals.js 顶部 _lowpower 检查,刷新后即生效。
   try{ localStorage.setItem('foxclaw_lowpower', on ? '0' : '1'); }catch{}
-  // 仅当「关」才 reload(开不影响,因为持久态 = 0 时不阻止)
   if (!on) {
-    // 提示一下,避免用户疑惑
     console.info('[foxclaw] 关掉球动画后需刷新一次才停止 GPU 占用');
   }
 }
 
-/* 二级子项定义 */
 const SETTINGS_SUBS={
   foxclaw:[['model','模型路由'],['runtime','运行参数'],['ui','界面偏好'],['data','数据管理'],['auth','访问密钥'],['about','关于']],
   agents:[['ag-supervisor','主管 Agent'],['ag-finance','财务 Agent'],['ag-admin','行政 Agent'],['ag-office','办公 Agent'],['ag-assistant','助手 Agent']],
@@ -240,13 +227,11 @@ const _sdPop=document.getElementById('sdPop');
 let _setHideTimer=null;
 
 export function openSetMenu(){ clearTimeout(_setHideTimer); _setMenu.classList.add('show'); }
-/* 直接打开「访问密钥」设置详情(供 main.js 的鉴权提示条调用) */
 export function openAuthSetting(){ _setMenu.classList.add('show'); openDetailPop('auth'); }
 function closeSetMenu(){
   clearTimeout(_setHideTimer);
   _setHideTimer=setTimeout(()=>{ _setMenu.classList.remove('show'); _smL2.innerHTML=''; document.querySelectorAll('.sm-l1 .sm-btn').forEach(b=>b.classList.remove('active')); }, 400);
 }
-// 一级悬停 → 展开二级
 function showL2(group, l1btn){
   document.querySelectorAll('.sm-l1 .sm-btn').forEach(b=>b.classList.remove('active'));
   l1btn.classList.add('active');
@@ -279,8 +264,6 @@ document.querySelectorAll('.nav-mini, .feed-item').forEach(it=>{
   it.addEventListener('click',()=>{ it.classList.add('pressed'); setTimeout(()=>it.classList.remove('pressed'),180); });
 });
 
-
-/* ===== 模型选择器 ===== */
 const PROVIDER_LABEL=
 {anthropic:{n:'Claude',c:'#ff9d00'},openai:{n:'GPT',c:'#00ffb2'},
   google:{n:'Gemini',c:'#38bdf8'},qwen:{n:'通义千问',c:'#ffc24b'},

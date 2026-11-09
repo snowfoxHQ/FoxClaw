@@ -39,28 +39,23 @@ def audit_float_accumulation():
     print("\n[1/5] 浮点累加精度对比 (build 一次 vs 累加 1000 次) ...")
     corpus = gen_corpus(1000)
 
-    # 方法 A: build 一次
     idx_a = NewBM25()
     idx_a.build(corpus)
 
-    # 方法 B: 1000 次 append_ku
     idx_b = NewBM25()
     for ku in corpus:
         idx_b.append_ku(ku)
 
-    # 比 avgdl
     print(f"        build 一次  avgdl = {idx_a._avgdl:.10f}")
     print(f"        1000 次累加 avgdl = {idx_b._avgdl:.10f}")
     diff_avgdl = abs(idx_a._avgdl - idx_b._avgdl)
     print(f"        差 = {diff_avgdl:.2e} (rel {diff_avgdl/idx_a._avgdl:.2e})")
 
-    # 比 _idf_sum
     print(f"        build 一次  _idf_sum = {idx_a._idf_sum:.10f}")
     print(f"        1000 次累加 _idf_sum = {idx_b._idf_sum:.10f}")
     diff_idf = abs(idx_a._idf_sum - idx_b._idf_sum)
     print(f"        差 = {diff_idf:.2e} (rel {diff_idf/max(abs(idx_a._idf_sum),1e-10):.2e})")
 
-    # 搜同一 query,top-3 是否一致
     q = "topic0_3 topic1_7"
     r_a = sorted([(r.ku_id, round(r.score, 8)) for r in idx_a.search(q, 10)])
     r_b = sorted([(r.ku_id, round(r.score, 8)) for r in idx_b.search(q, 10)])
@@ -76,7 +71,6 @@ def audit_pickle_schema_fallback():
     """2: pickle schema 兼容(老 pickle / 损坏 pickle fallback)"""
     print("\n[2/5] pickle schema 兼容 + 损坏文件 fallback ...")
     tmp = "_tmp_audit.pkl"
-    # 正常 save/load
     idx = NewBM25()
     idx.build(gen_corpus(100))
     idx.save(tmp)
@@ -84,7 +78,6 @@ def audit_pickle_schema_fallback():
     ok = idx2.load(tmp)
     print(f"        正常 save/load: ok={ok}, size={idx2.size()} {'PASS' if ok and idx2.size()==100 else 'FAIL'}")
 
-    # 损坏文件
     with open(tmp, 'wb') as f:
         f.write(b'garbage data not a pickle')
     idx3 = NewBM25()
@@ -92,14 +85,12 @@ def audit_pickle_schema_fallback():
     print(f"        损坏文件 load: ok={ok3} (应该返 False, 不抛异常) {'PASS' if ok3 == False else 'FAIL'}")
     print(f"        损坏后 idx3.size() = {idx3.size()} (应该 0, 已 fallback) {'PASS' if idx3.size() == 0 else 'FAIL'}")
 
-    # schema 不匹配(手写一个旧版结构)
     with open(tmp, 'wb') as f:
         pickle.dump({'old_version': True, 'ku_ids': [], 'corpus': []}, f)
     idx4 = NewBM25()
     ok4 = idx4.load(tmp)
     print(f"        schema 不匹配: ok={ok4} (应该返 False) {'PASS' if ok4 == False else 'FAIL'}")
 
-    # 不存在文件
     if os.path.exists(tmp):
         os.remove(tmp)
     idx5 = NewBM25()
@@ -158,19 +149,15 @@ def audit_clear_idempotent():
     idx.clear()
     print(f"        clear 后: {idx.size()} (应该 0) {'PASS' if idx.size()==0 else 'FAIL'}")
 
-    # 空 search 不抛
     r = idx.search("any query", 10)
     print(f"        空 search: {len(r)} 个结果 (应该 0) {'PASS' if len(r)==0 else 'FAIL'}")
 
-    # 二次 clear
     idx.clear()
     print(f"        二次 clear: size={idx.size()} (应该 0) {'PASS' if idx.size()==0 else 'FAIL'}")
 
-    # 删不存在
     r = idx.remove_ku("ku_99999999")
     print(f"        remove_ku 不存在: 返 {r} (应该 False) {'PASS' if r == False else 'FAIL'}")
 
-    # search 空 query
     r = idx.search("", 10)
     print(f"        search 空 query: {len(r)} 个结果 (应该 0) {'PASS' if len(r)==0 else 'FAIL'}")
 
@@ -186,7 +173,7 @@ def main():
 
     r1 = audit_float_accumulation()
     r2 = audit_pickle_schema_fallback()
-    audit_append_ku_latency()  # 打印即可
+    audit_append_ku_latency()
     r4 = audit_search_consistency()
     r5 = audit_clear_idempotent()
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 from ..cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
 from .spaced_repetition import SpacedRepetition
 
-# 负荷偏重阈值:未来窗口日均复习量 ≥ 该值即算偏重,交给可选 LLM 复核是否提醒。
 HEAVY_DAILY = 20.0
 
 
@@ -37,13 +36,12 @@ class LearningReviewReasoner(DomainReasoner):
         return h or ["学习状态可能健康"]
 
     def gather_evidence(self, states, obs: dict) -> list:
-        risky = SpacedRepetition.forgetting_risk(states, self.horizon_days)   # 规则=裁决证据
+        risky = SpacedRepetition.forgetting_risk(states, self.horizon_days)
         ev = [Evidence(factor="forgetting_risk",
                        detail=r["reason"] + f"(item {r['item_id']})", weight=1.0, raw=r)
               for r in risky]
         if not risky:
             ev.append(Evidence("no_urgent_risk", "无即将到期且掌握度低的知识点", 0.5))
-        # informational(raw=None):学习负荷,不参与裁决
         ev.append(Evidence("learning_load",
                            f"未来窗口共 {obs['total_due']} 项待复习,日均 {obs['daily_avg']}", 0.3))
         return ev
@@ -51,7 +49,6 @@ class LearningReviewReasoner(DomainReasoner):
     def arbitrate(self, states, obs, hyps, ev) -> ReasonedVerdict:
         triggered = [e for e in ev if e.raw is not None]
         if triggered:
-            # 【规则权威】存在高遗忘风险 → confirm(建议立即复习),绝不被 LLM 推翻/隐藏
             top = triggered[:3]
             return ReasonedVerdict(
                 "confirm", f"发现 {len(triggered)} 个高遗忘风险知识点,建议优先复习:"

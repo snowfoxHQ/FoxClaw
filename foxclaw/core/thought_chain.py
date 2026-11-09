@@ -16,16 +16,16 @@ from pathlib import Path
 
 
 NodeType = Literal[
-    "goal",        # 目标基线节点（根）
-    "reasoning",   # 推理步骤
-    "memory_retrieval",  # 记忆检索
-    "tool_intent", # 工具意图
-    "tool_use",    # 工具实际调用（augment.py 已在用；此前漏登记，类型面是欠账）
-    "plan",        # 显式计划（steps/flow 落在 metadata，供回显与审计）
-    "decision",    # 行动决策
-    "policy_update",  # Policy 候选更新
-    "consolidation",  # 记忆巩固写回
-    "reflection",  # 执行后反思
+    "goal",
+    "reasoning",
+    "memory_retrieval",
+    "tool_intent",
+    "tool_use",
+    "plan",
+    "decision",
+    "policy_update",
+    "consolidation",
+    "reflection",
 ]
 
 HarnessStatus = Literal["BASELINE", "PASS", "WARN", "BLOCK", "PENDING", "REGRESSION"]
@@ -39,15 +39,15 @@ class ThoughtNode:
     agent_id: str
     type: NodeType
     content: str
-    conf: float                        # 置信度 0.0-1.0
-    mem_refs: list[str]               # 引用的 HMR 记忆 ID
-    parent_ids: list[str]             # 父节点 ID（因果依赖）
+    conf: float
+    mem_refs: list[str]
+    parent_ids: list[str]
     harness_status: HarnessStatus
-    harness_reason: Optional[str]     # BLOCK/WARN 时的原因
-    harness_delta: Optional[float]    # 目标漂移量
-    dominant_dim: Optional[str]       # 主导漂移维度
-    tool_name: Optional[str]          # 如果是 tool_intent 节点
-    entities: list[str]              # 涉及的实体集合
+    harness_reason: Optional[str]
+    harness_delta: Optional[float]
+    dominant_dim: Optional[str]
+    tool_name: Optional[str]
+    entities: list[str]
     timestamp: str
     metadata: dict
 
@@ -150,7 +150,7 @@ class ThoughtChain:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError:
-            pass  # 个别文件系统不支持 WAL(如网络盘)→ 退回默认日志模式,timeout 仍生效
+            pass
         try:
             yield conn
             conn.commit()
@@ -307,8 +307,6 @@ class ThoughtChain:
             "timestamp", "metadata"
         ]
         d = dict(zip(cols, row))
-        # JSON 字段容错:单行某字段损坏时降级为默认值,而非让整个审计链读取崩溃。
-        # 审计系统的可靠性要求"一条坏数据不拖垮全部"。
         for field, default in (("mem_refs", []), ("parent_ids", []),
                                ("entities", []), ("metadata", {})):
             try:

@@ -44,12 +44,12 @@ def test_stage_plan_records_plan_node() -> None:
 
 
 def test_record_plan_node_never_breaks_execution() -> None:
-    _record_plan_node(_ctx("x", agent=None))          # 无 _think → 静默跳过
+    _record_plan_node(_ctx("x", agent=None))
 
     def _boom(**kwargs):
         raise RuntimeError("harness 挂了")
 
-    _record_plan_node(_ctx("x", agent=types.SimpleNamespace(_think=_boom)))  # 不得抛出
+    _record_plan_node(_ctx("x", agent=types.SimpleNamespace(_think=_boom)))
 
 
 def test_plan_payload_accepts_both_shapes() -> None:
@@ -59,7 +59,7 @@ def test_plan_payload_accepts_both_shapes() -> None:
                                      "multi_step": True}
     sup = types.SimpleNamespace(plan_obj=types.SimpleNamespace(steps=["x", "y"], flow="parallel"))
     assert _plan_payload(sup)["steps"] == ["x", "y"]
-    assert _plan_payload(sup)["multi_step"] is True      # 未声明 → 按步数推断
+    assert _plan_payload(sup)["multi_step"] is True
     one = types.SimpleNamespace(plan_obj=types.SimpleNamespace(steps=["x"]))
     assert _plan_payload(one)["multi_step"] is False
     assert _plan_payload(types.SimpleNamespace(plan=None)) is None
@@ -72,7 +72,7 @@ def test_stream_emits_plan_event_after_plan_stage() -> None:
 
     async def _core(task, context=None, stop_event=None, on_stage=None):
         on_stage("recall", ctx)
-        on_stage("plan", ctx)          # 管线在 plan stage 完成后回调
+        on_stage("plan", ctx)
         return {"result": "done"}
 
     fake = types.SimpleNamespace(_run_task_core=_core)

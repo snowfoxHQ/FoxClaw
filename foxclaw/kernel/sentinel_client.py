@@ -22,7 +22,6 @@ class SentinelUnavailable(RuntimeError):
 
 
 def _project_root() -> str:
-    # foxclaw/kernel/sentinel_client.py → parents[0]=kernel, [1]=foxclaw, [2]=Foxclaw
     return str(Path(__file__).resolve().parents[2])
 
 
@@ -35,7 +34,6 @@ class SentinelClient:
         self._proc: subprocess.Popen[str] | None = None
         self._spawn(cmd)
 
-    # ── 进程生命周期 ─────────────────────────────────────────
     def _spawn(self, cmd) -> None:
         if cmd is None:
             cmd = [sys.executable, "-m", "foxclaw.kernel.sentinel"]
@@ -50,7 +48,7 @@ class SentinelClient:
         except Exception as e:
             raise RuntimeError(f"Sentinel 启动失败: {e}")
         try:
-            self._request("ping", {})  # 握手:启动失败/坏路径在此显式报错,不静默降级
+            self._request("ping", {})
         except Exception as e:
             self._kill()
             raise RuntimeError(f"Sentinel 握手失败: {e}")
@@ -73,7 +71,6 @@ class SentinelClient:
             except Exception:
                 pass
 
-    # ── IPC 核心 ─────────────────────────────────────────────
     def _request(self, op: str, payload: dict):
         with self._lock:
             self._req_id += 1
@@ -98,7 +95,6 @@ class SentinelClient:
                 raise SentinelUnavailable(resp.get("error", "unknown error"))
             return resp.get("result")
 
-    # ── 序列化(只传 evaluate 需要的字段,不含 handler/凭证)────
     @staticmethod
     def _serialize_skill(skill) -> dict:
         _tl = getattr(skill, "trust_level", None)
@@ -109,7 +105,7 @@ class SentinelClient:
         return {
             "id": getattr(skill, "id", ""),
             "kind": getattr(skill, "kind", "local"),
-            "side_effect": getattr(skill, "side_effect", "write"),   # 未声明 → 有副作用
+            "side_effect": getattr(skill, "side_effect", "write"),
             "destructive": bool(getattr(skill, "destructive", False)),
             "external": bool(getattr(skill, "external", False)),
             "read_only": getattr(skill, "read_only", None),
@@ -127,7 +123,6 @@ class SentinelClient:
             "allow": list(getattr(rules, "allow", []) or []),
         }
 
-    # ── 对外接口 ─────────────────────────────────────────────
     def evaluate(self, skill, args, rules=None, confirmed=False, mode="strict",
                  taint_level=0, taint_threshold=0):
         """动作裁决(跨进程)。签名对齐 skills.permission.evaluate,返回 PermissionDecision。"""
@@ -144,7 +139,6 @@ class SentinelClient:
         try:
             d = self._request("evaluate", payload)
         except SentinelUnavailable as e:
-            # fail-closed:守门人不可达 → deny,绝不降级放行
             return PermissionDecision("deny", 0,
                                       reason=f"守门人不可达(fail-closed): {e}",
                                       reason_code="SENTINEL_UNAVAILABLE")

@@ -20,19 +20,18 @@ from dataclasses import dataclass, field
 class CognitiveState:
     """系统当前认知状态快照。随事件总线上的活动自动更新。"""
 
-    active_goal: Optional[str] = None  # 当前活跃目标(最近任务)
-    active_agent: Optional[str] = None  # 当前处理的 Agent
-    semantic_focus: Optional[str] = None  # 语义焦点(调度意图类别)
-    attention_scope: list = field(default_factory=list)   # 注意力范围(关键词)
-    reasoning_depth: float = 0.0                     # 当前推理深度
-    confidence_map: dict = field(default_factory=dict)    # 置信度图(意图/优先级)
-    activated_memories: list = field(default_factory=list)  # 激活的记忆(最近召回/沉淀)
-    last_route: Optional[str] = None  # 最近路由倾向
-    active_processes: int = 0                         # 活跃进程数
-    temporal_window: str = "current_turn"            # 时间窗口
+    active_goal: Optional[str] = None
+    active_agent: Optional[str] = None
+    semantic_focus: Optional[str] = None
+    attention_scope: list = field(default_factory=list)
+    reasoning_depth: float = 0.0
+    confidence_map: dict = field(default_factory=dict)
+    activated_memories: list = field(default_factory=list)
+    last_route: Optional[str] = None
+    active_processes: int = 0
+    temporal_window: str = "current_turn"
     updated_at: float = field(default_factory=time.time)
 
-    # ── 信号摄入(由事件驱动)──
 
     def on_execution(self, payload: dict):
         """执行事件 → 更新目标/Agent/注意力。"""
@@ -56,7 +55,6 @@ class CognitiveState:
         content = mu.get("content")
         if content:
             snippet = content[:80]
-            # 去重:已存在则先移除旧的,再插到最前(LRU 式)
             existing = [m for m in self.activated_memories if m != snippet]
             self.activated_memories = [snippet] + existing[:4]
             self.temporal_window = "memory_augmented"
@@ -71,14 +69,12 @@ class CognitiveState:
     @staticmethod
     def _keywords(text: str, n: int = 6) -> list:
         import re
-        # 先按标点/空格切;若切出的片段仍很长(中文无空格),按 2-4 字滑窗取要点
         rough = [w for w in re.split(r"[\s,，、。!?:;]", text or "") if len(w) >= 2]
         out = []
         for seg in rough:
             if len(seg) <= 4:
                 out.append(seg)
             else:
-                # 长片段取首尾 + 中部双字,作为注意力要点
                 out.append(seg[:3])
                 if len(seg) > 6:
                     out.append(seg[len(seg)//2:len(seg)//2+2])
@@ -108,13 +104,11 @@ class CognitiveStateTracker:
         import threading
         self.state = CognitiveState()
         self.process_manager = process_manager
-        self._lock = threading.Lock()   # 事件可能跨线程触发,保护状态更新
+        self._lock = threading.Lock()
         if bus is not None:
-            # 【P4-1】前两个是精确 channel 名 → exact=True;task.lifecycle 是刻意的前缀
-            # 订阅(收 created/queued/running/... 一族),保持默认前缀匹配。
             bus.subscribe("execution.completed", self._on_exec, exact=True)
             bus.subscribe("memory.updated", self._on_mem, exact=True)
-            bus.subscribe("task.lifecycle", self._on_proc)   # Step3:统一生命周期词汇(前缀匹配)
+            bus.subscribe("task.lifecycle", self._on_proc)
 
     def _on_exec(self, msg):
         if msg is None:
@@ -134,8 +128,6 @@ class CognitiveStateTracker:
         active = None
         pm = self.process_manager
         if pm is not None:
-            # 【深审优化】用 pm 的 O(1) active_count(),免去每次 lifecycle 事件 stats() 遍历
-            # 全部进程(O(n))。旧 pm 无此方法则回退到 stats()(scheduled+running)。
             if hasattr(pm, "active_count"):
                 active = pm.active_count()
             else:

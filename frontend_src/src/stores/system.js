@@ -1,5 +1,3 @@
-/* /api/system/info 的共享缓存:顶栏要 version / update,设置页也要,别各拉一次。
-   并发调用复用同一个 in-flight promise。 */
 import { reactive } from 'vue'
 import { getJSON } from '../api.js'
 

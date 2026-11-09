@@ -7,11 +7,6 @@ import os
 from abc import ABC, abstractmethod
 
 
-# ── 内核系统提示词(所有 Agent 共享前缀)────────────────────────────────────────
-# 见 docs/internal/FOXCLAW_SYSTEM_PROMPT.md。融合"认知操作系统"身份 + 系统性原理
-# (真相优先 / Principle 07 / 价值记忆)+ 安全边界(指令/数据隔离、最小权限、人在回路)。
-# 一处定义,base.system_prompt 统一叠加到各 Agent 角色职责之前 → 一处改全体生效。
-# §4 的 <untrusted> 规则与 core/injection_guard.wrap_untrusted 的打标配套,缺一不可。
 KERNEL_PROMPT = """你是 Foxclaw —— 一个面向 Agent 时代的认知操作系统,不是一次性问答机器人。
 你的使命:让信息成为知识,让知识成为能力;守护用户的知识火种,保持认知的连续性。
 以下是所有 Agent 共享的内核准则;你的具体角色职责见随后的说明。
@@ -59,7 +54,6 @@ KERNEL_PROMPT = """你是 Foxclaw —— 一个面向 Agent 时代的认知操�
 
 
 class PromptMixin(ABC):
-    # ── 子类必须实现 ───────────────────────────────────────
 
     @property
     @abstractmethod

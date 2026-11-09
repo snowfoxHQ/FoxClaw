@@ -38,8 +38,6 @@ def _agent():
     return a
 
 
-# ── ① 失败策略表 ─────────────────────────────────────────────
-
 @pytest.mark.parametrize("text,kind", [
     (TIMEOUT_TEXT, policy.TIMEOUT),
     ("(工具 shell 已被策略禁用)", policy.DENIED),
@@ -47,8 +45,8 @@ def _agent():
     ("(入参不合法:缺少必填 query)", policy.INVALID_ARGS),
     ("(联网搜索未返回结果)", policy.EMPTY),
     ("(工具 web_search 执行异常:boom)", policy.EXCEPTION),
-    ("中国未来十年的产业趋势如何", policy.OK),          # 正文含"未"不能误判
-    ("", policy.UNKNOWN),                              # 空结果不能当成功
+    ("中国未来十年的产业趋势如何", policy.OK),
+    ("", policy.UNKNOWN),
     ("一切正常", policy.OK),
 ])
 def test_classify(text, kind) -> None:
@@ -58,10 +56,8 @@ def test_classify(text, kind) -> None:
 def test_retry_only_for_read_only() -> None:
     read = policy.decide(TIMEOUT_TEXT, capability={"read_only": True}, attempt=1)
     assert read.action == policy.RETRY
-    # 第二次还失败 → 不再重试,交人
     assert policy.decide(TIMEOUT_TEXT, capability={"read_only": True}, attempt=2).action \
         == policy.HAND_TO_HUMAN
-    # 有副作用:第一次就不许自动重试
     write = policy.decide(TIMEOUT_TEXT, capability={"read_only": False}, attempt=1)
     assert write.action == policy.HAND_TO_HUMAN
     assert "重复执行" in write.hint
@@ -70,7 +66,6 @@ def test_retry_only_for_read_only() -> None:
 def test_decide_never_optimistic() -> None:
     assert policy.decide("(联网搜索未配置)").action == policy.DEGRADE
     assert policy.decide("(工具 x 已被策略禁用)").action == policy.STOP
-    # 形如失败但聊不归类 → 保守交人,不乐观当成功
     assert policy.decide("(看不懂的回注").kind == policy.UNKNOWN
     assert policy.decide("(看不懂的回注").action == policy.HAND_TO_HUMAN
 
@@ -83,8 +78,6 @@ def test_annotate_leaves_success_untouched() -> None:
     assert out.startswith(TIMEOUT_TEXT)
     assert "[执行策略]" in out
 
-
-# ── ② 执行后核验 ─────────────────────────────────────────────
 
 def test_failure_is_failed_not_verified() -> None:
     v = vf.verify("web_search", {}, TIMEOUT_TEXT, {"read_only": True})
@@ -110,7 +103,6 @@ def test_side_effect_without_postcondition_is_unverified() -> None:
     v = vf.verify("send_mail", {}, "已发送", {"read_only": False})
     assert v.status == vf.UNVERIFIED
     assert "后置条件" in v.reason
-    # 只读工具拿到内容就算这一步发生过(内容可信度归污点层)
     assert vf.verify("recall_memory", {}, "【召回的相关记忆】\n- a", {"read_only": True}).status \
         == vf.VERIFIED
 
@@ -144,13 +136,11 @@ def test_note_for_model() -> None:
     ok = vf.Verification(vf.VERIFIED)
     assert vf.note_for_model(ok) == ""
     un_read = vf.Verification(vf.UNVERIFIED, "无来源")
-    assert vf.note_for_model(un_read, read_only=True) == ""      # 只读不训话,免得污染上下文
+    assert vf.note_for_model(un_read, read_only=True) == ""
     assert "不要断言" in vf.note_for_model(un_read, read_only=False)
     bad = vf.Verification(vf.FAILED, "失败类型:timeout")
     assert "不要向用户声称" in vf.note_for_model(bad)
 
-
-# ── ③ 接进工具轮 ─────────────────────────────────────────────
 
 def test_retries_read_only_once_then_gives_up(monkeypatch) -> None:
     agent = _agent()
@@ -164,9 +154,9 @@ def test_retries_read_only_once_then_gives_up(monkeypatch) -> None:
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": True})
     out = tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {"q": "x"}}])
 
-    assert len(batches) == 2                     # 第一次 + 自动重试一次
+    assert len(batches) == 2
     assert "[执行策略]" in out[0] and "不要" in out[0]
-    assert agent._recovery.steps == []           # 失败的步不许存进断点
+    assert agent._recovery.steps == []
     ev = agent._evidence_list
     assert ev and ev[0]["status"] == vf.FAILED
 
@@ -178,7 +168,7 @@ def test_side_effect_failure_is_not_retried(monkeypatch) -> None:
                         lambda a, calls: (batches.append(len(calls)), [TIMEOUT_TEXT] * len(calls))[1])
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": False})
     out = tool_exec._run_tool_calls(agent, [{"name": "send_mail", "args": {}}])
-    assert batches == [1]                        # 一次,不重试
+    assert batches == [1]
     assert "重复执行" in out[0]
 
 
@@ -189,8 +179,8 @@ def test_success_text_untouched_and_evidence_recorded(monkeypatch) -> None:
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": True})
     out = tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {"q": "x"}}])
 
-    assert out[0] == "【联网搜索结果】结论 https://example.com/a"      # 成功文本不被改
-    assert len(agent._recovery.steps) == 1                           # 成功的步可复用
+    assert out[0] == "【联网搜索结果】结论 https://example.com/a"
+    assert len(agent._recovery.steps) == 1
     ev = agent._evidence_list[0]
     assert ev["status"] == vf.VERIFIED
     assert ev["evidence"][0]["ref"] == "https://example.com/a"
@@ -206,8 +196,6 @@ def test_unverified_side_effect_tells_model_not_to_claim_done(monkeypatch) -> No
     assert agent._evidence_list[0]["status"] == vf.UNVERIFIED
 
 
-# ── ④ 证据不串台 ─────────────────────────────────────────────
-
 def test_evidence_is_per_agent() -> None:
     from foxclaw.agents.mixins import _context
 
@@ -216,7 +204,6 @@ def test_evidence_is_per_agent() -> None:
     _context._evidence_reset(b)
     _context._evidence_add(a, {"tool": "x", "status": "verified"})
     assert _context._evidence_take(a) and not _context._evidence_take(b)
-    # take 之后清空:下一轮不会重复上报上一轮的证据
     assert _context._evidence_take(a) == []
 
 

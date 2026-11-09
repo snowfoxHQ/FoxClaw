@@ -16,7 +16,6 @@ from typing import List, Dict, Any
 class ElementIndexer:
 
     def __init__(self):
-        # id(str) -> 底层 driver 元素句柄
         self._registry: Dict[str, Any] = {}
         self._counter = 0
 
@@ -42,7 +41,7 @@ class ElementIndexer:
             indexed.append({
                 "id": eid,
                 "role": desc.get("role", "unknown"),
-                "text": desc.get("text", "")[:80],  # 截断，控制 token 成本
+                "text": desc.get("text", "")[:80],
                 "attrs": desc.get("attrs", {}),
             })
 

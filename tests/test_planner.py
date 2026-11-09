@@ -38,33 +38,26 @@ def test_trigger_route_engine():
         C("web", ["搜索", "查"], "联网 搜索 网页"),
         C("email", ["发邮件", "email"], "发送 邮件"),
     ]
-    # 否定:"不要计算" → calculator 触发被否定 → 不选它
     r = P.trigger_route("不要计算一下", cands)
     assert r.primary != "calculator", f"否定应排除 calculator,实得 {r.primary}"
-    # 命中:"帮我搜索北京" → web
     r2 = P.trigger_route("帮我搜索北京", cands)
     assert r2.primary == "web" and r2.confidence >= 0.15
-    # 兜底:完全不相关 → 用最后一个候选兜底,低置信
     r3 = P.trigger_route("xyzzy 无关内容", cands)
     assert r3.primary == cands[-1].id and r3.confidence < 0.15
-    # 确定性:空候选
     assert P.trigger_route("x", []).primary is None
     print(f"  ✓ 否定排除 / 命中选中 / 兜底(={r3.primary}) / 空候选")
 
 
 def test_three_sites_delegate():
     print("\n【3】三处委托同一引擎(单一真源)")
-    # AHS
     from foxclaw.skills import build_default_registry
     from foxclaw.skills.pipeline import route, plan
     reg = build_default_registry()
     assert route("不要计算", reg).primary != "calculator", "AHS route 否定生效"
     assert len(plan("先算 5+5 然后再算 9*9", reg).tasks) == 2, "AHS plan 拆解"
-    # search
     from foxclaw.search.planner import QueryPlanner
     sub = QueryPlanner()._decompose("查A，查B、查C")
     assert len(sub) == 3, "search 拆解走共享原语"
-    # supervisor(用引擎的 keyword_hits;此处直接验证原语等价)
     assert P.keyword_hits("买基金理财", ["理财", "基金", "收支"]) == 2
     print("  ✓ AHS / search / 主管 三处均由 foxclaw.planning 单一真源驱动")
 

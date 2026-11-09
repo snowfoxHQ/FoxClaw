@@ -1,16 +1,3 @@
-# tools/sync_public.ps1
-# 把私有开发库导出到公开仓库。默认只打印计划并做越界检查,-Apply 才真正复制、提交、推送。
-#
-# 为什么需要它:此前同步靠临时脚本整树复制,既没有持久化的排除清单,又会把
-# .gitignore 一起覆盖掉(公开仓库的忽略规则因此退回成私有库的规则),内部文档
-# 就这么进过一次公开历史。这里把清单固化在脚本里,并在提交前做一次断言。
-#
-# 注意:本文件必须保持以下约束,否则 Windows PowerShell 5.1 会解析失败 ——
-# 无 BOM 的 .ps1 按 ANSI 读取,所以字符串字面量一律用 ASCII,中文只出现在注释里。
-#
-# 用法:
-#   powershell -NoProfile -File tools\sync_public.ps1              # 只看计划
-#   powershell -NoProfile -File tools\sync_public.ps1 -Apply       # 真正同步
 param(
     [switch]$Apply,
     [string]$PublicRepo = "C:\Users\snow\projects\FoxClaw-public",
@@ -20,7 +7,6 @@ param(
 $ErrorActionPreference = "Stop"
 $src = Split-Path -Parent $PSScriptRoot
 
-# ── 绝不外发的目录(相对仓库根,前缀匹配) ─────────────────────────
 $ExcludeDirs = @(
     ".git/",
     "docs/internal/",
@@ -44,8 +30,6 @@ $ExcludeDirs = @(
     "frontend_src/.vite/"
 )
 
-# ── 绝不外发的单文件(精确匹配) ──────────────────────────────────
-# .gitignore 必须排除:公开仓库的忽略规则是独立维护的,不能被私有库覆盖。
 $ExcludeFiles = @(
     ".gitignore",
     ".env",
@@ -57,11 +41,8 @@ $ExcludeFiles = @(
     "tools/sync_public.ps1"
 )
 
-# 根目录散落的笔记(临时想法、方案草稿)属于个人工作区,一律不外发;
-# 根目录 .md 只放行下面这两个。
 $RootMdAllow = @("README.md", "README_CN.md")
 
-# ── 绝不外发的模式(通配) ────────────────────────────────────────
 $ExcludeGlobs = @(
     "docs/SYSTEM_REVIEW_*.md",
     "*.pyc",
@@ -92,9 +73,7 @@ function Test-Excluded {
     foreach ($g in $ExcludeGlobs) {
         if ($r -like $g) { return $true }
     }
-    # .env 的衍生备份一律不发,模板放行
     if ($r -match '(^|/)\.env' -and $r -notmatch '\.env\.example$') { return $true }
-    # 根目录 .md 只放行白名单
     if ($r -notmatch '/' -and $r -match '\.md$' -and ($RootMdAllow -notcontains $r)) { return $true }
     return $false
 }
@@ -111,10 +90,6 @@ foreach ($f in Get-ChildItem -Path $src -Recurse -File -Force) {
     }
 }
 
-# ── 源侧已删除的文件:必须同步删除 ───────────────────────────────
-# 早先脚本"只增改不删",api/app.py 改名 bootstrap.py 后公开仓仍留旧文件,
-# mypy 的 `from .. import app` 解析到那个陈旧模块,CI 比本地凭空多出上百条
-# attr-defined(Module has no attribute "get")。删文件/改名后必须能传导。
 $srcSet = [System.Collections.Generic.HashSet[string]]::new()
 foreach ($f in Get-ChildItem -Path $src -Recurse -File -Force) {
     $srcSet.Add($f.FullName.Substring($src.Length + 1).Replace('\', '/')) | Out-Null
@@ -143,7 +118,6 @@ if (-not $Apply) {
     return
 }
 
-# ── 复制(增改) ────────────────────────────────────────────────────
 foreach ($rel in $plan) {
     $dest = Join-Path $PublicRepo $rel
     $dir = Split-Path -Parent $dest
@@ -151,12 +125,10 @@ foreach ($rel in $plan) {
     Copy-Item (Join-Path $src $rel) $dest -Force
 }
 
-# ── 删除目标侧已不存在的文件 ──────────────────────────────────────
 foreach ($rel in $stale) {
     & git -C $PublicRepo rm --quiet -- $rel | Out-Null
 }
 
-# ── 提交前断言:暂存区里不允许出现任何内部路径 ─────────────────────
 & git -C $PublicRepo add -A | Out-Null
 $staged = & git -C $PublicRepo diff --cached --name-only
 $bad = @($staged | Where-Object { Test-Excluded $_ })
@@ -175,8 +147,6 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# 推送失败必须显式报错:此前漏检退出码,网络被重置时脚本照样打印
-# "synced and pushed",而远端其实没收到任何东西。
 & git -C $PublicRepo push origin main
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`n[ABORT] push failed; commit is local only. re-run -Apply to retry." -ForegroundColor Red

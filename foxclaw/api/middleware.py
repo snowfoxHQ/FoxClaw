@@ -60,7 +60,7 @@ def _loopback_bypass_on() -> bool:
         return False
     if v == "1":
         return True
-    return True  # 默认开
+    return True
 
 
 def _host_header_allowed(host_header: str) -> bool:
@@ -80,8 +80,8 @@ def _host_header_allowed(host_header: str) -> bool:
     """
     raw = (host_header or "").strip().lower()
     if not raw:
-        return True                     # 无 Host(HTTP/1.0 或测试直连)→ 不在此拦
-    if raw.startswith("["):             # [::1]:8000
+        return True
+    if raw.startswith("["):
         hostname = raw.split("]")[0].lstrip("[")
     else:
         hostname = raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
@@ -90,7 +90,7 @@ def _host_header_allowed(host_header: str) -> bool:
         return True
 
     import ipaddress
-    try:                                # IP 字面量:只放行回环/私网
+    try:
         ip = ipaddress.ip_address(hostname)
     except ValueError:
         ip = None
@@ -104,7 +104,7 @@ def _host_header_allowed(host_header: str) -> bool:
             return True
         if hostname == pat:
             return True
-    return "." not in hostname            # 单标签主机名(localhost/testserver/机器名)放行
+    return "." not in hostname
 
 
 def _is_guarded_path(path: str) -> bool:
@@ -131,8 +131,6 @@ async def _api_key_guard(request, call_next):
     校验 X-API-Key。详见 _loopback_bypass_on。"""
     api_key = os.environ.get("FOXCLAW_API_KEY", "").strip()
     path = request.url.path
-    # 【P3-rebind】与是否配 key 无关:本机开发(无 key、回环监听)才是 DNS rebinding
-    # 的典型受害场景,所以这层放在 api_key 分支之外,默认部署也生效。
     if _is_guarded_path(path):
         _client = request.client.host if request.client else ""
         if _is_loopback_client(_client) and not _host_header_allowed(
@@ -142,21 +140,13 @@ async def _api_key_guard(request, call_next):
                 {"error": "forbidden: Host 头不是本机地址(已启用 DNS rebinding 防护)。"
                           "自建域名请加入 FOXCLAW_ALLOWED_HOSTS。"}, status_code=403)
     if api_key:
-        # /knowledge/* 是 HKC 星球的数据面(graph/ingest/reset),必须同 /api 一起鉴权,
-        # 否则 ingest/reset/graph 对公众开放(泄密+可乱写)。/ws 由端点内部鉴权。
         if _is_guarded_path(path):
-            # CORS 预检(OPTIONS + Access-Control-Request-Method)按规范**不携带**自定义请求头,
-            # 浏览器也不会给它带 X-API-Key。必须放行交给 CORSMiddleware 处理;否则一旦启用鉴权,
-            # 跨源请求会在预检阶段被 401 拦死(且响应无 CORS 头,浏览器只报 CORS 错误,极难定位)。
             if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
                 return await call_next(request)
-            # 【P3-loopback】本机回环自动放行:与 docs 哲学「回环地址安全」对齐,
-            # 避免本地开发时浏览器填 key 的体验摩擦。设 FOXCLAW_LOOPBACK_BYPASS=0 可关。
             if _loopback_bypass_on():
                 client_host = request.client.host if request.client else ""
                 if _is_loopback_client(client_host):
                     return await call_next(request)
-            # 【P3-1】常量时间比对,防对 API Key 的计时攻击(MCP 暴露后更重要)
             if not _constant_time_eq(request.headers.get("X-API-Key", "") or "", api_key):
                 from fastapi.responses import JSONResponse
                 return JSONResponse(
@@ -164,13 +154,10 @@ async def _api_key_guard(request, call_next):
     return await call_next(request)
 
 
-# ── 统一 API 网关:per-client 限流 + 配额(把散落的单点限流收敛成一层)──────────
 _GATEWAY = Gateway(
     rate_per_min=settings.get_int("FOXCLAW_GATEWAY_RATE"),
     quota_per_hour=settings.get_int("FOXCLAW_GATEWAY_QUOTA"),
 )
-# 请求体硬顶(始终生效,不依赖限流开关):防超大 body 在解析/sanitize 前就吃满内存。
-# 最大合法体是文件摄入(路由内 20MB 上限),故 32MB 顶对正常流量无感。
 _MAX_BODY = settings.get_int("FOXCLAW_MAX_BODY_MB") * 1024 * 1024
 
 
@@ -220,21 +207,16 @@ async def _gateway_mw(request, call_next):
     超限 → 429 + Retry-After。默认关(本地);配鉴权或显式开启才生效。"""
     path = request.url.path
     guarded = _is_guarded_path(path)
-    # ① 请求体大小硬顶(始终生效):Content-Length 超限 → 413,在读 body 前拦下
     if guarded:
         cl = request.headers.get("content-length")
         if cl and cl.isdigit() and int(cl) > _MAX_BODY:
             from fastapi.responses import JSONResponse
             return JSONResponse(
                 {"error": f"payload too large (>{_MAX_BODY // 1048576}MB)"}, status_code=413)
-        # chunked / 无 Content-Length:靠流上累计兜底(头检查只是快路径)
         _wrap_body_limit(request, _MAX_BODY)
-    # ② per-client 限流 + 配额(网关启用时)
     if guarded and _gateway_on():
         valid = os.environ.get("FOXCLAW_API_KEY", "").strip()
         hdr = (request.headers.get("X-API-Key") or "").strip()
-        # 【P3-1】常量时间比较:普通 == 的短路耗时可被用来逐位猜 key,
-        # 把请求从 ip:* 伪造成 k:* 身份绕过 IP 限流
         client = ("k:" + hdr) if (valid and _constant_time_eq(hdr, valid)) \
             else ("ip:" + (request.client.host if request.client else "anon"))
         allowed, retry, reason = _GATEWAY.check(client)
@@ -258,8 +240,6 @@ async def _trace_mw(request, call_next):
     path = request.url.path
     if not _is_guarded_path(path):
         return await call_next(request)
-    # 跨进程接链:外部(如经 /api/mcp 调进来的 Agent)带了 W3C traceparent 就复用其 trace_id,
-    # 这样两边的链路能对齐;非法/缺失则自己开一条(不信外部输入)。
     inbound = parse_traceparent(request.headers.get("traceparent"))
     tr = start_trace(f"{request.method} {path}", trace_id=inbound)
     try:
@@ -286,7 +266,6 @@ async def _metrics_mw(request, call_next):
         return resp
     finally:
         ms = (_t.perf_counter() - t0) * 1000.0
-        # 只按已匹配的路由模板分组;未匹配(404)统一记 "unmatched",防攻击者刷不同路径撑爆 key
         route = request.scope.get("route")
         ep = getattr(route, "path", None) or "unmatched"
         try:
@@ -302,8 +281,6 @@ def install_middleware(app):
     顺序即执行顺序(Starlette 中间件后加先执行),必须与搬移前完全一致:
     _api_key_guard → _gateway_mw → _trace_mw → _metrics_mw。
     """
-    # 【P3-loopback】启动审计日志:鉴权开启 + loopback bypass 默认开 → 打一行告知
-    # 运维者。设了 FOXCLAW_API_KEY 但又不想本机免密,显式 FOXCLAW_LOOPBACK_BYPASS=0。
     if os.environ.get("FOXCLAW_API_KEY", "").strip() and _loopback_bypass_on():
         import logging
         logging.getLogger("foxclaw").info(

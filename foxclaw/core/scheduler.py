@@ -15,37 +15,37 @@ from typing import Optional
 @dataclass
 class TaskIntent:
     """任务意图:粗粒度类别 + 三个亲和度提示。"""
-    category: str                 # reasoning / memory / workflow / tool
+    category: str
     confidence: float
-    memory_affinity: float        # 记忆依赖度
-    reasoning_depth: float        # 推理深度提示
+    memory_affinity: float
+    reasoning_depth: float
 
 
 @dataclass
 class TaskFeatures:
-    complexity: float             # 复杂度
-    memory_dependency: float      # 记忆依赖
-    tool_cost: float              # 工具成本
-    reasoning_depth: float        # 推理深度
-    urgency: float                # 紧急度
-    expected_runtime: float       # 预期耗时
+    complexity: float
+    memory_dependency: float
+    tool_cost: float
+    reasoning_depth: float
+    urgency: float
+    expected_runtime: float
 
 
 @dataclass
 class SystemContext:
     """系统负载上下文。主管据此调整优先级、决定是否抢占。"""
-    active_agents: int = 0        # 当前活跃 Agent 数
-    queue_depth: int = 0          # 待处理任务队列深度
-    system_load: float = 0.1      # 系统负载 0-1
+    active_agents: int = 0
+    queue_depth: int = 0
+    system_load: float = 0.1
 
 
 @dataclass
 class ScheduleDecision:
-    priority: float               # 最终优先级 0-1
-    route_hint: str               # 路由倾向:agent / tool / workflow
-    execution_mode: str           # preemptive(抢占) / standard(标准)
-    preemptible: bool             # 是否可触发抢占
-    expected_budget: float        # 预期预算(耗时×优先级修正)
+    priority: float
+    route_hint: str
+    execution_mode: str
+    preemptible: bool
+    expected_budget: float
     intent: Optional[TaskIntent] = None
     features: Optional[TaskFeatures] = None
     preemption_reason: Optional[str] = None
@@ -64,7 +64,6 @@ class ScheduleDecision:
 class CognitiveScheduler:
     """意图感知的认知调度器。"""
 
-    # 意图识别关键词(粗分类)
     _REASONING = ["规划", "计划", "分析", "设计", "推理", "为什么", "怎么办", "策略", "方案"]
     _MEMORY = ["记得", "记忆", "之前", "上次", "回忆", "查一下我", "我说过"]
     _WORKFLOW = ["然后", "接着", "之后", "依次", "批量", "流程", "再然后", "下一步"]
@@ -87,7 +86,6 @@ class CognitiveScheduler:
             complexity, tool_cost, urgency, runtime = 0.7, 0.6, 0.65, 0.8
         elif intent.category == "memory":
             complexity, tool_cost, urgency, runtime = 0.5, 0.2, 0.55, 0.6
-        # 紧急词加成
         if any(w in task for w in ["紧急", "立刻", "马上", "尽快", "急"]):
             urgency = min(1.0, urgency + 0.3)
         return TaskFeatures(complexity, intent.memory_affinity, tool_cost,
@@ -119,8 +117,6 @@ class CognitiveScheduler:
         return "agent" if priority > 0.35 else "tool"
 
     def preemption_reason(self, priority: float, ctx: SystemContext) -> str | None:
-        # 阈值匹配实际优先级范围(本调度器优先级多在 0.4 以内,
-        # 原 0.55/0.7 几乎不可达,会让抢占形同虚设)
         if priority > 0.35 and ctx.active_agents >= 3:
             return "高优先级 + Agent 压力大"
         if priority > 0.4 and ctx.queue_depth >= 2:

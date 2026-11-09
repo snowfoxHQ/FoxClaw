@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import foxclaw.core.web_search as ws
-ws.needs_search = lambda q: False          # 关联网:离线测试不碰网络
+ws.needs_search = lambda q: False
 
 from foxclaw import Foxclaw
 from foxclaw.core.thought_chain import ThoughtNode
@@ -43,7 +43,7 @@ def _slow(system, messages, max_tokens=2048, agent_id=""):
 
 def _build(data_dir=None):
     os_ = Foxclaw(data_dir=data_dir or tempfile.mkdtemp())
-    os_.router.complete = _slow      # 注入固定延迟,让并发/串行差异可测
+    os_.router.complete = _slow
     return os_
 
 
@@ -55,12 +55,10 @@ def os_(tmp_path_factory):
 
 @pytest.mark.xfail(
     reason="pre-existing 失败:HKC_EMBEDDING=stub 下 LLM 全部本地 stub 调用极快,并行线程/await 开销反而把并行拖慢于顺序,断言 par<seq*0.75 在 stub 环境不可靠。test_hkc_index_build_manager 等 P1 测试仍覆盖冷构建核心。",
-    strict=False,   # 若日后通过/在某些环境通过,不强制转 fail,允许绿
+    strict=False,
 )
 def test_fork_join(os_):
     print("\n【1】并行 fork-join vs 顺序")
-    # 深审硬化:register_subagents 已在 setup 期预建 _scheduler/_steering_queue,
-    # 并发任务到达前属性就绪 → 消除懒建 check-then-act race
     check(hasattr(os_.supervisor, "_scheduler") and hasattr(os_.supervisor, "_steering_queue"),
           "主管 setup 期预建 scheduler/steering_queue(消除并发懒建 race)")
     r = asyncio.run(os_.supervisor.run_task(PAR_TASK))
@@ -83,7 +81,7 @@ def test_fork_join(os_):
 def test_fault_isolation(os_):
     print("\n【2】故障隔离:分支超时不拖垮整批")
     r = asyncio.run(os_.supervisor.run_task(
-        PAR_TASK, context={"parallel_timeout": 0.05}))   # 远小于 0.4s 的 stub
+        PAR_TASK, context={"parallel_timeout": 0.05}))
     res = r["result"]
     check(res["dispatched_to"] == "parallel", "仍走并行")
     steps = res["parallel_steps"]
@@ -126,7 +124,6 @@ def test_concurrency_safety(os_):
     check(cnt >= N * M, f"ThoughtChain 并发写不丢({cnt} ≥ {N*M})")
     st = pm.stats()
     check(st["by_state"].get("running", 0) == 0, "ProcessManager 无残留 running(状态机并发一致)")
-    # os_ 为多个子测试共享,故用 ≥(本测试贡献 N*M 个 completed,叠加此前的)
     check(st["by_state"].get("completed", 0) >= N * M, f"≥{N*M} 进程 completed(并发流转一致)")
     check(len(seen) == N * M, f"SystemBus 事件回调零丢失({len(seen)}/{N*M})")
 
@@ -152,7 +149,6 @@ def test_memory_isolation_concurrent(os_):
     for t in ts: t.start()
     for t in ts: t.join()
 
-    # 从 office 视角召回"保密草稿"：只能拿到自己的 + 共享,绝不能泄露 finance/admin 私有
     res = hmr.recall(query="保密草稿", agent_id="office", top_k=10)
     def foreign_private(r):
         tags = r.get("tags", [])
@@ -174,9 +170,6 @@ def test_gatekeeper_no_race(os_):
 
     def fire():
         try:
-            # 金额取 5000:**远离**任何阈值边界。本测试验的是"并发裁决无竞态",
-            # 与阈值定多少无关 —— 原先写 500 恰好卡在 large_purchase_check 边界上
-            # (规则是 > 500,500 不大于 500),调整默认阈值就把它误伤了。
             req = CrossAgentRequest(
                 from_agent="admin", to_agent="finance", request_type="budget_request",
                 payload={"amount": 5000, "category": "travel"}, reason="差旅")
@@ -192,7 +185,6 @@ def test_gatekeeper_no_race(os_):
     for t in ts: t.join()
 
     check(not errs, f"并发守门人裁决无异常（否则: {errs[:2]}）")
-    # 大额确定性触发 large_purchase_check → 全部一致(不写死具体阈值:那是可调项)
     check(set(results) == {"needs_confirmation"},
           f"{N} 次并发裁决结果一致（无竞态）: {set(results)}")
     check(len(orch.request_log) - before == N, f"请求日志无丢失（+{N}）")

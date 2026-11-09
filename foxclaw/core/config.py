@@ -61,5 +61,5 @@ def load_policy_layer(data_dir=None) -> dict:
                 d = json.loads(p.read_text(encoding="utf-8"))
                 deny |= set(d.get("deny") or [])
             except Exception:
-                pass          # policy.json 损坏不应拖垮启动;宁可少锁不错锁,由运维排查
+                pass
     return {"deny": sorted(deny)}

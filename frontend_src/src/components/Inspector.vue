@@ -5,7 +5,6 @@ import { state, loadProgress, closeDoc, setModule } from '../stores/app.js'
 import { panels, loadPanel, openKu, startReview } from '../stores/panels.js'
 import { fmtTime } from '../lib/fmt.js'
 
-/* 右栏三块数据与对应面板共用同一份,进来就保证已加载 */
 onMounted(() => {
   loadProgress()
   loadPanel('knowledge')
@@ -16,7 +15,6 @@ const doc = computed(() => state.doc)
 const kb = panels.knowledge
 const rv = panels.review
 
-/* 今日待办 = 到期 + 新卡(SM-2 队列就是这个口径) */
 const reviewTodo = computed(() => (rv.stats.due || 0) + (rv.stats.fresh || 0))
 const masteryPct = computed(() => Math.round((rv.stats.avg_mastery || 0) * 100))
 
@@ -26,7 +24,6 @@ function goReview() {
   startReview()
 }
 
-/* 右栏只留 10 条,多的走「更多」到知识库面板看全量 */
 const LIMIT = 10
 const recentKb = computed(() => kb.recent.slice(0, LIMIT))
 const kbMore = computed(() => kb.recentTotal > recentKb.value.length)
@@ -36,7 +33,6 @@ function moreKb() {
   setModule('knowledge')
 }
 
-/* 大纲:代码取顶层定义,文字取段落首句。P2 换成真解析 */
 const outline = computed(() => {
   const d = doc.value
   if (!d) return []
@@ -164,7 +160,6 @@ const outline = computed(() => {
 }
 .kpi div {
   padding: 8px 9px; border-radius: var(--r-sm);
-  /* 纸面上要的是「白卡」而不是「更浅的纸」:0.72 的白压在暖底上几乎看不出边界 */
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid var(--line);
 }
@@ -196,7 +191,6 @@ const outline = computed(() => {
 .row b { font-size: 13px; font-weight: 600; color: var(--w-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row span { font-size: 11.5px; color: var(--w-dim); }
 
-/* 「更多」:三条杠 + 文字,点进知识库看全量 */
 .more {
   width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
   margin-top: 4px; padding: 7px 9px;

@@ -23,13 +23,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 PORT = int(os.environ.get("FOXCLAW_BENCH_PORT", "8231"))
 BASE = f"http://127.0.0.1:{PORT}"
 
-# 一批覆盖不同分诊路径的任务模板（每个请求附唯一编号,便于校验会话唯一性）
 TEMPLATES = [
-    "分析本月理财预算与收支",       # finance
-    "总结这篇论文的核心要点",       # office
-    "安排明天上午的会议日程",       # admin
-    "整理并汇总这批资料",           # assistant
-    "你能做什么",                   # supervisor 自答(meta)
+    "分析本月理财预算与收支",
+    "总结这篇论文的核心要点",
+    "安排明天上午的会议日程",
+    "整理并汇总这批资料",
+    "你能做什么",
 ]
 
 
@@ -46,7 +45,6 @@ def _start_server():
     import uvicorn
     os.environ.setdefault("FOXCLAW_DATA_DIR", tempfile.mkdtemp())
     os.environ["FOXCLAW_SHADOW_ROUNDS"] = "50"
-    # 不配任何 LLM key → Router 自动降级 stub(不联网、瞬时返回)
     for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
               "GOOGLE_API_KEY", "DASHSCOPE_API_KEY"):
         os.environ.pop(k, None)
@@ -132,7 +130,6 @@ async def main_async(total, concurrency):
         print("✗ 服务未就绪"); return 1
     print("服务就绪。先测单请求基线(concurrency=1)...")
 
-    # 基线:串行 10 个请求,量"单请求真实成本"(无并发争用),用于解释并发下的延迟来源
     base = await _run_load(10, 1)
     base_lat = base["latencies"]
     base_p50 = _pct(base_lat, 50)

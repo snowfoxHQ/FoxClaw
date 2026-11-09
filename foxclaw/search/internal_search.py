@@ -23,9 +23,9 @@ _UNGROUNDED_PENALTY = 0.15
 
 class InternalSearchEngine:
     def __init__(self, memory_port=None, knowledge_port=None, agent_port=None):
-        self.memory_port = memory_port      # 只读查询 HMR：query(text, top_k) -> list[RawEvidence]
-        self.knowledge_port = knowledge_port  # HKC 只读查询接口(同进程 DirectClient)
-        self.agent_port = agent_port        # Agent 源:领域内核 + 推理链 + 各Agent记忆 + 能力/状态
+        self.memory_port = memory_port
+        self.knowledge_port = knowledge_port
+        self.agent_port = agent_port
 
     @staticmethod
     def _safe_query(port, text: str, top_k: int) -> list[RawEvidence]:
@@ -46,8 +46,6 @@ class InternalSearchEngine:
             memory_hits = self._safe_query(self.memory_port, text, top_k)
             agent_hits = self._safe_query(self.agent_port, text, top_k)
 
-        # 知识候选用「内部一切可溯源证据」(记忆 + Agent 态势)交叉验证:找得到就 grounded,
-        # 找不到就做孤证惩罚。这样 HKC 权威知识与 Agent 实际持有的数据互为印证。
         if knowledge_hits:
             knowledge_hits = self._cross_link(knowledge_hits, memory_hits + agent_hits)
 

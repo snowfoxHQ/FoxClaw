@@ -15,7 +15,7 @@ F = TypeVar("F", bound=Callable[..., object])
 def named_stage(name: str) -> Callable[[F], F]:
     """给 stage 可调用挂 stage_name(stage 事件与轨迹标注用这个键)。"""
     def deco(fn: F) -> F:
-        vars(fn)["stage_name"] = name   # vars() 而非 setattr:ruff B010 禁常量 setattr
+        vars(fn)["stage_name"] = name
         return fn
 
     return deco
