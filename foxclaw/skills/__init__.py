@@ -173,7 +173,7 @@ def _mark_untrusted(out):
 class SkillAdapter:
     """统一调用器 + 守门人。"""
 
-    def __init__(self, registry: SkillRegistry, mcp_clients: dict = None,
+    def __init__(self, registry: SkillRegistry, mcp_clients: dict | None = None,
                  rules=None, breaker=None, hooks=None, policy_gate=None, sentinel=None,
                  confirms=None):
         self.registry = registry
@@ -240,7 +240,7 @@ class SkillAdapter:
                                       taint_threshold=taint_threshold)
 
     def _audit_terminal(self, skill: SkillSpec, verdict, outcome: str,
-                        reason: str, detail: dict = None) -> None:
+                        reason: str, detail: dict | None = None) -> None:
         """【P2-0】把 skill 执行终态记入统一治理审计流(governance.decision, layer=skill)。
 
         审计器从 policy_gate.auditor 取(standalone 无 gate → 无审计,与既有降级策略一致);

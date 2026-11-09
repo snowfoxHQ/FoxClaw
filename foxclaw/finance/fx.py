@@ -33,7 +33,7 @@ DEFAULT_RATES = {
 class FxTable:
     """币种 → 本位币折算率,带落盘(原子写)。"""
 
-    def __init__(self, path: str = None):
+    def __init__(self, path: str | None = None):
         self.path = Path(path) if path else None
         self.rates = dict(DEFAULT_RATES)
         self.note = "static"

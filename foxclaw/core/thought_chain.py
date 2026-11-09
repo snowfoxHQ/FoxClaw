@@ -59,11 +59,11 @@ class ThoughtNode:
         type: NodeType,
         content: str,
         conf: float = 1.0,
-        mem_refs: list[str] = None,
-        parent_ids: list[str] = None,
-        tool_name: str = None,
-        entities: list[str] = None,
-        metadata: dict = None,
+        mem_refs: list[str] | None = None,
+        parent_ids: list[str] | None = None,
+        tool_name: str | None = None,
+        entities: list[str] | None = None,
+        metadata: dict | None = None,
     ) -> "ThoughtNode":
         return cls(
             id=f"tn_{uuid.uuid4().hex[:12]}",
@@ -183,9 +183,9 @@ class ThoughtChain:
         self,
         node_id: str,
         status: HarnessStatus,
-        reason: str = None,
-        delta: float = None,
-        dominant_dim: str = None,
+        reason: str | None = None,
+        delta: float | None = None,
+        dominant_dim: str | None = None,
     ):
         """Harness 校验完成后更新节点标注"""
         with self._conn() as conn:
@@ -202,7 +202,7 @@ class ThoughtChain:
             ).fetchone()
         return self._row_to_node(row) if row else None
 
-    def get_chain(self, session_id: str, agent_id: str = None) -> list[ThoughtNode]:
+    def get_chain(self, session_id: str, agent_id: str | None = None) -> list[ThoughtNode]:
         """获取一个会话的完整推理链，按时间排序"""
         with self._conn() as conn:
             if agent_id:
@@ -217,7 +217,7 @@ class ThoughtChain:
                 ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
-    def get_blocked_nodes(self, agent_id: str = None, limit: int = 50) -> list[ThoughtNode]:
+    def get_blocked_nodes(self, agent_id: str | None = None, limit: int = 50) -> list[ThoughtNode]:
         """获取被 Harness 截断的节点，用于审计"""
         with self._conn() as conn:
             if agent_id:
@@ -232,7 +232,7 @@ class ThoughtChain:
                 ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
-    def search_nodes(self, keyword: str, agent_id: str = None,
+    def search_nodes(self, keyword: str, agent_id: str | None = None,
                      limit: int = 20) -> list[ThoughtNode]:
         """按关键词在推理节点内容里检索(LIKE 子串匹配)。供 HSR 的 AgentSourcePort
         把「各 Agent 想过/判过什么」连通进内部搜索。只读。"""

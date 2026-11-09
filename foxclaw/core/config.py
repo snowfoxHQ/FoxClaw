@@ -22,7 +22,7 @@ class LayeredConfig:
     """三层配置合并原语。持有各层 dict 的引用 —— 若某层的集合值是可变对象(如 SkillPolicy 的
     user deny set),原地增删会被 merged_set/policy_locked 实时反映,无需重建。"""
 
-    def __init__(self, policy: dict = None, user: dict = None, runtime: dict = None):
+    def __init__(self, policy: dict | None = None, user: dict | None = None, runtime: dict | None = None):
         self.policy = dict(policy or {})
         self.user = dict(user or {})
         self.runtime = dict(runtime or {})

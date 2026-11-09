@@ -66,7 +66,7 @@ class ChannelAdapter(ABC):
     # 子类覆盖:渠道名
     CHANNEL = "base"
 
-    def __init__(self, on_message: Callable[[InboundMessage], None] = None):
+    def __init__(self, on_message: Callable[[InboundMessage], None] | None = None):
         self.on_message = on_message
         self._running = False
         self.last_error = ""       # 最近一次处理错误(便于排查,不抛断轮询)

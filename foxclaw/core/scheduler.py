@@ -126,7 +126,7 @@ class CognitiveScheduler:
             return "高优先级 + 队列积压"
         return None
 
-    def schedule(self, task: str, ctx: SystemContext = None) -> ScheduleDecision:
+    def schedule(self, task: str, ctx: SystemContext | None = None) -> ScheduleDecision:
         """主入口:给一个任务做完整调度决策。"""
         ctx = ctx or SystemContext()
         intent = self.parse_intent(task)

@@ -90,8 +90,8 @@ class SharedWritePolicy:
     无状态、无锁、纯函数式判定 —— 并发安全直接成立,也便于单独测试。
     """
 
-    def __init__(self, allowed: dict = None, mode: str = None,
-                 global_facets: Iterable[str] = None):
+    def __init__(self, allowed: dict | None = None, mode: str | None = None,
+                 global_facets: Iterable[str] | None = None):
         self.allowed = {k: set(v) for k, v in
                         (allowed or DEFAULT_SHARED_WRITE_ALLOWED).items()}
         self.global_facets = set(global_facets if global_facets is not None
@@ -99,7 +99,7 @@ class SharedWritePolicy:
         self.mode = self._resolve_mode(mode)
 
     @staticmethod
-    def _resolve_mode(mode: str = None) -> str:
+    def _resolve_mode(mode: str | None = None) -> str:
         """显式入参 > 环境变量 > 默认 audit。非法值一律回落到 audit(保守:不拦截)。"""
         m = (mode or os.environ.get(MODE_ENV, "") or "audit").strip().lower()
         return m if m in VALID_MODES else "audit"
@@ -126,8 +126,8 @@ class SharedWritePolicy:
             out.append(t)
         return tuple(dict.fromkeys(out))
 
-    def evaluate(self, agent_id: str = None, memory_type: str = "concept",
-                 tags: Iterable[str] = None) -> Decision:
+    def evaluate(self, agent_id: str | None = None, memory_type: str = "concept",
+                 tags: Iterable[str] | None = None) -> Decision:
         facets = self.facets_of(memory_type, tags)
         who = agent_id or "unknown"
 
@@ -144,7 +144,7 @@ class SharedWritePolicy:
 
 def guard_shared_write(backend, agent_id: str, content: str,
                        memory_type: str = "concept",
-                       tags: Iterable[str] = None) -> Optional[Decision]:
+                       tags: Iterable[str] | None = None) -> Optional[Decision]:
     """共享层写入的统一闸门 —— 必须在**真正落库之前**调用。
 
     行为分三档:
@@ -187,7 +187,7 @@ def guard_shared_write(backend, agent_id: str, content: str,
     return decision
 
 
-def attach(backend, policy: SharedWritePolicy = None, spine=None) -> SharedWritePolicy:
+def attach(backend, policy: SharedWritePolicy | None = None, spine=None) -> SharedWritePolicy:
     """把策略挂到记忆后端(HMRAdapter / MockHMR 皆可)。返回生效的策略实例。
 
     用挂载而非构造函数注入,是因为装配顺序:memory_adapter 在 event_spine **之前**创建,

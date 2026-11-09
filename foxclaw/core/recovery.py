@@ -107,7 +107,7 @@ class RecoveryPlan:
 class RestartRecovery:
     """任务生命周期日志 + 启动恢复扫描。"""
 
-    def __init__(self, log_path: str, current_pid: int = None, boot_id: str = None,
+    def __init__(self, log_path: str, current_pid: int | None = None, boot_id: str | None = None,
                  spine=None, fsync: bool = True):
         self.log_path = log_path
         self.current_pid = current_pid or os.getpid()
@@ -249,7 +249,7 @@ class RestartRecovery:
             if kind == "finish":
                 records[tid].finished = ev.get("finished", 0)
 
-    def plan_recovery(self, interrupted: list = None) -> RecoveryPlan:
+    def plan_recovery(self, interrupted: list | None = None) -> RecoveryPlan:
         """【P2-4】给中断任务分类,返回恢复计划(不改 scan_interrupted 的返回,兼容)。
 
         分类规则:

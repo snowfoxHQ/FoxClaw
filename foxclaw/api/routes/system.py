@@ -140,7 +140,7 @@ async def scheduler_stats():
 
 
 @app.get("/api/bus/history")
-async def bus_history(channel: str = None, limit: int = 30):
+async def bus_history(channel: str | None = None, limit: int = 30):
     """系统事件总线历史:观测执行→审计→记忆的真值流转。"""
     try:
         return {"events": _api.os_instance().system_bus.history(channel, limit)}
@@ -156,7 +156,7 @@ async def truth_last():
 
 
 @app.get("/api/processes")
-async def list_processes(state: str = None, limit: int = 30):
+async def list_processes(state: str | None = None, limit: int = 30):
     """进程列表:观测任务作为"进程"的生命周期状态。"""
     try:
         return {"processes": _api.os_instance().process_manager.list(state, limit),
@@ -184,7 +184,7 @@ async def cognitive_state():
 # ── ThoughtChain 查询 ──────────────────────────────────────
 
 @app.get("/api/thoughtchain/{agent_id}/chain")
-async def get_thought_chain(agent_id: str, session_id: str = None):
+async def get_thought_chain(agent_id: str, session_id: str | None = None):
     """获取 Agent 的推理链"""
     tc = _api.os_instance().thought_chain
     if session_id:
@@ -285,7 +285,7 @@ async def metrics_json():
 
 @app.get("/api/traces")
 async def list_traces(limit: int = 30, persisted: bool = False,
-                      slow_ms: float = None, errors_only: bool = False):
+                      slow_ms: float | None = None, errors_only: bool = False):
     """请求链路。默认看内存里最近若干条;persisted=1 查**已落库的历史**
     (可加 slow_ms / errors_only 过滤)——「找出昨天那次慢请求」走这里。"""
     from ...core.tracing import TRACES

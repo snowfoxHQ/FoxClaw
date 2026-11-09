@@ -66,7 +66,7 @@ class CallRecord:
 class TokenMeter:
     """Token 计量器。线程安全,可聚合,可落盘。"""
 
-    def __init__(self, log_path: str = None, max_records: int = 10000,
+    def __init__(self, log_path: str | None = None, max_records: int = 10000,
                  max_log_mb: float = 10.0):
         self.log_path = log_path
         self.max_records = max_records
@@ -94,7 +94,7 @@ class TokenMeter:
 
     def measure_call(self, *, system: str, messages: list, output: str,
                      provider: str, model: str, agent_id: str = "",
-                     usage: dict = None, task_kind: str = "") -> CallRecord:
+                     usage: dict | None = None, task_kind: str = "") -> CallRecord:
         """计量一次调用。优先用 API 返回的 usage,否则估算。
 
         usage 形如 {"input_tokens": N, "output_tokens": M}(已由 router 归一化)。

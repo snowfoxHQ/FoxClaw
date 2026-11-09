@@ -24,7 +24,7 @@ AMAP_BASE = "https://restapi.amap.com/v3"
 class AMapClient:
     """高德 Web Service 客户端。无 Key 则 enabled=False,调用返回 None。"""
 
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("AMAP_MAPS_API_KEY")
         self.enabled = bool(self.api_key)
 

@@ -15,7 +15,7 @@ from .amap_client import AMapClient
 class ItineraryRuntime:
     """行政 Agent 的行程内核。"""
 
-    def __init__(self, amap_key: str = None, hmr=None):
+    def __init__(self, amap_key: str | None = None, hmr=None):
         self.waypoints: list = []
         self.reasoning = ItineraryReasoning()
         self.amap = AMapClient(amap_key)
@@ -26,8 +26,8 @@ class ItineraryRuntime:
         return self.amap.enabled
 
     # ── 采集行程点 ────────────────────────────────────────
-    def add_waypoint(self, name: str, address: str = "", lng: float = None,
-                     lat: float = None, start_time: str = None,
+    def add_waypoint(self, name: str, address: str = "", lng: float | None = None,
+                     lat: float | None = None, start_time: str | None = None,
                      duration_min: int = 0, city: str = "") -> dict:
         wp = Waypoint(name=name, address=address, lng=lng, lat=lat,
                       start_time=start_time, duration_min=duration_min, city=city)

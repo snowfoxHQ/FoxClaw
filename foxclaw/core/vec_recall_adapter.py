@@ -120,7 +120,7 @@ class VecRecallAdapter:
     backend = "vecRecall"
 
     def __init__(self, storage_path: str = "./vecrecall_data", wing: str = "foxclaw",
-                 use_chain: bool = False, embedding_model: str = None,
+                 use_chain: bool = False, embedding_model: str | None = None,
                  dedup: bool = True, embedding_backend=None, vector_backend=None):
         """`embedding_backend` / `vector_backend` 用于注入（测试传轻量实现）。
 
@@ -162,7 +162,7 @@ class VecRecallAdapter:
             return "unknown"
 
     @staticmethod
-    def _resolve_model(embedding_model: str = None) -> str:
+    def _resolve_model(embedding_model: str | None = None) -> str:
         """与 HMRAdapter 同一条解析链，保证两套后端用同一个模型（分数与维度可比）。"""
         return (embedding_model
                 or os.environ.get("EMBEDDING_MODEL")
@@ -214,8 +214,8 @@ class VecRecallAdapter:
         s = re.split(r"[。！？!?\n\r]", s, 1)[0].strip()
         return " ".join(s.split())[:80]
 
-    def ingest(self, content: str, type: str = "concept", agent_id: str = None,
-               title: str = None, tags: list = None, shared: bool = False, **kwargs):
+    def ingest(self, content: str, type: str = "concept", agent_id: str | None = None,
+               title: str | None = None, tags: list | None = None, shared: bool = False, **kwargs):
         """统一摄入。签名与 `HMRAdapter.ingest` 一致。
 
         隔离承载：`agent_id` → owner，`shared=True` → visibility="shared"。
@@ -276,7 +276,7 @@ class VecRecallAdapter:
             return include_shared
         return owner == agent_id or not owner
 
-    def recall(self, query: str = "", agent_id: str = None, top_k: int = 5,
+    def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5,
                include_shared: bool = True, **kwargs):
         """统一召回，返回 list[dict]。
 

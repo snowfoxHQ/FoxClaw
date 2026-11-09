@@ -15,7 +15,7 @@ class FinanceReasoning:
 
     # ── 预算推理 ──────────────────────────────────────────
     @staticmethod
-    def spend_by_category(transactions: list, period: str = None) -> dict:
+    def spend_by_category(transactions: list, period: str | None = None) -> dict:
         """按分类汇总支出(绝对值)。period 形如 '2026-06',None=全部。"""
         out = defaultdict(float)
         for t in transactions:
@@ -27,7 +27,7 @@ class FinanceReasoning:
         return dict(out)
 
     @staticmethod
-    def budget_status(transactions: list, budgets: list, period: str = None) -> list:
+    def budget_status(transactions: list, budgets: list, period: str | None = None) -> list:
         """计算每个预算分类的使用状态。"""
         period = period or datetime.now().strftime("%Y-%m")
         spent = FinanceReasoning.spend_by_category(transactions, period)
@@ -40,7 +40,7 @@ class FinanceReasoning:
 
     @staticmethod
     def overspend_forecast(transactions: list, budget: Budget,
-                           period: str = None, now=None) -> dict:
+                           period: str | None = None, now=None) -> dict:
         """分类超支预测:按当前消费速度,推算月底是否超预算。"""
         now = now or datetime.now()
         period = period or now.strftime("%Y-%m")

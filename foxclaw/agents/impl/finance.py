@@ -131,7 +131,7 @@ class FinanceAgent(CognitiveAgent):
             pass      # 记忆写入失败不影响账已经记上这件事
         return ack
 
-    def analyze_finances(self, period: str = None, current_balance: float = None) -> dict:
+    def analyze_finances(self, period: str | None = None, current_balance: float | None = None) -> dict:
         """调用财务内核做综合分析,并把关键洞察写入 ThoughtChain。"""
         fin = getattr(self, "fin", None)
         if fin is None:

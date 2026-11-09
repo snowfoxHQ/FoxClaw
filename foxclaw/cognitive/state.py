@@ -60,7 +60,7 @@ class CognitiveState:
             self.temporal_window = "memory_augmented"
         self.updated_at = time.time()
 
-    def on_process_change(self, payload: dict, active_count: int = None):
+    def on_process_change(self, payload: dict, active_count: int | None = None):
         """进程状态变更 → 更新活跃进程数。"""
         if active_count is not None:
             self.active_processes = active_count

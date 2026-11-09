@@ -74,8 +74,8 @@ class GovernanceSession:
 
     def __init__(self, goal: str, allowed_tools=None, entities=None,
                  agent_id: str = "agent", shadow_rounds: int = 0,
-                 db_path: str = None, policy_path: str = None,
-                 embedding_model: str = None):
+                 db_path: str | None = None, policy_path: str | None = None,
+                 embedding_model: str | None = None):
         self.agent_id = agent_id
         self._session_id = f"gov_{uuid.uuid4().hex[:10]}"
         self.thought_chain = ThoughtChain(
@@ -97,8 +97,8 @@ class GovernanceSession:
         self._blocked_count = 0
 
     # ── 核心:观测一步 ────────────────────────────────────────
-    def observe(self, content: str, tool: str = None, entities=None,
-                node_type: str = None, conf: float = 0.9,
+    def observe(self, content: str, tool: str | None = None, entities=None,
+                node_type: str | None = None, conf: float = 0.9,
                 semantic: bool = True) -> GovResult:
         """观测一个推理/工具步骤,返回治理判定。不抛异常(判定在结果里)。
 
@@ -121,7 +121,7 @@ class GovernanceSession:
                          delta=r.delta, dimension=r.dominant_dim, reason=r.reason,
                          node_id=node.id, scores=dict(r.scores), loop=loop_warn)
 
-    def guard(self, content: str, tool: str = None, entities=None) -> GovResult:
+    def guard(self, content: str, tool: str | None = None, entities=None) -> GovResult:
         """与 observe 相同,但被 BLOCK 时**抛 GovernanceBlocked**(fail-closed 风格)。"""
         r = self.observe(content, tool=tool, entities=entities)
         if r.blocked:
@@ -148,7 +148,7 @@ class GovernanceSession:
         return False
 
 
-def governed(session: GovernanceSession, tool_name: str = None, entities=None):
+def governed(session: GovernanceSession, tool_name: str | None = None, entities=None):
     """装饰器:把一个工具函数包成"调用前先过 Harness"。
 
     命中越权/跑题/范围蔓延 → 抛 GovernanceBlocked,函数不执行。同步/异步函数都支持。

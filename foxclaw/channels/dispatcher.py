@@ -18,7 +18,7 @@ from . import InboundMessage, ChannelRegistry, ChannelAdapter
 class ChannelDispatcher:
     """渠道闭环:把入站消息路由到主管,回复发回原渠道。"""
 
-    def __init__(self, supervisor, registry: ChannelRegistry = None,
+    def __init__(self, supervisor, registry: ChannelRegistry | None = None,
                  idempotency=None):
         """
         supervisor: 主管 Agent(有 async run_task 方法)

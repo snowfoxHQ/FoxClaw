@@ -46,7 +46,7 @@ class FinanceRuntime:
     """财务 Agent 的资金行为操作系统内核。"""
 
     def __init__(self, policy_path: str = "./finance_policy.yaml", hmr=None,
-                 data_path: str = None):
+                 data_path: str | None = None):
         self.transactions: list = []
         self.budgets: list = []
         self.entities: dict = {}            # name -> FinancialEntity
@@ -208,7 +208,7 @@ class FinanceRuntime:
 
     # ── 自然语言记账(第一线功能)────────────────────────────
     def record_text(self, text: str, account: str = "default",
-                    now: datetime = None, dry_run: bool = False) -> dict:
+                    now: datetime | None = None, dry_run: bool = False) -> dict:
         """「今天买了一件衣服花了 105 块」→ 落一笔账,返回可读回执。
 
         识别(金额/币种/时间/分类)全部走 `nlparse` 的确定性规则,LLM 不参与算钱。
@@ -298,7 +298,7 @@ class FinanceRuntime:
             lines.append("提示:" + "；".join(warns))
         return "\n".join(lines)
 
-    def ledger(self, period: str = None) -> dict:
+    def ledger(self, period: str | None = None) -> dict:
         """记账本:按月汇总(已发生 vs 计划、按天、按分类、按币种)。"""
         period = period or datetime.now().strftime("%Y-%m")
         with self._lock:
@@ -405,7 +405,7 @@ class FinanceRuntime:
         return count
 
     # ── 综合分析(财务 Agent 的核心输出)──────────────────
-    def analyze(self, period: str = None, current_balance: float = None,
+    def analyze(self, period: str | None = None, current_balance: float | None = None,
                 calibrate: bool = True) -> dict:
         """一次性产出完整财务洞察:预算/风险/预测/守门人裁决。
 

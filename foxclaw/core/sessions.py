@@ -105,7 +105,7 @@ class SessionStore:
         with self._lock:
             return self._read(sid)
 
-    def append(self, sid: str, role: str, content: str, attachments: list = None) -> bool:
+    def append(self, sid: str, role: str, content: str, attachments: list | None = None) -> bool:
         """追加一条消息;会话不存在则忽略。首条用户消息会顺带定标题。
         attachments(可选)= 聊天附件元数据 [{name,size,mime,url}];只落盘轻字段(不存 text,
         避免会话文件随附件正文膨胀),供「会话历史」回看时渲染附件卡片。"""

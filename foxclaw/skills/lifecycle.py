@@ -234,7 +234,7 @@ class HookManager:
         })
         return {} if err else outcome
 
-    def fire(self, event: HookEvent, skill_id: str = "", ctx: dict = None) -> HookResult:
+    def fire(self, event: HookEvent, skill_id: str = "", ctx: dict | None = None) -> HookResult:
         """触发某事件的所有匹配 hook。仅 before_tool_call(原 pre_skill)的 block 生效;
         CONTEXT_HOOKS(pre_reasoning/agent_start)返回的 additional_context 会被收集拼接。
 

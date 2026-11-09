@@ -41,8 +41,8 @@ class HMRAdapter:
     若 HMR 不可用,调用方应回退到 MockHMR。
     """
 
-    def __init__(self, storage_path: str = "./hmr_data", llm_api_key: str = None,
-                 embedding_model: str = None):
+    def __init__(self, storage_path: str = "./hmr_data", llm_api_key: str | None = None,
+                 embedding_model: str | None = None):
         """【P1·share-bge-m3】新增 embedding_model 参数。
         上层(Foxclaw)通常在 HKC 已装配后再调本构造,bge-m3 已入 HKC 缓存;
         传具体模型名(如 HKC_EMBEDDING_MODEL)使 HMR 与 HKC 共享同一 SentenceTransformer 实例。
@@ -88,8 +88,8 @@ class HMRAdapter:
         return " ".join(s.split())[:24]
 
     # ── 记忆摄入 ──────────────────────────────────────────
-    def ingest(self, content: str, type: str = "concept", agent_id: str = None,
-               title: str = None, tags: list = None, shared: bool = False, **kwargs):
+    def ingest(self, content: str, type: str = "concept", agent_id: str | None = None,
+               title: str | None = None, tags: list | None = None, shared: bool = False, **kwargs):
         """统一摄入接口。agent_id 写入 tags 实现隔离;shared=True 则写入共享层。
         未给 title 时从内容提炼一个可读标题(否则 HMR 会生成纯时间戳标题)。"""
         meta_tags = list(tags or [])
@@ -113,7 +113,7 @@ class HMRAdapter:
             return self._hmr.ingest(content, memory_type=mtype, title=title, metadata=metadata)
 
     # ── 记忆召回 ──────────────────────────────────────────
-    def recall(self, query: str = "", agent_id: str = None, top_k: int = 5,
+    def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5,
                include_shared: bool = True, **kwargs):
         """统一召回接口。返回 list[dict]。
         默认召回:本 Agent 的记忆 + 共享层(shared)记忆;include_shared=False 只看自己。
@@ -432,7 +432,7 @@ class MockHMR:
         # 注意:不能用内置 type() 构造对象——参数名 type 已覆盖内置 type。
         return SimpleNamespace(id="mock_mem", type=type)
 
-    def recall(self, query: str = "", agent_id: str = None, top_k: int = 5, **kwargs):
+    def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5, **kwargs):
         from types import SimpleNamespace
         # 返回带 memory_objects 的对象,与真实 HMR 的 RecallResult 结构一致
         # (HMRAdapter.recall 会读 result.memory_objects)。
@@ -484,7 +484,7 @@ def _memory_chain_enabled() -> bool:
     return raw.lower() in ("1", "true", "yes", "on")
 
 
-def create_memory_backend(storage_path: str = "./hmr_data", llm_api_key: str = None):
+def create_memory_backend(storage_path: str = "./hmr_data", llm_api_key: str | None = None):
     """工厂:默认 HMR;`FOXCLAW_MEMORY_BACKEND=vecrecall` 时才切 vecRecall。
 
     顺序 vecRecall → HMR → MockHMR,任一层失败退到下一层,且**明确打印**实际用的是

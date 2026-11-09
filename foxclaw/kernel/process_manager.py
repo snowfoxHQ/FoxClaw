@@ -71,8 +71,8 @@ class ProcessManager:
         # 可重入:_emit→bus.publish 的处理器可能回调 pm 的方法(同线程重入安全)。
         self._lock = threading.RLock()
 
-    def create(self, task: str, agent_id: str = None,
-               schedule: dict = None) -> ProcessRecord:
+    def create(self, task: str, agent_id: str | None = None,
+               schedule: dict | None = None) -> ProcessRecord:
         """创建进程(任务进入系统)。携带调度决策。"""
         rec = ProcessRecord(
             task=task, agent_id=agent_id,
@@ -122,7 +122,7 @@ class ProcessManager:
         with self._lock:
             return self._processes.get(process_id)
 
-    def list(self, state: str = None, limit: int = 50) -> list:
+    def list(self, state: str | None = None, limit: int = 50) -> list:
         with self._lock:
             items = list(self._processes.values())
         if state:

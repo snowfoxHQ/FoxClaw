@@ -91,7 +91,7 @@ class WeixinAdapter(ChannelAdapter):
     def _base_info(self) -> dict:
         return {"channel_version": self.channel_version, "bot_agent": self.bot_agent}
 
-    def _post(self, endpoint: str, body: dict, timeout: float = None):
+    def _post(self, endpoint: str, body: dict, timeout: float | None = None):
         import httpx
         url = f"{self.base_url}/{endpoint}"
         payload = {**body, "base_info": self._base_info()}

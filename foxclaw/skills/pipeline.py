@@ -33,7 +33,7 @@ class RouteResult:
     reason: str = ""
 
 
-def route(task: str, registry, fallback_id: str = None) -> RouteResult:
+def route(task: str, registry, fallback_id: str | None = None) -> RouteResult:
     """skill-router:把 skill 适配成通用候选,交统一引擎 trigger_route 打分选择。
     算法(否定过滤触发命中 0.8 + 描述领域匹配 0.2)现由 foxclaw.planning 单一真源提供。"""
     skills = registry.all()
@@ -212,7 +212,7 @@ def _invoke(adapter, skill, args: dict, confirmed: bool, confirm_nonce: str):
 
 
 def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
-            resume_state: dict = None) -> CompositionResult:
+            resume_state: dict | None = None) -> CompositionResult:
     """skill-composition:按计划顺序执行各 skill。
 
     结束态三种:
@@ -320,7 +320,7 @@ class AHSPipeline:
         self.adapter = adapter
 
     def run(self, task: str, confirmed: bool = False,
-            resume_state: dict = None, confirm_nonce: str = "") -> PipelineResult:
+            resume_state: dict | None = None, confirm_nonce: str = "") -> PipelineResult:
         """同步执行。【P2-2】resume_state 用于从待确认状态断点续跑
         (传上次返回的 pending_confirmation;确认后调 run(task, confirmed=True, resume_state=...))。
 
@@ -373,7 +373,7 @@ class AHSPipeline:
             success=success, summary=summary)
 
     async def run_async(self, task: str, confirmed: bool = False,
-                        resume_state: dict = None,
+                        resume_state: dict | None = None,
                         confirm_nonce: str = "") -> PipelineResult:
         """【P2-1】异步入口:把同步 run 放到线程池,避免阻塞事件循环。
 
