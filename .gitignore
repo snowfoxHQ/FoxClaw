@@ -76,6 +76,14 @@ _uv.err
 .tmp_srv.out
 .tmp_srv.err
 
+# 排错时的一次性脚本与产物(临时脚本、mypy 输出、junitxml、CI 日志抓取)
+.tmp_*.py
+.tmp_*.ps1
+.ci*.log
+.r*.xml
+.my*.txt
+.venv.txt
+
 # 前端构建依赖(源码 frontend_src/ 与产物 frontend/v3/ 入库,依赖与缓存不入库)
 frontend_src/node_modules/
 frontend_src/.vite/
