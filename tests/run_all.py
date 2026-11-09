@@ -32,6 +32,7 @@ TESTS = [
     ("test_itinerary.py",    "B · 行程内核"),
     ("test_orchestration.py","主管编排 + 跨 Agent"),
     ("test_skills.py",       "助手 Skill 接入层"),
+    ("test_skills_fetch.py", "技能安装(ClawHub/GitHub/URL/本地包)"),
     ("test_kernel.py",       "内核新模块回归"),
     ("test_governance.py",   "运行时治理(幂等/恢复/队列/压缩/循环/钩子)"),
     # —— M5 新增:压缩器工具消息配对(防孤立 tool_call 致 provider 400)——

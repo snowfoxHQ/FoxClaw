@@ -7,6 +7,8 @@
     foxclaw serve          # 启动 API 服务(默认 http://127.0.0.1:8000)
     foxclaw config check   # 检查 .env / 环境变量:类型写错、拼错的键、互相矛盾的组合
     foxclaw config show     # 打印当前生效配置(密钥默认脱敏)
+    foxclaw skills install @owner/slug   # 装 SKILL.md 技能(ClawHub/GitHub/URL/本地包)
+    foxclaw skills list                  # 列出已装技能
     foxclaw --version      # 打印版本
 
 `serve` 用字符串目标 `foxclaw.api:app` 交给 uvicorn 导入,避免 CLI 进程
@@ -99,6 +101,13 @@ def _cmd_config_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_skills(args: argparse.Namespace) -> int:
+    # 延迟导入:`serve`/`config` 不该为装技能付 urllib/tarfile 的导入开销
+    from foxclaw.skills.install_cmd import run
+
+    return run(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="foxclaw",
@@ -133,6 +142,28 @@ def build_parser() -> argparse.ArgumentParser:
                         help="显示密钥原文(默认脱敏;别在截图/日志里用)")
     c_show.set_defaults(handler=_cmd_config_show)
 
+    skills = subparsers.add_parser("skills", help="安装/查看/卸载指令技能(SKILL.md)")
+    skills_sub = skills.add_subparsers(dest="skills_action", metavar="<action>")
+
+    s_install = skills_sub.add_parser("install", help="从 ClawHub/GitHub/URL/本地包装一个技能")
+    s_install.add_argument(
+        "ref",
+        help="@owner/slug(ClawHub) | github:owner/repo[/子路径][@ref] | "
+             "http(s)://包地址 | 本地 .zip/.tar.gz/SKILL.md/目录")
+    s_install.add_argument("--yes", action="store_true",
+                           help="跳过确认(脚本/CI 必填;非终端环境没有它一定失败)")
+    s_install.add_argument("--id", default="", help="覆盖技能 id(默认取 SKILL.md 里的 name)")
+    s_install.add_argument("--json", action="store_true", help="输出 JSON")
+    s_install.set_defaults(handler=_cmd_skills)
+
+    s_list = skills_sub.add_parser("list", help="列出已安装的指令技能")
+    s_list.add_argument("--json", action="store_true", help="输出 JSON")
+    s_list.set_defaults(handler=_cmd_skills)
+
+    s_remove = skills_sub.add_parser("remove", help="卸载一个指令技能")
+    s_remove.add_argument("id", help="技能 id(`foxclaw skills list` 第一列)")
+    s_remove.set_defaults(handler=_cmd_skills)
+
     return parser
 
 
@@ -144,6 +175,10 @@ def main(argv: list[str] | None = None) -> int:
     if handler is None:
         if getattr(args, "command", None) == "config":
             print("用法:`foxclaw config check` 或 `foxclaw config show`")
+            return 2
+        if getattr(args, "command", None) == "skills":
+            print("用法:`foxclaw skills install <ref>` / `foxclaw skills list` / "
+                  "`foxclaw skills remove <id>`")
             return 2
         print(f"foxclaw {__version__}")
         print("用 `foxclaw serve` 启动本地服务;`foxclaw config check` 检查配置;"

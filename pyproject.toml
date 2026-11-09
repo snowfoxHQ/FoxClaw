@@ -230,6 +230,7 @@ python_files = [
     "test_secrets.py",
     "test_skill_taint_gate.py",
     "test_skills.py",
+    "test_skills_fetch.py",
     "test_stats_and_events.py",
     "test_streaming.py",
     "test_supervisor_pipeline.py",
