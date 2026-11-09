@@ -661,11 +661,6 @@ async function delMcp(s) {
         <button class="mbtn danger" @click="delMcp(s)">移除</button>
       </div>
     </div>
-
-    <div class="pn-note">
-      指令技能正文 <code>/api/ahs/md-skills/{id}</code>,执行技能运行 <code>POST /api/ahs/skills/{id}/test</code>;
-      连接器与技能面板是同一份数据(<code>/api/ahs/mcp/servers</code>)。
-    </div>
   </PanelBox>
 </template>
 
