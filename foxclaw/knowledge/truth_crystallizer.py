@@ -15,7 +15,7 @@ Step1(叠加、默认关、行为不变):
 from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Optional
+from typing import Any, Callable, cast, Optional
 
 
 class TruthCrystallizer:
@@ -61,7 +61,7 @@ class TruthCrystallizer:
     def _crystallize(self, fact: str, domain: str) -> bool:
         """后台执行:惰性取 HKC → ingest_text(KDE→KEE)。任何失败都吞掉,不影响主流程。"""
         try:
-            hkc = self._hkc_provider()
+            hkc = cast(Any, self._hkc_provider())
         except Exception:
             hkc = None
         if hkc is None or not getattr(hkc, "available", False):

@@ -302,7 +302,7 @@ class PipelineResult:
     summary: str
 
     @property
-    def pending_confirmation(self) -> dict:
+    def pending_confirmation(self) -> dict | None:
         """【P2-2】待确认状态(若无则 None)。结构见 compose 的 pending_confirmation。"""
         return self.composition.get("pending_confirmation")
 

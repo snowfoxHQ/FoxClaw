@@ -379,9 +379,9 @@ class FinanceRuntime:
     def import_csv(self, path: str) -> int:
         """从 CSV 导入交易。列:amount,category,entity,account,timestamp,tags
         真实银行 API 接口可在此处替换/扩展。"""
-        path = Path(path)
+        csv_path = Path(path)
         count = 0
-        with open(path, encoding="utf-8") as f:
+        with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 tags = [t.strip() for t in (row.get("tags") or "").split("|") if t.strip()]

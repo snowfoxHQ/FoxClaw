@@ -78,7 +78,7 @@ class _HKCSharedEmbedding:
     def __init__(self, model_name: str):
         self.model_name = model_name
         self._model = None
-        self._dim = None
+        self._dim: int | None = None
 
     def _load(self):
         if self._model is None:

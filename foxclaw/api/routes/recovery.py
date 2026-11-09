@@ -39,5 +39,6 @@ async def recovery_status():
                             "context": {"_resume_task_id": t.task_id}},
         })
     plan = getattr(os_, "recovery_plan", None)
+    as_dict = getattr(plan, "to_dict", None)
     return {"enabled": rec is not None, "interrupted": out,
-            "plan": plan.to_dict() if hasattr(plan, "to_dict") else {}}
+            "plan": as_dict() if callable(as_dict) else {}}

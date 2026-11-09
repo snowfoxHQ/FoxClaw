@@ -118,7 +118,7 @@ class CognitiveScheduler:
             return "tool"
         return "agent" if priority > 0.35 else "tool"
 
-    def preemption_reason(self, priority: float, ctx: SystemContext) -> str:
+    def preemption_reason(self, priority: float, ctx: SystemContext) -> str | None:
         # 阈值匹配实际优先级范围(本调度器优先级多在 0.4 以内,
         # 原 0.55/0.7 几乎不可达,会让抢占形同虚设)
         if priority > 0.35 and ctx.active_agents >= 3:

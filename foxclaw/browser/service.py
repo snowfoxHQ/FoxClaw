@@ -23,14 +23,17 @@ import asyncio
 import importlib.util
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from .session.session_manager import SessionManager
 
 class BrowserService:
 
     def __init__(self, headless: bool = True):
         self._headless = headless
-        self._session = None
+        self._session: "SessionManager | None" = None
         self._executor: Optional[ThreadPoolExecutor] = None
         self._closed = False
         self._launch_error: Optional[str] = None

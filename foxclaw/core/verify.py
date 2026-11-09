@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from . import failure_policy as _policy
+from typing import Callable
 
 VERIFIED = "verified"
 UNVERIFIED = "unverified"
@@ -123,7 +124,7 @@ def extract_evidence(source: str, text: str, limit: int = MAX_EVIDENCE) -> list[
 
 #: 工具专属的后置条件检查。返回 (是否通过, 不通过的原因)。
 #: 没登记的工具走通用规则(见 verify),不会被当成"已验证"。
-_CHECKERS: dict[str, "callable"] = {
+_CHECKERS: dict[str, Callable[..., tuple[bool, str]]] = {
     # 联网搜索:结论必须能指回来源,否则就是"模型自己写的" —— 标未核验而不是验证通过
     "web_search": lambda args, text: (
         (True, "") if _URL_RE.search(text or "")

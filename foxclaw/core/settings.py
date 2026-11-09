@@ -210,11 +210,11 @@ def _parse(opt: Opt, raw: str, where: str = "") -> Any:
         return value
 
     if opt.kind == "choice":
-        value = text.lower()
-        if value not in opt.choices:
+        choice = text.lower()
+        if choice not in opt.choices:
             raise ConfigError(
                 f'值 "{raw}" 不在允许范围内。可选:{" / ".join(opt.choices)}{suffix}')
-        return value
+        return choice
 
     if opt.kind == "csv":
         return [s.strip() for s in text.split(",") if s.strip()]

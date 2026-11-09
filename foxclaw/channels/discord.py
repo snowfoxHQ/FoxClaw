@@ -18,7 +18,7 @@ Foxclaw Channels — Discord 适配器
 """
 from __future__ import annotations
 import json
-from typing import Optional
+from typing import Any, Optional
 from . import ChannelAdapter, InboundMessage, OutboundMessage, SendResult
 
 DISCORD_API_BASE = "https://discord.com/api/v10"
@@ -99,7 +99,7 @@ class DiscordAdapter(ChannelAdapter):
             return SendResult(False, error="缺少 httpx 依赖")
         if not self.bot_token:
             return SendResult(False, error="未配置 Discord bot token")
-        payload = {"content": msg.text}
+        payload: dict[str, Any] = {"content": msg.text}
         if msg.reply_to:
             payload["message_reference"] = {"message_id": msg.reply_to}
         url = f"{DISCORD_API_BASE}/channels/{msg.conversation_id}/messages"
