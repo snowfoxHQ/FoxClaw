@@ -36,7 +36,7 @@ _TEXT_EXTS = {
 
 
 def _att_dir() -> Path:
-    d = Path(_api._os_instance.data_dir) / "attachments"
+    d = Path(_api.os_instance().data_dir) / "attachments"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

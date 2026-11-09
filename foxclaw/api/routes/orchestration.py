@@ -17,7 +17,7 @@ from .. import app
 async def global_situation():
     """主管全局态势:三内核状态汇总 + 跨域告警(驾驶舱视图)。"""
     try:
-        return _api._os_instance.supervisor.global_situation()
+        return _api.os_instance().supervisor.global_situation()
     except Exception as e:
         raise HTTPException(500, f"态势汇总失败: {e}")
 
@@ -34,7 +34,7 @@ class CrossReqPayload(BaseModel):
 async def cross_request(p: CrossReqPayload):
     """跨 Agent 请求:目标 Agent 用守门人裁决(如行程申请差旅预算)。"""
     try:
-        return _api._os_instance.supervisor.cross_request(
+        return _api.os_instance().supervisor.cross_request(
             from_agent=p.from_agent, to_agent=p.to_agent,
             request_type=p.request_type, payload=p.payload, reason=p.reason)
     except Exception as e:

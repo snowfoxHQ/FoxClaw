@@ -24,16 +24,16 @@ class BrowserActPayload(BaseModel):
 @app.get("/api/browser/status")
 async def browser_status():
     """浏览器子系统能力/会话状态(available/session_active/launch_error)。"""
-    return _api._os_instance.browser_service.status()
+    return _api.os_instance().browser_service.status()
 
 
 @app.get("/api/browser/perceive")
 async def browser_perceive():
     """只感知当前页面语义结构(带编号的可交互元素 + 摘要),不改变页面。"""
-    return await _api._os_instance.browser_service.perceive()
+    return await _api.os_instance().browser_service.perceive()
 
 
 @app.post("/api/browser/act")
 async def browser_act(p: BrowserActPayload):
     """执行一个 Web 动作,返回校验后最新语义结构。"""
-    return await _api._os_instance.browser_service.act(p.model_dump())
+    return await _api.os_instance().browser_service.act(p.model_dump())

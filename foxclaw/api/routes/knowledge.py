@@ -33,7 +33,7 @@ class KnowledgeIngestPayload(BaseModel):
 def _hkc_or_none():
     """惰性取 HKCService;None 表示降级(未 vendor/缺依赖/装配失败)。"""
     try:
-        return _api._os_instance.hkc
+        return _api.os_instance().hkc
     except Exception:
         return None
 

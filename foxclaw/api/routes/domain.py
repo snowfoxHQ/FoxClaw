@@ -43,7 +43,7 @@ async def finance_analysis(period: Optional[str] = None,
                            current_balance: Optional[float] = None):
     """财务内核综合分析:预算/异常/订阅/烧钱/守门人裁决。"""
     try:
-        return _api._os_instance.finance.analyze_finances(
+        return _api.os_instance().finance.analyze_finances(
             period=period, current_balance=current_balance)
     except Exception as e:
         raise HTTPException(500, f"财务分析失败: {e}")
@@ -52,7 +52,7 @@ async def finance_analysis(period: Optional[str] = None,
 @app.post("/api/finance/import")
 async def finance_import(p: ImportPayload):
     """导入交易数据(CSV 路径或记录数组)。"""
-    rt = _api._os_instance.finance_runtime
+    rt = _api.os_instance().finance_runtime
     src = _resolve_csv_path(p.csv_path) if p.csv_path else ""
     try:
         if src:
@@ -89,7 +89,7 @@ class FxPayload(BaseModel):
 @app.post("/api/finance/record")
 async def finance_record(p: RecordPayload):
     """一句话记账:「今天买了一件衣服花了 105 块」/「明天交房租 3000」。"""
-    rt = _api._os_instance.finance_runtime
+    rt = _api.os_instance().finance_runtime
     try:
         return rt.record_text(p.text, account=p.account, dry_run=p.dry_run)
     except Exception as e:
@@ -99,7 +99,7 @@ async def finance_record(p: RecordPayload):
 @app.get("/api/finance/ledger")
 async def finance_ledger(period: Optional[str] = None):
     """记账本:按月汇总(已发生/计划、按天、按分类、按币种)。"""
-    rt = _api._os_instance.finance_runtime
+    rt = _api.os_instance().finance_runtime
     try:
         return rt.ledger(period)
     except Exception as e:
@@ -109,14 +109,14 @@ async def finance_ledger(period: Optional[str] = None):
 @app.get("/api/finance/fx")
 async def finance_fx():
     """当前汇率表(本位币 CNY)。"""
-    return _api._os_instance.finance_runtime.fx.snapshot()
+    return _api.os_instance().finance_runtime.fx.snapshot()
 
 
 @app.post("/api/finance/fx")
 async def finance_set_fx(p: FxPayload):
     """设置某个币种的记账汇率(比如刷卡当天的实际结算价)。"""
     try:
-        return _api._os_instance.finance_runtime.fx.set_rate(p.currency, p.rate)
+        return _api.os_instance().finance_runtime.fx.set_rate(p.currency, p.rate)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -125,7 +125,7 @@ async def finance_set_fx(p: FxPayload):
 async def learning_analysis():
     """学习内核综合分析:掌握度/遗忘风险/知识图谱/学习策略。"""
     try:
-        return _api._os_instance.office.analyze_learning()
+        return _api.os_instance().office.analyze_learning()
     except Exception as e:
         raise HTTPException(500, f"学习分析失败: {e}")
 
@@ -134,7 +134,7 @@ async def learning_analysis():
 async def learning_import(p: ImportPayload):
     """导入知识点(办公学习内核)。learn() 内部已把内容存进 HKC(连续 ConceptKU,知识真源),
     不再另做桥接。"""
-    rt = _api._os_instance.learning_runtime
+    rt = _api.os_instance().learning_runtime
     src = _resolve_csv_path(p.csv_path) if p.csv_path else ""
     try:
         if src:
@@ -154,7 +154,7 @@ async def learning_import(p: ImportPayload):
 @app.delete("/api/learning/item/{item_id}")
 async def learning_delete(item_id: str):
     """删除一个学习知识点(内存+复习状态+图谱,并落盘)。"""
-    rt = _api._os_instance.learning_runtime
+    rt = _api.os_instance().learning_runtime
     ok = rt.delete(item_id)
     return {"deleted": ok, "status": rt.status()}
 
@@ -167,7 +167,7 @@ class NotePayload(BaseModel):
 @app.post("/api/learning/note")
 async def learning_note(p: NotePayload):
     """给一个学习知识点追加一条笔记(有内容才存;没新增不写盘)。"""
-    rt = _api._os_instance.learning_runtime
+    rt = _api.os_instance().learning_runtime
     r = rt.add_note(p.item_id, p.note)
     if "error" in r:
         raise HTTPException(400, r["error"])
@@ -178,7 +178,7 @@ async def learning_note(p: NotePayload):
 async def itinerary_plan(mode: str = "driving"):
     """行程内核规划:路线优化/可达性/冲突/守门人 + 高德可视化数据。"""
     try:
-        return _api._os_instance.office.plan_itinerary(mode=mode)
+        return _api.os_instance().office.plan_itinerary(mode=mode)
     except Exception as e:
         raise HTTPException(500, f"行程规划失败: {e}")
 
@@ -186,7 +186,7 @@ async def itinerary_plan(mode: str = "driving"):
 @app.post("/api/itinerary/import")
 async def itinerary_import(p: ImportPayload):
     """导入行程点。"""
-    rt = _api._os_instance.itinerary_runtime
+    rt = _api.os_instance().itinerary_runtime
     src = _resolve_csv_path(p.csv_path) if p.csv_path else ""
     try:
         if src:
@@ -291,14 +291,14 @@ async def _domain_import_file(domain: str, runtime, file: UploadFile):
 @app.post("/api/finance/import/file")
 async def finance_import_file(file: UploadFile = File(...)):
     """上传 csv/xlsx/json 导入交易。列:amount,category,entity,account,timestamp,tags。"""
-    rt = _api._os_instance.finance_runtime
+    rt = _api.os_instance().finance_runtime
     return await _domain_import_file("finance", rt, file)
 
 
 @app.post("/api/learning/import/file")
 async def learning_import_file(file: UploadFile = File(...)):
     """上传 csv/xlsx/json 导入知识点。列:content,topic,source,tags。"""
-    rt = _api._os_instance.learning_runtime
+    rt = _api.os_instance().learning_runtime
     res = await _domain_import_file("learning", rt, file)
     try:
         rt.build_connections()
@@ -310,5 +310,5 @@ async def learning_import_file(file: UploadFile = File(...)):
 @app.post("/api/itinerary/import/file")
 async def itinerary_import_file(file: UploadFile = File(...)):
     """上传 csv/xlsx/json 导入行程点。列:name,address,lng,lat,start_time,duration_min,city。"""
-    rt = _api._os_instance.itinerary_runtime
+    rt = _api.os_instance().itinerary_runtime
     return await _domain_import_file("itinerary", rt, file)

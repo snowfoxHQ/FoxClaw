@@ -20,6 +20,7 @@ import json
 import threading
 import re as _re
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -229,19 +230,19 @@ def _backoff_delay(attempt: int, base: float = 0.5, cap: float = 8.0) -> float:
 class ModelRouter:
     """统一模型路由。Agent 只认 router.complete(),不关心背后是哪家模型。"""
 
-    def __init__(self, provider: str = None, model: str = None):
+    def __init__(self, provider: str | None = None, model: str | None = None):
         # 默认 provider:按环境变量自动探测第一个可用的
         self.provider = provider or self._auto_detect()
         # 【P2·单 LLM 入口】FOXCLAW_MODEL 已弃用,改读 LLM_MODEL(空值时回退默认模型)
         _env_model = os.environ.get("LLM_MODEL", "").strip()
-        self._locked_model = model or _env_model or ""   # 显式锁定 → 不分档(向后兼容)
+        self._locked_model: str | None = model or _env_model or ""   # 显式锁定 → 不分档(向后兼容)
         self.model = self._locked_model or DEFAULT_MODELS.get(self.provider, "")
-        self._client = None
-        self._clients = {}                               # provider -> client(fallback 懒建缓存)
+        self._client: Any = None                         # 当前 provider 的 SDK client(_build_client 注入)
+        self._clients: dict[str, Any] = {}               # provider -> client(fallback 懒建缓存)
         self._client_lock = threading.Lock()
-        self._cooldown = {}                              # provider -> 冷却截止 monotonic(断路器:跳过刚宕机的家)
+        self._cooldown: dict[str, float] = {}            # provider -> 冷却截止 monotonic(断路器:跳过刚宕机的家)
         self.fallback_reason = ""
-        self.meter = None        # 可选 TokenMeter,由 Foxclaw 注入
+        self.meter: Any = None   # 可选 TokenMeter,由 Foxclaw 注入(实现不固定,按 Any 处理)
         # ── 降级状态(A 类修复)────────────────────────────────────────
         # 区分两种「拿不到可用回复」,二者对外文案与副作用不同:
         #   · never_configured —— 从未配置任何模型 key(离线演示/自测),stub 是合理兜底;
@@ -278,7 +279,7 @@ class ModelRouter:
     def is_stub(self) -> bool:
         return self.provider == "stub" or self._client is None
 
-    def _build_client(self, p: str, model: str = None):
+    def _build_client(self, p: str, model: str | None = None):
         """构造某 provider 的客户端(供 active 初始化 + fallback 懒建复用)。
         返回 (client_or_None, reason)。SDK 缺/无 key → (None, 原因)。"""
         try:
@@ -523,6 +524,10 @@ class ModelRouter:
         text = msgs[idx].get("content")
         if not isinstance(text, str):
             return messages                       # 已是多模态,不重复组装
+        # 首元素是 {"type","text"} 同构 dict,不注解会被推成 list[dict[str, str]];
+        # 两个分支后面都要 append 嵌套 dict,故统一声明为 list[dict[str, Any]]。
+        # 注解放在 if 之前:分支内各写一次会触发 no-redef。
+        blocks: list[dict[str, Any]]
         if provider == "anthropic":
             blocks = [{"type": "text", "text": text}]
             for im in images:
@@ -597,7 +602,7 @@ class ModelRouter:
         return self._runtime_context() + s
 
     def complete(self, system: str, messages: list, max_tokens: int = 2048,
-                 agent_id: str = "", images: list = None) -> str:
+                 agent_id: str = "", images: list | None = None) -> str:
         """统一文本补全。messages 为 [{role, content}]。images(可选)= [{media_type,data}] 多模态图片。
 
         所有 LLM 调用的唯一咽喉——token 计量在此进行(若挂了 meter)。
@@ -690,7 +695,7 @@ class ModelRouter:
             pass
 
     def stream(self, system: str, messages: list, max_tokens: int = 2048,
-               agent_id: str = "", stop_event=None, images: list = None,
+               agent_id: str = "", stop_event=None, images: list | None = None,
                on_thinking=None):
         """流式文本补全:逐块 yield。各 provider 用其流式 API;stub/异常降级分块。
         与 complete() 同为 LLM 咽喉,收尾做 token 计量。images(可选)= 多模态图片。
@@ -1061,7 +1066,7 @@ class ModelRouter:
         self._call_degraded = False
         return v
 
-    def switch(self, provider: str, model: str = None):
+    def switch(self, provider: str, model: str | None = None):
         """运行时切换 provider(多模型路由的核心能力)。
         显式给 model → 锁定该模型(不分档,尊重用户选择);只切 provider(model 空)→ 清锁用分档。"""
         self.provider = provider
