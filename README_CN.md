@@ -113,8 +113,11 @@ export DEEPSEEK_API_KEY=sk-...  # 或 ANTHROPIC_API_KEY;Windows: $env:DEEPSEEK_A
 python -m uvicorn foxclaw.api:app --port 8000
 ```
 
-> `requirements.txt` 由 `uv pip compile pyproject.toml -o requirements.txt` 从 `pyproject.toml` 生成,
-> **不要手改**。改完 `pyproject.toml` 里的依赖后重跑一次,否则锁定清单会滞后于声明,
+> `requirements.txt` 由 `uv pip compile pyproject.toml --universal -o requirements.txt` 从 `pyproject.toml` 生成,
+> **不要手改**。`--universal` 不能省:不加的话解析结果只针对当前平台,会把 Windows 专属包
+> (如 `pywin32`)写成无条件依赖,Linux CI 直接装不上。加了它平台相关的包才带
+> `; sys_platform == ...` 标记,pip 会自动跳过不适用项。
+> 改完 `pyproject.toml` 里的依赖后重跑一次,否则锁定清单会滞后于声明,
 > SCA 扫描和 CI 装的都会是旧版本。
 
 详见 [docs/RUN_CN.md](docs/RUN_CN.md)。
