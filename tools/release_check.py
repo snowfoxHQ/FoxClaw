@@ -111,6 +111,40 @@ def check_versions(root: Path = ROOT) -> list:
     return issues
 
 
+def readme_target(root: Path = ROOT) -> str:
+    """pyproject [project].readme 指向的正文文件(相对路径);未声明返回空串。"""
+    try:
+        field = _project(root).get("readme")
+    except Exception:                                          # noqa: BLE001
+        return ""
+    if isinstance(field, str):
+        return field
+    if isinstance(field, dict):
+        return str(field.get("file", "") or "")
+    return ""
+
+
+def check_metadata(root: Path = ROOT) -> list:
+    """项目页正文必须存在。
+
+    0.1.1 上传后 PyPI 项目页只有一句「该软件包的作者未提供项目描述」——pyproject
+    没声明 `readme`,元数据里就没有 Description。包能装、能 import,所以这条缺陷
+    在发布前的任何检查里都不会暴露,只能显式断言。
+    """
+    path = readme_target(root)
+    if not path:
+        return [Issue("error", "no_readme",
+                      "pyproject [project] 未声明 readme → PyPI 项目页显示「未提供项目描述」")]
+    f = root / path
+    if not f.is_file():
+        return [Issue("error", "readme_missing", f"readme 指向的 {path} 不存在")]
+    body = f.read_text(encoding="utf-8", errors="replace").strip()
+    if len(body) < 200:
+        return [Issue("error", "readme_too_short",
+                      f"{path} 只有 {len(body)} 字符,撑不起项目页描述")]
+    return []
+
+
 def check_tag(tag: str, version: str) -> list:
     """tag 必须就是本次要发的版本(v 前缀可有可无)。"""
     if not tag:
@@ -188,6 +222,24 @@ def _wheel_metadata(path: Path) -> dict:
     return {}
 
 
+def _wheel_description(path: Path) -> str:
+    """wheel METADATA 里的正文(PEP 566:头部空行之后即 long_description)。
+
+    换行符必须按 CRLF 也认:Windows 上构建出来的 METADATA 用 \\r\\n,只按 \\n\\n
+    切会把整份头部当正文(或反过来判成没有正文),两种都会把结论判反。
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            for n in z.namelist():
+                if n.endswith(".dist-info/METADATA"):
+                    txt = z.read(n).decode("utf-8", "replace").replace("\r\n", "\n")
+                    parts = txt.split("\n\n", 1)
+                    return parts[1] if len(parts) > 1 else ""
+    except Exception:                                          # noqa: BLE001
+        return ""
+    return ""
+
+
 def check_dist(dist: Path, name: str, version: str) -> list:
     """dist/ 里恰好一个 wheel + 一个 sdist,名字/元数据/内容都对得上。"""
     if not dist.is_dir():
@@ -214,6 +266,9 @@ def check_dist(dist: Path, name: str, version: str) -> list:
         issues.append(Issue("error", "meta_mismatch",
                             f"wheel METADATA 是 {meta.get('Name')}@{meta.get('Version')},"
                             f"应为 {name}@{version}"))
+    if len(_wheel_description(whl).strip()) < 200:
+        issues.append(Issue("error", "no_long_description",
+                            f"{whl.name} 的 METADATA 没有正文 → PyPI 项目页会是空白"))
 
     entries = archive_entries(whl)
     for need in ("foxclaw/__init__.py", "foxclaw/cli.py"):
@@ -254,6 +309,7 @@ def run(root: Path = ROOT, tag: str = "", dist: Path | None = None,
         npm_tgz: Path | None = None) -> list:
     """跑全部适用检查,返回 issues(不打印、不退出,便于测试复用)。"""
     issues = check_versions(root)
+    issues += check_metadata(root)
     name, version = project_name(root), collect_versions(root).get(
         "pyproject.toml:project.version", "")
     if tag:

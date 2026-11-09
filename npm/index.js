@@ -6,6 +6,6 @@
  * programs that only need the name/version.
  */
 export const name = "foxclaw";
-export const version = "0.1.1";
+export const version = "0.1.2";
 
 export default { name, version };

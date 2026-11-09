@@ -22,7 +22,7 @@ for _stream in (sys.stdout, sys.stderr):
 # 版本号单一来源:与 pyproject.toml 保持一致,api.py 的 FastAPI app 版本与
 # /api/system/info 都引用这里,避免三处各写一个值再漂移(曾出现 system_info 硬编码
 # 1.0.0 而 pyproject/app 是 0.1.0 的不一致)。
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from .core.thought_chain import ThoughtChain
 
