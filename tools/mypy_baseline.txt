@@ -1,5 +1,7 @@
 # mypy 类型错误棘轮基线。只允许下降。
-# 2026-11-09 实测:mypy 2.4.0 / Python 3.14.5 下 673 errors in 90 files。
+# 2026-11-09 复核:mypy 2.4.1 / Python 3.12(.venv,依赖按 requirements.txt)→ 655 errors in 89 files。
+# 上一版 673(2.4.0 / 3.14 旧依赖环境)。差额来自 foxclaw/cli.py 不再用 **dict 展开调 uvicorn.run:
+# 那种写法会让每个参数各报一条 arg-type,uvicorn 每加一个字面量成员就多一条(实测 19 条一次清掉)。
 # 注意:CI 跑在 Python 3.12 上,若首次因解释器差异导致数字略有不同,
 # 先在 CI 同版本下跑一次 `python tools/mypy_ratchet.py --update` 校准基线。
-673
+655
