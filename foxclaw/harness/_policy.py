@@ -4,16 +4,33 @@
 等实例状态协同工作。纯搬移、零行为变更。
 """
 import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import yaml
-from datetime import datetime, timezone
 
 from ..core.thought_chain import ThoughtNode
 from ._base import HarnessResult
 
+if TYPE_CHECKING:  # 仅类型期导入,避免与宿主模块形成运行时循环
+    from .event_bus import HarnessEventBus
+
 
 class PolicyMixin:
+    # ── 宿主注入的状态(纯声明,不产生运行时属性)────────────────
+    # 这些字段由 Harness.__init__ 赋值,mixin 自身不初始化。不在此声明的话,
+    # 检查器在每个 self._policy / self.bus / self.agent_id 处都报 attr-defined
+    # (共 30+ 条),而运行期一直是好的 —— 属于缺失的静态契约而非缺陷。
+    agent_id: str
+    bus: "HarnessEventBus"
+    policy_path: Path
+    weights: dict[str, float]
+    promote_min_obs: int
+    _policy: dict
+    _delta_history: list[float]
+
     # ── 学习规则的 action 编译 / 应用 ─────────────────────────
 
     def _reindex_learned_actions(self):
