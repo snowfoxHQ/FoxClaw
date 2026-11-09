@@ -42,7 +42,7 @@ class Foxclaw:
     def __init__(
         self,
         data_dir: str = "./foxclaw_data",
-        anthropic_api_key: str = None,
+        anthropic_api_key: str | None = None,
         shadow_rounds: int = 20,
     ):
         self.data_dir = Path(data_dir).resolve()
@@ -470,7 +470,7 @@ class Foxclaw:
         }
 
     async def run(self, task: str, agent_id: str = "supervisor",
-                  context: dict = None) -> dict:
+                  context: dict | None = None) -> dict:
         """
         快捷运行接口
         默认由主管 Agent 处理，它会根据任务类型决定路由

@@ -60,7 +60,7 @@ class SteeringQueue:
                 source_agent=source_agent, payload=payload)
             return item_id
 
-    def lease(self, requester: str = None, max_items: int = 10) -> list[SteeringItem]:
+    def lease(self, requester: str | None = None, max_items: int = 10) -> list[SteeringItem]:
         """租走一批待处理结果(可按 requester 过滤)。
 
         原子地:挑出未被租用(或租约已过期)的项,标记为 leased,返回。
@@ -83,7 +83,7 @@ class SteeringQueue:
                 leased.append(item)
             return leased
 
-    def ack(self, item_id: str, lease_id: str = None) -> bool:
+    def ack(self, item_id: str, lease_id: str | None = None) -> bool:
         """消费者确认处理完 → 移除该项。
 
         校验 lease_id:只有持有当前租约的消费者能 ack(防止过期租约误删
@@ -114,7 +114,7 @@ class SteeringQueue:
                 item.leased_until = 0.0
                 item.lease_id = ""
 
-    def pending_count(self, requester: str = None) -> int:
+    def pending_count(self, requester: str | None = None) -> int:
         """待处理(未被有效租用)的项数。"""
         with self._lock:
             self._reclaim_expired()

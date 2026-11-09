@@ -134,7 +134,7 @@ python_version = "3.11"
 ignore_missing_imports = true
 check_untyped_defs = true
 # 渐进式:mypy 存量错误用棘轮门管理(tools/mypy_ratchet.py + tools/mypy_baseline.txt)。
-# 2026-11 实测 408 errors in 82 files,已冻结:CI 中错误数一旦增加即失败,
+# 2026-11 实测 231 errors in 62 files,已冻结:CI 中错误数一旦增加即失败,
 # 下降后用 `python tools/mypy_ratchet.py --update` 调低基线。只降不升。
 
 [tool.pytest.ini_options]

@@ -80,7 +80,7 @@ class ConfirmationBroker:
 
     # ── 签发 ────────────────────────────────────────────
     def issue(self, session: str, action: str, args: dict,
-              ttl: float = None) -> dict:
+              ttl: float | None = None) -> dict:
         """签发一个绑定到 (会话, 动作, 参数) 的一次性确认码。"""
         now = self._clock()
         ttl = self.ttl if ttl is None else float(ttl)
@@ -101,7 +101,7 @@ class ConfirmationBroker:
 
     # ── 校验并消费 ──────────────────────────────────────
     def consume(self, session: str, nonce: str, action: str = "",
-                args: dict = None, now: float = None) -> Tuple[bool, str]:
+                args: dict | None = None, now: float | None = None) -> Tuple[bool, str]:
         """校验确认码并**立即作废**。返回 (是否通过, 原因码)。
 
         原因码:``ok`` / ``missing_nonce`` / ``unknown_nonce`` / ``already_used`` /
@@ -142,7 +142,7 @@ class ConfirmationBroker:
             return [it.to_dict() for it in self._items.values()
                     if not it.used and (not session or it.session == session)]
 
-    def purge(self, now: float = None) -> int:
+    def purge(self, now: float | None = None) -> int:
         now = now if now is not None else self._clock()
         with self._lock:
             return self._purge_locked(now)

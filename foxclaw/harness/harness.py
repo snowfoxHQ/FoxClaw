@@ -51,9 +51,9 @@ class Harness(PolicyMixin):
         thought_chain: ThoughtChain,
         policy_path: str = "./foxclaw_data/policy.yaml",
         shadow_rounds: int = 20,
-        embedding_model: str = None,
+        embedding_model: str | None = None,
         spine=None,                       # 【P0】全局 EventSpine(可空:standalone/governance 场景)
-        promote_min_obs: int = None,      # 【P0-1】影子规则升迁所需观察次数(None→env/默认 50)
+        promote_min_obs: int | None = None,      # 【P0-1】影子规则升迁所需观察次数(None→env/默认 50)
     ):
         # embedding 模型解析 —— 【P2·单 embedding 入口】优先级:
         #   1. 显式传参(测试/单 Agent 切模型用)
@@ -163,7 +163,7 @@ class Harness(PolicyMixin):
         self,
         goal_text: str,
         allowed_tool_categories: set[str],
-        baseline_entities: set[str] = None,
+        baseline_entities: set[str] | None = None,
     ) -> GoalBaseline:
         """接口层调用 — 注册任务目标基线"""
         baseline = GoalBaseline(

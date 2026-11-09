@@ -146,7 +146,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             return None
         return rt.search(query, agent_id=self.AGENT_ID, internal_only=True)
 
-    def available_abilities(self, keys: list = None) -> list:
+    def available_abilities(self, keys: list | None = None) -> list:
         """【HKC 第2档 Step2·能力自省】证据驱动地查 HKC 的 ACE 能力:哪些的知识覆盖已达标
         (可编译 sufficient=True)、哪些还差(sufficient=False + missing_skills)。
 
@@ -196,7 +196,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
 
     # ── 会话管理 ───────────────────────────────────────────
 
-    def start_session(self, goal: str, entities: list[str] = None) -> str:
+    def start_session(self, goal: str, entities: list[str] | None = None) -> str:
         """开始一个新任务会话，注册目标基线"""
         self._session_id = f"sess_{uuid.uuid4().hex[:10]}"
         self._parent_node_id = None
@@ -251,10 +251,10 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         content: str,
         node_type="reasoning",
         conf: float = 0.9,
-        mem_refs: list[str] = None,
-        tool_name: str = None,
-        entities: list[str] = None,
-        metadata: dict = None,
+        mem_refs: list[str] | None = None,
+        tool_name: str | None = None,
+        entities: list[str] | None = None,
+        metadata: dict | None = None,
     ) -> tuple[ThoughtNode, HarnessResult]:
         """
         记录一个推理步骤，经过 Harness 校验
@@ -364,8 +364,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                              f"但无法提取为可读文本;若需要其内容,请说明并提示用户改用文本/PDF 等可读格式。")
         return "\n\n" + "\n\n".join(parts) if parts else ""
 
-    def stream_reply(self, task: str, stop_event=None, images: list = None, history: list = None,
-                     attachments: list = None, on_thinking=None, on_evidence=None):
+    def stream_reply(self, task: str, stop_event=None, images: list | None = None, history: list | None = None,
+                     attachments: list | None = None, on_thinking=None, on_evidence=None):
         """流式直答路径(方案A):对话/问答/分析,不做多步编排(那走 run_task)。同步生成器,
         由端点在线程池迭代成 SSE。stop_event 置位(客户端断连)则提前终止,省 token。
         images(可选)= 多模态图片,随问题发给视觉模型(模型无关,非视觉模型 router 层降级)。
@@ -618,7 +618,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             pipe = self._pipeline_cache = CognitivePipeline(DEFAULT_STAGES)
         return pipe
 
-    async def run_task(self, task: str, context: dict = None, stop_event=None) -> dict:
+    async def run_task(self, task: str, context: dict | None = None, stop_event=None) -> dict:
         """统一任务生命周期:开会话 → [认知管线:recall → act] → 组装返回。
         Harness BLOCK 统一在此兜底为结构化错误。返回
         {"result",...,"session_id","agent","thought_summary", **extra}。
@@ -633,7 +633,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         说明续了哪一次、复用了多少步。"""
         return await self._run_task_core(task, context, stop_event=stop_event, on_stage=None)
 
-    async def _run_task_core(self, task: str, context: dict = None,
+    async def _run_task_core(self, task: str, context: dict | None = None,
                              stop_event=None, on_stage=None) -> dict:
         """run_task 的执行核心 —— 供同步 `run_task` 与流式 `run_task_stream` **共用**,避免两份
         生命周期逻辑漂移。`on_stage`(D1):逐 stage 进度回调,透传给管线;None=同步路径不回调,
@@ -745,7 +745,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             if _resume_tok is not None:
                 _resume_steps.reset(_resume_tok)       # 续跑缓存不泄漏到后续任务
 
-    def run_task_stream(self, task: str, context: dict = None, stop_event=None):
+    def run_task_stream(self, task: str, context: dict | None = None, stop_event=None):
         """流式任务执行(D1):**同步 generator**,逐 stage 吐进度 + act 逐 token 出字 + 最终结果。
         产出事件(dict,逐条给 SSE):
           {"stage": name}   每完成一个认知 stage(perceive→…→reflect)

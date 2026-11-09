@@ -31,6 +31,8 @@ SUMMARY = re.compile(r"Found (\d+) errors? in (\d+) files?")
 DETAIL = re.compile(r"^(?P<file>[^:\n]+?\.py):\d+: error: .*\[(?P<code>[a-z-]+)\]$")
 # 失败时最多打印多少个文件/错误码,避免 CI 日志被刷屏
 TOP_N = 30
+# run_mypy 填充的原始错误样本(失败时打印,定位本地/CI 差异用)
+SAMPLES: list[str] = []
 
 # Windows GBK 控制台遇到 ✓/✗ 会 UnicodeEncodeError,直接把输出钉成 utf-8。
 for _s in (sys.stdout, sys.stderr):
@@ -71,6 +73,7 @@ def run_mypy() -> tuple[int, int, dict[str, int], dict[str, int]]:
             f = d.group("file").replace("\\", "/")
             by_file[f] = by_file.get(f, 0) + 1
             by_code[d.group("code")] = by_code.get(d.group("code"), 0) + 1
+            SAMPLES.append(f"{f}: {line.strip().split('error: ', 1)[-1]}")
     m = SUMMARY.search(out)
     if m:
         return int(m.group(1)), int(m.group(2)), by_file, by_code
@@ -82,7 +85,7 @@ def run_mypy() -> tuple[int, int, dict[str, int], dict[str, int]]:
 
 
 def report(by_file: dict[str, int], by_code: dict[str, int]) -> None:
-    """失败时打印分布,便于对照本地与 CI 的差异。"""
+    """失败时打印分布 + 样本消息,便于对照本地与 CI 的差异。"""
     if by_code:
         print("  按错误码:")
         for code, n in sorted(by_code.items(), key=lambda kv: -kv[1])[:TOP_N]:
@@ -91,6 +94,10 @@ def report(by_file: dict[str, int], by_code: dict[str, int]) -> None:
         print(f"  按文件(top {TOP_N}):")
         for f, n in sorted(by_file.items(), key=lambda kv: -kv[1])[:TOP_N]:
             print(f"    {n:4d}  {f}")
+    if SAMPLES:
+        print(f"  错误样本(前 {min(len(SAMPLES), TOP_N)} 条):")
+        for s in SAMPLES[:TOP_N]:
+            print(f"    {s}")
 
 
 def toolchain() -> str:

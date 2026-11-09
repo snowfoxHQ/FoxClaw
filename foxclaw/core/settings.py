@@ -251,7 +251,7 @@ _warned: set[str] = set()
 _log = logging.getLogger("foxclaw.config")
 
 
-def get_safe(name: str, default: Any = None) -> Any:
+def get_safe(name: str, default: Any | None = None) -> Any:
     """可降级的读取:值非法时**退默认值并要求日志警告一次**,不抛异常。
 
     给"配置错不该拖垮主流程"的地方用(trace 采样、工具超时、搜索超时):这些点

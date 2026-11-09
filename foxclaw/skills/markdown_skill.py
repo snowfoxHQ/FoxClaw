@@ -29,7 +29,7 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (s or "").lower()).strip("_") or "skill"
 
 
-def parse_skill_md(text: str, id: str = None) -> MarkdownSkill:
+def parse_skill_md(text: str, id: str | None = None) -> MarkdownSkill:
     """解析 SKILL.md(--- yaml frontmatter --- + 正文)。缺 name/description → ValueError。"""
     text = (text or "").lstrip("﻿").strip()
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, re.DOTALL)

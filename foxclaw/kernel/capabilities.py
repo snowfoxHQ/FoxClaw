@@ -38,7 +38,7 @@ class CapabilityRegistry:
         with self._lock:
             self._lazy[name] = factory
 
-    def get(self, name: str, default: Any = None) -> Any:
+    def get(self, name: str, default: Any | None = None) -> Any:
         """解析能力。已注册直接返回;惰性则首次构造并缓存;都没有返回 default。
 
         【F1 修复】慢惰性构造(如 search_runtime 首建要装 HKC+载模型)**不持全局锁**,

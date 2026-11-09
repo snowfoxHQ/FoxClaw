@@ -73,7 +73,7 @@ class SystemBus:
     def publish(self, channel: str, payload: dict):
         return self.spine.publish(channel, payload, source="system_bus")
 
-    def history(self, channel: str = None, limit: int = 50,
+    def history(self, channel: str | None = None, limit: int = 50,
                 exact: bool = False) -> list:
         """历史事件(dict 列表)。exact=True 时只返回 topic 完全匹配的事件
         (默认前缀匹配,与 EventSpine 原生一致)。"""

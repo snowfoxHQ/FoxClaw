@@ -189,7 +189,7 @@ if os.environ.get("FOXCLAW_MCP_SERVER", "0").strip() in ("1", "true", "True"):
     if os.environ.get("FOXCLAW_CORS_ORIGINS", "").strip() == "*":
         print("[Foxclaw API] ⚠ MCP 已开启但 CORS=* —— 生产建议用 FOXCLAW_CORS_ORIGINS 收紧允许来源")
 
-app = FastAPI(
+app: FastAPI = FastAPI(
     title="Foxclaw API",
     version=__version__,
     description="Cognitive Agent Operating System",

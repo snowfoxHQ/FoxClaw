@@ -74,7 +74,7 @@ def parse_traceparent(header: str):
     return tid
 
 
-def to_traceparent(trace_id: str, span_id: str = None) -> str:
+def to_traceparent(trace_id: str, span_id: str | None = None) -> str:
     """给出站请求生成 traceparent。span_id 缺省随机(本进程作为对端的 parent)。"""
     tid = (trace_id or uuid.uuid4().hex)[:32].rjust(32, "0")
     sid = (span_id or uuid.uuid4().hex[:16])[:16].rjust(16, "0")
@@ -88,7 +88,7 @@ def current_traceparent():
 
 
 class Trace:
-    def __init__(self, name: str, trace_id: str = None):
+    def __init__(self, name: str, trace_id: str | None = None):
         # 32 hex:直接符合 W3C traceparent 的 trace-id 规格(跨进程可对齐)
         self.trace_id = trace_id or uuid.uuid4().hex
         self.name = name
@@ -219,7 +219,7 @@ class TraceStore:
                 "duration_ms": row[3], "span_count": row[4],
                 "spans": json.loads(row[5] or "[]"), "persisted": True}
 
-    def query(self, limit: int = 30, slow_ms: float = None, errors_only: bool = False):
+    def query(self, limit: int = 30, slow_ms: float | None = None, errors_only: bool = False):
         """查已落库的历史 trace(内存环之外)。这才是"找出昨天那次慢请求"的入口。"""
         if not self._db_path:
             return []
@@ -351,7 +351,7 @@ OTLP = _OtlpExporter()
 TRACES = TraceStore()
 
 
-def start_trace(name: str, trace_id: str = None) -> Trace:
+def start_trace(name: str, trace_id: str | None = None) -> Trace:
     """开一条 trace 并绑到当前上下文(由 API 中间件按请求调用)。"""
     tr = Trace(name, trace_id)
     _current.set(tr)

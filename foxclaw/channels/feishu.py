@@ -104,7 +104,7 @@ class FeishuAdapter(ChannelAdapter):
         digest = hashlib.sha256(content).hexdigest()
         return digest == signature
 
-    def handle_event(self, payload: dict, headers: dict = None,
+    def handle_event(self, payload: dict, headers: dict | None = None,
                      raw_body: bytes = b"") -> dict:
         """处理飞书事件回调入口。返回应答给飞书的 dict。
 

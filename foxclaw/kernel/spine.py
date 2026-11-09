@@ -61,8 +61,8 @@ class EventSpine:
         with self._lock:
             self._projections.append(sink)
 
-    def publish(self, topic: str, payload: dict = None, source: str = "",
-                correlation_id: str = None) -> Event:
+    def publish(self, topic: str, payload: dict | None = None, source: str = "",
+                correlation_id: str | None = None) -> Event:
         evt = Event(topic=topic, payload=payload or {}, source=source,
                     **({"correlation_id": correlation_id} if correlation_id else {}))
         with self._lock:

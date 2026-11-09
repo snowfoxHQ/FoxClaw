@@ -72,7 +72,7 @@ class ToolLoopDetector:
             s = str(result)[:500]
         return hashlib.sha256(s.encode()).hexdigest()[:16]
 
-    def record(self, tool_name: str, args: dict = None, result=None) -> LoopVerdict:
+    def record(self, tool_name: str, args: dict | None = None, result=None) -> LoopVerdict:
         """记录一次工具调用并即时检测。返回 LoopVerdict。"""
         sig = self._signature(tool_name, args or {})
         rhash = self._result_sig(result) if result is not None else ""

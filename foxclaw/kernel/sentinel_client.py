@@ -27,7 +27,7 @@ def _project_root() -> str:
 
 
 class SentinelClient:
-    def __init__(self, timeout: float = 5.0, cmd=None, data_dir: str = None):
+    def __init__(self, timeout: float = 5.0, cmd=None, data_dir: str | None = None):
         self._timeout = timeout
         self._data_dir = data_dir
         self._lock = threading.Lock()
@@ -154,7 +154,7 @@ class SentinelClient:
             reason_code=d.get("reason_code", ""),
         )
 
-    def mint(self, ref: str, ttl: float = None):
+    def mint(self, ref: str, ttl: float | None = None):
         """为 ref 签发一次性能力令牌。返回 token(绝不返回真值);失败返回 None。"""
         payload = {"ref": ref}
         if ttl is not None:

@@ -63,7 +63,7 @@ class TriggerRoute:
     reason: str = ""
 
 
-def trigger_route(task: str, candidates: list, fallback_id: str = None,
+def trigger_route(task: str, candidates: list, fallback_id: str | None = None,
                   min_conf: float = 0.15, near_gap: float = 0.1) -> TriggerRoute:
     """触发词路由三步打分:否定过滤后的触发命中(0.8)+ 描述领域匹配(0.2),确定性排序。
     这是 AHS 原 route 的算法,现作为三处共用的通用引擎。"""

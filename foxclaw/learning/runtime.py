@@ -185,7 +185,7 @@ class LearningRuntime:
 
     # ── 采集 + 沉淀 ───────────────────────────────────────
     def learn(self, content: str, topic: str = "general",
-              source: str = "", tags: list = None) -> dict:
+              source: str = "", tags: list | None = None) -> dict:
         """采集一个知识点 → 存进 HKC(知识真源)+ 间隔重复队列 + 图谱。
         铁律:知识内容+笔记归 HKC,不进 HMR(HMR 只装 token 上下文/工作运行记忆)。"""
         self._ensure_hkc_loaded()

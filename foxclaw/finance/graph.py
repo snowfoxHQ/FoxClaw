@@ -63,7 +63,7 @@ class FinancialDataGraph:
         self._adj[src].append(e)
         self._radj[dst].append(e)
 
-    def build(self, transactions: list, budgets: list = None):
+    def build(self, transactions: list, budgets: list | None = None):
         """从交易 + 预算构建图。"""
         self.nodes.clear(); self.edges.clear()
         self._adj.clear(); self._radj.clear()
@@ -105,7 +105,7 @@ class FinancialDataGraph:
         return self
 
     # ── 查询 ──
-    def neighbors(self, node_id: str, rel: str = None) -> list:
+    def neighbors(self, node_id: str, rel: str | None = None) -> list:
         """出边邻居(可按关系过滤)。"""
         return [self.nodes[e.dst] for e in self._adj.get(node_id, [])
                 if rel is None or e.rel == rel]

@@ -16,7 +16,7 @@ class SkillBoxMixin:
         reg = getattr(self, "skill_registry", None)
         return reg.catalog() if reg else []
 
-    def use_skill(self, task: str, args: dict = None, confirmed: bool = False) -> dict:
+    def use_skill(self, task: str, args: dict | None = None, confirmed: bool = False) -> dict:
         """按任务匹配 skill 并调用,结果回填 ThoughtChain,过守门人。"""
         reg = getattr(self, "skill_registry", None)
         adp = getattr(self, "skill_adapter", None)

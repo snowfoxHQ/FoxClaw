@@ -73,7 +73,7 @@ class ReplayGuard:
         self._seen: dict[str, float] = {}      # nonce -> 首次见到的时间
         self._lock = threading.Lock()
 
-    def purge(self, now: float = None) -> int:
+    def purge(self, now: float | None = None) -> int:
         """清掉过期 nonce,返回清理条数。"""
         cut = (now if now is not None else time.time()) - self.ttl
         with self._lock:
@@ -82,7 +82,7 @@ class ReplayGuard:
                 self._seen.pop(k, None)
         return len(dead)
 
-    def seen(self, nonce: str, now: float = None) -> bool:
+    def seen(self, nonce: str, now: float | None = None) -> bool:
         """见过 → True(**这是重放**);没见过则登记并返回 False。"""
         if not nonce:
             return True                        # 空 nonce 一律当重放/fail-closed
@@ -115,7 +115,7 @@ class OutboundSigner:
     def enabled(self) -> bool:
         return bool(self.secret)
 
-    def headers(self, body: bytes, nonce: str = "", now: float = None) -> dict:
+    def headers(self, body: bytes, nonce: str = "", now: float | None = None) -> dict:
         """生成签名头。未配置密钥直接抛错(fail-closed:调用方必须先判 `enabled`)。"""
         if not self.enabled:
             raise ValueError("未配置渠道签名密钥(FOXCLAW_CHANNEL_SIGNING_SECRET)")
@@ -145,8 +145,8 @@ def _header(headers: Mapping, name: str) -> str:
 
 
 def verify(headers: Mapping, body: bytes, secret: str,
-           tolerance: float = DEFAULT_TOLERANCE, replay: ReplayGuard = None,
-           now: float = None) -> Tuple[bool, str]:
+           tolerance: float = DEFAULT_TOLERANCE, replay: ReplayGuard | None = None,
+           now: float | None = None) -> Tuple[bool, str]:
     """验签。返回 (是否通过, 原因码)。
 
     原因码:``ok`` / ``missing_secret`` / ``missing_header`` / ``bad_version`` /
@@ -178,7 +178,7 @@ def verify(headers: Mapping, body: bytes, secret: str,
     return True, "ok"
 
 
-def from_env(env: Mapping = None) -> Optional[OutboundSigner]:
+def from_env(env: Mapping | None = None) -> Optional[OutboundSigner]:
     """按环境变量构造签名器;未配置密钥 → None(不签,opt-in)。"""
     env = env if env is not None else os.environ
     secret = (env.get(ENV_SECRET) or "").strip()

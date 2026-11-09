@@ -105,7 +105,7 @@ class TokenStore:
         self._default_ttl = default_ttl
         self._tokens: dict = {}
 
-    def mint(self, ref: str, ttl: float = None) -> dict:
+    def mint(self, ref: str, ttl: float | None = None) -> dict:
         """为某 ref 签发能力令牌。返回 {token, expires_in},绝不返回真值。"""
         ttl = ttl if ttl is not None else self._default_ttl
         token = secrets.token_urlsafe(32)

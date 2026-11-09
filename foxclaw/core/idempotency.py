@@ -52,7 +52,7 @@ class IdempotencyGuard:
     """
 
     def __init__(self, ttl_seconds: float = 3600, max_size: int = 10000,
-                 persist_path: str = None, spine=None,
+                 persist_path: str | None = None, spine=None,
                  compact_every: int = 1000):
         self.ttl = ttl_seconds
         self.max_size = max_size
@@ -82,7 +82,7 @@ class IdempotencyGuard:
             rec = self._store.get(key)
             return dict(rec.result) if rec else None
 
-    def mark(self, key: str, result: dict = None):
+    def mark(self, key: str, result: dict | None = None):
         """标记 key 已执行,记录结果。"""
         with self._lock:
             self._store[key] = _Record(key=key, created=time.time(),
@@ -94,7 +94,7 @@ class IdempotencyGuard:
         if need_compact:
             self._try_compact()     # 全量写盘放主锁外(见 _try_compact)
 
-    def check_and_mark(self, key: str, result: dict = None) -> bool:
+    def check_and_mark(self, key: str, result: dict | None = None) -> bool:
         """原子操作:若 key 未见过 → 标记并返回 True(应执行);
         若已见过 → 返回 False(应跳过)。
 

@@ -243,9 +243,9 @@ class FinancePolicyEngine:
         return None
 
     def evaluate_state(self, subscription_total: float = 0.0,
-                       anomalies: list = None, duplicates: list = None,
-                       forecasts: list = None, renewals: list = None,
-                       pending_refunds: list = None) -> list:
+                       anomalies: list | None = None, duplicates: list | None = None,
+                       forecasts: list | None = None, renewals: list | None = None,
+                       pending_refunds: list | None = None) -> list:
         """对整体财务状态做裁决。
 
         分工:**runtime 算派生信号,本引擎只裁决**(沿用既有纹理)。

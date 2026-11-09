@@ -84,7 +84,7 @@ class SearchRuntime:
             external_ports if external_ports is not None else [BaiduWebSearchPort()]
         )
 
-    def search(self, query: str, agent_id: str = None, context: dict = None,
+    def search(self, query: str, agent_id: str | None = None, context: dict | None = None,
                internal_only: bool = False) -> SearchResult:
         """唯一公开入口。给定 query，返回 SearchResult，过程中不写任何持久化状态。
 
