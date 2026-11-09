@@ -119,7 +119,7 @@ class FinancialDataGraph:
         """某分类下,按消费额排名的商户 —— 回答'这个分类的钱花在谁身上'。"""
         cat_id = f"cat:{category}"
         txns = self.transactions_of(cat_id)
-        by_entity = defaultdict(float)
+        by_entity: defaultdict[str, float] = defaultdict(float)
         for t in txns:
             if not t.attrs.get("is_expense"):
                 continue   # 只统计支出,排除收入/退款
@@ -170,7 +170,7 @@ class FinancialDataGraph:
         return sorted(out, key=lambda x: -x["outflow"])
 
     def stats(self) -> dict:
-        by_type = defaultdict(int)
+        by_type: defaultdict[str, int] = defaultdict(int)
         for n in self.nodes.values():
             by_type[n.node_type] += 1
         return {"nodes": len(self.nodes), "edges": len(self.edges),

@@ -20,6 +20,7 @@ import threading
 from pathlib import Path
 
 from .shared_write import guard_shared_write
+from typing import Any
 
 
 def _ensure_hmr_importable():
@@ -346,7 +347,7 @@ class HMRAdapter:
         total = 0
         relations = 0
         shared_count = 0
-        by_agent = {}
+        by_agent: dict[str, Any] = {}
         embedding = "TF-IDF n-gram"
         try:
           # 序列化对 HMR 内部结构(向量库/记忆图)的读,与 ingest/recall 的写互斥,
@@ -356,7 +357,7 @@ class HMRAdapter:
             # 历史 bug:此前从 vector_store 探测 count/size/memories 取 total——但真实记忆存在
             # memory_fs,vector_store 只存嵌入且无这些属性 → total 恒为 0,而 relations 却有值(109),
             # 自相矛盾。改为直接数 memory_fs.list_memories()(与 get_statistics 同源)。
-            mems = []
+            mems: list[Any] = []
             mfs = getattr(self._hmr, "memory_fs", None)
             if mfs is not None and hasattr(mfs, "list_memories"):
                 try:

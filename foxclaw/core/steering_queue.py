@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -69,7 +70,7 @@ class SteeringQueue:
         with self._lock:
             self._reclaim_expired()
             now = time.time()
-            leased = []
+            leased: list[Any] = []
             lease_id = uuid.uuid4().hex[:12]
             for item in self._items.values():
                 if len(leased) >= max_items:

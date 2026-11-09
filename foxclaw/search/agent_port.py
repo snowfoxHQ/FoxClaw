@@ -71,7 +71,7 @@ class AgentSourcePort:
 
     # ── 1. 领域内核 ──────────────────────────────────────────
     def _from_finance(self, text, top_k):
-        out = []
+        out: list[tuple[float, RawEvidence]] = []
         rt = self.finance
         if rt is None:
             return out
@@ -101,7 +101,7 @@ class AgentSourcePort:
         return out
 
     def _from_learning(self, text, top_k):
-        out = []
+        out: list[tuple[float, RawEvidence]] = []
         rt = self.learning
         if rt is None:
             return out
@@ -116,7 +116,7 @@ class AgentSourcePort:
         return out
 
     def _from_itinerary(self, text, top_k):
-        out = []
+        out: list[tuple[float, RawEvidence]] = []
         rt = self.itinerary
         if rt is None:
             return out
@@ -132,7 +132,7 @@ class AgentSourcePort:
 
     # ── 2. ThoughtChain 推理链 ───────────────────────────────
     def _from_thoughtchain(self, text, top_k):
-        out = []
+        out: list[tuple[float, RawEvidence]] = []
         tc = self.thought_chain
         if tc is None or not hasattr(tc, "search_nodes"):
             return out
@@ -147,7 +147,7 @@ class AgentSourcePort:
 
     # ── 3. 各 Agent 的 HMR 记忆 ─────────────────────────────
     def _from_memories(self, text, top_k):
-        out = []
+        out: list[tuple[float, RawEvidence]] = []
         if self.hmr is None:
             return out
         for aid in (self.agents.keys() if self.agents else []):

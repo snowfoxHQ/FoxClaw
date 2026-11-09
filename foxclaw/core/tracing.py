@@ -29,6 +29,7 @@ import contextvars
 from collections import deque
 from contextlib import contextmanager
 from . import settings
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +299,7 @@ class _OtlpExporter:
 
     def __init__(self, maxsize: int = 512):
         import queue
-        self._q = queue.Queue(maxsize=maxsize)
+        self._q: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
         self._th = None
         self._lock = threading.Lock()
         self.dropped = 0

@@ -31,6 +31,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from .shared_write import guard_shared_write
+from typing import Any
 
 # Foxclaw 的 type 白名单 → vecRecall 的 memory_type(episodic/semantic/procedural)。
 # 分错不影响读写，但影响 vecRecall 的遗忘曲线与 procedural 精确匹配。
@@ -460,7 +461,7 @@ class VecRecallAdapter:
     def stats(self) -> dict:
         """记忆统计：前端记忆中心展示真实数字。字段与 HMRAdapter.stats 一致。"""
         total = shared_count = relations = 0
-        by_agent = {}
+        by_agent: dict[str, Any] = {}
         embedding = type(self._emb).__name__
         try:
             with self._lock:

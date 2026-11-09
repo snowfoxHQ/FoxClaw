@@ -17,6 +17,7 @@ from .policy import FinancePolicyEngine
 from .graph import FinancialDataGraph
 from .fx import FxTable
 from .nlparse import CATEGORY_LABELS, parse as parse_expense_text
+from typing import Any
 
 
 def _period_of(txn, default: str = "") -> str:
@@ -311,7 +312,9 @@ class FinanceRuntime:
         expense = round(sum(t.amount for t in settled if t.amount < 0), 2)
         income = round(sum(t.amount for t in settled if t.amount > 0), 2)
 
-        by_day, by_cat, by_cur = {}, {}, {}
+        by_day: dict[str, dict[str, Any]] = {}
+        by_cat: dict[str, dict[str, Any]] = {}
+        by_cur: dict[str, dict[str, Any]] = {}
         for t in settled:
             day = (t.timestamp or "")[:10]
             d = by_day.setdefault(day, {"date": day, "expense": 0.0, "income": 0.0,

@@ -8,6 +8,7 @@ from datetime import datetime
 from ..base import CognitiveAgent
 from ...planning import planner as P
 from ._helpers import _with_prior, _dispatch_failed, _extract_step_results, PRIOR_MAX_CHARS
+from typing import Any
 
 class SupervisorAgent(CognitiveAgent):
     AGENT_ID = "supervisor"
@@ -325,7 +326,7 @@ class SupervisorAgent(CognitiveAgent):
         pm = getattr(self, "_process_manager", None)
         bus = getattr(self, "_system_bus", None)
         steps_out = []
-        prior = []                 # 已完成步骤的结果,供后续步骤参考
+        prior: list[Any] = []                 # 已完成步骤的结果,供后续步骤参考
         any_blocked = False
         for idx, (subtask, ag) in enumerate(step_routes, 1):
             if ag not in subagents:

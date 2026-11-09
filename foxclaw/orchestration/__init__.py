@@ -77,7 +77,7 @@ class Orchestrator:
         """通用聚合各 Agent 自报的领域态势(agent.situation()),形成驾驶舱视图。
         编排层不再直接读 finance/learning/itinerary 内核——领域知识已归属各领域 Agent。"""
         sit = GlobalSituation()
-        alerts = []
+        alerts: list[dict] = []
         for agent in self.agents.values():
             try:
                 s = agent.situation()
