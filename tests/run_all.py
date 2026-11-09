@@ -109,6 +109,9 @@ TESTS = [
     ("test_mcp_guardian_discovery.py", "MCP 发现进守门人(凭证不出主进程·代发现·序列化)"),
     ("test_verify_evidence.py",        "三个薄点·失败策略表/执行后核验/执行证据(重试只限只读)"),
     ("test_evidence_sse.py",           "执行凭据 SSE 命名事件(与正文分离·纯对话不发)"),
+    # —— 用户档案 / 版本检查 ——
+    ("test_profile.py",                "称呼(user profile)存取:写入/替换/清空/不误删偏好"),
+    ("test_update_check.py",           "新版本检查:默认关/版本比较/24h 缓存/失败静默"),
 ]
 
 # S2 迁移完成:全部测试均已迁移为 pytest(见 pyproject [tool.pytest.ini_options] 白名单)。

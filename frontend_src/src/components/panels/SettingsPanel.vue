@@ -5,6 +5,8 @@ import { getJSON } from '../../api.js'
 import { currentLabel, loadModels, modelOptions, selectModel } from '../../stores/model.js'
 import { setModule } from '../../stores/app.js'
 import { setMode, chat, say } from '../../stores/chat.js'
+import { profile, loadProfile, saveNickname } from '../../stores/profile.js'
+import { loadSystemInfo, system } from '../../stores/system.js'
 
 /* __APP_INFO__ 由 vite define 在构建时注入 { git:{sha,ts}, built };没有 git 时是 dev。
    用 typeof 兜一层:万一在没走过 vite 的环境里被单独加载,不要抛 ReferenceError。 */
@@ -36,9 +38,45 @@ const KEYS = [
   ['Ctrl + ,', '打开设置'],
 ]
 
+/* ── 称呼 ── */
+const nickDraft = ref('')
+
 onMounted(() => {
   loadModels()
+  loadSystemInfo()
+  loadProfile().then(() => { nickDraft.value = profile.nickname })
   probe()
+})
+
+async function saveNick() {
+  try {
+    await saveNickname(nickDraft.value)
+    say(profile.nickname ? `以后称呼你为 ${profile.nickname}` : '已清除称呼')
+    open.value = ''
+  } catch (e) {
+    say(`保存失败:${e.message}`, 4000)
+  }
+}
+
+/* ── 新版本提示 ──
+   后端默认不查(FOXCLAW_UPDATE_CHECK=1 才查),这里如实显示「未开启」,
+   不诱导用户打开,也不假装已经是最新。 */
+const upd = computed(() => system.update || null)
+const updLabel = computed(() => {
+  const u = upd.value
+  if (!u) return '…'
+  if (!u.enabled) return '未开启'
+  if (u.update_available) return `新版本 ${u.latest}`
+  if (u.latest) return '已是最新'
+  return u.error ? '检查失败' : '待检查'
+})
+const updHint = computed(() => {
+  const u = upd.value
+  if (!u) return '读取中…'
+  if (!u.enabled) return '默认关闭 · 设 FOXCLAW_UPDATE_CHECK=1 开启'
+  if (u.error) return `检查失败(不影响使用):${u.error}`
+  if (u.update_available) return `当前 v${u.current} · 最新 v${u.latest}`
+  return `当前 v${u.current} · 24 小时查一次`
 })
 
 async function probe() {
@@ -53,6 +91,7 @@ async function probe() {
 
 async function refresh() {
   await loadModels(true).catch(() => {})
+  loadSystemInfo(true)      // 更新状态也刷一次(后端 24h 缓存内不会真的外呼)
   probe()
 }
 
@@ -137,6 +176,27 @@ const icon = (n) => ICONS[n] || ICONS.gear
         </span>
       </div>
 
+      <button class="row" :aria-expanded="open === 'nick'" @click="open = open === 'nick' ? '' : 'nick'">
+        <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('chat')" :key="i" :d="d" /></svg></span>
+        <span class="m"><b>称呼</b><span>模型会这么叫你</span></span>
+        <span class="hint">{{ profile.nickname || '未设置' }}</span>
+        <span class="chev" :class="{ open: open === 'nick' }">›</span>
+      </button>
+
+      <div v-if="open === 'nick'" class="sub">
+        <div class="nick-edit">
+          <input
+            v-model="nickDraft"
+            class="nick-in"
+            maxlength="24"
+            placeholder="例如:snow"
+            @keydown.enter.prevent="saveNick"
+          />
+          <button class="nick-save" :disabled="profile.saving" @click="saveNick">保存</button>
+        </div>
+        <p class="tip">存成一条偏好,每轮对话都会带上;留空保存 = 清除。</p>
+      </div>
+
       <button class="row" :aria-expanded="open === 'keys'" @click="open = open === 'keys' ? '' : 'keys'">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('keys')" :key="i" :d="d" /></svg></span>
         <span class="m"><b>快捷键</b><span>输入框里的键位</span></span>
@@ -162,6 +222,12 @@ const icon = (n) => ICONS[n] || ICONS.gear
           {{ up === null ? '…' : up ? '正常' : '重试' }}
         </span>
       </button>
+
+      <div class="row static">
+        <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('gauge')" :key="i" :d="d" /></svg></span>
+        <span class="m"><b>新版本</b><span>{{ updHint }}</span></span>
+        <span class="pn-tag" :class="upd?.update_available ? 'amber' : ''">{{ updLabel }}</span>
+      </div>
     </div>
 
     <div class="foot">
@@ -234,6 +300,22 @@ const icon = (n) => ICONS[n] || ICONS.gear
 
 .tip { padding: 4px 8px 2px; font-size: 11.5px; line-height: 1.6; color: var(--dim); }
 .tip.err { color: var(--red); }
+
+.nick-edit { display: flex; align-items: center; gap: 6px; padding: 4px 8px 2px; }
+.nick-in {
+  flex: 1; min-width: 0;
+  padding: 5px 8px; border-radius: 7px;
+  font-size: 12.5px; color: var(--ink);
+  background: #fff; border: 1px solid var(--line);
+}
+.nick-in:focus { outline: none; border-color: rgba(26, 157, 95, 0.5); }
+.nick-save {
+  flex-shrink: 0;
+  padding: 5px 11px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; color: #fff;
+  background: var(--green);
+}
+.nick-save:disabled { opacity: 0.45; }
 
 .kv { display: flex; align-items: center; gap: 10px; padding: 4px 8px; }
 .kv kbd {

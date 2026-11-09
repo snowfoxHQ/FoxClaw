@@ -78,6 +78,26 @@ def test_api():
         assert r.status_code == 200 and r.json().get("ok") is False, r.text
         print("\n[GET/DELETE /api/preferences] 列出+删除通路 ok")
 
+        # 8. 称呼(F4):PUT 写 → GET 读回 → 再 PUT 改 → 只剩一条,不累积
+        r = c.put("/api/profile", json={"nickname": "  snow  "})
+        assert r.status_code == 200 and r.json().get("nickname") == "snow", r.text
+        r = c.get("/api/profile")
+        assert r.json().get("nickname") == "snow", r.text
+        c.put("/api/profile", json={"nickname": "snow2"})
+        r = c.get("/api/preferences")
+        nicks = [p["content"] for p in r.json()["preferences"] if "称呼我为" in p["content"]]
+        assert nicks == ["用户偏好:称呼我为 snow2"], nicks
+        print("\n[GET/PUT /api/profile] 称呼写入/读回/替换 ok")
+
+        # 9. 更新提示:字段齐全,默认不检查(没设 FOXCLAW_UPDATE_CHECK)
+        r = c.get("/api/system/info")
+        info = r.json()
+        assert r.status_code == 200 and "update" in info, r.text
+        up = info["update"]
+        assert {"enabled", "current", "latest", "update_available"} <= set(up), up
+        assert up["enabled"] is False and up["update_available"] is False, up
+        print("\n[GET /api/system/info] update 字段存在,默认关闭")
+
         print("\n" + "="*64)
         print("✓ API 端到端验证完成 · 所有端点返回真实数据")
         print("="*64)
