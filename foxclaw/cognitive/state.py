@@ -120,13 +120,13 @@ class CognitiveStateTracker:
         if msg is None:
             return
         with self._lock:
-            self.state.on_execution(getattr(msg, "payload", None))
+            self.state.on_execution(getattr(msg, "payload", None) or {})
 
     def _on_mem(self, msg):
         if msg is None:
             return
         with self._lock:
-            self.state.on_memory_updated(getattr(msg, "payload", None))
+            self.state.on_memory_updated(getattr(msg, "payload", None) or {})
 
     def _on_proc(self, msg):
         if msg is None:
@@ -142,7 +142,7 @@ class CognitiveStateTracker:
                 st = pm.stats().get("by_state", {})
                 active = st.get("scheduled", 0) + st.get("running", 0)
         with self._lock:
-            self.state.on_process_change(getattr(msg, "payload", None), active)
+            self.state.on_process_change(getattr(msg, "payload", None) or {}, active)
 
     def snapshot(self) -> dict:
         with self._lock:

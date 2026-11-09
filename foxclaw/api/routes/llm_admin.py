@@ -173,16 +173,19 @@ async def select_model(req: _SelectReq):
             raise HTTPException(400, f"{req.provider} 未在 .env 配置 Key({env_key})")
         data = {"source": "preset", "provider": req.provider}
     elif req.source == "custom":
+        name = req.name
+        if not name:
+            raise HTTPException(400, "缺少自定义模型名称 name")
         models = _load_custom()
-        match = next((m for m in models if m.get("name") == req.name), None)
+        match = next((m for m in models if m.get("name") == name), None)
         if not match:
-            raise HTTPException(404, f"未找到自定义模型: {req.name}")
+            raise HTTPException(404, f"未找到自定义模型: {name}")
         # 预检:能不能真构造出 client(否则"切换成功"是假象)
         if router is not None:
-            client, _model, err = router._build_custom_client(req.name)
+            client, _model, err = router._build_custom_client(name)
             if client is None:
                 raise HTTPException(400, f"该自定义模型不可用: {err}")
-        data = {"source": "custom", "name": req.name, "model_id": match.get("model", "")}
+        data = {"source": "custom", "name": name, "model_id": match.get("model", "")}
     else:
         raise HTTPException(400, f"未知 source: {req.source}")
     CURRENT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -7,8 +7,9 @@ Foxclaw 行程子系统 — 推理引擎(行程 Agent 的大脑,纯算法)
 import math
 from datetime import timedelta
 from itertools import permutations
+from typing import Any, cast
 
-from .models import Waypoint, RouteLeg
+from .models import RouteLeg, TravelMode, Waypoint
 
 
 # 各出行方式的估算平均速度(km/h),接高德后用真实数据替换
@@ -22,13 +23,15 @@ class ItineraryReasoning:
     @staticmethod
     def haversine_km(a: Waypoint, b: Waypoint) -> float:
         """两点直线距离(km)。Haversine 公式。"""
-        if not (a.has_coord and b.has_coord):
+        lat_a, lng_a = a.lat, a.lng
+        lat_b, lng_b = b.lat, b.lng
+        if lat_a is None or lng_a is None or lat_b is None or lng_b is None:
             return 0.0
         R = 6371.0
-        dlat = math.radians(b.lat - a.lat)
-        dlng = math.radians(b.lng - a.lng)
+        dlat = math.radians(lat_b - lat_a)
+        dlng = math.radians(lng_b - lng_a)
         x = (math.sin(dlat/2)**2 +
-             math.cos(math.radians(a.lat)) * math.cos(math.radians(b.lat)) *
+             math.cos(math.radians(lat_a)) * math.cos(math.radians(lat_b)) *
              math.sin(dlng/2)**2)
         return R * 2 * math.atan2(math.sqrt(x), math.sqrt(1-x))
 
@@ -41,7 +44,8 @@ class ItineraryReasoning:
         duration = (road_km / speed) * 60 if speed else 0
         return RouteLeg(
             from_id=a.id, to_id=b.id, from_name=a.name, to_name=b.name,
-            mode=mode, distance_km=round(road_km, 2),
+            mode=cast(TravelMode, mode if mode in MODE_SPEED else "driving"),
+            distance_km=round(road_km, 2),
             duration_min=round(duration, 1), source="estimated",
         )
 
@@ -64,7 +68,8 @@ class ItineraryReasoning:
             # 精确解
             start = pts[0] if fixed_start else None
             rest = pts[1:] if fixed_start else pts
-            best, best_d = None, float("inf")
+            best: list = []
+            best_d = float("inf")
             for perm in permutations(rest):
                 seq = ([start] + list(perm)) if start else list(perm)
                 d = total_dist(seq)
@@ -101,7 +106,7 @@ class ItineraryReasoning:
         """按时间排序的行程,检测:① 时间重叠 ② 通勤赶不及。"""
         timed = [w for w in waypoints if w.dt is not None]
         timed.sort(key=lambda w: w.dt)
-        issues = []
+        issues: list[dict[str, Any]] = []
         for i in range(len(timed) - 1):
             cur, nxt = timed[i], timed[i+1]
             cur_end = cur.dt + timedelta(minutes=cur.duration_min)

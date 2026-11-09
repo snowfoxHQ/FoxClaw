@@ -417,6 +417,7 @@ def serve_stdio(vault: dict, store: TokenStore, servers: dict) -> None:
         mid = msg.get("id")
         op = msg.get("op")
         try:
+            result: dict[str, object]
             if op == "ping":
                 result = {"pong": True}
             elif op == "evaluate":

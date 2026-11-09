@@ -236,7 +236,7 @@ class Harness(PolicyMixin):
                     scores["scope"] = 1.0
 
             delta = sum(self.weights[k] * v for k, v in scores.items())
-            dominant = max(scores, key=scores.get)
+            dominant = max(scores, key=lambda k: scores[k])
 
             # 更新 shadow mode 历史。【深审修复·长期运行泄漏】原先**无条件**每次 check 都 append,
             # 但 _delta_history 仅在 _calibrate_thresholds(shadow 结束时跑一次)被读;shadow_mode 只在
@@ -342,7 +342,7 @@ class Harness(PolicyMixin):
                         scores["scope"] = 1.0
 
                 delta = sum(self.weights[k] * v for k, v in scores.items())
-                dominant = max(scores, key=scores.get)
+                dominant = max(scores, key=lambda k: scores[k])
                 if self._shadow_mode:
                     self._delta_history.append(delta)
                 self._run_count += 1

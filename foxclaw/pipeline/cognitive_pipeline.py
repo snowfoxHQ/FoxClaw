@@ -342,7 +342,9 @@ async def _act_via_skill(ctx: "PipelineContext"):
     if reg is None or adp is None:
         return None                       # 无工具箱(finance/admin/office)→ 回落 _execute
     sid = (ctx.route or {}).get("skill_id")
-    skill = reg.get(sid) if sid else None
+    if not isinstance(sid, str) or not sid:
+        return None
+    skill = reg.get(sid)
     if skill is None:
         return None
     from ..skills.pipeline import _build_args

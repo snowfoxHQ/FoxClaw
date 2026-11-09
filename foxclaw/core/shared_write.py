@@ -128,7 +128,7 @@ class SharedWritePolicy:
 
     def evaluate(self, agent_id: str | None = None, memory_type: str = "concept",
                  tags: Iterable[str] | None = None) -> Decision:
-        facets = self.facets_of(memory_type, tags)
+        facets = self.facets_of(memory_type, tags or ())
         who = agent_id or "unknown"
 
         if any(fnmatch.fnmatchcase(f, p) for f in facets for p in self.global_facets):
@@ -142,7 +142,7 @@ class SharedWritePolicy:
         return Decision(False, f"{who} 的职责域不含 {list(facets)}", self.mode, facets)
 
 
-def guard_shared_write(backend, agent_id: str, content: str,
+def guard_shared_write(backend, agent_id: str | None, content: str,
                        memory_type: str = "concept",
                        tags: Iterable[str] | None = None) -> Optional[Decision]:
     """共享层写入的统一闸门 —— 必须在**真正落库之前**调用。

@@ -6,7 +6,7 @@
 
 import asyncio
 import uuid
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -124,7 +124,7 @@ def _validate_install(p: "SkillInstallPayload"):
 async def ahs_install_skill(p: SkillInstallPayload):
     """安装/注册一个 web_api|mcp 技能(过安装审核门 + 持久化)。同 id 覆盖更新。"""
     _validate_install(p)
-    from foxclaw.skills import SkillSpec
+    from foxclaw.skills import SideEffect, SkillKind, SkillSpec
     from foxclaw.skills.review import review_install
     reg = _api.os_instance().skill_registry
     _existing = reg.get(p.id)
@@ -132,8 +132,9 @@ async def ahs_install_skill(p: SkillInstallPayload):
         raise HTTPException(409, "该 id 属于内置技能,不能覆盖")
     existed = _existing is not None
     spec = SkillSpec(
-        id=p.id, name=p.name, description=p.description, kind=p.kind,
-        triggers=list(p.triggers), side_effect=p.side_effect,
+        id=p.id, name=p.name, description=p.description,
+        kind=cast(SkillKind, p.kind), triggers=list(p.triggers),
+        side_effect=cast(SideEffect, p.side_effect),
         destructive=p.destructive, external=p.external, params=dict(p.params),
         endpoint=p.endpoint, http_method=p.http_method, http_headers=dict(p.http_headers),
         param_location=p.param_location, allow_local=p.allow_local, timeout=p.timeout,

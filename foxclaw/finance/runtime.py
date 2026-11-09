@@ -11,7 +11,7 @@ from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
 
-from .models import Transaction, Budget, FinancialEntity
+from .models import Budget, EntityType, FinancialEntity, Transaction
 from .reasoning import FinanceReasoning
 from .policy import FinancePolicyEngine
 from .graph import FinancialDataGraph
@@ -141,7 +141,7 @@ class FinanceRuntime:
         for txn in self.transactions:
             ent = self.entities.get(txn.entity)
             if not ent:
-                etype = "subscription" if txn.is_recurring else "merchant"
+                etype: EntityType = "subscription" if txn.is_recurring else "merchant"
                 ent = FinancialEntity(name=txn.entity, entity_type=etype)
                 self.entities[txn.entity] = ent
             ent.txn_count += 1
@@ -160,7 +160,7 @@ class FinanceRuntime:
             # 更新实体统计
             ent = self.entities.get(txn.entity)
             if not ent:
-                etype = "subscription" if txn.is_recurring else "merchant"
+                etype: EntityType = "subscription" if txn.is_recurring else "merchant"
                 ent = FinancialEntity(name=txn.entity, entity_type=etype)
                 self.entities[txn.entity] = ent
             ent.txn_count += 1

@@ -24,7 +24,7 @@ class ActionExecutor:
         # URL 准入:此前直接把模型给的字符串交给 driver → file:// 读本机文件、
         # javascript: 执行脚本、内网/云元数据 SSRF。ValueError 由 service.act 转成错误返回。
         from .url_policy import validate_navigate_url
-        target = validate_navigate_url(action.target)
+        target = validate_navigate_url(action.target or "")
         self.driver.navigate(target)
         return {"navigated_to": target}
 

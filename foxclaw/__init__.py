@@ -7,6 +7,10 @@ import os
 import sys
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:              # 仅类型检查期:anthropic 在 __init__ 里按需真导入
+    import anthropic
 
 # 【跨平台启动修复·统一入口】Windows 控制台默认 GBK(cp936),无法编码 ✓/⚠/· 等诊断字符,
 # 打印会抛 UnicodeEncodeError 直接崩溃。典型踩中路径:不经过 api.py 而直接
@@ -15,7 +19,10 @@ from pathlib import Path
 # 覆盖所有 import foxclaw 的路径。api.py 顶部另有一份同义历史修复,此处为统一入口;幂等无害。
 for _stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+        # getattr 而非直连:被重定向成 StringIO 等无 reconfigure 的对象时直接跳过。
+        _reconf = getattr(_stream, "reconfigure", None)
+        if _reconf is not None:
+            _reconf(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -50,6 +57,8 @@ class Foxclaw:
 
         # Anthropic 客户端(保留兼容;模型选择实际由 ModelRouter 统一探测)
         api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+        # 注解放在首赋值前:否则 mypy 以首个分支的 Anthropic 定型,后面的 None 全报错。
+        self.client: "anthropic.Anthropic | None" = None
         if api_key:
             try:
                 import anthropic
@@ -420,8 +429,9 @@ class Foxclaw:
         """【P-Muse·第4步】把当前 MCP server 元数据同步给守门人(全量)。
         主进程不再长期持有 headers,故这里只推元数据;守门人侧 headers 空则保留旧值,
         add_server 那次由 mcp_add_server_guardian 临时带一次 headers 覆盖。"""
-        if getattr(self, "sentinel", None) is not None and getattr(self, "mcp_manager", None) is not None:
-            self.sentinel.mcp_register(self.mcp_manager.servers())
+        sent = getattr(self, "sentinel", None)
+        if sent is not None and getattr(self, "mcp_manager", None) is not None:
+            sent.mcp_register(self.mcp_manager.servers())
 
     def mcp_add_server_guardian(self, cfg: dict) -> list:
         """【P-Muse·第4步】守门人模式下接入 MCP server 的发现流程:
@@ -431,8 +441,12 @@ class Foxclaw:
         full = [dict(s) for s in self.mcp_manager.servers()]
         full = [s for s in full if s.get("id") != cfg["id"]]  # 去掉旧同 id,避免重复
         full.append(cfg)                                      # 新 server 带 headers
-        self.sentinel.mcp_register(full)                      # 全量推给守门人(含这次 headers)
-        tools = self.sentinel.mcp_list_tools(cfg["id"])       # 守门人代发现(失败抛异常)
+        sent = self.sentinel
+        if sent is None:
+            # 无守门人 → 不可能代执行/代发现;fail-closed 而不是 AttributeError。
+            raise RuntimeError("守门人未启用(FOXCLAW_GUARDIAN=0),无法走守门人模式接入 MCP")
+        sent.mcp_register(full)                               # 全量推给守门人(含这次 headers)
+        tools = sent.mcp_list_tools(cfg["id"])                # 守门人代发现(失败抛异常)
         self.mcp_manager.restore(meta)                        # 主进程只存元数据
         self.mcp_store.save(self.mcp_manager.servers())       # 落盘也无 headers
         return tools
@@ -506,10 +520,11 @@ class Foxclaw:
         # 2) hkc_api.container._container (vendor 全局单例) — foxclaw.knowledge.init_hkc
         #    第 143 行把它注册进去,reset_container() 才会同时关 SQLite + 清引用。
         # 不清会导致 lifespan teardown 后的 rmtree 报 PermissionError [WinError 32]。
-        hkc_was_inited = getattr(self, "_hkc_inited", False) or getattr(self, "_hkc_service", None) is not None
-        if getattr(self, "_hkc_service", None) is not None:
+        hkc_svc = getattr(self, "_hkc_service", None)
+        hkc_was_inited = getattr(self, "_hkc_inited", False) or hkc_svc is not None
+        if hkc_svc is not None:
             try:
-                self._hkc_service.close()
+                hkc_svc.close()
             except Exception:
                 pass
             self._hkc_service = None

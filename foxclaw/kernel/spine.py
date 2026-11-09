@@ -63,8 +63,11 @@ class EventSpine:
 
     def publish(self, topic: str, payload: dict | None = None, source: str = "",
                 correlation_id: str | None = None) -> Event:
-        evt = Event(topic=topic, payload=payload or {}, source=source,
-                    **({"correlation_id": correlation_id} if correlation_id else {}))
+        if correlation_id:
+            evt = Event(topic=topic, payload=payload or {}, source=source,
+                        correlation_id=correlation_id)
+        else:
+            evt = Event(topic=topic, payload=payload or {}, source=source)
         with self._lock:
             self._history.append(evt)
             # 锁内只做"快照",handler/sink 在锁外执行(避免与 pm/hmr 锁形成环)

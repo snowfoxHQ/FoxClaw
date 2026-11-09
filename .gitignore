@@ -93,3 +93,6 @@ frontend_src/*.err
 
 # npm 发布前由 npm/build.cjs 从仓库根复制生成的源码副本
 npm/python/
+
+# 本地跑全量 pytest 的落盘日志/报告(临时,别进仓库)
+.pytest*.log
