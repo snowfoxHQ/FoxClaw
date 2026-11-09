@@ -87,8 +87,14 @@ jobs:
         run: python -m build --outdir dist
 
       - name: Pack npm tarball
+        # 必须先跑 build.cjs:它把项目源码复制进 npm/python/,npm 包才算完整。
+        # `npm pack` 不触发 prepublishOnly(只有 publish 才触发),漏了这步打出来的
+        # 是 2KB 空壳——里面没有 python/,npx foxclaw 直接跑不起来。
+        # 同时 build.cjs 自带红线自检:含内部文档就 exit 1,构建随之失败。
         working-directory: npm
-        run: npm pack --pack-destination ../dist
+        run: |
+          node build.cjs
+          npm pack --pack-destination ../dist
 
       - name: Artifact gate
         # 包里出现 .env / docs/internal / 运行期数据 = 停下,不许发(宁可不出包)
