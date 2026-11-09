@@ -311,7 +311,9 @@ class PolicyMixin:
         只有真正离群的(如完全跑题)才被拦截。
         否则用中位数附近的分位数会拦掉一半正常流量。
         """
-        arr = np.array(sorted(self._delta_history), dtype=float)
+        # 用 np.float64 而不是内置 float:后者会被 numpy stubs 推成 `dtype[float]`,
+        # 不满足 std() 的 ArrayT 约束(`dtype[floating[Any]]`),mypy 会报 misc。
+        arr = np.array(sorted(self._delta_history), dtype=np.float64)
         if arr.size == 0:
             # 空历史(理论上不会发生,因调用前每次 check 都 append)→ 用默认阈值,避免 nan
             self._shadow_mode = False
