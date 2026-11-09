@@ -18,6 +18,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Optional, Literal
 
+from .hooks_spec import HookEvent
+
 
 # ============ 断路器 ============
 
@@ -155,13 +157,6 @@ class CircuitBreaker:
 
 
 # ============ 生命周期钩子 ============
-
-HookEvent = Literal["before_tool_call", "after_tool_call", "on_error", "on_loop",
-                    "session_start", "agent_start", "agent_end", "session_end",
-                    "before_message_write",
-                    # 向后兼容的旧名 + E2 语义别名(内部规整为标准名)
-                    "pre_skill", "post_skill", "pre_reasoning", "task_complete"]
-
 
 @dataclass
 class Hook:

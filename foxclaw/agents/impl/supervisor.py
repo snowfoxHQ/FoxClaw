@@ -323,7 +323,7 @@ class SupervisorAgent(CognitiveAgent):
 
         (原先每步都只拿到同一份原始 context,等于 N 个互不相干的任务排队跑——
          「查本月餐饮花了多少,再据此定预算」的第 2 步根本拿不到第 1 步的数字。)"""
-        pm = getattr(self, "_process_manager", None)
+        pm: Any = getattr(self, "_process_manager", None)
         bus = getattr(self, "_system_bus", None)
         steps_out = []
         prior: list[Any] = []                 # 已完成步骤的结果,供后续步骤参考
@@ -419,7 +419,7 @@ class SupervisorAgent(CognitiveAgent):
             self._steering_queue = SteeringQueue(lease_seconds=120)
         q = self._steering_queue
         batch = f"batch_{session_id}"
-        pm = getattr(self, "_process_manager", None)
+        pm: Any = getattr(self, "_process_manager", None)
         bus = getattr(self, "_system_bus", None)
         timeout = float(context.get("parallel_timeout", 120))
 
@@ -548,7 +548,7 @@ class SupervisorAgent(CognitiveAgent):
           统一发一条**任务级**事件(子 Agent 调用带 _no_emit=True 仍不双发);
         ② 返回体不再带 session_id/agent/thought_summary(由 base 模板统一组装)。"""
         # 创建进程(任务即进程),携带调度决策 → 状态 scheduled
-        pm = getattr(self, "_process_manager", None)
+        pm: Any = getattr(self, "_process_manager", None)
         proc = pm.create(task, agent_id=target, schedule=sched.to_dict()) if pm else None
 
         self._think(

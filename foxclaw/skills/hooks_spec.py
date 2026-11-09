@@ -13,6 +13,8 @@ Foxclaw — 标准生命周期钩子点 (Lifecycle Hooks Specification)
 """
 from __future__ import annotations
 
+from typing import Literal, cast
+
 
 # ── 标准钩子点(生命周期顺序)──────────────────────────────
 class Hooks:
@@ -64,9 +66,18 @@ ALIAS = {
 }
 
 
-def normalize_hook(event: str) -> str:
+# 生命周期钩子点别名。定义放在 spec 模块(而非 lifecycle),这样 normalize_hook 能直接
+# 返回该类型,调用方不再需要 cast:旧名/标准名进来,出去一律是合法的 HookEvent。
+HookEvent = Literal["before_tool_call", "after_tool_call", "on_error", "on_loop",
+                    "session_start", "agent_start", "agent_end", "session_end",
+                    "before_message_write",
+                    # 向后兼容的旧名 + E2 语义别名(内部规整为标准名)
+                    "pre_skill", "post_skill", "pre_reasoning", "task_complete"]
+
+
+def normalize_hook(event: str) -> HookEvent:
     """把旧钩子名规整为标准名;已是标准名则原样返回。"""
-    return ALIAS.get(event, event)
+    return cast(HookEvent, ALIAS.get(event, event))
 
 
 def is_valid_hook(event: str) -> bool:
