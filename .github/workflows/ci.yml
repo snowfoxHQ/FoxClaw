@@ -143,7 +143,8 @@ jobs:
     # 审计 requirements.txt 而非运行环境:它是「实际会被装出来的东西」,结果可复现,
     # 且不依赖扫描机的环境状态。此门红了怎么修:
     #   1) 升级 pyproject 里对应依赖的下限/上限;
-    #   2) uv pip compile pyproject.toml -o requirements.txt 重新生成并提交;
+    #   2) uv pip compile pyproject.toml --universal -o requirements.txt 重新生成并提交
+    #      (--universal 必须带:否则 Windows 专属包会写成无条件依赖,本作业在 Linux 上装不动);
     #   3) 确无可用修复版本时,在下面 --ignore-vuln 逐条登记 ID + 原因,不要整门关掉。
     runs-on: ubuntu-latest
     timeout-minutes: 10
