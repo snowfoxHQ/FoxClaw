@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 # 合法状态与允许的流转(状态机约束:防止非法跳转)
@@ -33,15 +34,15 @@ _TERMINAL = {"completed", "failed"}
 @dataclass
 class ProcessRecord:
     task: str
-    agent_id: str = None
+    agent_id: Optional[str] = None
     state: str = "created"
     process_id: str = field(default_factory=lambda: f"proc_{uuid.uuid4().hex[:8]}")
     priority: float = 0.0
-    route_hint: str = None
+    route_hint: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     state_history: list = field(default_factory=list)
-    fail_reason: str = None
+    fail_reason: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -91,7 +92,7 @@ class ProcessManager:
             self._emit(rec)
         return rec
 
-    def mark_running(self, process_id: str) -> ProcessRecord:
+    def mark_running(self, process_id: str) -> Optional[ProcessRecord]:
         with self._lock:
             rec = self._processes.get(process_id)
             if rec is None:
@@ -101,11 +102,11 @@ class ProcessManager:
                 self._transition(rec, "scheduled")
             return self._safe_transition(process_id, "running")
 
-    def mark_completed(self, process_id: str) -> ProcessRecord:
+    def mark_completed(self, process_id: str) -> Optional[ProcessRecord]:
         with self._lock:
             return self._safe_transition(process_id, "completed")
 
-    def mark_failed(self, process_id: str, reason: str = "") -> ProcessRecord:
+    def mark_failed(self, process_id: str, reason: str = "") -> Optional[ProcessRecord]:
         with self._lock:
             rec = self._processes.get(process_id)
             if rec is None:
@@ -118,7 +119,7 @@ class ProcessManager:
             self._emit(rec)
             return rec
 
-    def get(self, process_id: str) -> ProcessRecord:
+    def get(self, process_id: str) -> Optional[ProcessRecord]:
         with self._lock:
             return self._processes.get(process_id)
 
@@ -145,7 +146,7 @@ class ProcessManager:
                     "active": self._active}
 
     # ── 内部 ──
-    def _safe_transition(self, process_id: str, next_state: str) -> ProcessRecord:
+    def _safe_transition(self, process_id: str, next_state: str) -> Optional[ProcessRecord]:
         rec = self._processes.get(process_id)
         if rec is None:
             return None

@@ -96,7 +96,7 @@ class SkillResult:
     output: dict = field(default_factory=dict)
     status: str = "done"                              # done / needs_confirmation / blocked
     message: str = ""
-    loop_warning: dict = None                         # 循环检测告警(卡死时填充)
+    loop_warning: Optional[dict] = None  # 循环检测告警(卡死时填充)
     # 关键操作二次确认:status=needs_confirmation 时携带一次性确认码(绑定本次动作+参数)
     confirm_nonce: str = ""
     confirm_expires_at: float = 0.0
