@@ -220,6 +220,98 @@ async function doInstall(ack = false) {
   }
 }
 
+/* ── 指令技能安装:POST /ahs/md-skills ──
+   两种输入:粘贴 SKILL.md 正文,或选 .md / OpenClaw zip(转 base64 走 package_b64)。
+   后端只取 SKILL.md 与 _meta.json,包内 scripts/ 不落地 —— 这句必须写在界面上,
+   否则从 ClawHub 抓来的「指挥 agent 跑脚本」的技能会被当成能用的。
+   未确认时后端回 409 {needs_ack},和「安装技能」一样要点第二次。 */
+const MI_MAX = 4 * 1024 * 1024
+const miOpen = ref(false)
+const miBusy = ref(false)
+const miErr = ref('')
+const miOk = ref('')
+const miAck = ref(false)
+const miText = ref('')
+const miFile = ref('')
+const miB64 = ref('')          // zip 的 base64;非空时优先于 miText
+const miRef = ref(null)
+
+function toggleMi() {
+  miOpen.value = !miOpen.value
+  miErr.value = ''
+  miOk.value = ''
+  miAck.value = false
+}
+
+function resetMi() {
+  miText.value = ''
+  miFile.value = ''
+  miB64.value = ''
+  miAck.value = false
+  if (miRef.value) miRef.value.value = ''
+}
+
+function toB64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => {
+      const s = String(fr.result || '')
+      resolve(s.slice(s.indexOf(',') + 1))     // 去掉 data:...;base64, 前缀
+    }
+    fr.onerror = () => reject(new Error('读取文件失败'))
+    fr.readAsDataURL(file)
+  })
+}
+
+async function onMiFile(ev) {
+  const f = ev.target.files && ev.target.files[0]
+  miFile.value = ''
+  miB64.value = ''
+  miErr.value = ''
+  miOk.value = ''
+  miAck.value = false
+  if (!f) return
+  miFile.value = `${f.name} · ${(f.size / 1024).toFixed(0)} KB`
+  if (f.size > MI_MAX) { miErr.value = '文件超过 4MB,拒绝上传'; return }
+  try {
+    if (/\.zip$/i.test(f.name)) {
+      miB64.value = await toB64(f)
+      miText.value = ''
+    } else {
+      miText.value = await f.text()
+    }
+  } catch (e) {
+    miErr.value = String(e.message || e)
+  }
+}
+
+async function doMdInstall(ack = false) {
+  if (miBusy.value) return
+  const content = miText.value.trim()
+  if (!ack && !content && !miB64.value) {
+    miErr.value = '粘贴 SKILL.md 正文,或选一个 .md / .zip 文件'
+    return
+  }
+  miBusy.value = true
+  miErr.value = ''
+  miOk.value = ''
+  const body = { acknowledged: ack }
+  if (miB64.value) body.package_b64 = miB64.value
+  else body.content = content
+  try {
+    const d = await postJSON('/ahs/md-skills', body)
+    const name = (d.skill && (d.skill.name || d.skill.id)) || '指令技能'
+    miOk.value = `${d.created ? '已安装' : '已更新'}「${name}」`
+    resetMi()
+    await refreshPanel('tools')
+  } catch (e) {
+    miErr.value = String(e.message || e)
+    miAck.value = !!(e.detail && e.detail.needs_ack)
+  } finally {
+    miBusy.value = false
+  }
+}
+
 /* ── 连接器:POST|DELETE /ahs/mcp/servers ──
    接入会真连一次 server 拉工具清单(可能几十秒);连不上是 502,原样显示 */
 const showMcpAdd = ref(false)
@@ -389,6 +481,43 @@ async function delMcp(s) {
             {{ s.enabled ? '启用' : '停用' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <div class="pn-sec">
+      <div class="pn-h">
+        安装指令技能
+        <button class="mbtn" @click="toggleMi">{{ miOpen ? '收起' : '+ 上传' }}</button>
+      </div>
+      <div v-if="miOpen" class="tk-form">
+        <label class="f"><span>SKILL.md 或 OpenClaw 包(.md / .zip)</span>
+          <input ref="miRef" type="file" accept=".md,.markdown,.zip" @change="onMiFile" />
+        </label>
+        <div v-if="miFile" class="pn-note">{{ miFile }}</div>
+        <label class="f"><span>或粘贴正文(frontmatter + 指示)</span>
+          <textarea
+            v-model="miText"
+            rows="8"
+            spellcheck="false"
+            :disabled="!!miB64"
+            placeholder="--- name: my-skill / description: 什么时候用它 --- 然后写正文"
+          />
+        </label>
+        <div class="fbar">
+          <button class="go" :disabled="miBusy" @click="doMdInstall(false)">
+            {{ miBusy ? '安装中…' : '安装' }}
+          </button>
+          <button v-if="miAck" class="go warn" :disabled="miBusy" @click="doMdInstall(true)">
+            已知风险,继续安装
+          </button>
+          <span v-if="miErr" class="tip bad">{{ miErr }}</span>
+          <span v-else-if="miOk" class="tip ok">{{ miOk }}</span>
+          <span v-else class="tip dim">只取 SKILL.md 与 _meta.json;包内 scripts/ 不落地、不执行</span>
+        </div>
+      </div>
+      <div v-else class="pn-note">
+        指令技能是注入提示词的 markdown,不是可执行工具。命令行也能装:
+        <code>foxclaw skills install @owner/slug</code>、<code>github:owner/repo</code>、<code>./pkg.zip</code>。
       </div>
     </div>
 
@@ -595,6 +724,8 @@ async function delMcp(s) {
 .f textarea { resize: vertical; line-height: 1.6; }
 .f input:focus, .f select:focus, .f textarea:focus { border-color: var(--line); background: #fff; }
 .f input::placeholder, .f textarea::placeholder { color: var(--dim); }
+/* 文件选择:原生控件边距偏大,压一下和 .f 里其它控件对齐 */
+.f input[type='file'] { padding: 4px 6px; font-size: 11.5px; color: var(--dim); }
 
 .chk {
   display: flex; align-items: center; gap: 6px;
