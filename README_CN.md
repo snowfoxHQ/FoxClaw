@@ -97,12 +97,13 @@ foxclaw/
 ## 七、快速开始
 
 ```bash
-# 1. 安装依赖
-pip install fastapi uvicorn "httpx<0.28" openai cryptography websockets pyyaml numpy scikit-learn rich pydantic
-#    (Windows 上 pip 装系统包可能需要 --break-system-packages)
+# 1. 建隔离环境 —— 不要直接装进系统 Python,否则会和机器上其它项目互相污染
+python -m venv .venv
+.venv\Scripts\activate            # macOS / Linux: source .venv/bin/activate
 
-# 2. 可选:更精确的语义检测(约 800MB,不装则降级 n-gram)
-pip install sentence-transformers
+# 2. 安装锁定版本的依赖(77 个包,含 torch / faiss,约 1GB)
+pip install -r requirements.txt
+pip install -e . --no-deps        # 装 foxclaw 本体,不再重解析依赖
 
 # 3. 验证认知运行时(无需 API key)
 python tests/run_all.py        # 全量回归(全绿)
@@ -111,6 +112,10 @@ python tests/run_all.py        # 全量回归(全绿)
 export DEEPSEEK_API_KEY=sk-...  # 或 ANTHROPIC_API_KEY;Windows: $env:DEEPSEEK_API_KEY="sk-..."
 python -m uvicorn foxclaw.api:app --port 8000
 ```
+
+> `requirements.txt` 由 `uv pip compile pyproject.toml -o requirements.txt` 从 `pyproject.toml` 生成,
+> **不要手改**。改完 `pyproject.toml` 里的依赖后重跑一次,否则锁定清单会滞后于声明,
+> SCA 扫描和 CI 装的都会是旧版本。
 
 详见 [docs/RUN_CN.md](docs/RUN_CN.md)。
 
@@ -127,7 +132,9 @@ function restart-foxclaw {
   $p=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess
   if($p){Stop-Process -Id $p -Force; Start-Sleep 1}
   Set-Location <你的项目目录>
-  foxclaw serve
+  # 显式走 .venv,别用 PATH 里那个系统 Python 的 foxclaw.exe ——
+  # 系统环境常常是很久以前装的,挂着已知漏洞(实测 278 条)。
+  .\.venv\Scripts\foxclaw.exe serve
 }
 
 # ③ 重开 PowerShell 让配置生效(只在改了 $PROFILE 后需要)
