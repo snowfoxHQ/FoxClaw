@@ -141,7 +141,7 @@ def test_chat_stream_with_attachments():
         up = c.post("/api/upload", files={"file": ("要点.txt", "预算 100 万".encode(), "text/plain")})
         att = up.json()
         # 会话须先存在,append 才会落盘(前端 ensureSession 同款:POST /api/sessions → 拿 id)
-        sid = _api._os_instance.sessions.create()["id"]
+        sid = _api.os_instance().sessions.create()["id"]
         payload = {
             "task": "帮我总结要点",
             "agent_id": "supervisor",
@@ -154,7 +154,7 @@ def test_chat_stream_with_attachments():
         assert "data:" in r.text and '"error"' not in r.text, r.text[:300]
 
         # 会话已落盘用户消息 + 附件元数据(不含 text)
-        d = _api._os_instance.sessions.get(sid)
+        d = _api.os_instance().sessions.get(sid)
         assert d is not None, "会话未落盘"
         um = d["messages"][0]
         assert um["role"] == "user" and um["content"] == "帮我总结要点"

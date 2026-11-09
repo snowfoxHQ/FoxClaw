@@ -1,6 +1,6 @@
 """认知搜索(HSR)端点:内部记忆 + 内部知识 + 联网,统一证据融合。
 
-从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api._os_instance`
+从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api.current_os()`
 晚绑定读取;路由用 `@app` 装饰器在 import 时注册。
 """
 

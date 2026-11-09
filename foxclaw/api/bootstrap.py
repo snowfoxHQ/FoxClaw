@@ -57,7 +57,8 @@ def _mount_hkc(app):
         from hkc_api.container import get_container as _hkc_get_container
 
         def _resolve_hkc_container():
-            svc = _api._os_instance.hkc if _api._os_instance is not None else None
+            os_inst = _api.current_os()
+            svc = os_inst.hkc if os_inst is not None else None
             if svc is None or not getattr(svc, "available", False):
                 raise HTTPException(503, "HKC 未启用(未 vendor 或缺依赖)")
             return svc.container

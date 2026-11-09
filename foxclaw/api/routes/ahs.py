@@ -1,6 +1,6 @@
 """AHS 执行链:技能安装/管理、MCP 接入、Markdown 指令技能、策略封杀、运行、断路器、钩子审计。
 
-从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api._os_instance`
+从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api.current_os()`
 晚绑定读取;路由用 `@app` 装饰器在 import 时注册。
 """
 
@@ -214,7 +214,7 @@ async def mcp_add_server(p: McpServerPayload):
         raise HTTPException(409, detail={"needs_ack": True, "warnings": verdict["warnings"]})
     cfg = {"id": p.id, "name": p.name or p.id, "url": p.url,
            "headers": dict(p.headers), "transport": p.transport}
-    sentinel = getattr(_api._os_instance, "sentinel", None)
+    sentinel = getattr(_api.current_os(), "sentinel", None)
     try:
         if sentinel is not None:
             # 守门人模式:headers 只在这次调用经手,发现由守门人代执行,主进程只存元数据。
@@ -271,7 +271,7 @@ async def mcp_refresh_server(server_id: str):
     mgr = _api.os_instance().mcp_manager
     if not any(s["id"] == server_id for s in mgr.servers()):
         raise HTTPException(404, "server 不存在")
-    sentinel = getattr(_api._os_instance, "sentinel", None)
+    sentinel = getattr(_api.current_os(), "sentinel", None)
     try:
         if sentinel is not None:
             tools = await asyncio.to_thread(sentinel.mcp_list_tools, server_id)  # 守门人代发现(失败抛异常)

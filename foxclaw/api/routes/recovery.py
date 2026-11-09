@@ -16,7 +16,7 @@ from .. import app
 @app.get("/api/recovery/status")
 async def recovery_status():
     """中断任务清单 + 每任务最近步骤 + 续跑所需 context(直接可回灌 /api/task)。"""
-    os_ = _api._os_instance
+    os_ = _api.current_os()
     if os_ is None:
         return {"enabled": False, "interrupted": [], "plan": {}}
     rec = getattr(os_, "recovery", None)

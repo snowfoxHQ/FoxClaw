@@ -50,7 +50,7 @@ def main():
         # 2. 验证 harness 事件实时触发(直接挂监听到 OS 的 agent 总线)
         print("\n【2】实时事件触发(核心验证)")
         import foxclaw.api as api_mod
-        os_inst = api_mod._os_instance
+        os_inst = api_mod.os_instance()
         captured = []
         for agent in os_inst._agents.values():
             for ev in ["harness_block", "harness_warn", "harness_pass",

@@ -1,7 +1,7 @@
 """记忆统计 / 会话历史 / 用户偏好 路由。
 
-从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api._os_instance`
-晚绑定读取(保持测试可重绑定 `api._os_instance`);路由用 `@app` 装饰器在 import 时注册。
+从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api.current_os()`
+晚绑定读取(状态在 `_state`,测试可重绑 `_state._os_instance`);路由用 `@app` 装饰器在 import 时注册。
 """
 
 from fastapi import HTTPException

@@ -1,6 +1,6 @@
 """任务执行 / 流式直答 / 流式任务 路由与多模态护栏。
 
-从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api._os_instance`
+从 foxclaw/api.py 原样搬移(纯搬移,零行为变更)。共享 OS 实例经 `_api.current_os()`
 晚绑定读取;路由用 `@app` 装饰器在 import 时注册。流式限流器 `_STREAM_LIMITER` 为
 模块级单例,`__init__.py` 会 re-export(测试复位其桶容量)。
 """
