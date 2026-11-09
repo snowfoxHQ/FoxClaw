@@ -66,11 +66,8 @@ function toggle(id) { open.value = open.value === id ? '' : id }
       </div>
     </div>
 
-    <div class="pn-note">
-      <template v-if="p.info">
-        版本 <code>{{ p.info.version }}</code> · 数据目录 <code>{{ p.info.data_dir }}</code>
-      </template>
-      数据来自 <code>/api/status</code> 与 <code>/api/system/info</code>。
+    <div v-if="p.info" class="pn-note">
+      版本 <code>{{ p.info.version }}</code>
     </div>
   </PanelBox>
 </template>
