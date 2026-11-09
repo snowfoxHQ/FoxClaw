@@ -38,13 +38,15 @@ rc = _load()
 
 # ── 造最小产物 ────────────────────────────────────────────
 
-def _wheel(dist: Path, version="0.1.0", name="foxclaw", extra=()) -> Path:
+def _wheel(dist: Path, version="0.1.0", name="foxclaw", extra=(),
+           description=True) -> Path:
     p = dist / f"{name}-{version}-py3-none-any.whl"
+    body = ("\n\n" + "long description body. " * 12) if description else ""
     with zipfile.ZipFile(p, "w") as z:
         z.writestr(f"{name}/__init__.py", "__version__ = '0.1.0'\n")
         z.writestr(f"{name}/cli.py", "def main(): pass\n")
         z.writestr(f"{name}-{version}.dist-info/METADATA",
-                   f"Name: {name}\nVersion: {version}\n")
+                   f"Name: {name}\nVersion: {version}{body}\n")
         for e in extra:
             z.writestr(e, "x")
     return p
@@ -125,6 +127,36 @@ def test_empty_tag_is_skipped():
     assert rc.check_tag("", "0.1.0") == []
 
 
+# ── 项目页正文(long_description)────────────────────────────
+
+def test_repo_declares_readme():
+    """真仓库必须声明正文:0.1.1 在 PyPI 上的项目页就是空白的,这就是回归点。"""
+    assert [i for i in rc.check_metadata(REPO) if i.level == "error"] == []
+    assert rc.readme_target(REPO).endswith(".md")
+
+
+def test_missing_readme_is_error(tmp_path):
+    root = _mini_repo(tmp_path, "0.1.0", "0.1.0")
+    assert any(i.code == "no_readme" for i in rc.check_metadata(root))
+
+
+def test_short_readme_is_error(tmp_path):
+    root = _mini_repo(tmp_path, "0.1.0", "0.1.0")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "foxclaw"\nversion = "0.1.0"\nreadme = "README.md"\n',
+        encoding="utf-8")
+    (root / "README.md").write_text("短\n", encoding="utf-8")
+    assert any(i.code == "readme_too_short" for i in rc.check_metadata(root))
+
+
+def test_readme_pointing_to_missing_file_is_error(tmp_path):
+    root = _mini_repo(tmp_path, "0.1.0", "0.1.0")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "foxclaw"\nversion = "0.1.0"\nreadme = "NOPE.md"\n',
+        encoding="utf-8")
+    assert any(i.code == "readme_missing" for i in rc.check_metadata(root))
+
+
 # ── 归档内容 ──────────────────────────────────────────────
 
 @pytest.mark.parametrize("entry", [
@@ -187,6 +219,15 @@ def test_check_dist_flags_secret_inside_archive(tmp_path):
     assert msgs and any(".env" in m for m in msgs), msgs
 
 
+def test_check_dist_flags_empty_long_description(tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    _wheel(dist, description=False)
+    _sdist(dist)
+    codes = {i.code for i in rc.check_dist(dist, "foxclaw", "0.1.0")}
+    assert "no_long_description" in codes, codes
+
+
 def test_check_dist_missing_dir_is_error(tmp_path):
     assert any(i.code == "no_dist"
                for i in rc.check_dist(tmp_path / "nope", "foxclaw", "0.1.0"))
@@ -213,8 +254,10 @@ def test_run_end_to_end(tmp_path):
     dist.mkdir()
     issues = rc.run(REPO, tag="", dist=dist, npm_tgz=None)
     assert any(i.level == "error" for i in issues), "空 dist 应报错"
-    _wheel(dist)
-    _sdist(dist)
-    tgz = _tgz(dist)
-    assert [i for i in rc.run(REPO, "v0.1.0", dist, tgz) if i.level == "error"] == []
+    # 版本号跟着仓库走:写死 0.1.0 会在每次改版本时假红
+    version = rc.collect_versions(REPO)["pyproject.toml:project.version"]
+    _wheel(dist, version=version)
+    _sdist(dist, version=version)
+    tgz = _tgz(dist, version=version)
+    assert [i for i in rc.run(REPO, f"v{version}", dist, tgz) if i.level == "error"] == []
     shutil.rmtree(dist)

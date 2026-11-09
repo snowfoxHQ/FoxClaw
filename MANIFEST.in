@@ -3,6 +3,11 @@
 graft vendor
 graft foxclaw
 
+# sdist 必须带正文文件:pyproject 的 readme 指向 README_CN.md,PyPI 项目页正文取自它。
+include README.md
+include README_CN.md
+include LICENSE
+
 prune vendor/__pycache__
 prune foxclaw/__pycache__
 global-exclude *.pyc

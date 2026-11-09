@@ -4,9 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxclaw"
-version = "0.1.1"
+version = "0.1.2"
 description = "Foxclaw - a personal agent with memory, built on the HMR memory runtime"
 requires-python = ">=3.11"
+
+# 项目页正文(long_description)。此前缺这一行,PyPI 项目页只显示
+# 「该软件包的作者未提供项目描述」——元数据里没有 Description。中英文各一份,
+# 这里按主要读者选中文版;发布门槛见 tools/release_check.py 的 no_readme /
+# no_long_description 检查(缺正文直接失败,不再允许空白页发出)。
+readme = { file = "README_CN.md", content-type = "text/markdown" }
 
 # 许可:仓库根目录 LICENSE 为 MIT。这里用 { file = "LICENSE" } 而不是 PEP 639 的
 # SPDX 字符串(`license = "MIT"`),因为 build-system 只要求 setuptools>=68,而
