@@ -5,8 +5,15 @@ import { state, setModule } from '../stores/app.js'
 
 const uplink = ref('···')
 const tone = ref('dim')
+/* 版本号唯一来源是后端(pyproject → foxclaw.__version__ → /system/info)。
+   前端此前把版本写死在模板里,后端发版后左上角仍是旧数字,对外就对不上。
+   取不到就干脆不显示,不猜一个值。 */
+const ver = ref('')
 
 onMounted(async () => {
+  getJSON('/system/info')
+    .then((d) => { ver.value = d?.version || '' })
+    .catch(() => {})
   try {
     await getJSON('/status')
     uplink.value = '在线'
@@ -32,7 +39,7 @@ function openSettings() {
     <div class="brand">
       <div class="logo">F</div>
       <h1>Foxclaw</h1>
-      <span class="ver">v3.0</span>
+      <span v-if="ver" class="ver">v{{ ver }}</span>
     </div>
     <div class="spacer" />
     <div class="stat">

@@ -69,3 +69,15 @@ def test_npm_index_export_name_agrees() -> None:
     match = re.search(r'export\s+const\s+name\s*=\s*["\']([^"\']+)["\']', source)
     assert match, "npm/index.js 里找不到 `export const name = \"...\"`"
     assert match.group(1) == _npm_package()["name"]
+
+
+def test_frontend_does_not_hardcode_version() -> None:
+    """顶部栏版本号必须来自后端,不能在 Vue 里写死。
+
+    2026-11-10:左上角硬编码 ``v3.0``,而后端已发到 0.1.2,用户看到的版本
+    与仓库/PyPI 对不上。前端只能从 ``/api/system/info`` 的 ``version`` 取值。
+    """
+    source = (REPO_ROOT / "frontend_src" / "src" / "components" / "TopBar.vue").read_text(
+        encoding="utf-8")
+    assert not re.search(r"\bv\d+\.\d+", source), "TopBar.vue 里出现了硬编码版本号"
+    assert "/system/info" in source, "TopBar.vue 应从 /api/system/info 取 version"
