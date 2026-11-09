@@ -5,8 +5,14 @@ $ErrorActionPreference = "Continue"
 
 $root = Split-Path -Parent $PSScriptRoot
 
-# 1. python 路径
-$py = (Get-Command python -ErrorAction SilentlyContinue).Source
+# 1. python 路径:优先用仓库内 .venv。
+#    此前取 PATH 里的 python,在多项目共用的机器上会落到系统环境 ——
+#    实测那套挂着 278 条已知漏洞,且版本与本项目 pyproject 毫无关系。
+$py = Join-Path $root ".venv\Scripts\python.exe"
+if (-not (Test-Path $py)) {
+    Write-Host "[1] WARN: .venv missing, fallback to PATH python (see README quick start)"
+    $py = (Get-Command python -ErrorAction SilentlyContinue).Source
+}
 if (-not $py) { $py = "python" }
 Write-Host "[1] python = $py"
 

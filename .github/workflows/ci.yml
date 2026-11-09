@@ -40,7 +40,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install toolchain
+      - name: Install toolchain (pinned, py3.12)
+        if: matrix.python-version == '3.12'
+        # 基线版本按 requirements.txt 装:那是 uv 从 pyproject 解析出的完整闭包,
+        # 与本机 .venv 一致。dev extra 随后补装,pip 不会改写已满足的 pin。
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Install toolchain (latest, py3.14)
+        if: matrix.python-version == '3.14'
+        # 3.14 腿刻意不读 requirements.txt:它的职责是发现「依赖在新解释器上解析/安装失败」,
+        # 跟着 pin 会把这个信号一起锁死。
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
@@ -92,9 +104,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 单源安装:依赖以 pyproject.toml 为唯一来源,避免手写清单与它双份漂移。
+          # 单源:pyproject.toml 声明依赖,requirements.txt 是它解析出的锁定闭包(uv 生成)。
+          # 先装锁再装本体,回归跑的就是本机 .venv 同一套版本,而不是当天 PyPI 的最新版。
           # HMR/HKC 是 vendor 内嵌、走 sys.path 加载,不是 PyPI 依赖(已在 pyproject 注明)。
           # dev extra 提供 pytest + openpyxl/python-docx(默认回归 test_file_ingest/test_domain_import 硬依赖)。
+          pip install -r requirements.txt
           pip install -e ".[dev]"
 
       - name: Warm embedding cache
@@ -120,3 +134,33 @@ jobs:
           coverage combine
           coverage report
           coverage xml
+
+  audit:
+    # 依赖漏洞门。此前 SCA 只覆盖 Dockerfile 与前端 package.json,Python 侧完全空白 ——
+    # 实测全局环境 34 个包挂着 278 条已知漏洞(pyjwt 15、starlette 14、filelock 9…),
+    # 而同一份 pyproject 干净解析出来是 0 条,说明问题在"从不升级的运行环境"而非依赖声明。
+    #
+    # 审计 requirements.txt 而非运行环境:它是「实际会被装出来的东西」,结果可复现,
+    # 且不依赖扫描机的环境状态。此门红了怎么修:
+    #   1) 升级 pyproject 里对应依赖的下限/上限;
+    #   2) uv pip compile pyproject.toml -o requirements.txt 重新生成并提交;
+    #   3) 确无可用修复版本时,在下面 --ignore-vuln 逐条登记 ID + 原因,不要整门关掉。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "pip-audit>=2.7"
+
+      - name: Audit pinned runtime dependencies
+        # --no-deps:requirements.txt 已是 uv 解析好的完整闭包(含全部传递依赖),
+        # 不需要 pip-audit 再解析一遍 —— 不加会静默跑几分钟且可能超时。
+        run: pip-audit -r requirements.txt --no-deps --progress-spinner off
