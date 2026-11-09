@@ -33,7 +33,7 @@ try:
 except ImportError:
     pass  # 未装 python-dotenv 则用系统环境变量
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from typing import Optional
 
 from foxclaw import Foxclaw, __version__
@@ -58,12 +58,33 @@ from .routes.ws import manager, harness_websocket as harness_websocket
 # 事件脊柱辅助(WS 净化 / HKC 预热)已移至 spine.py;`_register_spine_projection` 因
 # `_WS_MUTED` 源码级断言约束仍留本文件(见 test_governance_audit)。
 from .spine import _ws_safe_payload, _prewarm_hkc
-# app 挂载/配置(CORS / HKC 星球数据面 / 前端静态)已移至 app.py,在下方按原顺序调用。
-from .app import _configure_cors, _mount_hkc, _mount_frontend
+# app 挂载/配置(CORS / HKC 星球数据面 / 前端静态)已移至 bootstrap.py,在下方按原顺序调用。
+# 注意:该文件绝不能叫 app.py —— 包内已有变量 `app = FastAPI(...)`,同名子模块会让
+# `from .. import app` 在类型检查器(以及运行期早于赋值的导入)里解析成模块而非实例。
+from .bootstrap import _configure_cors, _mount_hkc, _mount_frontend
 
 
 # ── 全局 OS 实例 ───────────────────────────────────────────
 _os_instance: Optional[Foxclaw] = None
+
+
+def os_instance() -> Foxclaw:
+    """取 lifespan 里创建的共享 OS 实例;尚未就绪时给 503 而不是 AttributeError。
+
+    `_os_instance` 在 lifespan 启动时赋值,静态类型必然带 `None`。路由层原先直接
+    写 `_api._os_instance.skill_policy`,未就绪时抛的是
+    `'NoneType' object has no attribute 'skill_policy'` —— 对调用方是 500,
+    且看不出「服务还在启动、可以重试」。这里收口一次:类型上窄化为 `Foxclaw`,
+    运行期给出可重试的 503。
+
+    仍需要「无 OS 也能降级」的路由(如 /api/llm/runtime 返回 ok=False)不要用它,
+    改为取 `_os_instance` 存局部变量后判空,由调用点自己决定降级形态。
+    """
+    inst = _os_instance
+    if inst is None:
+        raise HTTPException(
+            status_code=503, detail="service is starting up, retry shortly")
+    return inst
 
 # 线程安全事件队列:harness 在任意线程触发的事件先入队,
 # 由后台 async 任务统一广播到 WebSocket(解决跨线程 create_task 失败问题)

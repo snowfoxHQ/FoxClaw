@@ -36,7 +36,7 @@ _STATE_FIELDS = ("repetitions", "interval", "ease_factor", "due_date",
 def _store():
     """惰性取 HKC 的 graph_store,None 表示知识库没装配好(降级成空队列)。"""
     try:
-        hkc = _api._os_instance.hkc
+        hkc = _api.os_instance().hkc
         if hkc is None or not hkc.available:
             return None
         return hkc.container.graph_store

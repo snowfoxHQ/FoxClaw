@@ -15,7 +15,7 @@ from .. import app
 async def get_memory_stats():
     """记忆中心统计:供前端 vecRecall 面板展示真实数字。"""
     try:
-        return _api._os_instance.hmr.stats()
+        return _api.os_instance().hmr.stats()
     except Exception:
         return {"backend": "?", "total_memories": 0, "relations": 0}
 
@@ -34,7 +34,7 @@ class SessionRename(BaseModel):
 async def list_sessions(limit: int = 50):
     """会话列表(按更新时间倒序,轻字段不含 messages)。"""
     try:
-        return {"sessions": _api._os_instance.sessions.list(limit)}
+        return {"sessions": _api.os_instance().sessions.list(limit)}
     except Exception:
         return {"sessions": []}
 
@@ -42,13 +42,13 @@ async def list_sessions(limit: int = 50):
 @app.post("/api/sessions")
 async def create_session(req: SessionCreate):
     """新建会话。"""
-    return _api._os_instance.sessions.create(req.title, req.agent_id)
+    return _api.os_instance().sessions.create(req.title, req.agent_id)
 
 
 @app.get("/api/sessions/{sid}")
 async def get_session(sid: str):
     """取单个会话(含完整 messages),供前端恢复对话。"""
-    d = _api._os_instance.sessions.get(sid)
+    d = _api.os_instance().sessions.get(sid)
     if d is None:
         raise HTTPException(404, "会话不存在")
     return d
@@ -56,19 +56,19 @@ async def get_session(sid: str):
 
 @app.post("/api/sessions/{sid}/rename")
 async def rename_session(sid: str, req: SessionRename):
-    return {"ok": _api._os_instance.sessions.rename(sid, req.title)}
+    return {"ok": _api.os_instance().sessions.rename(sid, req.title)}
 
 
 @app.delete("/api/sessions/{sid}")
 async def delete_session(sid: str):
-    return {"ok": _api._os_instance.sessions.delete(sid)}
+    return {"ok": _api.os_instance().sessions.delete(sid)}
 
 
 @app.get("/api/memory/recent")
 async def get_recent_memories(limit: int = 20):
     """最近的记忆条目(倒序),供前端右栏"记忆信息条"。轻字段,不含 embedding。"""
     try:
-        fn = getattr(_api._os_instance.hmr, "recent", None)
+        fn = getattr(_api.os_instance().hmr, "recent", None)
         return {"memories": fn(limit) if callable(fn) else []}
     except Exception:
         return {"memories": []}
@@ -78,12 +78,12 @@ async def get_recent_memories(limit: int = 20):
 async def list_preferences():
     """列出已记住的用户偏好(供查看/清理误存)。偏好是 shared,任一 Agent 视角一致,
     这里用主管取全量(偏好是 shared,任一 Agent 视角一致)。返回 [{id, content, ...}]。"""
-    ag = _api._os_instance.supervisor
+    ag = _api.os_instance().supervisor
     return {"preferences": ag.list_preferences()}
 
 
 @app.delete("/api/preferences/{pref_id}")
 async def delete_preference(pref_id: str):
     """删一条误存的用户偏好(F3:防误报偏好持久注入污染)。返回 {ok}。"""
-    ag = _api._os_instance.supervisor
+    ag = _api.os_instance().supervisor
     return {"ok": ag.delete_preference(pref_id)}

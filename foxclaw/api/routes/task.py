@@ -54,8 +54,8 @@ async def run_task(req: TaskRequest):
     · harness 累积态已在 harness.py 用 RLock 保护(嵌入在锁外,故并行不受锁影响)。"""
     def _work():
         # 经微内核调度器准入(默认无上限=直通;设了 FOXCLAW_MAX_CONCURRENCY 才背压)+ 生命周期事件
-        return _api._os_instance.scheduler.run(
-            lambda: asyncio.run(_api._os_instance.run(req.task, req.agent_id,
+        return _api.os_instance().scheduler.run(
+            lambda: asyncio.run(_api.os_instance().run(req.task, req.agent_id,
                                                       context=req.context)),
             agent_id=req.agent_id, task=req.task)
     return await asyncio.to_thread(_work)
@@ -142,7 +142,7 @@ async def chat_stream(req: TaskRequest, request: Request):
             yield "data: " + json.dumps({"error": "rate limited"}) + "\n\n"
         return StreamingResponse(_rl(), media_type="text/event-stream")
 
-    agent = _api._os_instance._agents.get(req.agent_id) or _api._os_instance.supervisor
+    agent = _api.os_instance()._agents.get(req.agent_id) or _api.os_instance().supervisor
     imgs = _sanitize_images(req.images)
     atts = _sanitize_attachments(req.attachments)
 
@@ -180,10 +180,10 @@ async def chat_stream(req: TaskRequest, request: Request):
                 # 落盘会话历史(问 + 答),供"会话/所有会话"回看。断连中止也保留已生成部分。
                 if req.session_id:
                     try:
-                        _api._os_instance.sessions.append(req.session_id, "user", req.task, attachments=atts)
+                        _api.os_instance().sessions.append(req.session_id, "user", req.task, attachments=atts)
                         _reply = "".join(_parts)
                         if _reply:
-                            _api._os_instance.sessions.append(req.session_id, "assistant", _reply)
+                            _api.os_instance().sessions.append(req.session_id, "assistant", _reply)
                     except Exception:
                         pass
                 loop.call_soon_threadsafe(q.put_nowait, None)   # 结束哨兵
@@ -235,13 +235,13 @@ async def task_stream(req: TaskRequest, request: Request):
             yield "data: " + json.dumps({"error": "rate limited"}) + "\n\n"
         return StreamingResponse(_rl(), media_type="text/event-stream")
 
-    agent = _api._os_instance._agents.get(req.agent_id)
+    agent = _api.os_instance()._agents.get(req.agent_id)
     # 【P3-3】P1-1 落地后主管走统一 pipeline(supervisor_stages),支持 run_task_stream,
     # 不再回落 assistant(助手已下放为技能)。未知 agent_id 仍回落主管兼容旧客户端
     # (旧前端可能还传 "assistant"/"admin"),但打 warning 不静默。
     if agent is None:
         print(f"[Foxclaw API] ⚠ /api/task/stream 收到未知 agent_id={req.agent_id},回落 supervisor")
-        agent = _api._os_instance.supervisor
+        agent = _api.os_instance().supervisor
 
     async def async_sse():
         if not _STREAM_SEM.acquire(blocking=False):   # 超并发上限 → 拒(不排队)

@@ -24,7 +24,7 @@ from ...core import settings
 @app.get("/api/status")
 async def get_system_status():
     """获取所有 Agent 的状态"""
-    return _api._os_instance.get_all_status()
+    return _api.os_instance().get_all_status()
 
 
 @app.get("/api/tokens")
@@ -54,7 +54,7 @@ async def get_token_report():
 @app.get("/api/model")
 async def get_model():
     """当前模型路由状态 + 可用 provider 列表。"""
-    return _api._os_instance.router.info()
+    return _api.os_instance().router.info()
 
 
 @app.get("/api/config/amap")
@@ -70,7 +70,7 @@ async def get_amap_config():
 async def get_system_info():
     """系统级只读信息:版本、运行参数、各 Agent、模块状态(供设置面板展示)。"""
     agents = {}
-    for aid, ag in _api._os_instance._agents.items():
+    for aid, ag in _api.os_instance()._agents.items():
         h = ag.harness
         agents[aid] = {
             "name": getattr(ag, "AGENT_NAME", aid),
@@ -86,7 +86,7 @@ async def get_system_info():
         "version": __version__,
         "data_dir": os.environ.get("FOXCLAW_DATA_DIR", "./foxclaw_data"),
         "shadow_rounds": settings.get_int("FOXCLAW_SHADOW_ROUNDS"),
-        "model": _api._os_instance.router.info(),
+        "model": _api.os_instance().router.info(),
         "amap": {
             "web_key": bool(os.environ.get("AMAP_MAPS_API_KEY")),
             "js_key": bool(os.environ.get("AMAP_JS_KEY")),
@@ -105,14 +105,14 @@ class ModelSwitchPayload(BaseModel):
 async def switch_model(p: ModelSwitchPayload):
     """运行时切换模型 provider(多模型路由核心能力)。"""
     try:
-        return _api._os_instance.router.switch(p.provider, p.model)
+        return _api.os_instance().router.switch(p.provider, p.model)
     except Exception as e:
         raise HTTPException(400, f"切换失败: {e}")
 
 
 @app.get("/api/agents/{agent_id}/status")
 async def get_agent_status(agent_id: str):
-    agent = _api._os_instance.get_agent(agent_id)
+    agent = _api.os_instance().get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} 不存在")
     return agent.get_status()
@@ -136,14 +136,14 @@ async def scheduler_preview(payload: SchedulePreviewPayload):
 @app.get("/api/scheduler/stats")
 async def scheduler_stats():
     """调度器记账:并发配额 + 提交/运行/完成/失败/峰值(可观测性)。"""
-    return _api._os_instance.scheduler.stats()
+    return _api.os_instance().scheduler.stats()
 
 
 @app.get("/api/bus/history")
 async def bus_history(channel: str = None, limit: int = 30):
     """系统事件总线历史:观测执行→审计→记忆的真值流转。"""
     try:
-        return {"events": _api._os_instance.system_bus.history(channel, limit)}
+        return {"events": _api.os_instance().system_bus.history(channel, limit)}
     except Exception:
         return {"events": []}
 
@@ -151,7 +151,7 @@ async def bus_history(channel: str = None, limit: int = 30):
 @app.get("/api/truth/last")
 async def truth_last():
     """真值管线最近一次的 trace 与记忆更新。"""
-    tp = _api._os_instance.truth_pipeline
+    tp = _api.os_instance().truth_pipeline
     return {"last_trace": tp.last_trace, "last_memory_update": tp.last_memory_update}
 
 
@@ -159,8 +159,8 @@ async def truth_last():
 async def list_processes(state: str = None, limit: int = 30):
     """进程列表:观测任务作为"进程"的生命周期状态。"""
     try:
-        return {"processes": _api._os_instance.process_manager.list(state, limit),
-                "stats": _api._os_instance.process_manager.stats()}
+        return {"processes": _api.os_instance().process_manager.list(state, limit),
+                "stats": _api.os_instance().process_manager.stats()}
     except Exception:
         return {"processes": [], "stats": {}}
 
@@ -168,7 +168,7 @@ async def list_processes(state: str = None, limit: int = 30):
 @app.get("/api/processes/{process_id}")
 async def get_process(process_id: str):
     """单个进程详情:含完整状态历史(state_history)。"""
-    rec = _api._os_instance.process_manager.get(process_id)
+    rec = _api.os_instance().process_manager.get(process_id)
     return rec.to_dict() if rec else {"error": "not_found"}
 
 
@@ -176,7 +176,7 @@ async def get_process(process_id: str):
 async def cognitive_state():
     """认知状态快照:系统此刻在想什么(目标/焦点/注意力/激活记忆/活跃进程)。"""
     try:
-        return _api._os_instance.cognitive_state.snapshot()
+        return _api.os_instance().cognitive_state.snapshot()
     except Exception as e:
         return {"error": str(e)}
 
@@ -186,7 +186,7 @@ async def cognitive_state():
 @app.get("/api/thoughtchain/{agent_id}/chain")
 async def get_thought_chain(agent_id: str, session_id: str = None):
     """获取 Agent 的推理链"""
-    tc = _api._os_instance.thought_chain
+    tc = _api.os_instance().thought_chain
     if session_id:
         nodes = tc.get_chain(session_id, agent_id)
     else:
@@ -198,7 +198,7 @@ async def get_thought_chain(agent_id: str, session_id: str = None):
 @app.get("/api/thoughtchain/{agent_id}/blocked")
 async def get_blocked_nodes(agent_id: str, limit: int = 20):
     """获取被 Harness 截断的节点（审计用）"""
-    tc = _api._os_instance.thought_chain
+    tc = _api.os_instance().thought_chain
     nodes = tc.get_blocked_nodes(agent_id, limit=limit)
     return {"blocked": [n.to_dict() for n in nodes], "count": len(nodes)}
 
@@ -206,7 +206,7 @@ async def get_blocked_nodes(agent_id: str, limit: int = 20):
 @app.get("/api/thoughtchain/{agent_id}/trend")
 async def get_drift_trend(agent_id: str, limit: int = 100):
     """获取漂移趋势数据（前端可视化用）"""
-    tc = _api._os_instance.thought_chain
+    tc = _api.os_instance().thought_chain
     trend = tc.get_delta_trend(agent_id, limit=limit)
     return {"trend": trend, "agent_id": agent_id}
 
@@ -214,7 +214,7 @@ async def get_drift_trend(agent_id: str, limit: int = 100):
 @app.get("/api/thoughtchain/{agent_id}/summary")
 async def get_thought_summary(agent_id: str):
     """获取 ThoughtChain 健康摘要"""
-    return _api._os_instance.thought_chain.get_summary(agent_id)
+    return _api.os_instance().thought_chain.get_summary(agent_id)
 
 
 # ── Harness 状态 ───────────────────────────────────────────
@@ -222,7 +222,7 @@ async def get_thought_summary(agent_id: str):
 @app.get("/api/harness/{agent_id}/status")
 async def get_harness_status(agent_id: str):
     """获取 Harness 状态：阈值、shadow mode、policy 摘要"""
-    agent = _api._os_instance.get_agent(agent_id)
+    agent = _api.os_instance().get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} 不存在")
     return {
@@ -236,7 +236,7 @@ async def get_harness_status(agent_id: str):
 @app.get("/api/harness/{agent_id}/policy")
 async def get_policy(agent_id: str):
     """获取 Agent 的 Policy YAML（完整内容）"""
-    agent = _api._os_instance.get_agent(agent_id)
+    agent = _api.os_instance().get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} 不存在")
     return agent.harness._policy
