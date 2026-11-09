@@ -23,6 +23,7 @@ import secrets
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 
 # ── 凭证保险箱(vault)────────────────────────────────────────
@@ -364,7 +365,7 @@ def _handle_execute_web(msg: dict, vault: dict, store: TokenStore) -> dict:
         return SkillResult(skill_id, False, status="blocked",
                            message="缺少 httpx 依赖,无法发起 Web API 调用").to_dict()
 
-    req_kwargs = {"headers": headers, "timeout": timeout, "follow_redirects": False}
+    req_kwargs: dict[str, Any] = {"headers": headers, "timeout": timeout, "follow_redirects": False}
     if loc == "query":
         req_kwargs["params"] = args
     else:
@@ -416,6 +417,7 @@ def serve_stdio(vault: dict, store: TokenStore, servers: dict) -> None:
         mid = msg.get("id")
         op = msg.get("op")
         try:
+            result: dict[str, object]
             if op == "ping":
                 result = {"pong": True}
             elif op == "evaluate":

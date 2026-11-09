@@ -130,7 +130,7 @@ class OpenClawBridgeAdapter(ChannelAdapter):
 
     def verify_webhook(self, headers, body: bytes,
                        tolerance: float = _signing.DEFAULT_TOLERANCE,
-                       replay: "_signing.ReplayGuard" = None):
+                       replay: "_signing.ReplayGuard | None" = None):
         """验 OpenClaw 转发来的 webhook 签名,返回 (是否通过, 原因码)。
 
         与出站签名同一套 canonical 结构、同一个共享密钥(`signing.verify`)。

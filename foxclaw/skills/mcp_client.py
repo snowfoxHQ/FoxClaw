@@ -105,7 +105,7 @@ def _get(tool, key, default=None):
 
 
 def tool_to_spec(server_id: str, tool):
-    from . import SkillSpec
+    from . import SideEffect, SkillSpec
     ann = _get(tool, "annotations", None)
     if isinstance(ann, dict):
         ro = ann.get("readOnlyHint")
@@ -113,6 +113,7 @@ def tool_to_spec(server_id: str, tool):
     else:
         ro = getattr(ann, "readOnlyHint", None) if ann else None
         de = getattr(ann, "destructiveHint", None) if ann else None
+    se: SideEffect
     if ro is True:
         se, destr = "read", False
     elif de is True:

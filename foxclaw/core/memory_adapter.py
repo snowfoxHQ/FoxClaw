@@ -308,8 +308,10 @@ class HMRAdapter:
 
         def _ts(m):
             v = getattr(m, "created_at", None)
+            if v is None:
+                return 0.0
             try:
-                return v.timestamp() if hasattr(v, "timestamp") else float(v or 0)
+                return v.timestamp() if hasattr(v, "timestamp") else float(v)
             except Exception:
                 return 0.0
 
@@ -331,6 +333,9 @@ class HMRAdapter:
             if not title or self._AUTO_TITLE.match(title):
                 title = self._derive_title(
                     getattr(m, "content", "") or getattr(m, "semantic_summary", "")) or title
+            created_at = str(created or "")
+            if created is not None and hasattr(created, "isoformat"):
+                created_at = created.isoformat()
             out.append({
                 "id": getattr(m, "id", ""),
                 "type": getattr(m, "type", ""),
@@ -338,7 +343,7 @@ class HMRAdapter:
                 "summary": (getattr(m, "semantic_summary", "") or getattr(m, "content", "") or "")[:180],
                 "agent": agent,
                 "shared": "shared" in tags,
-                "created_at": created.isoformat() if hasattr(created, "isoformat") else str(created or ""),
+                "created_at": created_at,
             })
         return out
 
@@ -509,9 +514,9 @@ def create_memory_backend(storage_path: str = "./hmr_data", llm_api_key: str | N
         print(f"[Foxclaw] ⚠ FOXCLAW_MEMORY_BACKEND={choice!r} 无法识别,按 HMR 处理")
 
     try:
-        adapter = HMRAdapter(storage_path=storage_path, llm_api_key=llm_api_key)
-        print(f"[Foxclaw] ✓ HMR v{adapter.version} 已接入 (backend={adapter.backend})")
-        return adapter
+        hmr = HMRAdapter(storage_path=storage_path, llm_api_key=llm_api_key)
+        print(f"[Foxclaw] ✓ HMR v{hmr.version} 已接入 (backend={hmr.backend})")
+        return hmr
     except Exception as e:
         print(f"[Foxclaw] ⚠ HMR 不可用 ({e.__class__.__name__}: {e}),降级 MockHMR")
         return MockHMR()

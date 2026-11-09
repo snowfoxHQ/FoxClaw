@@ -116,7 +116,7 @@ class Scheduler:
 
     def stats(self) -> dict:
         with self._lock:
-            s = dict(self._stats)
+            s: dict[str, int | None] = dict(self._stats)
         s["max_concurrency"] = self.max_concurrency
         return s
 

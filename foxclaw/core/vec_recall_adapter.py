@@ -78,7 +78,7 @@ class _HKCSharedEmbedding:
     def __init__(self, model_name: str):
         self.model_name = model_name
         self._model = None
-        self._dim = None
+        self._dim: int | None = None
 
     def _load(self):
         if self._model is None:
@@ -262,7 +262,7 @@ class VecRecallAdapter:
             )
 
     # ── 召回 ──────────────────────────────────────────────
-    def _visible(self, mem, agent_id: str, include_shared: bool) -> bool:
+    def _visible(self, mem, agent_id: str | None, include_shared: bool) -> bool:
         """可见性判定，与 vecRecall `_visible_to` 规则保持同源。
 
         - shared 记忆：仅当 include_shared 时可见

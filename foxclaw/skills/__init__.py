@@ -11,7 +11,11 @@ Foxclaw Skill 接入层 — 助手的"万能工具箱",同时是对外生态兼�
 import contextvars
 import threading
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
+
+if TYPE_CHECKING:                      # 仅类型检查期导入:这两个模块会连带 mcp/sqlite 依赖
+    from .mcp_client import McpManager
+    from .policy import SkillPolicy
 
 
 SkillKind = Literal["local", "mcp", "web_api"]
@@ -96,7 +100,7 @@ class SkillResult:
     output: dict = field(default_factory=dict)
     status: str = "done"                              # done / needs_confirmation / blocked
     message: str = ""
-    loop_warning: dict = None                         # 循环检测告警(卡死时填充)
+    loop_warning: Optional[dict] = None  # 循环检测告警(卡死时填充)
     # 关键操作二次确认:status=needs_confirmation 时携带一次性确认码(绑定本次动作+参数)
     confirm_nonce: str = ""
     confirm_expires_at: float = 0.0
@@ -181,10 +185,11 @@ class SkillAdapter:
         # None → 不启用:confirmed=True 直通(既有语义,进程内调用/测试不受影响)。
         # 外部入口(HTTP)应注入,否则「确认」只是可重放的布尔。
         self.confirms = confirms
-        self.mcp_clients = mcp_clients or {}   # server名 -> 客户端(本地配)
+        # server名 -> 客户端。宿主可注入 McpManager(同样实现 .get(id)),故两者都允许。
+        self.mcp_clients: dict | McpManager = mcp_clients or {}
         self.policy_gate = policy_gate         # 【Step4】统一准入门(可空:standalone 直接 evaluate)
         self.sentinel = sentinel               # 【P-Muse】守门人客户端(可空):非空且 skill.secret_ref 时,web_api 走代执行
-        self.skill_policy = None               # 全局封杀策略(deny/allow kill-switch),宿主注入
+        self.skill_policy: SkillPolicy | None = None   # 全局封杀策略(deny/allow kill-switch),宿主注入
         # 权限规则集(deny>ask>allow)。宿主可注入,默认空规则。
         from .permission import PermissionRules
         self.rules = rules or PermissionRules()
@@ -446,7 +451,7 @@ class SkillAdapter:
         loc = skill.param_location
         if loc == "auto":
             loc = "query" if method in ("GET", "DELETE") else "json"
-        req_kwargs = {"headers": headers, "timeout": skill.timeout,
+        req_kwargs: dict[str, Any] = {"headers": headers, "timeout": skill.timeout,
                       "follow_redirects": False}     # 禁止重定向(防绕过 SSRF 校验)
         if loc == "query":
             req_kwargs["params"] = args
@@ -494,12 +499,12 @@ class SkillAdapter:
                                message=f"守门人代执行返回异常: {d}")
 
     @staticmethod
-    def _ssrf_check(url: str, allow_local: bool = False) -> str:
+    def _ssrf_check(url: str, allow_local: bool = False) -> str | None:
         """返回拦截原因(非空=拒绝),None=放行。委托模块级 ssrf_check(单一真源)。"""
         return ssrf_check(url, allow_local=allow_local)
 
 
-def ssrf_check(url: str, allow_local: bool = False) -> str:
+def ssrf_check(url: str, allow_local: bool = False) -> str | None:
     """SSRF 防护(单一真源):返回拦截原因(非空=拒绝),None=放行。拦截非 http(s)/内网/环回/元数据。
 
     主进程 SkillAdapter 与守门人进程共用 —— 守门人代执行时,主进程可能被攻破传内网地址,

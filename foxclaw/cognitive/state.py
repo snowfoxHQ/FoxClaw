@@ -10,6 +10,8 @@
 可驱动前端"系统在想什么"实时面板,也用于调试与回放。
 """
 from __future__ import annotations
+
+from typing import Optional
 import time
 from dataclasses import dataclass, field
 
@@ -18,14 +20,14 @@ from dataclasses import dataclass, field
 class CognitiveState:
     """系统当前认知状态快照。随事件总线上的活动自动更新。"""
 
-    active_goal: str = None                          # 当前活跃目标(最近任务)
-    active_agent: str = None                         # 当前处理的 Agent
-    semantic_focus: str = None                       # 语义焦点(调度意图类别)
+    active_goal: Optional[str] = None  # 当前活跃目标(最近任务)
+    active_agent: Optional[str] = None  # 当前处理的 Agent
+    semantic_focus: Optional[str] = None  # 语义焦点(调度意图类别)
     attention_scope: list = field(default_factory=list)   # 注意力范围(关键词)
     reasoning_depth: float = 0.0                     # 当前推理深度
     confidence_map: dict = field(default_factory=dict)    # 置信度图(意图/优先级)
     activated_memories: list = field(default_factory=list)  # 激活的记忆(最近召回/沉淀)
-    last_route: str = None                           # 最近路由倾向
+    last_route: Optional[str] = None  # 最近路由倾向
     active_processes: int = 0                         # 活跃进程数
     temporal_window: str = "current_turn"            # 时间窗口
     updated_at: float = field(default_factory=time.time)
@@ -118,13 +120,13 @@ class CognitiveStateTracker:
         if msg is None:
             return
         with self._lock:
-            self.state.on_execution(getattr(msg, "payload", None))
+            self.state.on_execution(getattr(msg, "payload", None) or {})
 
     def _on_mem(self, msg):
         if msg is None:
             return
         with self._lock:
-            self.state.on_memory_updated(getattr(msg, "payload", None))
+            self.state.on_memory_updated(getattr(msg, "payload", None) or {})
 
     def _on_proc(self, msg):
         if msg is None:
@@ -140,7 +142,7 @@ class CognitiveStateTracker:
                 st = pm.stats().get("by_state", {})
                 active = st.get("scheduled", 0) + st.get("running", 0)
         with self._lock:
-            self.state.on_process_change(getattr(msg, "payload", None), active)
+            self.state.on_process_change(getattr(msg, "payload", None) or {}, active)
 
     def snapshot(self) -> dict:
         with self._lock:

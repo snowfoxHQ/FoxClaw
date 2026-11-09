@@ -13,11 +13,11 @@ import functools
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, cast
 
 from ..harness.harness import Harness
 from ..harness.loop_detection import ToolLoopDetector
-from ..core.thought_chain import ThoughtChain, ThoughtNode
+from ..core.thought_chain import NodeType, ThoughtChain, ThoughtNode
 
 
 @dataclass
@@ -106,7 +106,7 @@ class GovernanceSession:
         工具调用串对目标的语义距离是噪声。"""
         node = ThoughtNode.create(
             session_id=self._session_id, agent_id=self.agent_id,
-            type=node_type or ("tool_intent" if tool else "reasoning"),
+            type=cast(NodeType, node_type or ("tool_intent" if tool else "reasoning")),
             content=content, conf=conf, tool_name=tool, entities=entities or [])
         self.thought_chain.add_node(node)
         r = self.harness.check(node, ignore_semantic=not semantic)

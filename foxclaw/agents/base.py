@@ -10,14 +10,26 @@ CognitiveAgent — 认知增强 Agent 基类
 
 import threading
 import uuid
+from typing import TYPE_CHECKING, Any
 
 from ..core.thought_chain import ThoughtChain, ThoughtNode
 from ..harness.harness import Harness, HarnessResult
+
+if TYPE_CHECKING:              # 仅类型检查期:避免把 kernel/skills 的重依赖拉进 agents 基线
+    from ..core.recovery import RestartRecovery
+    from ..core.system_bus import SystemBus
+    from ..kernel import ProcessManager
+    from ..skills.lifecycle import HookManager
+    from ..skills.markdown_skill import MarkdownSkillRegistry
 
 # 工具并行执行后,多个 worker 线程可能同时走 _think(web_search 命中 / 记忆召回节点),
 # 而 _parent_node_id 是共享可变指针。用模块级 RLock 串行化「建链 + 挪指针」两步,
 # 保证 thought 链仍是一条合法链(节点本身顺序由完成时刻决定,语义可接受)。
 _THINK_LOCK = threading.RLock()
+
+# _gate_cache 的「尚未解析」哨兵。None 是合法的已解析值(无 gate),故不能用 None 当哨兵,
+# 也不能用字符串(会把 gate 的静态类型污染成 str|Any,见 mypy union-attr)。
+_GATE_UNSET = object()
 
 # ── S3 步骤 2：按职责拆分到 mixin（纯搬移、零行为变更）────────────────────────
 # 会话状态基础设施（contextvar + 污点 + HarnessBlockedError）搬至 mixins/_context.py；
@@ -91,6 +103,14 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
     AGENT_ID: str = "base"
     AGENT_NAME: str = "Base Agent"
     ALLOWED_TOOL_CATEGORIES: set[str] = {"read"}
+
+    # 宿主(Foxclaw)装配后才注入的可选依赖。这里只声明类型、不给默认值(不创建运行时属性,
+    # 保持 "standalone/测试 Agent 没有这些属性" 的既有语义),使用处一律 getattr(..., None) 兜底。
+    md_skills: "MarkdownSkillRegistry"
+    hooks: "HookManager"
+    _system_bus: "SystemBus"
+    _process_manager: "ProcessManager"
+    _recovery: "RestartRecovery"
 
     def __init__(
         self,
@@ -237,8 +257,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
     def _reasoning_result(self, node):
         """经统一 PolicyGate 做推理准入,返回 HarnessResult(与直接 harness.check 逐字一致)。
         gate 经能力中枢惰性解析并缓存;无 gate(standalone/治理场景)则直接 harness.check。"""
-        gate = getattr(self, "_gate_cache", "unset")
-        if gate == "unset":
+        gate: Any = getattr(self, "_gate_cache", _GATE_UNSET)
+        if gate is _GATE_UNSET:
             caps = getattr(self, "_caps", None)
             gate = caps.get("policy_gate") if caps is not None else None
             self._gate_cache = gate

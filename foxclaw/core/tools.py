@@ -15,6 +15,7 @@ Foxclaw — 工具注册表(ToolRegistry / P2 function-calling)
 """
 from __future__ import annotations
 import os
+from typing import Any
 
 
 def _tool(name: str, description: str, properties: dict, required: list) -> dict:
@@ -113,13 +114,14 @@ class ToolRegistry:
         for k in required:
             if k not in args or args[k] in (None, ""):
                 errs.append(f"缺少必填参数 {k}")
-        _tmap = {"string": str, "integer": int, "number": (int, float),
+        _tmap: dict[str, Any] = {"string": str, "integer": int, "number": (int, float),
                  "boolean": bool, "array": list, "object": dict}
         for k, v in args.items():
             spec = props.get(k)
             if not isinstance(spec, dict):
                 continue
-            want = _tmap.get(spec.get("type"))
+            stype = spec.get("type")
+            want = _tmap.get(stype) if isinstance(stype, str) else None
             if not want or not isinstance(v, want):
                 # bool 是 int 的子类,须排除,否则 True 会被当成合法 integer
                 if not (want is not bool and isinstance(v, bool)):

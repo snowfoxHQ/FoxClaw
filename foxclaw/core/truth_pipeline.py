@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 from datetime import datetime
+from typing import Any
 
 
 class TruthPipeline:
@@ -93,7 +94,7 @@ class TruthPipeline:
         【P3-5】双保险:_on_trace_recorded 已挡 blocked,这里再检查一次。
         """
         p = msg.payload
-        update = {"persisted": False}
+        update: dict[str, Any] = {"persisted": False}
         if self.hmr is not None and not p.get("blocked"):
             try:
                 # 沉淀到 HMR 共享层(所有 Agent 可见),用真实的 ingest 接口

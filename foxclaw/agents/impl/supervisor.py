@@ -8,7 +8,7 @@ from datetime import datetime
 from ..base import CognitiveAgent
 from ...planning import planner as P
 from ._helpers import _with_prior, _dispatch_failed, _extract_step_results, PRIOR_MAX_CHARS
-from typing import Any
+from typing import Any, cast
 
 class SupervisorAgent(CognitiveAgent):
     AGENT_ID = "supervisor"
@@ -73,9 +73,9 @@ class SupervisorAgent(CognitiveAgent):
         orch = getattr(self, "orch", None)
         if orch is None:
             return {"error": "编排引擎未挂载"}
-        from foxclaw.orchestration import CrossAgentRequest
+        from foxclaw.orchestration import CrossAgentRequest, RequestType
         req = CrossAgentRequest(from_agent=from_agent, to_agent=to_agent,
-                                request_type=request_type, payload=payload,
+                                request_type=cast(RequestType, request_type), payload=payload,
                                 reason=reason)
         # 走协商闭环:被拒时给发起方让步重报的机会。对未实现 concede 的 Agent 而言
         # 只会跑一轮 → 与原先的一次性 route_request 逐字等价(零行为变更)。
@@ -145,7 +145,7 @@ class SupervisorAgent(CognitiveAgent):
         # 关键词命中计数走统一原语(negation=False,与原计数逐字一致)
         scores = {aid: P.keyword_hits(task, kws)
                   for aid, kws in self.ROUTING_KEYWORDS.items()}
-        best = max(scores, key=scores.get)
+        best = max(scores, key=lambda k: scores[k])
         if scores[best] > 0:
             return best
         # 关键词不明:用调度意图做辅助判断

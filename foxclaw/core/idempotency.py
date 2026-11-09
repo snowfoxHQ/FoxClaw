@@ -254,8 +254,9 @@ class IdempotencyGuard:
         一份全量快照,失去"追加日志 O(1)"的意义。"""
         try:
             now = time.time()
-            if os.path.exists(self.persist_path):
-                with open(self.persist_path, encoding="utf-8") as f:
+            snapshot = self.persist_path
+            if snapshot is not None and os.path.exists(snapshot):
+                with open(snapshot, encoding="utf-8") as f:
                     data = json.load(f)
                 for k, v in data.items():
                     created = v.get("created", now)

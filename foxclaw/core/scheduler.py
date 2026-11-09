@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -45,9 +46,9 @@ class ScheduleDecision:
     execution_mode: str           # preemptive(抢占) / standard(标准)
     preemptible: bool             # 是否可触发抢占
     expected_budget: float        # 预期预算(耗时×优先级修正)
-    intent: TaskIntent = None
-    features: TaskFeatures = None
-    preemption_reason: str = None
+    intent: Optional[TaskIntent] = None
+    features: Optional[TaskFeatures] = None
+    preemption_reason: Optional[str] = None
     reason: str = ""
 
     def to_dict(self) -> dict:
@@ -117,7 +118,7 @@ class CognitiveScheduler:
             return "tool"
         return "agent" if priority > 0.35 else "tool"
 
-    def preemption_reason(self, priority: float, ctx: SystemContext) -> str:
+    def preemption_reason(self, priority: float, ctx: SystemContext) -> str | None:
         # 阈值匹配实际优先级范围(本调度器优先级多在 0.4 以内,
         # 原 0.55/0.7 几乎不可达,会让抢占形同虚设)
         if priority > 0.35 and ctx.active_agents >= 3:

@@ -124,7 +124,7 @@ class CompositionResult:
     rollback_log: list = field(default_factory=list)  # 回滚记录 [{skill,status,detail}]
     needs_manual: list = field(default_factory=list)  # 需人工处理的 skill(无补偿/补偿失败)
     # 【P2-2】待确认状态:遇到 needs_confirmation 时填充(不回滚),供调用方展示+断点续跑
-    pending_confirmation: dict = None                 # {task_id,skill_id,stage,message,args,completed_steps,resume_at}
+    pending_confirmation: Optional[dict] = None  # {task_id,skill_id,stage,message,args,completed_steps,resume_at}
     # 【P2-2】已完成步骤(断点续跑所需的现场): [(task_id, skill_id, output)]
     completed_steps: list = field(default_factory=list)
 
@@ -302,7 +302,7 @@ class PipelineResult:
     summary: str
 
     @property
-    def pending_confirmation(self) -> dict:
+    def pending_confirmation(self) -> dict | None:
         """【P2-2】待确认状态(若无则 None)。结构见 compose 的 pending_confirmation。"""
         return self.composition.get("pending_confirmation")
 

@@ -3,6 +3,7 @@ Foxclaw API — FastAPI 后端
 前端控制台通过这里获取所有数据
 """
 
+import threading
 import os
 import asyncio
 import queue
@@ -74,7 +75,7 @@ _event_queue: "queue.Queue" = queue.Queue()
 _broadcast_task: Optional[asyncio.Task] = None
 # HKC 后台预热守护线程:关闭 lifespan 前必须 join,否则 aclose() 关闭 SQLite 连接时
 # 预热线程仍在 build_index() → use-after-free → Windows access violation(偶发崩溃)。
-_prewarm_thread = None
+_prewarm_thread: "threading.Thread | None" = None
 
 
 def _register_spine_projection(os_instance: Foxclaw):

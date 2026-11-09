@@ -18,7 +18,7 @@ from ..action.action_types import WebAction, SUPPORTED_ACTIONS
 class WebAdapter(BaseAdapter):
 
     def __init__(self, headless: bool = True):
-        self._session = None
+        self._session: "SessionManager | None" = None
         self._headless = headless
 
     def _ensure_session(self):

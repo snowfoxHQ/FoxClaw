@@ -346,7 +346,7 @@ class LearningRuntime:
             "total_items": len(self.items),
             "avg_mastery": avg_mastery,
             "topic_mastery": topics,
-            "weakest_topic": (min(topics, key=topics.get) if topics else None),
+            "weakest_topic": (min(topics, key=lambda t: topics[t]) if topics else None),
             "due_today": len(self.sr.due_items(states)),
             "forgetting_risk": self.sr.forgetting_risk(states),
             "learning_load": self.sr.learning_load(states),

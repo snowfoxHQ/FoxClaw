@@ -118,7 +118,8 @@ def _sanitize_attachments(attachments):
             text = text[:_ATTACH_TEXT_TOTAL - total]
         total += len(text)
         try:                                        # size 可能是脏值("big"/None),护栏绝不因此抛异常
-            size = int(a.get("size")) if a.get("size") else 0
+            raw_size = a.get("size")
+            size = int(raw_size) if raw_size else 0
         except (TypeError, ValueError):
             size = 0
         out.append({

@@ -15,6 +15,7 @@ import inspect
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from .stage_meta import named_stage
 
 
 @dataclass
@@ -122,6 +123,7 @@ class CognitivePipeline:
 # ── Stages(Step 1:recall / act)──────────────────────────────
 # stage 是操作 ctx 的可调用;命名 stage_* 便于事件与轨迹标注。
 
+@named_stage("perceive")
 def stage_perceive(ctx: PipelineContext) -> None:
     """感知:把原始输入框定为结构化感知(Step 5)。当前记录轻量输入特征;
     这里是未来"意图识别/输入解析"的落点。也是逐 stage 事件链的起点。"""
@@ -129,14 +131,13 @@ def stage_perceive(ctx: PipelineContext) -> None:
         "task_len": len(ctx.task or ""),
         "has_context": bool(ctx.context),
     }
-stage_perceive.stage_name = "perceive"
 
 
+@named_stage("recall")
 async def stage_recall(ctx: PipelineContext) -> None:
     """召回相关记忆(等价 P1-1 模板的 _recall_memory(_recall_query, top_k))。"""
     a = ctx.agent
     ctx.memories = a._recall_memory(a._recall_query(ctx.task), top_k=a._recall_topk)
-stage_recall.stage_name = "recall"
 
 
 def _plan_text(plan: dict) -> str:
@@ -162,6 +163,7 @@ def _record_plan_node(ctx: PipelineContext) -> None:
         pass
 
 
+@named_stage("plan")
 def stage_plan(ctx: PipelineContext) -> None:
     """结构规划:用 **P1-2 统一规划引擎** 分析任务结构(是否多步/并行),记录到 ctx.plan。
 
@@ -187,7 +189,6 @@ def stage_plan(ctx: PipelineContext) -> None:
         steps, flow = [task], "single"
     ctx.plan = {"steps": steps, "flow": flow, "multi_step": len(steps) > 1}
     _record_plan_node(ctx)
-stage_plan.stage_name = "plan"
 # ⚠【预留·informational,不驱动执行】(2026-07-17 V3·B1 审核标注)
 # stage_plan 写 ctx.plan 供观测/审计,但**没有任何 _execute 读取它**,故不改变执行
 # (act 整段交 LLM/skill)。让 act 真按 plan 多步执行是**行为改变**,须 opt-in + 每步
@@ -242,6 +243,7 @@ def _route_policy(agent, context: dict) -> dict:
             "read_only": bool(p.get("read_only", AUTO_ROUTE_READ_ONLY))}
 
 
+@named_stage("route")
 def stage_route(ctx: PipelineContext) -> None:
     """路由决策:记录本任务由谁处理到 ctx.route(target=self 或 skill)。
 
@@ -286,7 +288,6 @@ def stage_route(ctx: PipelineContext) -> None:
                      "confidence": round(float(r.confidence), 3),
                      "reason": f"router 选中 skill「{r.primary}」"
                                f"(置信 {r.confidence:.2f}≥{policy['threshold']})"}
-stage_route.stage_name = "route"
 
 
 def _skill_dispatch_enabled(agent, context: dict) -> bool:
@@ -341,7 +342,9 @@ async def _act_via_skill(ctx: "PipelineContext"):
     if reg is None or adp is None:
         return None                       # 无工具箱(finance/admin/office)→ 回落 _execute
     sid = (ctx.route or {}).get("skill_id")
-    skill = reg.get(sid) if sid else None
+    if not isinstance(sid, str) or not sid:
+        return None
+    skill = reg.get(sid)
     if skill is None:
         return None
     from ..skills.pipeline import _build_args
@@ -367,6 +370,7 @@ async def _act_via_skill(ctx: "PipelineContext"):
              "pending": res.status == "needs_confirmation"}, extra)
 
 
+@named_stage("act")
 async def stage_act(ctx: PipelineContext) -> None:
     """领域执行步骤。默认:领域 `_execute`(→ LLM),等价 P1-1 模板。
 
@@ -381,9 +385,9 @@ async def stage_act(ctx: PipelineContext) -> None:
             return
     ctx.result, ctx.extra = await ctx.agent._execute(
         ctx.task, ctx.context, ctx.session_id, ctx.memories)
-stage_act.stage_name = "act"
 
 
+@named_stage("verify")
 def stage_verify(ctx: PipelineContext) -> None:
     """把本次执行的 Harness 校验**结果**显式化到 ctx.verified(Step 2)。
 
@@ -411,7 +415,6 @@ def stage_verify(ctx: PipelineContext) -> None:
         # 会让重试永远到上限、无法因"重试改善"提前退出;last_delta 反映当前尝试,可正确早退。
         "last_delta": round(deltas[-1], 3) if deltas else 0.0,
     }
-stage_verify.stage_name = "verify"
 
 
 def _reflect_policy(agent, context: dict) -> dict:
@@ -430,6 +433,7 @@ def _reflect_policy(agent, context: dict) -> dict:
             "drift_threshold": float(p.get("drift_threshold", 0.5))}
 
 
+@named_stage("reflect")
 async def stage_reflect(ctx: PipelineContext) -> None:
     """反思:读 verify 信号(max_delta),决定接受还是**有上限地**重试(Step 3)。
 
@@ -473,7 +477,6 @@ async def stage_reflect(ctx: PipelineContext) -> None:
     ctx.reflect = {"decision": decision, "retries": retries,
                    "final_last_delta": ctx.verified.get("last_delta", 0.0),
                    "final_max_delta": ctx.verified.get("max_delta", 0.0)}
-stage_reflect.stage_name = "reflect"
 
 
 # 默认管线的 stage 序列(完整八阶段之七;persist=run_task 里的 emit + 领域 _store_memory)。

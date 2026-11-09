@@ -50,7 +50,7 @@ class ToolLoopDetector:
         self.critical = max(self.warning + 1, critical)
         self.circuit_break = max(self.critical + 1, circuit_break)
         self.history: deque = deque(maxlen=max(history_size, self.circuit_break))
-        self._last_verdict = None
+        self._last_verdict: LoopVerdict | None = None
         # 【深审·线程安全】SkillAdapter 持单个共享实例,invoke(含管线内 dispatch)可被并发任务
         # 同时调 record → history.append + _detect(list(history)) 非原子,需锁(线程安全铁律)。
         self._lock = threading.RLock()
@@ -78,8 +78,9 @@ class ToolLoopDetector:
         rhash = self._result_sig(result) if result is not None else ""
         with self._lock:                      # append + _detect 必须原子(并发 record 会交错)
             self.history.append(_ToolCall(sig, tool_name, rhash))
-            self._last_verdict = self._detect()
-            return self._last_verdict
+            verdict = self._detect()
+            self._last_verdict = verdict
+            return verdict
 
     def _level_for(self, count: int) -> str:
         if count >= self.circuit_break:

@@ -11,6 +11,7 @@
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
+from typing import Optional
 
 # ── 单一真源:否定词 + 顺序/并行/列表 标记 ──────────────────────
 NEGATIONS = ["不", "别", "无需", "不要", "取消", "甭", "don't", "no need", "without"]
@@ -55,10 +56,10 @@ class ScoredCandidate:
 
 @dataclass
 class TriggerRoute:
-    primary: str = None
+    primary: Optional[str] = None
     confidence: float = 0.0
     candidates: list = field(default_factory=list)   # [(id, score)]
-    fallback: str = None
+    fallback: Optional[str] = None
     needs_composition: bool = False
     reason: str = ""
 

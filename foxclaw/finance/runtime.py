@@ -11,7 +11,7 @@ from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
 
-from .models import Transaction, Budget, FinancialEntity
+from .models import Budget, EntityType, FinancialEntity, Transaction
 from .reasoning import FinanceReasoning
 from .policy import FinancePolicyEngine
 from .graph import FinancialDataGraph
@@ -141,7 +141,7 @@ class FinanceRuntime:
         for txn in self.transactions:
             ent = self.entities.get(txn.entity)
             if not ent:
-                etype = "subscription" if txn.is_recurring else "merchant"
+                etype: EntityType = "subscription" if txn.is_recurring else "merchant"
                 ent = FinancialEntity(name=txn.entity, entity_type=etype)
                 self.entities[txn.entity] = ent
             ent.txn_count += 1
@@ -160,7 +160,7 @@ class FinanceRuntime:
             # 更新实体统计
             ent = self.entities.get(txn.entity)
             if not ent:
-                etype = "subscription" if txn.is_recurring else "merchant"
+                etype: EntityType = "subscription" if txn.is_recurring else "merchant"
                 ent = FinancialEntity(name=txn.entity, entity_type=etype)
                 self.entities[txn.entity] = ent
             ent.txn_count += 1
@@ -379,9 +379,9 @@ class FinanceRuntime:
     def import_csv(self, path: str) -> int:
         """从 CSV 导入交易。列:amount,category,entity,account,timestamp,tags
         真实银行 API 接口可在此处替换/扩展。"""
-        path = Path(path)
+        csv_path = Path(path)
         count = 0
-        with open(path, encoding="utf-8") as f:
+        with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 tags = [t.strip() for t in (row.get("tags") or "").split("|") if t.strip()]

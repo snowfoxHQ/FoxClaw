@@ -6,9 +6,10 @@ Foxclaw 行程子系统 — Itinerary Runtime
 
 import csv
 from pathlib import Path
+from typing import cast
 
-from .models import Waypoint, ItineraryVerdict
-from .reasoning import ItineraryReasoning
+from .models import ItineraryVerdict, TravelMode, Waypoint
+from .reasoning import MODE_SPEED, ItineraryReasoning
 from .amap_client import AMapClient
 
 
@@ -70,7 +71,8 @@ class ItineraryRuntime:
             if r:
                 from .models import RouteLeg
                 return RouteLeg(from_id=a.id, to_id=b.id, from_name=a.name,
-                                to_name=b.name, mode=mode,
+                                to_name=b.name,
+                                mode=cast(TravelMode, mode if mode in MODE_SPEED else "driving"),
                                 distance_km=r["distance_km"],
                                 duration_min=r["duration_min"], source="amap")
         return self.reasoning.estimate_leg(a, b, mode)

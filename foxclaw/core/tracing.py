@@ -95,7 +95,7 @@ class Trace:
         self.name = name
         self.start_ts = time.time()
         self._t0 = time.perf_counter()
-        self.duration_ms = None
+        self.duration_ms: float | None = None
         self.spans: list = []
         self._lock = threading.Lock()
         self._dropped = 0
@@ -136,7 +136,7 @@ class TraceStore:
     def __init__(self, limit: int = 200):
         self._d: deque = deque(maxlen=limit)
         self._lock = threading.Lock()
-        self._db_path = None
+        self._db_path: str | None = None
 
     # ── 持久化 ───────────────────────────────────────────
     def attach_db(self, path):
@@ -155,6 +155,8 @@ class TraceStore:
             self._db_path = None
 
     def _conn(self):
+        if self._db_path is None:
+            raise RuntimeError("trace 持久化未启用:先 attach_db")
         conn = sqlite3.connect(self._db_path, timeout=5.0)
         try:
             conn.execute("PRAGMA journal_mode=WAL")   # 单写多读,降锁竞争
@@ -300,7 +302,7 @@ class _OtlpExporter:
     def __init__(self, maxsize: int = 512):
         import queue
         self._q: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
-        self._th = None
+        self._th: threading.Thread | None = None
         self._lock = threading.Lock()
         self.dropped = 0
         self.sent = 0

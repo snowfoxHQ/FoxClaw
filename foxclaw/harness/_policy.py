@@ -6,7 +6,7 @@
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 import yaml
@@ -29,6 +29,7 @@ class PolicyMixin:
     weights: dict[str, float]
     promote_min_obs: int
     _policy: dict
+    _baseline: Any
     _delta_history: list[float]
 
     # ── 学习规则的 action 编译 / 应用 ─────────────────────────
@@ -90,7 +91,7 @@ class PolicyMixin:
 
         # ── 规则级:tool/scope 生成影子候选;semantic 仅权重级 ──
         if dim in self._LEARNABLE_RULE_DIMS:
-            new_rule = {
+            new_rule: dict[str, Any] = {
                 "id": f"rule_{node.id}",
                 "trigger": {
                     "harness_status": "BLOCK",
