@@ -1,0 +1,66 @@
+name: npm-unpublish
+
+# 运维用途:从 registry 删除指定的已发布版本。
+#
+# 为什么放在 CI 里跑:npm 账号是"授权+写入都要 OTP"模式,本地 `npm unpublish`
+# 必然 EOTP;npm 网页又只有 deprecate 和删除整包,没有单版本删除入口。
+# 仓库里的 NPM_TOKEN 是 Classic **Automation** token,可以绕过 2FA。
+#
+# 破坏性:删掉的版本号永久失效,不能再重发。所以下面有两道闸:
+#   1) confirm 输入必须精确等于 DELETE,job 才会启动
+#   2) 不许删除当前 latest(默认挡 0.1.2)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "要删除的版本号(精确匹配,例如 0.1.1)"
+        required: true
+        default: "0.1.1"
+      confirm:
+        description: "输入 DELETE 确认;其他值 job 不会启动"
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  unpublish:
+    if: inputs.confirm == 'DELETE'
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Guard version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERSION}" ]; then
+            echo "::error::version 为空"; exit 1
+          fi
+          case "${VERSION}" in
+            *[!0-9.]*|.*|*.|*..*)
+              echo "::error::非法版本号: ${VERSION}"; exit 1 ;;
+          esac
+          latest="$(npm view foxclaw version)"
+          if [ "${VERSION}" = "${latest}" ]; then
+            echo "::error::拒绝删除当前 latest (${latest});先发新版本再删旧的"; exit 1
+          fi
+          echo "将删除 foxclaw@${VERSION},当前 latest=${latest}"
+
+      - name: Unpublish
+        env:
+          VERSION: ${{ inputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm unpublish "foxclaw@${VERSION}" --force
+
+      - name: Verify remaining versions
+        run: |
+          echo "剩余版本:"
+          npm view foxclaw versions --json
+          echo "latest: $(npm view foxclaw version)"
