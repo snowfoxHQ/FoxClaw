@@ -111,22 +111,49 @@ foreach ($f in Get-ChildItem -Path $src -Recurse -File -Force) {
     }
 }
 
+# ── 源侧已删除的文件:必须同步删除 ───────────────────────────────
+# 早先脚本"只增改不删",api/app.py 改名 bootstrap.py 后公开仓仍留旧文件,
+# mypy 的 `from .. import app` 解析到那个陈旧模块,CI 比本地凭空多出上百条
+# attr-defined(Module has no attribute "get")。删文件/改名后必须能传导。
+$srcSet = [System.Collections.Generic.HashSet[string]]::new()
+foreach ($f in Get-ChildItem -Path $src -Recurse -File -Force) {
+    $srcSet.Add($f.FullName.Substring($src.Length + 1).Replace('\', '/')) | Out-Null
+}
+$stale = @()
+foreach ($rel in (& git -C $PublicRepo -c core.quotepath=false ls-files)) {
+    if (-not $rel) { continue }
+    $norm = $rel.Replace('\', '/')
+    if ($srcSet.Contains($norm)) { continue }
+    if (Test-Excluded $norm) { continue }
+    $stale += $rel
+}
+
 Write-Host ("files to sync: {0}  (target: {1})" -f $plan.Count, $PublicRepo)
-if ($plan.Count -eq 0) { Write-Host "no changes."; return }
+if ($plan.Count -eq 0 -and $stale.Count -eq 0) { Write-Host "no changes."; return }
 $plan | Select-Object -First 40 | ForEach-Object { Write-Host "  + $_" }
 if ($plan.Count -gt 40) { Write-Host ("  ... and {0} more" -f ($plan.Count - 40)) }
+if ($stale.Count -gt 0) {
+    Write-Host ("files to delete: {0}" -f $stale.Count)
+    $stale | Select-Object -First 40 | ForEach-Object { Write-Host "  - $_" }
+    if ($stale.Count -gt 40) { Write-Host ("  ... and {0} more" -f ($stale.Count - 40)) }
+}
 
 if (-not $Apply) {
     Write-Host "`n(dry-run) re-run with -Apply to sync."
     return
 }
 
-# ── 复制(只增改,不删除目标侧文件) ──────────────────────────────
+# ── 复制(增改) ────────────────────────────────────────────────────
 foreach ($rel in $plan) {
     $dest = Join-Path $PublicRepo $rel
     $dir = Split-Path -Parent $dest
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     Copy-Item (Join-Path $src $rel) $dest -Force
+}
+
+# ── 删除目标侧已不存在的文件 ──────────────────────────────────────
+foreach ($rel in $stale) {
+    & git -C $PublicRepo rm --quiet -- $rel | Out-Null
 }
 
 # ── 提交前断言:暂存区里不允许出现任何内部路径 ─────────────────────
