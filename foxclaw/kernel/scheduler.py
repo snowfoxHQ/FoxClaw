@@ -29,7 +29,7 @@ class _PriorityAdmission:
         self.max = max_slots
         self._free = max_slots or 0
         self._cv = threading.Condition()
-        self._heap: list = []          # (-priority, seq):优先级降序,同优先级 FIFO
+        self._heap: list = []
         self._seq = 0
 
     def acquire(self, priority: int = 0) -> None:
@@ -43,7 +43,7 @@ class _PriorityAdmission:
                 self._cv.wait()
             heapq.heappop(self._heap)
             self._free -= 1
-            if self._free > 0 and self._heap:   # 还有空槽+等待者 → 唤醒下一个最高优先者
+            if self._free > 0 and self._heap:
                 self._cv.notify_all()
 
     def release(self) -> None:
@@ -58,11 +58,8 @@ class Scheduler:
     def __init__(self, max_concurrency: Optional[int] = None, spine=None,
                  process_manager=None):
         self.max_concurrency = max_concurrency if (max_concurrency and max_concurrency > 0) else None
-        # Step5:优先级准入(满载时高优先排队者先获空位;不抢占正在跑的)。无上限时零等待。
         self._adm = _PriorityAdmission(self.max_concurrency)
         self._spine = spine
-        # 【Step3】统一生命周期:有 ProcessManager 则委托它发 task.lifecycle.*(唯一词汇、
-        # 唯一状态机);无 pm(standalone/测试)则调度器自发 task.lifecycle.* 作回退。
         self.process_manager = process_manager
         self._lock = threading.Lock()
         self._stats = {"submitted": 0, "running": 0, "completed": 0,
@@ -80,7 +77,6 @@ class Scheduler:
             proc = pm.create(task, agent_id=agent_id, schedule={"priority": priority})
         else:
             self._emit("scheduled", agent_id, task, priority)
-        # 优先级准入:满载则排队等空位(高优先先入);无上限时零等待(behavior-preserving)
         self._adm.acquire(priority)
         try:
             with self._lock:
@@ -90,8 +86,6 @@ class Scheduler:
             if proc is not None:
                 pm.mark_running(proc.process_id)
             else:
-                # 【P5-2】回退路径的词汇与 ProcessManager 对齐:started → running
-                # (pm 的词汇是 created/queued/scheduled/running/completed/failed)
                 self._emit("running", agent_id, task, priority)
             result = fn()
             with self._lock:

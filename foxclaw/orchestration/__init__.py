@@ -22,14 +22,14 @@ RequestStatus = Literal["pending", "approved", "rejected", "needs_confirmation"]
 class CrossAgentRequest:
     """跨 Agent 请求 — 编排的基本单元。
     一个 Agent 向另一个发起请求,目标 Agent 用自己的守门人裁决。"""
-    from_agent: str                     # 发起方
-    to_agent: str                       # 目标方
+    from_agent: str
+    to_agent: str
     request_type: RequestType
-    payload: dict                       # 请求内容(金额/时间/查询等)
+    payload: dict
     reason: str = ""
     status: RequestStatus = "pending"
-    verdict: str = ""                   # 目标 Agent 的裁决说明
-    negotiation: list = field(default_factory=list)   # 协商回合记录(每轮:裁决 + 让步)
+    verdict: str = ""
+    negotiation: list = field(default_factory=list)
     id: str = field(default_factory=lambda: f"req_{uuid.uuid4().hex[:10]}")
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -40,10 +40,10 @@ class CrossAgentRequest:
 @dataclass
 class GlobalSituation:
     """全局态势 — 主管的驾驶舱视图,汇总各内核关键指标。"""
-    finance: dict = field(default_factory=dict)     # 超支?守门人告警?
-    learning: dict = field(default_factory=dict)    # 待复习?薄弱主题?
-    itinerary: dict = field(default_factory=dict)   # 行程冲突?赶不及?
-    alerts: list = field(default_factory=list)      # 跨域汇总的高优先告警
+    finance: dict = field(default_factory=dict)
+    learning: dict = field(default_factory=dict)
+    itinerary: dict = field(default_factory=dict)
+    alerts: list = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
@@ -58,13 +58,8 @@ class Orchestrator:
     不再反向直接持有含主管的 agents 字典)。"""
 
     def __init__(self, caps, auditor=None):
-        self._caps = caps               # CapabilityRegistry
-        # 【P1-3】统一治理审计(可空:standalone 无审计)。裁决事件原本**完全没有**——
-        # 跨 Agent 委派的批准/拒绝/转人工,事前无任何可观测记录。
+        self._caps = caps
         self._auditor = auditor
-        # 【深审修复·长期运行泄漏】原为普通 list、只增不减且**全库从不读**——每次跨 Agent 请求
-        # append 一个 req → 无界增长。改有界 deque(保留最近 N 条供未来观测,符合本库 token_meter/
-        # HookManager 的有界日志惯例);deque.append 原子 ⇒ 并发路由也安全。
         self.request_log: deque = deque(maxlen=1000)
 
     @property
@@ -72,7 +67,6 @@ class Orchestrator:
         """按名字从注册中枢解析 agents(id -> agent 实例)。"""
         return self._caps.get("agents") or {}
 
-    # ── 全局态势汇总(P3:通用聚合,不懂任何领域内部 API)────────────
     def gather_situation(self) -> GlobalSituation:
         """通用聚合各 Agent 自报的领域态势(agent.situation()),形成驾驶舱视图。
         编排层不再直接读 finance/learning/itinerary 内核——领域知识已归属各领域 Agent。"""
@@ -85,12 +79,10 @@ class Orchestrator:
                 continue
             if not s:
                 continue
-            # 一个 Agent 可以自报**多个**领域(拓扑 5→3 后,办公学习 Agent 同时覆盖
-            # learning 与 itinerary),故 `domains: {name: status}` 与旧的单 `domain` 都收。
             doms = s.get("domains")
             if isinstance(doms, dict) and doms:
                 for d, st in doms.items():
-                    if d and hasattr(sit, d):       # finance/learning/itinerary
+                    if d and hasattr(sit, d):
                         setattr(sit, d, st or {})
             else:
                 domain = s.get("domain")
@@ -102,24 +94,16 @@ class Orchestrator:
                             .get(a.get("severity"), 3))
         return sit
 
-    # ── 跨 Agent 请求路由(P3:通用委托,由目标 Agent 用自己的守门人裁决)──────
     def route_request(self, req: CrossAgentRequest) -> CrossAgentRequest:
         """把请求路由给目标 Agent,由**目标 Agent**用自己的守门人裁决(编排层不懂领域)。"""
         target = self.agents.get(req.to_agent)
         if target is None:
-            # 【P1-0】原为 status="approved"(默认放行)—— 那是 fail-open:发起方会拿到
-            # "已批准",但**没有任何 Agent 真的处理过这个请求**。后果是实打实的,例如
-            # 行程 Agent 向未注册的 finance 申请差旅预算,会直接拿到批准并据此下单。
-            # 与下方「裁决异常 → 转人工确认」同属一条原则:裁决权不在编排层,凡未真正
-            # 裁决过的,都不能算通过。改为 needs_confirmation 同样"不崩",只是不再说谎。
             req.status = "needs_confirmation"
             req.verdict = f"目标 Agent '{req.to_agent}' 不存在,无法裁决,转人工确认"
         else:
             try:
                 target.handle_cross_request(req)
             except Exception as e:
-                # 守门人裁决崩溃(如畸形 payload 让解析抛错)必须 **fail-safe**:转人工确认,
-                # 绝不自动放行——对守门人而言,裁决失败时放行=fail-open,是安全隐患。
                 req.status = "needs_confirmation"
                 req.verdict = f"裁决异常,转人工确认: {e}"
         self.request_log.append(req)
@@ -143,7 +127,6 @@ class Orchestrator:
                     "negotiation_round": len(req.negotiation)},
             correlation_id=req.id)
 
-    # ── 协商闭环:被拒 → 发起方让步 → 再裁决 ──────────────────────────
     def negotiate(self, req: CrossAgentRequest, max_rounds: int = 3) -> CrossAgentRequest:
         """跑协商协议。原先裁决是**终局**:财务说预算不足→rejected→到此为止,用户只拿到
         一句"被拒绝"。现在:发起方可拿着拒绝理由降标准重来(改高铁/换酒店/减一天)。
@@ -165,17 +148,17 @@ class Orchestrator:
                                     "verdict": req.verdict,
                                     "payload": dict(req.payload)})
             if req.status != "rejected":
-                break                                  # 通过/待确认 → 协商结束
+                break
             requester = self.agents.get(req.from_agent)
             if requester is None:
                 break
             try:
-                revised = requester.concede(req, req.verdict)   # 问发起方:能让吗?
+                revised = requester.concede(req, req.verdict)
             except Exception as e:
                 req.negotiation.append({"round": rnd, "concede_error": str(e)[:120]})
-                break                                  # 让步逻辑出错 → 停,维持原裁决
+                break
             if not revised or revised == req.payload:
-                break                                  # 让无可让 / 无实质变化 → 停
+                break
             req.negotiation[-1]["conceded_to"] = dict(revised)
             req.payload = revised
         return req

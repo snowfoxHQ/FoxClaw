@@ -12,7 +12,6 @@ function onScroll() {
   stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80
 }
 
-/* 依赖「长度和」而不是整个数组:流式时只有最后一个对象在变,深度 watch 会打爆 */
 watch(
   () =>
     chat.messages
@@ -45,7 +44,6 @@ function srcLabel(s) {
   return SRC_CN[s] || s || '证据'
 }
 
-/* ── 复制 / 重试 ── */
 const copiedKey = ref(-1)
 let copyTimer = 0
 
@@ -54,7 +52,6 @@ async function copy(m, i) {
   try {
     await navigator.clipboard.writeText(text)
   } catch {
-    /* 局域网纯 http 不是安全上下文,clipboard 会拒绝 → 退回 textarea 选中法 */
     const ta = document.createElement('textarea')
     ta.value = text
     ta.style.position = 'fixed'
@@ -64,7 +61,6 @@ async function copy(m, i) {
     try {
       document.execCommand('copy')
     } catch {
-      /* 再失败就只好让用户手动选 */
     }
     ta.remove()
   }
@@ -73,7 +69,6 @@ async function copy(m, i) {
   copyTimer = setTimeout(() => (copiedKey.value = -1), 1600)
 }
 
-/* 只有最后一条能重试:往前还有更新的对话时,重发会把后面的记录截掉 */
 function canRetry(i) {
   return i === chat.messages.length - 1
 }
@@ -83,7 +78,6 @@ function canRetry(i) {
   <div ref="box" class="ms scroll" @scroll="onScroll">
     <div class="ms-in">
       <article v-for="(m, i) in chat.messages" :key="i" class="msg" :class="m.role">
-        <!-- 用户 -->
         <div v-if="m.role === 'user'" class="u-body">
           <div v-if="m.attachments && m.attachments.length" class="u-atts">
             <span v-for="(a, j) in m.attachments" :key="j" class="u-att">{{ a.name }}</span>
@@ -92,7 +86,6 @@ function canRetry(i) {
           <div class="u-time">{{ fmtTime(m.ts) }}</div>
         </div>
 
-        <!-- 助手 -->
         <div v-else class="a-body">
           <div class="a-head">
             <span class="avatar" :class="{ live: m.streaming }" />
@@ -177,7 +170,6 @@ function canRetry(i) {
   display: flex; flex-direction: column; gap: 20px;
 }
 
-/* ── 用户 ── */
 .msg.user { display: flex; justify-content: flex-end; }
 .u-body { max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .u-atts { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
@@ -195,7 +187,6 @@ function canRetry(i) {
 }
 .u-time { font-size: 11px; color: var(--faint); font-family: var(--mono); }
 
-/* ── 助手 ── */
 .a-body { display: flex; flex-direction: column; gap: 9px; }
 .a-head { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--dim); }
 .avatar {
@@ -213,13 +204,9 @@ function canRetry(i) {
 .a-head .live-tag { color: var(--green); font-size: 10.5px; font-weight: 600; }
 .a-time { margin-left: auto; font-family: var(--mono); }
 
-/* 正文由 lib/md.js 渲染成 HTML(见 v-html),所以子元素都是 :deep —— 
-   块级元素自己带 margin,这里整体压紧,避免气泡被撑得很松。 */
 .a-text {
   font-size: 13.5px; line-height: 1.8; color: var(--ink);
   word-break: break-word;
-  /* 渲染出来的 HTML 里没有裸换行(段落内用 <br>),pre-wrap 只负责保住连续空格 ——
-     /帮助 之类的对齐文本原来靠它,去掉就会被折叠成单个空格。 */
   white-space: pre-wrap;
 }
 .a-text :deep(pre),
@@ -280,8 +267,6 @@ function canRetry(i) {
 .a-text :deep(th) { color: var(--dim); font-size: 11.5px; }
 .a-text :deep(a) { color: var(--green); border-bottom: 1px solid rgba(26, 157, 95, 0.3); }
 
-/* 流式光标挂在最后一个块级元素的末尾 —— 原来是一个 <span>,现在内容是 HTML 了,
-   放在外面会掉到下一行开头。 */
 .a-text.streaming > :last-child::after {
   content: '';
   display: inline-block; width: 6px; height: 13px; margin-left: 3px;
@@ -328,7 +313,6 @@ function canRetry(i) {
 .ev-file { color: var(--dim); }
 .ev-link:hover { text-decoration: underline; }
 
-/* ── 认知搜索结果卡 ── */
 .sres {
   border-radius: var(--r-sm);
   background: rgba(255, 255, 255, 0.75);
@@ -371,7 +355,6 @@ function canRetry(i) {
   background: rgba(200, 140, 40, 0.09);
 }
 
-/* 复制 / 重试:平时不占位,鼠标到这条消息才浮出 */
 .a-acts { display: flex; gap: 6px; opacity: 0; transition: opacity 0.13s; }
 .msg:hover .a-acts,
 .a-acts:focus-within { opacity: 1; }
@@ -387,7 +370,6 @@ function canRetry(i) {
   border-color: rgba(26, 157, 95, 0.35);
 }
 
-/* 触屏没有 hover:常显,否则永远点不到 */
 @media (hover: none) {
   .a-acts { opacity: 1; }
 }

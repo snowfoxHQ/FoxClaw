@@ -21,8 +21,6 @@ const rows = computed(() => [
   { ic: '📁', b: '导入文件夹', s: '逐个摄入', act: () => { close(); inFolder.value?.click() } },
   { ic: '🖼', b: '附加图片', s: '发给视觉模型', act: () => { close(); inImg.value?.click() } },
   { ic: '📄', b: '附件文件', s: '随问题发给 AI', act: () => { close(); inAttach.value?.click() } },
-  /* 连接器只有一份实现,在技能面板里。这里不再内嵌一份只读副本(信任档位还是另一套词),
-     点进来直接去那个面板,要管 MCP 也只在一个地方管。 */
   { ic: '🔌', b: '技能 · 连接器', s: '到技能面板看全部', act: () => { close(); setModule('tools') } },
 ])
 
@@ -32,7 +30,6 @@ function toggle() {
 function close() {
   open.value = false
 }
-/* 斜杠命令 /摄入 通过 store 信号打到这里,避免把 input 引用抬到全局 */
 watch(() => ui.ingestTick, () => inFile.value?.click())
 
 function onDocDown(e) {

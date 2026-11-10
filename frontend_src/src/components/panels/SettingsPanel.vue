@@ -8,8 +8,6 @@ import { setMode, chat, say } from '../../stores/chat.js'
 import { profile, loadProfile, saveNickname } from '../../stores/profile.js'
 import { loadSystemInfo, system } from '../../stores/system.js'
 
-/* __APP_INFO__ 由 vite define 在构建时注入 { git:{sha,ts}, built };没有 git 时是 dev。
-   用 typeof 兜一层:万一在没走过 vite 的环境里被单独加载,不要抛 ReferenceError。 */
 const info = typeof __APP_INFO__ === 'undefined' ? null : __APP_INFO__
 const sha = info?.git?.sha || 'dev'
 const age = (() => {
@@ -26,8 +24,6 @@ const err = ref('')
 const cur = computed(() => currentLabel())
 const options = computed(() => modelOptions())
 
-/* 只列真正存在的键位。ChatDock.onKey 里没有 Ctrl+Enter 收录、没有 / 之外的快捷键,
-   这里就不写 —— 设置里写一条按不出来的键,比不写更糟。 */
 const KEYS = [
   ['Enter', '发送'],
   ['Shift + Enter', '换行'],
@@ -38,7 +34,6 @@ const KEYS = [
   ['Ctrl + ,', '打开设置'],
 ]
 
-/* ── 称呼 ── */
 const nickDraft = ref('')
 
 onMounted(() => {
@@ -58,9 +53,6 @@ async function saveNick() {
   }
 }
 
-/* ── 新版本提示 ──
-   后端默认不查(FOXCLAW_UPDATE_CHECK=1 才查),这里如实显示「未开启」,
-   不诱导用户打开,也不假装已经是最新。 */
 const upd = computed(() => system.update || null)
 const updLabel = computed(() => {
   const u = upd.value

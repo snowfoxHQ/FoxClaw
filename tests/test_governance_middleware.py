@@ -35,13 +35,10 @@ def _sess():
 def test_standalone_block():
     print("\n【1】独立可用 + 工具越权拦截")
     gov = _sess()
-    # 正常只读:不抛(可能 PASS/WARN,但绝不 BLOCK)
     r_ok = gov.observe("call get_balance to read balance", tool="get_balance")
     check(not r_ok.blocked, "只读工具 get_balance 不被拦")
-    # 越权:delete 不在 read 允许集 → 硬拦
     r_bad = gov.observe("call delete_account", tool="delete_account")
     check(r_bad.blocked and r_bad.dimension == "tool", "delete_account 被 BLOCK(维度=tool)")
-    # guard 风格:越权抛异常
     raised = False
     try:
         gov.guard("call drop_table", tool="drop_table")
@@ -56,7 +53,7 @@ def test_decorator_sync_async():
 
     @governed(gov)
     def delete_row(x):
-        return f"deleted {x}"      # 不该被执行
+        return f"deleted {x}"
 
     executed = {"sync": False}
     try:
@@ -78,7 +75,6 @@ def test_decorator_sync_async():
             return False
     check(not asyncio.run(run()), "异步:越权协程被拦,未执行")
 
-    # 正常只读函数正常执行
     @governed(gov, tool_name="get_balance")
     def read_balance():
         return 100
@@ -96,7 +92,6 @@ def test_audit_and_loop():
               for n in audit), "越权步骤在审计链里标为 BLOCK")
     check(gov.summary()["blocked_this_session"] == 1, "摘要记录本会话拦截数")
 
-    # 循环检测:反复同一工具 → loop 告警
     gov2 = _sess()
     loop_hit = None
     for _ in range(9):
@@ -108,7 +103,6 @@ def test_audit_and_loop():
 
 def test_import_decoupling():
     print("\n【4】物理解耦:导入治理中间件不连带拉入 Agent 框架")
-    # 必须在**全新子进程**里验(本进程里其它测试早已 import 了 agents,sys.modules 被污染)
     code = (
         "import sys, foxclaw.governance;"
         "bad=[m for m in ('foxclaw.agents.agents','foxclaw.skills',"

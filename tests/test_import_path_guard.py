@@ -12,8 +12,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-# ── resolve_import_path ────────────────────────────────────────────
-
 def _csv(path: Path, text: str = "amount\n-1\n") -> Path:
     path.write_text(text, encoding="utf-8")
     return path
@@ -93,8 +91,6 @@ def test_missing_file_rejected(tmp_path, monkeypatch):
         resolve_import_path(str(tmp_path / "nope.csv"))
 
 
-# ── HTTP 端点 ──────────────────────────────────────────────────────
-
 def test_endpoint_rejects_outside_path(tmp_path, monkeypatch):
     monkeypatch.setenv("HKC_EMBEDDING", "stub")
     root = tmp_path / "data"
@@ -127,8 +123,6 @@ def test_endpoint_accepts_inside_path(tmp_path, monkeypatch):
         assert r.status_code == 200, r.text
         assert r.json()["imported"] == 2
 
-
-# ── 技能副作用默认值 ───────────────────────────────────────────────
 
 def test_skill_default_side_effect_is_write():
     from foxclaw.skills import SkillSpec

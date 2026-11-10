@@ -27,15 +27,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tools" / "mypy_baseline.txt"
 SUMMARY = re.compile(r"Found (\d+) errors? in (\d+) files?")
-# 明细行形如:  foxclaw\api\routes\ahs.py:135: error: Argument "kind" ...  [arg-type]
 DETAIL = re.compile(r"^(?P<file>[^:\n]+?\.py):\d+: error: .*\[(?P<code>[a-z-]+)\]$")
-# 失败时最多打印多少个文件/错误码,避免 CI 日志被刷屏
 TOP_N = 30
-# run_mypy 填充的原始错误样本(失败时打印,定位本地/CI 差异用)。
-# 按文件分组:只打全局前 30 条没用——差异最大的那几个文件往往排在字母序后面打不到。
 SAMPLES: dict[str, list[str]] = {}
 
-# Windows GBK 控制台遇到 ✓/✗ 会 UnicodeEncodeError,直接把输出钉成 utf-8。
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
@@ -96,7 +91,6 @@ def report(by_file: dict[str, int], by_code: dict[str, int]) -> None:
         for f, n in sorted(by_file.items(), key=lambda kv: -kv[1])[:TOP_N]:
             print(f"    {n:4d}  {f}")
     if SAMPLES:
-        # 对大文件集中的问题,给出「错误最多的 5 个文件」各自前 4 条样本。
         top_files = sorted(by_file.items(), key=lambda kv: -kv[1])[:5]
         print("  错误样本(按错误最多的文件取前 4 条):")
         for f, _ in top_files:

@@ -41,17 +41,14 @@ ROOT = Path(__file__).resolve().parent.parent
 class Issue:
     """一条结果。level=error 导致非零退出;warn 只提示。"""
 
-    level: str          # error | warn
+    level: str
     code: str
     msg: str
 
     def __str__(self) -> str:
-        # 只用 ASCII 记号:Windows 默认控制台是 GBK,✓/✗/⚠ 会抛 UnicodeEncodeError
         mark = "ERROR" if self.level == "error" else " WARN"
         return f"  [{mark}] {self.code}: {self.msg}"
 
-
-# ── 版本来源(与 tests/test_version_sync.py 同一份事实)────────────
 
 def _dunder_version(root: Path) -> str:
     txt = (root / "foxclaw" / "__init__.py").read_text(encoding="utf-8")
@@ -157,8 +154,6 @@ def check_tag(tag: str, version: str) -> list:
                       f"tag {tag!r} 指向 {stripped},但代码里是 {version}")]
     return []
 
-
-# ── 归档内容 ──────────────────────────────────────────────
 
 def forbidden_entry(entry: str):
     """归档内条目是否绝对不该出现;返回原因,干净则 None。"""

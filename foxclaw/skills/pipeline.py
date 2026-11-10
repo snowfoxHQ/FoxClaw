@@ -18,16 +18,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..planning import planner as P   # 统一规划原语(P1-2:否定/拆分/打分单一真源)
+from ..planning import planner as P
 
-
-# ============ skill-router:委托统一引擎,候选空间=skill ============
 
 @dataclass
 class RouteResult:
-    primary: Optional[str] = None        # 选中的主 skill id
+    primary: Optional[str] = None
     confidence: float = 0.0
-    candidates: list = field(default_factory=list)   # [(skill_id, score)]
+    candidates: list = field(default_factory=list)
     fallback: Optional[str] = None
     needs_composition: bool = False
     reason: str = ""
@@ -50,8 +48,6 @@ def route(task: str, registry, fallback_id: str | None = None) -> RouteResult:
                        needs_composition=r.needs_composition, reason=r.reason)
 
 
-# ============ planner:任务拆解 ============
-
 @dataclass
 class PlanTask:
     id: str
@@ -63,9 +59,9 @@ class PlanTask:
 @dataclass
 class Plan:
     intent: str
-    tasks: list = field(default_factory=list)        # [PlanTask]
-    flow_type: str = "sequential"                    # sequential/parallel/hybrid
-    steps: list = field(default_factory=list)        # 执行顺序 [task_id]
+    tasks: list = field(default_factory=list)
+    flow_type: str = "sequential"
+    steps: list = field(default_factory=list)
     needs_input: bool = False
     missing: list = field(default_factory=list)
 
@@ -95,7 +91,6 @@ def plan(task: str, registry) -> Plan:
     for i, p in enumerate(parts, 1):
         r = route(p, registry)
         tid = f"T{i}"
-        # 顺序:依赖前一步;并行:无依赖(可同时 fork)
         deps = [f"T{i-1}"] if (i > 1 and flow == "sequential") else []
         tasks.append(PlanTask(id=tid, name=p, suggested_skill=r.primary,
                               dependencies=deps))
@@ -103,8 +98,6 @@ def plan(task: str, registry) -> Plan:
 
     return Plan(intent=task, tasks=tasks, flow_type=flow, steps=steps)
 
-
-# ============ composition:多 skill 编排执行 ============
 
 @dataclass
 class StageResult:
@@ -116,16 +109,14 @@ class StageResult:
 @dataclass
 class CompositionResult:
     mode: str
-    stages: list = field(default_factory=list)       # [StageResult]
+    stages: list = field(default_factory=list)
     final_output: dict = field(default_factory=dict)
     failed: list = field(default_factory=list)
     rolled_back: bool = False
-    rollback_clean: bool = True                       # 回滚是否干净完成(无补偿失败/无需人工)
-    rollback_log: list = field(default_factory=list)  # 回滚记录 [{skill,status,detail}]
-    needs_manual: list = field(default_factory=list)  # 需人工处理的 skill(无补偿/补偿失败)
-    # 【P2-2】待确认状态:遇到 needs_confirmation 时填充(不回滚),供调用方展示+断点续跑
-    pending_confirmation: Optional[dict] = None  # {task_id,skill_id,stage,message,args,completed_steps,resume_at}
-    # 【P2-2】已完成步骤(断点续跑所需的现场): [(task_id, skill_id, output)]
+    rollback_clean: bool = True
+    rollback_log: list = field(default_factory=list)
+    needs_manual: list = field(default_factory=list)
+    pending_confirmation: Optional[dict] = None
     completed_steps: list = field(default_factory=list)
 
     @property
@@ -148,16 +139,13 @@ def _build_args(skill, task_text: str, upstream: dict) -> dict:
     params = skill.params or {}
     if not params:
         return {}
-    # 计算器类:从文本提取数学表达式
     if "expression" in params:
         m = re.search(r"[-+*/().\d\s]+", task_text)
         expr = (m.group(0).strip() if m else task_text)
         return {"expression": expr or task_text}
-    # 单参数 skill:把整段任务文本作为该参数
     if len(params) == 1:
         only = next(iter(params))
         return {only: task_text}
-    # 多参数:传 task,让下游(或 LLM)解析;附带上游
     return {"task": task_text, "upstream_outputs": dict(upstream)}
 
 
@@ -174,7 +162,7 @@ def _rollback(executed, registry, res: CompositionResult):
             continue
         side_effect = getattr(skill, "side_effect", "read")
         if side_effect == "read":
-            continue   # 只读操作无副作用,无需回滚
+            continue
         comp = getattr(skill, "compensate", None)
         if comp is not None:
             try:
@@ -184,12 +172,12 @@ def _rollback(executed, registry, res: CompositionResult):
             except Exception as e:
                 res.rollback_log.append({"skill": sid, "status": "compensate_failed",
                                          "detail": f"补偿失败: {e}"})
-                res.rollback_clean = False          # 补偿失败 → 回滚不干净
+                res.rollback_clean = False
                 res.needs_manual.append(sid)
         else:
             res.rollback_log.append({"skill": sid, "status": "manual_required",
                                      "detail": f"{side_effect} 操作无补偿动作,需人工处理"})
-            res.rollback_clean = False              # 有副作用却无法补偿 → 不干净
+            res.rollback_clean = False
             res.needs_manual.append(sid)
 
 
@@ -226,10 +214,9 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
     恢复已完成步骤的 upstream/executed 现场,跳过 resume_at 之前的步骤。
     """
     res = CompositionResult(mode=plan_obj.flow_type)
-    upstream = {}     # skill_id -> output(供下游读取)
-    executed = []     # [(skill_id, output)] 按执行顺序,供回滚
+    upstream = {}
+    executed = []
 
-    # 【P2-2】恢复已完成步骤(断点续跑)
     resume_at = None
     if resume_state:
         for tid, sid, output in resume_state.get("completed_steps", []):
@@ -239,9 +226,6 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
         resume_at = resume_state.get("resume_at")
 
     for i, t in enumerate(plan_obj.tasks, 1):
-        # 【P2-2】跳过已完成的步骤(断点续跑):resume_at 之前的步骤不重跑;
-        # 命中断点后清空 resume_at,让断点及其之后的步骤正常执行。
-        # (若照抄"!= resume_at 就 continue",断点之后的步骤会被一并跳过)
         if resume_at:
             if t.id != resume_at:
                 continue
@@ -251,7 +235,6 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
             res.failed.append(t.id); continue
         skill = registry.get(sid)
         call_args = _build_args(skill, t.name, upstream)
-        # 关键操作二次确认码随 resume_state 回灌:同一 nonce 只能在原动作+原参数上用一次
         _nonce = (resume_state or {}).get("confirm_nonce", "") or ""
         out = _invoke(adapter, skill, call_args, confirmed, _nonce)
         res.stages.append(StageResult(stage=i, skill_id=sid, result=out.to_dict()))
@@ -260,7 +243,6 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
             executed.append((sid, out.output))
             res.completed_steps.append((t.id, sid, out.output))
         elif out.status == "needs_confirmation":
-            # 【P2-2】待确认 → 暂停,不回滚;把断点现场打包给调用方
             res.pending_confirmation = {
                 "task_id": t.id,
                 "skill_id": sid,
@@ -269,8 +251,6 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
                 "args": call_args,
                 "completed_steps": list(res.completed_steps),
                 "resume_at": t.id,
-                # 关键操作:一次性确认码(绑定 skill + 本次 args,过期即废)。
-                # 续跑时把它塞回 resume_state 一起传,才能通过 adapter 的二次确认校验。
                 "confirm_nonce": getattr(out, "confirm_nonce", "") or "",
                 "confirm_expires_at": getattr(out, "confirm_expires_at", 0.0) or 0.0,
             }
@@ -281,7 +261,6 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
             }
             return res
         else:
-            # blocked/circuit_open/error/timeout → 关键路径失败 → 逆序回滚
             res.failed.append(t.id)
             res.final_output = {"error": out.message, "failed_at": t.id}
             _rollback(executed, registry, res)
@@ -289,8 +268,6 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
     res.final_output = upstream
     return res
 
-
-# ============ 编排器:把 6 个元 skill 串起来 ============
 
 @dataclass
 class PipelineResult:
@@ -329,25 +306,17 @@ class AHSPipeline:
         """
         if confirm_nonce:
             resume_state = {**(resume_state or {}), "confirm_nonce": confirm_nonce}
-        # session_start 钩子
         self.adapter.hooks.fire("session_start", "", {"task": task})
 
-        # 1. router 选主 skill
         r = route(task, self.registry)
 
-        # 2. planner 拆解(总是出计划;简单任务=单步)
         p = plan(task, self.registry)
 
-        # 3. composition 编排执行(每步内部过 guard+breaker+hooks)
         c = compose(p, self.registry, self.adapter,
                     confirmed=confirmed, resume_state=resume_state)
 
-        # session_end 钩子
         self.adapter.hooks.fire("session_end", "", {"task": task})
 
-        # 【P2-2】success 判定区分 pending:待确认不是失败,但也不是成功
-        # (旧语义:pending 会进 failed → success=False;新语义:pending 非空 → success=False。
-        #  外向结果一致,语义不同——pending 的步骤没有被回滚,可以续跑)
         success = not c.failed and bool(c.stages) and not c.pending_confirmation
         if c.pending_confirmation:
             summary = (f"执行 {len(c.stages)} 步,待确认:"
@@ -367,7 +336,6 @@ class AHSPipeline:
                          "failed": c.failed, "final": c.final_output,
                          "rolled_back": c.rolled_back, "rollback_clean": c.rollback_clean,
                          "rollback_log": c.rollback_log, "needs_manual": c.needs_manual,
-                         # 【P2-2】待确认 + 已完成步骤(供前端识别/续跑)
                          "pending_confirmation": c.pending_confirmation,
                          "completed_steps": [s[0] for s in c.completed_steps]},
             success=success, summary=summary)

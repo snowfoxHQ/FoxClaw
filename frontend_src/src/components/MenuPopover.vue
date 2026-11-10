@@ -8,8 +8,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['pick', 'close'])
 
-/* 只剩常驻入口之外的功能(概览 / 活动 / 使用情况 / 复习 / 记忆中心)。
-   常驻项不在这里重复出现 —— 「更多」的语义是「别处放不下的」,不是「全部重列一遍」。 */
 const groups = computed(() => {
   const out = []
   let cur = null
@@ -27,7 +25,6 @@ const groups = computed(() => {
   return out
 })
 
-/* 入口在栏顶 → 浮层向下展开。left 直接对齐按钮左沿;宽度固定,左栏只有 296px,不会溢出视口右侧。 */
 const style = computed(() => {
   const a = props.anchor
   if (!a) return { left: '16px', top: '120px' }

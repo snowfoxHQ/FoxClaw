@@ -43,9 +43,7 @@ class SessionStore:
         self.base.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
-    # ── 内部 ──────────────────────────────────────────────
     def _path(self, sid: str) -> Path:
-        # 只允许我们自己生成的 id 形态,杜绝 ../ 之类路径穿越
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(sid or "")):
             raise ValueError("非法会话 id")
         return self.base / f"{sid}.json"
@@ -65,9 +63,8 @@ class SessionStore:
         tmp = p.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
-        tmp.replace(p)          # 原子替换,防写一半崩坏
+        tmp.replace(p)
 
-    # ── 公开 API ──────────────────────────────────────────
     def create(self, title: str = "", agent_id: str = "supervisor") -> dict:
         sid = uuid.uuid4().hex[:12]
         data = {"id": sid, "title": (title or "新会话")[:60], "agent_id": agent_id,
@@ -130,7 +127,6 @@ class SessionStore:
                 if atts:
                     msg["attachments"] = atts
             msgs.append(msg)
-            # 标题仍是默认值时,用首条用户消息提炼
             if role == "user" and (not d.get("title") or d["title"] == "新会话"):
                 d["title"] = derive_title(content)
             d["updated_at"] = _now()

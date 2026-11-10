@@ -19,14 +19,13 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-# 合法状态与允许的流转(状态机约束:防止非法跳转)
 _VALID_TRANSITIONS = {
     "created":   {"queued", "failed"},
     "queued":    {"scheduled", "failed"},
     "scheduled": {"running", "failed"},
     "running":   {"completed", "failed"},
-    "completed": set(),        # 终态
-    "failed":    set(),        # 终态
+    "completed": set(),
+    "failed":    set(),
 }
 _TERMINAL = {"completed", "failed"}
 
@@ -59,17 +58,9 @@ class ProcessManager:
 
     def __init__(self, bus=None, history_limit: int = 1000):
         self._processes: dict[str, ProcessRecord] = {}
-        self.bus = bus                      # 可选:状态变更发事件
+        self.bus = bus
         self._history_limit = history_limit
-        # 【深审优化】活跃(非终态)进程数的 O(1) 增量计数:create 时 +1、进入终态时 -1
-        # (集中在 _transition)。供 CognitiveState 每次 lifecycle 事件 O(1) 取用,
-        # 免去原先每事件 stats() 遍历全部进程(O(n),n≤1000)。
         self._active = 0
-        # 并行子 Agent 会让多个线程并发 create/mark_*/_evict 同一个 _processes dict,
-        # 且状态机流转是"读 state → 校验 → 写 state"的非原子序列。RLock 保证:
-        #   · dict 增删与遍历(list/stats/_evict)不撞"dict changed size";
-        #   · 同一进程的并发二次流转不会都通过终态校验后重复 transition。
-        # 可重入:_emit→bus.publish 的处理器可能回调 pm 的方法(同线程重入安全)。
         self._lock = threading.RLock()
 
     def create(self, task: str, agent_id: str | None = None,
@@ -82,12 +73,11 @@ class ProcessManager:
         )
         with self._lock:
             rec.state_history.append("created")
-            # 创建后立即入队 → 已调度(调度决策此时已有)
             self._transition(rec, "queued")
             if schedule:
                 self._transition(rec, "scheduled")
             self._processes[rec.process_id] = rec
-            self._active += 1              # 新进程为活跃(此刻处于 queued/scheduled 非终态)
+            self._active += 1
             self._evict_if_needed()
             self._emit(rec)
         return rec
@@ -97,7 +87,6 @@ class ProcessManager:
             rec = self._processes.get(process_id)
             if rec is None:
                 return None
-            # 若仍在 queued(create 未带 schedule),先补 scheduled 再 running
             if rec.state == "queued":
                 self._transition(rec, "scheduled")
             return self._safe_transition(process_id, "running")
@@ -111,7 +100,6 @@ class ProcessManager:
             rec = self._processes.get(process_id)
             if rec is None:
                 return None
-            # 已是终态 → 幂等忽略(重试/并发下的二次标记不算错误,不崩溃)
             if rec.state in _TERMINAL:
                 return rec
             self._transition(rec, "failed")
@@ -145,15 +133,12 @@ class ProcessManager:
             return {"total": len(self._processes), "by_state": counts,
                     "active": self._active}
 
-    # ── 内部 ──
     def _safe_transition(self, process_id: str, next_state: str) -> Optional[ProcessRecord]:
         rec = self._processes.get(process_id)
         if rec is None:
             return None
-        # 已是终态 → 幂等忽略(不崩溃)
         if rec.state in _TERMINAL:
             return rec
-        # 已在目标状态 → 幂等忽略(重复标记不报错)
         if rec.state == next_state:
             return rec
         self._transition(rec, next_state)
@@ -168,15 +153,12 @@ class ProcessManager:
         新增调用点直接调本方法,活跃计数会被重复扣减(可扣成负数,stats 失真)。
         这里是双保险。注意行为变更:终态 → 任何状态,从抛 ValueError 变为静默忽略。
         """
-        # 已是终态 → 幂等忽略(不再 -1,不再改状态)
         if rec.state in _TERMINAL:
             return
         allowed = _VALID_TRANSITIONS.get(rec.state, set())
         if next_state not in allowed:
             raise ValueError(
                 f"非法状态流转: {rec.state} → {next_state}(进程 {rec.process_id})")
-        # 进入终态 → 活跃计数 -1(每进程恰好 create 时 +1、首次入终态时 -1;
-        # 上面的终态守卫保证不会重复扣减)。
         if next_state in _TERMINAL:
             self._active -= 1
         rec.state = next_state
@@ -184,8 +166,6 @@ class ProcessManager:
         rec.state_history.append(next_state)
 
     def _emit(self, rec: ProcessRecord):
-        # 【v2 ① Step3·Lifecycle 统一】emit 唯一生命周期词汇 task.lifecycle.<state>
-        # (取代旧 process.state_changed;Scheduler 委托本 pm,不再自发另一套词汇)。
         if self.bus is not None:
             try:
                 self.bus.publish(f"task.lifecycle.{rec.state}", {

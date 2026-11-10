@@ -1,4 +1,3 @@
-/* 模型选择:全部走 /api/llm/*(llm_admin.py),切换后服务端立即生效,无需重启。 */
 import { reactive } from 'vue'
 import { delJSON, getJSON, postJSON, putJSON } from '../api.js'
 
@@ -28,7 +27,6 @@ export async function loadModels(force = false) {
   }
 }
 
-/* 当前 pill 上显示的名字与色点 */
 export function currentLabel() {
   const c = model.current
   if (!c) return { name: 'Auto', color: '#7e93b8', sub: '跟随 .env 默认' }
@@ -49,9 +47,6 @@ export async function selectModel({ source, provider = null, name = null }) {
   return r
 }
 
-/* 设置面板里的模型清单:auto / 预设 / 自定义摊平成同一形状。
-   active 的判定必须和上面的 currentLabel 一致 —— 两处各写一套,切换后 pill 和
-   列表就会各说各的(这类"同一状态两套判定"是回归温床)。 */
 export function modelOptions() {
   const c = model.current
   const out = [{
@@ -81,13 +76,10 @@ export async function addCustom(payload) {
   await loadModels(true)
 }
 
-/* 连通性测试:后端发一个 "hi" 走真实客户端,失败时 **不抛** 而是返回 {ok:false,error}
-   —— 那正是要显示给用户看的东西,别当异常吞掉。 */
 export async function testModel(payload) {
   return postJSON('/llm/test', payload)
 }
 
-/* 单个自定义模型详情:api_key 永不出网,只回 has_key(编辑表单里留空即保留原值) */
 export async function getCustom(name) {
   return getJSON(`/llm/custom/${encodeURIComponent(name)}`)
 }

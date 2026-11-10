@@ -90,7 +90,6 @@ def build_foxclaw_mcp(os_getter, expose_agents: bool = False) -> FastMCP:
     """os_getter:无参回调,返回当前 Foxclaw 实例(惰性,启动后才有)。
     expose_agents:另开一道开关才暴露 Agent 调度(有副作用面,默认关)。"""
     mcp = FastMCP("Foxclaw Knowledge", stateless_http=True, streamable_http_path="/")
-    # 限流(env 可配):读工具较宽松、ask_foxclaw(驱动 LLM,贵)较紧
     read_limiter = _RateLimiter(_env_int("FOXCLAW_MCP_RATE_READ", 120))
     agent_limiter = _RateLimiter(_env_int("FOXCLAW_MCP_RATE_AGENT", 20))
 
@@ -111,7 +110,7 @@ def build_foxclaw_mcp(os_getter, expose_agents: bool = False) -> FastMCP:
                      "type": str(getattr(h, "ku_type", ""))}
                     for h in (hits or [])]
         except Exception:
-            return [{"error": "internal error"}]        # 对外脱敏:不回传 str(e)
+            return [{"error": "internal error"}]
 
     @mcp.tool()
     def knowledge_get(ku_id: str) -> dict:
@@ -172,7 +171,7 @@ def build_foxclaw_mcp(os_getter, expose_agents: bool = False) -> FastMCP:
 
             def _work():
                 from foxclaw.agents.base import _suppress_memory
-                _suppress_memory.set(True)   # 外部驱动的任务不写 HMR(防污染),随上下文传到 run_task
+                _suppress_memory.set(True)
                 return os_.scheduler.run(
                     lambda: _a.run(os_.run(task, agent)),
                     agent_id=agent, task=task)

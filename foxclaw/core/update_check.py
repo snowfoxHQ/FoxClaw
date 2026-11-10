@@ -35,8 +35,6 @@ def _enabled() -> bool:
 
 
 def _current() -> str:
-    # 延迟导入:``foxclaw/__init__`` 在包加载期就会 import core 下的模块,模块级取
-    # ``__version__`` 会形成循环导入。
     from foxclaw import __version__
 
     return __version__
@@ -113,7 +111,7 @@ def _refresh() -> None:
         latest = _fetch_latest()
         _write_cache({"latest": latest, "checked_at": time.time(), "current": _current()})
         _last_error = None
-    except Exception as exc:      # 网络/解析失败都不该冒泡到请求路径
+    except Exception as exc:
         _last_error = f"{type(exc).__name__}: {exc}"
     finally:
         with _lock:

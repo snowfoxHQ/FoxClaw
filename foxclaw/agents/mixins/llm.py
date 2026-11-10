@@ -7,8 +7,6 @@ from typing import Any
 
 
 class LlmMixin:
-    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
-    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
     AGENT_ID: str
     router: Any
     system_prompt: str
@@ -34,9 +32,6 @@ class LlmMixin:
         import asyncio
         inj = _reasoning_inject.get()
         if inj:
-            # 合并进**最后一条 user 消息**(与 _web_augment 同法),而非前插独立 user 消息——
-            # 后者会产生连续两条 user,某些 OpenAI-compatible 端点会拒绝,违反「模型无关」铁律
-            # (B4 审核 A3)。拷贝后改,不动原 messages。
             merged = list(messages)
             for i in range(len(merged) - 1, -1, -1):
                 if merged[i].get("role") == "user":
@@ -44,7 +39,7 @@ class LlmMixin:
                     merged[i] = m
                     break
             else:
-                merged = [{"role": "user", "content": str(inj)}] + merged   # 无 user 消息才独立前插
+                merged = [{"role": "user", "content": str(inj)}] + merged
             messages = merged
         sc = _act_stream.get()
         if sc is not None:
@@ -60,13 +55,13 @@ class LlmMixin:
                         try:
                             on_token(chunk)
                         except Exception:
-                            pass          # 单个 token 回调故障不中断收集
+                            pass
                 return "".join(parts)
 
             try:
                 return await asyncio.to_thread(_stream_collect)
             except Exception:
-                pass                      # 流式整体故障 → 落到下方非流式 complete(fail-safe)
+                pass
         return await asyncio.to_thread(
             self.router.complete,
             self.system_prompt, messages, max_tokens, self.AGENT_ID)

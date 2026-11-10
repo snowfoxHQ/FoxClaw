@@ -14,7 +14,6 @@ def test_domain_import():
 
     print("=" * 60); print("OS 领域导入(csv/xlsx/json)验证"); print("=" * 60)
 
-    # ── Part A:解析器单元 ─────────────────────────────────────
     from foxclaw.api import _parse_import_rows
 
     csv_bytes = b"amount,category,entity\n-50,food,cafe\n-20,transport,metro\n"
@@ -35,12 +34,10 @@ def test_domain_import():
         pass
     print("[1] 解析器 csv/json/xlsx + 未支持格式报错 OK")
 
-    # ── Part B:三领域文件导入端点(TestClient)────────────────
     from fastapi.testclient import TestClient
     from foxclaw.api import app
 
     with TestClient(app) as c:
-        # [2] finance:csv / xlsx / json 三格式各导入成功
         r = c.post("/api/finance/import/file", files={"file": ("f.csv", csv_bytes, "text/csv")})
         assert r.status_code == 200 and r.json()["imported"] == 2, r.text
         r = c.post("/api/finance/import/file",
@@ -51,20 +48,17 @@ def test_domain_import():
         assert r.status_code == 200 and r.json()["imported"] == 1, r.text
         print("[2] finance 导入 csv/xlsx/json(2+2+1)OK")
 
-        # [3] learning:csv(content,topic,tags)
         lc = "content,topic,tags\n间隔重复提升记忆,学习方法,记忆|复习\n费曼技巧,学习方法,输出\n".encode()
         r = c.post("/api/learning/import/file", files={"file": ("l.csv", lc, "text/csv")})
         assert r.status_code == 200 and r.json()["imported"] == 2, r.text
         print("[3] learning 导入 csv(含 tags 管道分隔)OK")
 
-        # [4] itinerary:json(name/city/duration)
         ij = json.dumps([{"name": "故宫", "city": "北京", "duration_min": 120},
                          {"name": "颐和园", "city": "北京", "duration_min": 90}]).encode()
         r = c.post("/api/itinerary/import/file", files={"file": ("i.json", ij, "application/json")})
         assert r.status_code == 200 and r.json()["imported"] == 2, r.text
         print("[4] itinerary 导入 json OK")
 
-        # [5] 未支持格式 → 400;空文件 → imported 0
         r = c.post("/api/finance/import/file", files={"file": ("x.pptx", b"x", "application/octet-stream")})
         assert r.status_code == 400, r.status_code
         r = c.post("/api/finance/import/file", files={"file": ("e.csv", b"amount,category\n", "text/csv")})

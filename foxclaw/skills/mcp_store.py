@@ -28,9 +28,6 @@ class McpStore:
     def save(self, servers: list):
         with self._lock:
             try:
-                # 【P-Muse·第4步】守门人模式下主进程只存元数据(headers 为空),正常不触发。
-                # 一旦有 headers 非空,说明走的是回退路径(或误传凭证)——明文凭证即将落盘,
-                # 主动告警,消除"凭证静默落盘、重启后才暴露"的隐患。
                 if any(dict(s.get("headers") or {}) for s in servers):
                     print("[McpStore] ⚠ 检测到 headers 凭证,将明文落盘到 "
                           f"{self._path.name}(当前为回退路径/未启用守门人)。",

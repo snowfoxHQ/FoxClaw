@@ -43,7 +43,7 @@ def test_readonly_tools_run_concurrently(monkeypatch) -> None:
     barrier = threading.Barrier(2, timeout=3)
 
     def behave(name, args, sink):
-        barrier.wait()          # 串行时第二个永远到不了 → BrokenBarrierError
+        barrier.wait()
         return f"{name}:ok"
 
     fake = _make(monkeypatch, behave)
@@ -72,7 +72,7 @@ def test_slow_tool_is_cut_off(monkeypatch) -> None:
 
 def test_taint_collected_in_worker_and_merged_in_main(monkeypatch) -> None:
     def behave(name, args, sink):
-        sink.append(3 if name == "web_search" else 2)   # worker 只能收集,不能直接写会话污点
+        sink.append(3 if name == "web_search" else 2)
         return "ok"
 
     fake = _make(monkeypatch, behave)

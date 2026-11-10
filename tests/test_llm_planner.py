@@ -83,20 +83,15 @@ def test_build_plan_tool_schema():
 
 def test_llm_plan_failsafe():
     print("\n【3】fail-safe:不支持/不产出/解析失败/空输入/抛异常 → None")
-    # 不支持 tools
     r = _FakeRouter(result={"supported": False})
     assert llm_plan(r, "任务", _catalog()) is None
-    # 模型没调用工具(空 tool_calls)
     r2 = _FakeRouter(result={"supported": True, "tool_calls": []})
     assert llm_plan(r2, "任务", _catalog()) is None
-    # args 解析失败
     r3 = _FakeRouter(result={"supported": True, "tool_calls": [
         {"id": "c1", "name": "submit_plan", "args": {}, "args_parse_failed": True}]})
     assert llm_plan(r3, "任务", _catalog()) is None
-    # 空 catalog / 空 task
     assert llm_plan(r2, "任务", {}) is None
     assert llm_plan(r2, "", _catalog()) is None
-    # call_tools 抛异常 → None(不冒泡)
 
     class _Boom:
         def call_tools(self, *a, **k):
@@ -120,13 +115,11 @@ def test_llm_plan_parse():
     assert [s["agent"] for s in out["steps"]] == ["finance", "finance", "office"]
     assert out["steps"][1]["depends_on"] == [0]
 
-    # 单步 → flow 强制 single
     r2 = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("parallel", [{"name": "查天气", "agent": "office"}])]})
     out2 = llm_plan(r2, "查天气", _catalog())
     assert out2["flow"] == "single" and len(out2["steps"]) == 1
 
-    # 非法 agent(含已下放的 assistant/admin)兜底 office
     r3 = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("single", [{"name": "x", "agent": "不存在的Agent"}])]})
     out3 = llm_plan(r3, "x", _catalog())
@@ -140,14 +133,12 @@ def test_supervisor_llm_plan():
     D = type("D", (), {"AGENT_NAME": "dummy"})
     sub = {"finance": D(), "office": D()}
 
-    # 未开启 → None
     os.environ.pop("FOXCLAW_LLM_PLAN", None)
     a1 = SupervisorAgent.__new__(SupervisorAgent)
     a1.router = _FakeRouter(result={"supported": True})
     a1._subagents = sub
     assert a1._llm_plan("任务") is None
 
-    # 开启 + 多步 → (Plan, step_routes)
     os.environ["FOXCLAW_LLM_PLAN"] = "1"
     a2 = SupervisorAgent.__new__(SupervisorAgent)
     a2.router = _FakeRouter(result={"supported": True, "tool_calls": [
@@ -161,14 +152,12 @@ def test_supervisor_llm_plan():
     assert len(plan.tasks) == 2
     assert routes == [("查支出", "finance"), ("发邮件", "office")]
 
-    # 单步 → None(交回关键词路由,不改变单步行为)
     a3 = SupervisorAgent.__new__(SupervisorAgent)
     a3.router = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("single", [{"name": "查天气", "agent": "office"}])]})
     a3._subagents = sub
     assert a3._llm_plan("查天气") is None
 
-    # 不支持 tools → None
     a4 = SupervisorAgent.__new__(SupervisorAgent)
     a4.router = _FakeRouter(is_stub=True)
     a4._subagents = sub
@@ -192,7 +181,6 @@ def test_llm_replan_parse():
     print("\n【7】llm_replan:修正计划 + 空 steps 放弃 + fail-safe")
     prior = [{"subtask": "查支出", "agent": "finance", "output": "超时", "blocked": True},
              {"subtask": "发邮件", "agent": "office", "output": "未执行", "blocked": False}]
-    # 正常:换 agent 重排失败步骤
     r = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [
             {"name": "查支出(重试)", "agent": "finance"},
@@ -200,12 +188,10 @@ def test_llm_replan_parse():
         ])]})
     out = llm_replan(r, "查支出再发邮件", prior, _catalog())
     assert out is not None and [s["agent"] for s in out["steps"]] == ["finance", "office"]
-    # 空 steps = 模型判定放弃 → 返回 {"steps": []} 而非 None
     r2 = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [])]})
     out2 = llm_replan(r2, "任务", prior, _catalog())
     assert out2 is not None and out2["steps"] == []
-    # fail-safe:不支持 tools → None
     r3 = _FakeRouter(result={"supported": False})
     assert llm_replan(r3, "任务", prior, _catalog()) is None
     print("  ✓ 修正计划 / 空steps放弃 / 不支持回退 正确")
@@ -214,12 +200,9 @@ def test_llm_replan_parse():
 def test_dispatch_failed():
     print("\n【8】_dispatch_failed:失败判定")
     from foxclaw.agents.agents import _dispatch_failed
-    # 多步 blocked → True
     assert _dispatch_failed({"result": {"dispatched_to": "multi", "blocked": True}}) is True
-    # parallel steps 含 failed → True
     assert _dispatch_failed({"result": {"dispatched_to": "parallel",
         "parallel_steps": [{"failed": True}]}}) is True
-    # 单 Agent / 成功 / 非 dict → False
     assert _dispatch_failed({"result": {"dispatched_to": "finance"}}) is False
     assert _dispatch_failed({"result": {"dispatched_to": "multi", "blocked": False,
         "multi_steps": [{"blocked": False}]}}) is False
@@ -235,7 +218,6 @@ def test_replan_and_redo():
     D = type("D", (), {"AGENT_NAME": "dummy"})
     sub = {"finance": D(), "office": D()}
 
-    # 反思时返回修正计划(重试失败步骤)
     router = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [
             {"name": "查支出(重试)", "agent": "finance"},
@@ -244,7 +226,7 @@ def test_replan_and_redo():
     a = SupervisorAgent.__new__(SupervisorAgent)
     a.router = router
     a._subagents = sub
-    a._think = lambda **kw: None   # 屏蔽 thought_chain
+    a._think = lambda **kw: None
 
     calls = {"n": 0}
 
@@ -283,7 +265,6 @@ def test_replan_gives_up():
     D = type("D", (), {"AGENT_NAME": "dummy"})
     sub = {"finance": D(), "assistant": D()}
 
-    # 反思返回空 steps(放弃)
     router = _FakeRouter(result={"supported": True, "tool_calls": [
         _plan_args("sequential", [])]})
     a = SupervisorAgent.__new__(SupervisorAgent)
@@ -314,21 +295,18 @@ def test_sv_replan_stage():
     from types import SimpleNamespace
     from foxclaw.pipeline.supervisor_stages import sv_replan
 
-    # 无失败 → 短路
     a1 = SimpleNamespace(_replan_enabled=lambda: True)
     ctx1 = SimpleNamespace(extra={}, agent=a1,
                            dispatch_result={"result": {"dispatched_to": "multi", "blocked": False}})
     asyncio.run(sv_replan(ctx1))
     assert ctx1.dispatch_result["result"]["blocked"] is False
 
-    # 有失败但未开启 → 短路保留原结果
     a2 = SimpleNamespace(_replan_enabled=lambda: False)
     ctx2 = SimpleNamespace(extra={}, agent=a2,
                            dispatch_result={"result": {"dispatched_to": "multi", "blocked": True}})
     asyncio.run(sv_replan(ctx2))
     assert ctx2.dispatch_result["result"]["blocked"] is True
 
-    # 触发路径:有失败 + 开启 → 调用 _replan_and_redo 更新结果
     async def fake_replan(task, sched, session_id, subagents, context, memories, dr, max_rounds=2):
         return {"result": {"dispatched_to": "multi", "blocked": False}}
 

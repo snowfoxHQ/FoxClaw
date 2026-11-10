@@ -49,12 +49,11 @@ class HMRAdapter:
         传具体模型名(如 HKC_EMBEDDING_MODEL)使 HMR 与 HKC 共享同一 SentenceTransformer 实例。
         不传则走 vendor/hmr/storage/vector_store.py 的 env 解析链(HKC_EMBEDDING_MODEL>bge-m3)。"""
         _ensure_hmr_importable()
-        from hmr.core.hmr import HMR  # 内嵌包
+        from hmr.core.hmr import HMR
 
-        # 不传 None 就用 .env / HKC 的配置;只有上层显式 override 才用 _embedding_model
         import os as _os
         resolved_model = (embedding_model
-                          or _os.environ.get("EMBEDDING_MODEL")     # 【P2·单 embedding 入口】最高优先级
+                          or _os.environ.get("EMBEDDING_MODEL")
                           or _os.environ.get("HKC_EMBEDDING_MODEL")
                           or _os.environ.get("FOXCLAW_EMBEDDING_MODEL")
                           or "all-MiniLM-L6-v2")
@@ -62,13 +61,8 @@ class HMRAdapter:
                         embedding_model=resolved_model)
         self.backend = "HMR"
         self.version = getattr(self._hmr, "VERSION", "2.0.0")
-        # 并行子 Agent 会并发 ingest/recall,底层 HMR 的向量库/记忆图并非线程安全
-        # (向量索引并发 add+search 是未定义行为)。串行化对 HMR 的访问。叶子组件:
-        # 锁内不回调 pm/bus,故不参与全局锁序,无死锁风险。
         self._lock = threading.RLock()
 
-    # HMR 未给 title 时会退化成 "Concept 03:11" 这类纯时间戳(见 hmr.py 的
-    # `title or f"{type.title()} {HH:MM}"`),在前端"记忆信息条"里一眼看不出是什么。
     _AUTO_TITLE = re.compile(r"^[A-Za-z_]+\s+\d{1,2}:\d{2}$")
 
     @staticmethod
@@ -81,14 +75,13 @@ class HMRAdapter:
             if s.startswith(pfx):
                 s = s[len(pfx):].strip()
                 break
-        for sep in ("→", "->"):          # 对话记忆是"问 → 答",标题取问
+        for sep in ("→", "->"):
             if sep in s:
                 s = s.split(sep, 1)[0].strip()
                 break
         s = re.split(r"[。！？!?\n\r]", s, 1)[0].strip()
         return " ".join(s.split())[:24]
 
-    # ── 记忆摄入 ──────────────────────────────────────────
     def ingest(self, content: str, type: str = "concept", agent_id: str | None = None,
                title: str | None = None, tags: list | None = None, shared: bool = False, **kwargs):
         """统一摄入接口。agent_id 写入 tags 实现隔离;shared=True 则写入共享层。
@@ -97,7 +90,7 @@ class HMRAdapter:
         if agent_id:
             meta_tags.append(f"agent:{agent_id}")
         if shared:
-            meta_tags.append("shared")     # 共享记忆:所有 Agent 可召回
+            meta_tags.append("shared")
         metadata = {"tags": meta_tags}
         if "confidence" in kwargs:
             metadata["confidence"] = kwargs["confidence"]
@@ -106,14 +99,11 @@ class HMRAdapter:
         mtype = type if type in valid else "concept"
         if not title:
             title = self._derive_title(content) or None
-        # 【P0-3】共享层写入闸门:必须在**落库之前**判定(见 core/shared_write.py)。
-        # 未挂策略时返回 None 直接放行;audit 只记事件;enforce 才抛 SharedWriteDenied。
         if shared:
             guard_shared_write(self, agent_id, content, mtype, meta_tags)
         with self._lock:
             return self._hmr.ingest(content, memory_type=mtype, title=title, metadata=metadata)
 
-    # ── 记忆召回 ──────────────────────────────────────────
     def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5,
                include_shared: bool = True, **kwargs):
         """统一召回接口。返回 list[dict]。
@@ -154,8 +144,7 @@ class HMRAdapter:
                         "tags": tags,
                         "_ts": getattr(m, "created_at", None) or getattr(m, "timestamp", None) or "",
                     })
-            out.sort(key=lambda x: str(x["_ts"]), reverse=True)   # 新近优先
-            # 按内容去重(保留最新):否则同一偏好反复表达存成多条,会挤满 limit、把别的偏好挤出召回
+            out.sort(key=lambda x: str(x["_ts"]), reverse=True)
             deduped, seen_c = [], set()
             for x in out:
                 if x["content"] in seen_c:
@@ -196,7 +185,7 @@ class HMRAdapter:
         try:
             with self._lock:
                 mems = fs.list_memories()
-                cand = []                      # tag 预过滤:本 Agent 私有 + 共享
+                cand = []
                 for m in mems:
                     tags = getattr(m, "tags", []) or []
                     if agent_id:
@@ -211,7 +200,7 @@ class HMRAdapter:
                 scored = []
                 for m, tags in cand:
                     vec = vs.vectors.get(getattr(m, "id", None))
-                    if vec is None:            # 少见:该记忆尚无向量 → 现算
+                    if vec is None:
                         try:
                             text = getattr(m, "semantic_summary", "") or (m.content or "")[:500]
                             vec = vs.embedder.embed(text)
@@ -233,7 +222,7 @@ class HMRAdapter:
                     })
                 return out
         except Exception:
-            return None   # 任何异常 → 回退老路径,绝不因根治优化而丢召回能力
+            return None
 
     def _legacy_recall(self, query, agent_id, top_k, include_shared):
         """回退路径:全局召回再按 tag 过滤(HMR 结构不可访问时用)。有完整性局限,见 recall。"""
@@ -251,7 +240,7 @@ class HMRAdapter:
                 own = f"agent:{agent_id}" in tags
                 shared = include_shared and ("shared" in tags)
                 if not (own or shared):
-                    continue  # 既不是本 Agent 的,也不是共享的 → 跳过(隔离保证)
+                    continue
             out.append({
                 "id": getattr(m, "id", ""),
                 "title": getattr(m, "title", ""),
@@ -265,11 +254,6 @@ class HMRAdapter:
                 break
         return out
 
-    # ── 工作区 ────────────────────────────────────────────
-    # 【深审修复·补齐锁覆盖】适配层自述"串行化**所有** HMR 访问"(底层向量库/记忆图非线程安全),
-    # 但此前只有 ingest/recall 加锁;下列同样触碰 self._hmr 的方法漏了锁——与并发 ingest/recall
-    # (并行子 Agent / 并发请求)同时跑会读到 mutation 中的向量索引/字典(未定义行为/迭代崩溃)。
-    # 统一补 self._lock(RLock 叶子锁,锁内不回调 pm/bus,无死锁)。
     def get_workspace(self, agent_id: str):
         with self._lock:
             return self._hmr.get_workspace(agent_id)
@@ -278,7 +262,6 @@ class HMRAdapter:
         with self._lock:
             return self._hmr.save_workspace(agent_id)
 
-    # ── 运行时状态 ────────────────────────────────────────
     def save_runtime_state(self, **kwargs):
         with self._lock:
             return self._hmr.save_runtime_state(**kwargs)
@@ -287,7 +270,6 @@ class HMRAdapter:
         with self._lock:
             return self._hmr.restore_runtime_state()
 
-    # ── 系统状态 ──────────────────────────────────────────
     def get_system_status(self):
         try:
             with self._lock:
@@ -328,8 +310,6 @@ class HMRAdapter:
                     break
             created = getattr(m, "created_at", None)
             title = (getattr(m, "title", "") or "").strip()
-            # 历史记忆多是 "Concept 03:11" 这类时间戳标题(修复前存的)→ 展示时现推一个可读的,
-            # 让老数据也能看懂;推不出来才退回原标题。
             if not title or self._AUTO_TITLE.match(title):
                 title = self._derive_title(
                     getattr(m, "content", "") or getattr(m, "semantic_summary", "")) or title
@@ -355,13 +335,7 @@ class HMRAdapter:
         by_agent: dict[str, Any] = {}
         embedding = "TF-IDF n-gram"
         try:
-          # 序列化对 HMR 内部结构(向量库/记忆图)的读,与 ingest/recall 的写互斥,
-          # 避免并发迭代 store.memories("dict changed size")/读 mutation 中的 faiss 索引。
           with self._lock:
-            # 权威来源:memory_fs 里的真实记忆对象。
-            # 历史 bug:此前从 vector_store 探测 count/size/memories 取 total——但真实记忆存在
-            # memory_fs,vector_store 只存嵌入且无这些属性 → total 恒为 0,而 relations 却有值(109),
-            # 自相矛盾。改为直接数 memory_fs.list_memories()(与 get_statistics 同源)。
             mems: list[Any] = []
             mfs = getattr(self._hmr, "memory_fs", None)
             if mfs is not None and hasattr(mfs, "list_memories"):
@@ -370,12 +344,11 @@ class HMRAdapter:
                 except Exception:
                     mems = []
             total = len(mems)
-            if not total:   # 兜底:memory_fs 不可用 → 数 vector_store.vectors(dict)
+            if not total:
                 vs0 = getattr(self._hmr, "vector_store", None)
                 vecs = getattr(vs0, "vectors", None) if vs0 is not None else None
                 if isinstance(vecs, dict):
                     total = len(vecs)
-            # shared / 按 Agent 分布:agent_id 编码在 tags 里的 "agent:<id>"
             for m in mems:
                 tags = getattr(m, "tags", None)
                 if tags is None and isinstance(m, dict):
@@ -392,7 +365,6 @@ class HMRAdapter:
                 edges = getattr(graph, "edges", None)
                 if edges is not None:
                     relations = len(edges) if hasattr(edges, "__len__") else 0
-            # embedding 模型探测
             emb = getattr(self._hmr, "embedding", None) or getattr(self._hmr, "embedder", None)
             if emb is not None:
                 name = type(emb).__name__
@@ -430,18 +402,13 @@ class MockHMR:
         pass
 
     def ingest(self, content, type="concept", agent_id=None, shared=False, **kwargs):
-        # 【P0-3】与 HMRAdapter 同一道闸门:Mock 后端也过策略。否则在无 HMR 的环境里
-        # 策略形同虚设 —— 而测试与降级场景恰好都落在这一支,那是最需要行为一致的地方。
         if shared:
             guard_shared_write(self, agent_id, content, type, kwargs.get("tags") or [])
         from types import SimpleNamespace
-        # 注意:不能用内置 type() 构造对象——参数名 type 已覆盖内置 type。
         return SimpleNamespace(id="mock_mem", type=type)
 
     def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5, **kwargs):
         from types import SimpleNamespace
-        # 返回带 memory_objects 的对象,与真实 HMR 的 RecallResult 结构一致
-        # (HMRAdapter.recall 会读 result.memory_objects)。
         return SimpleNamespace(memory_objects=[])
 
     def save_runtime_state(self, **kwargs):

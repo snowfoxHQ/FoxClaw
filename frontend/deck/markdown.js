@@ -1,12 +1,8 @@
 import { escapeHtml } from './util.js';
 
-/* ===== 安全 Markdown 渲染(模型输出不可信 → 先整体转义,再只发白名单标签;URL 校验 scheme)=====
-   支持:标题/粗斜体/行内码/代码块/列表/引用/分割线/链接/图片,以及裸图/音/视频 URL 内嵌。
-   代码块占位哨兵用私用区字符 (源码里是 ASCII 转义、运行时是该字符,模型文本不会出现 → 无碰撞)。*/
 function _safeUrl(u){ u=(u||'').trim(); return (/^https?:\/\//i.test(u)||/^mailto:/i.test(u))?u:''; }
 function _safeImgUrl(u){ u=(u||'').trim(); return (/^https?:\/\//i.test(u)||/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(u))?u:''; }
 function _mdInline(s){
-  // s 已在 renderMarkdown 里被 escapeHtml,故 <>&" 均为文本;这里只做 markdown 内联生成白名单标签
   s=s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,(m,alt,url)=>{ const u=_safeImgUrl(url); return u?`<img class="cc-img" src="${u}" alt="${alt}" loading="lazy">`:m; });
   s=s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,(m,txt,url)=>{ const u=_safeUrl(url); return u?`<a href="${u}" target="_blank" rel="noopener noreferrer">${txt}</a>`:m; });
   s=s.replace(/(^|\s)(https?:\/\/[^\s<]+?\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi,(m,pre,url)=>`${pre}<img class="cc-img" src="${url}" alt="" loading="lazy">`);

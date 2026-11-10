@@ -50,10 +50,10 @@ class SharedWriteAuditSink:
     def __init__(self, path: Path):
         self.path = Path(path)
         self._lock = threading.Lock()
-        self._last_hash: str | None = None    # 链尾,首次写时从文件尾部补齐
+        self._last_hash: str | None = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    def __call__(self, evt):  # EventSpine.subscribe 的 handler 形态:handler(event)
+    def __call__(self, evt):
         try:
             rec = {
                 "ts": datetime.now().isoformat(timespec="seconds"),
@@ -69,7 +69,7 @@ class SharedWriteAuditSink:
                     f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
                 self._last_hash = rec["hash"]
         except Exception:
-            pass  # 审计失败绝不影响写入主流程
+            pass
 
     def read(self, limit: int = 200) -> list:
         """读最近 limit 条(供诊断/工具用)。坏行跳过 —— 落盘绝不该反过来卡死读取。"""

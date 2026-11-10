@@ -23,40 +23,23 @@ import urllib.error
 from . import settings
 
 
-# 触发联网搜索的关键词:问到实时/时效性信息时才搜
-# ── 是否需要联网:话题信号(强) vs 时间词(弱) vs 个人数据(否决)──────────────
-# 教训:曾把纯时间词(今天/本月/最近…)也当触发,结果「分析一下本月支出」这类**问自己账本**
-# 的任务被误判为需要联网 → 白跑一次 ~22s 的付费深度搜索。而 Foxclaw 的领域(个人财务/
-# 行程/学习)天生满是时间词,这不是个别误判,是**一整类合法任务**在白交时间和钱。
-# 现在:时间词单独**不足以**触发;必须出现"外部世界话题";且个人数据一律否决。
-# (与既有的 now⊂knowledge / current⊂concurrent 词边界修复同源:都是过度触发。)
-
-# 强触发:出现即说明要的是外部实时信息
 TOPIC_TRIGGERS = [
     "版本", "几个版本", "第几", "价格", "多少钱", "汇率", "股价", "新闻",
     "发布", "上线", "更新到", "迭代", "排行", "排名", "天气",
-    # 问"某产品/技术的模型/型号/出没出/更没更"——都是外部时效信息,过去漏搜→编造。
-    # 只留明确指向外部产品的词;"有哪些/可用/支持"太宽(会误伤"我有哪些任务"),不加。
     "模型", "型号", "出了没", "发布没", "更新没", "新版",
     "latest", "news", "version", "price", "models",
 ]
-# 弱信号:纯时间词。单独出现不触发(个人数据问题天生带这些词)
 TIME_WORDS = [
     "最新", "现在", "目前", "今天", "今日", "昨天", "本周", "本月", "今年",
     "最近", "当前", "today", "current", "now",
 ]
-# 否决:问的是用户自己的账/行程/学习/记忆 —— 这些答案在本地领域内核里,不在网上。
-# 注意别放"我的"这类过宽的词:「我的股票现在多少钱」是真需要联网的。
 PERSONAL_MARKERS = [
     "支出", "收入", "预算", "交易", "账单", "花了", "消费", "记账", "结余", "余额",
     "行程", "日程", "出行", "复习", "知识点", "学习计划", "记忆",
 ]
 
-SEARCH_TRIGGERS = TOPIC_TRIGGERS          # 对外保持同名(旧引用不破)
+SEARCH_TRIGGERS = TOPIC_TRIGGERS
 
-# 中文触发词按「子串」匹配(中文无词边界);英文触发词按「词边界」匹配,
-# 否则短词会误命中常见词:"now"⊂"knowledge"、"current"⊂"concurrent"、
-# "now"⊂"known" —— 在这个满口 knowledge 的项目里会频繁无谓地打百度。
 _CJK_TRIGGERS = [k for k in SEARCH_TRIGGERS if not k.isascii()]
 _ASCII_TRIGGERS = [k.lower() for k in SEARCH_TRIGGERS if k.isascii()]
 _ASCII_RE = (
@@ -85,16 +68,12 @@ def needs_search(query: str) -> bool:
         return False
     q = query.lower()
     if is_personal_query(q):
-        return False                      # 问的是自己的数据 → 答案在本地内核,绝不联网
-    # 自我模型/身份问题(你是什么模型 / 你现在是哪个模型 …)→ 由 ModelRouter 运行时注入本地即答,不联网。
-    # 否则会因含"模型"触发词白跑一次 ~20s 百度搜索。"你"与"模型"相邻(≤8字)才算自问;
-    # "你帮我查 X 的模型"(相距远)仍走搜索。
+        return False
     if re.search(r"你[^,。?!]{0,8}模型", q):
         return False
     if any(k in q for k in _CJK_TRIGGERS):
-        return True                       # 外部世界话题 → 联网
+        return True
     return bool(_ASCII_RE and _ASCII_RE.search(q))
-    # 注:只含时间词(今天/本月/最近…)而无话题 → 不触发(见上方 TIME_WORDS 说明)
 
 
 def _key() -> str:
@@ -139,7 +118,7 @@ def _search_answer_inner(query: str, key: str) -> dict:
             "stream": False,
             "model": _model(),
             "enable_deep_search": _deep(),
-            "enable_corner_markers": False,   # 不要答案里的 ^[1]^ 角标(参考资料已单列)
+            "enable_corner_markers": False,
         }).encode("utf-8")
         req = urllib.request.Request(
             f"{_base()}/chat/completions",
@@ -193,7 +172,6 @@ def format_for_prompt(query: str, payload) -> str:
         refs = payload.get("references", [])
         if not answer and not refs:
             return ""
-        # 我方的作答指令(可信,放在 <untrusted> 之外);检索到的外部内容(不可信,放在 <untrusted> 之内)。
         framing = (
             f"以下是针对「{query}」的实时联网搜索结果(来自百度 AI 搜索)。\n"
             f"【严格要求】只能依据下面 <untrusted> 数据块里的搜索结果作答:结果里没有出现的型号 / "
@@ -215,13 +193,11 @@ def format_for_prompt(query: str, payload) -> str:
                 if u:
                     inner += f"\n链接：{u}"
                 inner += f"\n[webpage {i} end]\n"
-        # 隔离外部内容:搜索结果是外部不可控数据,包裹进 <untrusted> 防间接注入(见 injection_guard)。
         from . import injection_guard as _ig
         block = _ig.wrap_untrusted(inner.rstrip(), source="web_search")
         closing = ("\n请**严格基于以上 <untrusted> 内的搜索结果**回答用户的问题;结果里没提到的内容,"
                    "就明确说「搜索结果中未提及」,绝不编造型号/版本号。")
         return framing + block + closing
-    # 列表形式(兼容)
     results = payload or []
     if not results:
         return ""

@@ -24,11 +24,9 @@ from typing import List, Any
 from .base_driver import BaseDriver
 
 
-# 被拦请求只留最近这些条:诊断/测试用,不落盘
 _MAX_BLOCKED = 50
 
 
-# role -> 对应的 CSS selector，v1 用简单选择器覆盖大多数场景
 ROLE_SELECTOR_MAP = {
     "button": "button, [role=button], input[type=button], input[type=submit]",
     "link": "a[href]",
@@ -44,8 +42,6 @@ ROLE_SELECTOR_MAP = {
 class PlaywrightDriver(BaseDriver):
 
     def __init__(self, headless: bool = True, guard_requests: bool | None = None):
-        # A1：惰性导入——缺 playwright 时这里才抛 ImportError，由上层能力探测拦截，
-        # 不会污染 `import foxclaw.browser`。
         from playwright.sync_api import sync_playwright
 
         self._pw = None
@@ -60,12 +56,8 @@ class PlaywrightDriver(BaseDriver):
                 guard_requests = os.environ.get(
                     "FOXCLAW_BROWSER_GUARD_REQUESTS", "1").strip() not in ("0", "false", "no")
             if guard_requests:
-                # `**/*` 覆盖主文档、3xx 跳转后的新地址、iframe 与全部子资源。
-                # 原先只校验 navigate 的目标:公网页面跳一次转,或塞一个
-                # `<img src="http://169.254.169.254/...">` 就能越过准入。
                 self._page.route("**/*", self._on_route)
         except Exception:
-            # A4：构造中途失败（如 chromium 内核未 install）也不能泄漏原生资源
             self._safe_teardown()
             raise
 
@@ -95,7 +87,6 @@ class PlaywrightDriver(BaseDriver):
         try:
             route.continue_()
         except Exception:
-            # 会话已在拆卸中(回调与 close 竞争):请求已无意义,静默丢弃
             pass
 
     def _safe_teardown(self):
@@ -133,7 +124,6 @@ class PlaywrightDriver(BaseDriver):
         selectors = [ROLE_SELECTOR_MAP[r] for r in roles if r in ROLE_SELECTOR_MAP]
         combined = ", ".join(selectors)
         elements = self._require_page().query_selector_all(combined)
-        # 只保留当前可见的元素，避免 LLM 尝试操作看不见的东西
         return [el for el in elements if el.is_visible()]
 
     def describe_element(self, handle) -> dict:

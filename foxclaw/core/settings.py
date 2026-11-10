@@ -45,8 +45,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-# provider → 需要的环境变量(与 core/model_router.PROVIDER_ENV 保持一致;
-# 这里重复一份是为了让 settings 不依赖 model_router —— 那会拖入 LLM SDK 的导入)。
 PROVIDER_KEY_ENV: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
@@ -58,8 +56,6 @@ PROVIDER_KEY_ENV: dict[str, str] = {
     "generic": "LLM_API_KEY",
 }
 
-# 只检查这些前缀下的"未知键":它们属于本项目或本项目专用的厂商约定,
-# 出现没人读的名字几乎必然是拼错。像 `PATH` / `HOME` 这类系统变量不在此列。
 OWNED_PREFIXES = (
     "FOXCLAW_", "BAIDU_", "AMAP_", "LLM_", "GENERIC_LLM_",
     "MINIMAX_", "LOCAL_LLM_", "HKC_", "HMR_",
@@ -75,10 +71,10 @@ class Opt:
     """一个环境变量的声明。kind 只描述**解析方式**,不代表业务语义。"""
 
     name: str
-    kind: str = "str"                  # str | int | float | csv | choice
+    kind: str = "str"
     default: Any = ""
     group: str = "其他"
-    hint: str = ""                     # 期望格式 / 示例(拼进出错信息)
+    hint: str = ""
     choices: Sequence[str] = ()
     secret: bool = False
     lo: float | None = None
@@ -86,10 +82,6 @@ class Opt:
 
 
 SPECS: tuple[Opt, ...] = (
-    # lo/hi 只给**调用点自己不兜底**的项。像 TRACE_RETAIN 已有 max(100, ...)、
-    # BAIDU_SEARCH_TIMEOUT 已有 max(5, ...):在那里再报一次范围错,等于把"clamp"
-    # 变成"整条配置作废退默认",反而更糟。
-    # ── 模型 ────────────────────────────────────────────────────────────────
     Opt("LLM_PROVIDER", "choice", "", "模型",
         "anthropic / openai / deepseek / google / qwen / local / minimax / generic",
         tuple(PROVIDER_KEY_ENV)),
@@ -109,9 +101,10 @@ SPECS: tuple[Opt, ...] = (
     Opt("LLM_API_KEY", "str", "", "模型", "generic(通用 openai 兼容)的 key", secret=True),
     Opt("LLM_BASE_URL", "str", "", "模型", "generic 的 base_url,如 https://host/v1"),
     Opt("LOCAL_LLM_BASE", "str", "", "模型", "本地推理服务的 base_url"),
-    # ── 服务 ────────────────────────────────────────────────────────────────
     Opt("FOXCLAW_PORT", "int", 8000, "服务", "HTTP 监听端口", lo=1, hi=65535),
     Opt("FOXCLAW_DATA_DIR", "str", "", "服务", "数据目录(默认 <仓库>/foxclaw_data)"),
+    Opt("FOXCLAW_CLAWHUB_REGISTRY", "str", "", "服务",
+        "ClawHub 地址(默认 https://clawhub.ai;内网镜像或自建 registry 填这里)"),
     Opt("FOXCLAW_IMPORT_ROOTS", "csv", "", "服务",
         "额外允许的导入目录(逗号分隔);不配则只有数据目录内的文件可被导入"),
     Opt("FOXCLAW_API_KEY", "str", "", "服务",
@@ -127,7 +120,6 @@ SPECS: tuple[Opt, ...] = (
     Opt("FOXCLAW_STREAM_RATE", "int", 60, "服务", "流式端点每分钟上限", lo=0),
     Opt("FOXCLAW_STREAM_CONCURRENCY", "int", 4, "服务", "流式并发上限", lo=1),
     Opt("FOXCLAW_SHADOW_ROUNDS", "int", 20, "服务", "影子推演轮数", lo=1),
-    # ── 工具 / 追踪 ─────────────────────────────────────────────────────────
     Opt("FOXCLAW_TOOL_TIMEOUT", "float", 45.0, "工具",
         "单个工具调用硬超时(秒);可小于 1(测试用),调用点会兜 >0"),
     Opt("FOXCLAW_TRACE_SLOW_MS", "float", 1000.0, "追踪", "超过多少毫秒算慢请求", lo=0),
@@ -135,12 +127,10 @@ SPECS: tuple[Opt, ...] = (
         "非慢请求的采样率 0~1;超出范围由调用点 clamp,不在这里报错"),
     Opt("FOXCLAW_TRACE_RETAIN", "int", 5000, "追踪",
         "内存里保留的 trace 条数;调用点已有 max(100, ...) 兜底"),
-    # ── 搜索 ────────────────────────────────────────────────────────────────
     Opt("BAIDU_SEARCH_KEY", "str", "", "搜索", "百度 AI 搜索的 key", secret=True),
     Opt("BAIDU_SEARCH_MODEL", "str", "", "搜索", "百度搜索用的模型名"),
     Opt("BAIDU_SEARCH_BASE", "str", "", "搜索", "百度搜索的 base_url"),
     Opt("BAIDU_SEARCH_TIMEOUT", "int", 45, "搜索", "秒;调用点已有 max(5, ...) 兜底"),
-    # ── 渠道 ────────────────────────────────────────────────────────────────
     Opt("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "csv", "", "渠道",
         "逗号分隔的可信发送者:<id> / <channel>:<id> / <channel>:*"),
     Opt("FOXCLAW_CHANNEL_TRUST_ALL", "str", "", "渠道",
@@ -148,27 +138,24 @@ SPECS: tuple[Opt, ...] = (
     Opt("FOXCLAW_CHANNEL_SIGNING_SECRET", "str", "", "渠道",
         "出站 HMAC 密钥;留空 = 不签", secret=True),
     Opt("FOXCLAW_CHANNEL_SIGNING_KEY_ID", "str", "", "渠道", "密钥轮换标识"),
-    # ── 浏览器 ──────────────────────────────────────────────────────────────
     Opt("FOXCLAW_BROWSER_ALLOW_PRIVATE", "str", "", "浏览器",
         "1/true/yes 才允许访问内网地址"),
 )
 
 SPEC_BY_NAME: dict[str, Opt] = {o.name: o for o in SPECS}
 
-# 会在启动/运行早期被读、且类型写错就会崩的少数几个 —— 供 serve 预检快速拦截。
 FATAL_CODES = ("type", "choice", "range")
 
 
 @dataclass
 class Issue:
-    level: str                 # "error" | "warn"
-    code: str                  # type / choice / range / provider_key / unknown_key ...
+    level: str
+    code: str
     name: str
     message: str
-    hint: str = ""             # 修复建议(可为空)
+    hint: str = ""
 
     def __str__(self) -> str:
-        # 只用 ASCII 记号:Windows 控制台默认 GBK,✓/✗/⚠ 会抛 UnicodeEncodeError
         mark = "ERROR" if self.level == "error" else " WARN"
         head = f"[{mark}] {self.name}: {self.message}" if self.name else f"[{mark}] {self.message}"
         return f"{head}\n          → {self.hint}" if self.hint else head
@@ -178,7 +165,7 @@ def _caller() -> str:
     """当前 `get_*` 的调用点(文件:行)。只在出错路径上求值,不进热路径。"""
     try:
         f = inspect.currentframe()
-        for _ in range(3):                      # 跳过 get_* → _parse → _caller 自身
+        for _ in range(3):
             if f is None:
                 return ""
             f = f.f_back
@@ -219,7 +206,7 @@ def _parse(opt: Opt, raw: str, where: str = "") -> Any:
     if opt.kind == "csv":
         return [s.strip() for s in text.split(",") if s.strip()]
 
-    return raw                                  # str:保留原样(尾部空格可能有意义,如口令)
+    return raw
 
 
 def _opt(name: str) -> Opt:
@@ -262,12 +249,12 @@ def get_safe(name: str, default: Any | None = None) -> Any:
     fallback = opt.default if default is None else default
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
-        return fallback                          # 未设置/空串:用调用方给的兜底
+        return fallback
     try:
         return _parse(opt, raw, _caller())
     except ConfigError as e:
         if name not in _warned:
-            _warned.add(name)                    # 只喊一次:tracing 是每请求调用
+            _warned.add(name)
             _log.warning("[config] %s", e)
         return fallback
 
@@ -297,8 +284,6 @@ def known_keys() -> frozenset[str]:
     只在 `check()` / `show()` 这类诊断路径调用,不进请求路径;结果缓存在本进程内。
     """
     pkg = Path(__file__).resolve().parent.parent
-    # vendor/(HKC/HMR)在仓库根,不在包内:它们自己读 HMR_*/HKC_* 变量,不一起扫就会把
-    # 正常配置报成"拼错的键"。wheel 里没有 vendor/ → 扫描自然为空,不影响安装后的行为。
     roots = [pkg] + ([pkg.parent / "vendor"] if (pkg.parent / "vendor").is_dir() else [])
     found: set[str] = set(SPEC_BY_NAME)
     files: list[Path] = []
@@ -308,7 +293,7 @@ def known_keys() -> frozenset[str]:
     for path in files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:                      # 语法坏掉的文件留着给 CI 报,这里跳过
+        except SyntaxError:
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
@@ -401,7 +386,6 @@ def check(env: Mapping[str, str] | None = None) -> list[Issue]:
         except ConfigError as e:
             code = "choice" if opt.kind == "choice" else (
                 "range" if ("下限" in str(e) or "上限" in str(e)) else "type")
-            # 密钥不回显原值,免得把半截口令打进日志
             msg = str(e)
             if is_secret(opt.name):
                 msg = f"值 {mask(raw)} 不合法(原始值已脱敏)"

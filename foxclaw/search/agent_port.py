@@ -29,7 +29,7 @@ def _score(query: str, text: str) -> int:
     for term in re.split(r"[\s,，、;；:：/]+", q):
         if len(term) >= 2 and term in t:
             score += 2
-    for i in range(len(q) - 1):          # 中文/无分隔场景的 2-gram 重叠
+    for i in range(len(q) - 1):
         if q[i:i + 2] in t:
             score += 1
     return score
@@ -65,11 +65,10 @@ class AgentSourcePort:
             try:
                 scored += gather(text, top_k)
             except Exception:
-                continue  # 单一子源失败不影响其它子源
+                continue
         scored.sort(key=lambda x: x[0], reverse=True)
         return [ev for _, ev in scored[:max(top_k * 2, top_k)]]
 
-    # ── 1. 领域内核 ──────────────────────────────────────────
     def _from_finance(self, text, top_k):
         out: list[tuple[float, RawEvidence]] = []
         rt = self.finance
@@ -130,7 +129,6 @@ class AgentSourcePort:
                             confidence=_conf(s))))
         return out
 
-    # ── 2. ThoughtChain 推理链 ───────────────────────────────
     def _from_thoughtchain(self, text, top_k):
         out: list[tuple[float, RawEvidence]] = []
         tc = self.thought_chain
@@ -145,7 +143,6 @@ class AgentSourcePort:
                 confidence=_conf(max(s, 1)))))
         return out
 
-    # ── 3. 各 Agent 的 HMR 记忆 ─────────────────────────────
     def _from_memories(self, text, top_k):
         out: list[tuple[float, RawEvidence]] = []
         if self.hmr is None:
@@ -167,7 +164,6 @@ class AgentSourcePort:
                     confidence=_conf(s))))
         return out
 
-    # ── 4. 能力/状态目录 ─────────────────────────────────────
     def _from_capabilities(self, text, top_k):
         out = []
         reg = self.skill_registry

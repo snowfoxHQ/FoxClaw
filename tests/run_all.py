@@ -11,11 +11,6 @@ import tempfile
 import time
 from pathlib import Path
 
-# Windows GBK 控制台无法编码 ✓/✗(✓/✗)等字符 → 运行器自己把 stdout/stderr 切到
-# utf-8,不依赖调用者预先 set PYTHONUTF8。否则打印结果时 UnicodeEncodeError 直接崩掉汇总。
-# line_buffering=True:本文件由 run_all 汇总输出,单个测试跑满 300s 时整轮可达十余分钟;
-# 若不开行缓冲,`python tests/run_all.py > log.txt` 会因块缓冲而**全程看不到进度**,
-# 只能等结束。开启后每条结果即时落盘,可 tail -f 观察。
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8", line_buffering=True)
@@ -32,11 +27,10 @@ TESTS = [
     ("test_itinerary.py",    "B · 行程内核"),
     ("test_orchestration.py","主管编排 + 跨 Agent"),
     ("test_skills.py",       "助手 Skill 接入层"),
+    ("test_skills_fetch.py", "技能安装(ClawHub/GitHub/URL/本地包)"),
     ("test_kernel.py",       "内核新模块回归"),
     ("test_governance.py",   "运行时治理(幂等/恢复/队列/压缩/循环/钩子)"),
-    # —— M5 新增:压缩器工具消息配对(防孤立 tool_call 致 provider 400)——
     ("test_compaction_toolpair.py", "M5·压缩器工具消息配对(原子组切分+畸形输入安全降级)"),
-    # —— M4 新增:工具入参校验 + permission Stage 1 真正生效 ——
     ("test_tool_params.py",  "M4·工具入参校验(执行侧 schema/Stage1/解析失败可见)"),
     ("test_shared_write.py", "P0-3 · 共享层写入策略(audit/warn/enforce)"),
     ("test_audit_sink.py",   "P0-3 · 审计落盘 sink(环形缓冲外的持久样本)"),
@@ -97,32 +91,23 @@ TESTS = [
     ("test_evidence_semantic.py", "证据融合语义化(否定词边界·幻影矛盾·语义支持边·降级)"),
     ("test_domain_evals.py", "领域推理评测(漏报/误报率+误报归因到规则+规则实例隔离)"),
     ("test_negotiation.py",  "智能体层·跨域协商闭环(被拒→让步→再裁决·有界·拒绝不降级)"),
-    # —— 以下 4 项此前遗漏于本运行器（P4-4 修复）——
     ("test_tool_use.py",        "P2·function-calling 工具化(多轮工具循环/注册表/降级)"),
     ("test_injection_guard.py", "提示词注入纵深防御(检出/wrap_untrusted/内核前缀/隔离)"),
     ("test_sessions.py",        "会话存储(增删改查/标题提炼/路径穿越/并发追加)"),
     ("test_stats_and_events.py","记忆统计 + 活动事件(hmr.stats 计数修复/chat.completed)"),
-    # —— 以下 4 项为近期新功能测试，此前遗漏于本运行器（接线）——
     ("test_llm_planner.py",            "P0-1·LLM 驱动规划器(llm_plan/replan·opt-in+fail-safe+sv_replan)"),
     ("test_anthropic_tools.py",        "P0-2·Anthropic tool_use 原生接入(格式转换/解析/回灌/降级)"),
     ("test_taint.py",                  "数据污点追踪+动态审批门槛(污点分级/传播/TAINT_CONFIRM)"),
     ("test_mcp_guardian_discovery.py", "MCP 发现进守门人(凭证不出主进程·代发现·序列化)"),
     ("test_verify_evidence.py",        "三个薄点·失败策略表/执行后核验/执行证据(重试只限只读)"),
     ("test_evidence_sse.py",           "执行凭据 SSE 命名事件(与正文分离·纯对话不发)"),
-    # —— 用户档案 / 版本检查 ——
     ("test_profile.py",                "称呼(user profile)存取:写入/替换/清空/不误删偏好"),
     ("test_update_check.py",           "新版本检查:默认关/版本比较/24h 缓存/失败静默"),
 ]
 
-# S2 迁移完成:全部测试均已迁移为 pytest(见 pyproject [tool.pytest.ini_options] 白名单)。
-# 故下面所有文件统一用 `python -m pytest <file> -q` 跑,且**每个文件独立子进程**:
-# 网关/内置MCP/流式限流等测试依赖模块级单例,同一进程内会被首个 import 定死、相互污染。
 
 def main():
     here = Path(__file__).parent
-    # ── 命令行:支持 --list / --only <substr>(M7)──────────────────────
-    # 为什么需要:全量回归 6-7 分钟,改一行代码后只想验 1-2 个文件时成本过高。
-    # 此前只能整跑,拖慢了「改完立刻验」的内循环(这也是很多缺陷被放过的原因之一)。
     _argv = sys.argv[1:]
     global TESTS
     if "--list" in _argv:
@@ -140,41 +125,14 @@ def main():
         _before = len(TESTS)
         TESTS = [(f, d) for f, d in TESTS if _only in f or _only in d]
         print(f"[filter] '{_only}' 匹配 {len(TESTS)}/{_before} 项\n")
-    # HF_HUB_OFFLINE:装了 sentence-transformers 时,每个 Foxclaw() 会载入 all-MiniLM
-    # 模型 6 次(5 Harness + 1 HMR embedding),且每次都向 HF Hub 发未认证网络请求——
-    # 即便模型已缓存。实测让单次 init 从 ~44s 降到 ~7s,并去除网络抖动(否则被 HF 限流时
-    # 某个子测试会顶穿 300s 超时)。模型已本地缓存,离线读取即可;未缓存时 Harness 会自动
-    # 降级 n-gram 哈希嵌入,不影响测试判定。PYTHONUTF8:防 Windows GBK 控制台的 ✓/✗ 编码错。
-    # ── 测试环境隔离(必须放在最前,否则回归不可复现)────────────────────────
-    # FOXCLAW_SKIP_DOTENV=1:让 api.py 完全不读项目根目录的 .env。
-    #   为什么不能只靠下面那些空字符串:.env 的加载是 load_dotenv(override=False),
-    #   它只保护「当前进程里已存在的键」。但测试常常要 pop 掉某键来验证「未设时的行为」
-    #   (如 test_gateway.py / test_api_auth.py pop FOXCLAW_API_KEY),pop 完再 import api,
-    #   .env 就会把键灌回来 —— 空字符串挡不住这种路径。
-    #   实测证据:对照树(0 改动)+ 含 FOXCLAW_API_KEY 的 .env → test_gateway 报
-    #   KeyError: 'enabled';同树删掉 .env → 通过。故必须在源头关掉 .env。
-    #   另:开发者 .env 里有真实 Key 与 FOXCLAW_DATA_DIR=./foxclaw_data,不隔离会让测试
-    #   真的打外部 API(花钱)并写进真实数据目录。
-    # 下面显式置空的 key 作为**第二道防线**,覆盖那些会 import 本运行器 env dict
-    # 或直接读 os.environ 的路径(且便于单独运行单个测试文件时也保持确定性)。
     env = dict(os.environ, FOXCLAW_SHADOW_ROUNDS="50",
                HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
                FOXCLAW_SKIP_DOTENV="1",
-               # 强制 stub:回归保持离线/免费/确定性。鉴权与网关必须为「未设」态——
-               # test_api_auth / test_gateway 要自行控制 FOXCLAW_API_KEY,这里先兜底清空。
                DEEPSEEK_API_KEY="", ANTHROPIC_API_KEY="", OPENAI_API_KEY="",
                GOOGLE_API_KEY="", DASHSCOPE_API_KEY="", FOXCLAW_API_KEY="",
-               # .env 里 FOXCLAW_MCP_SERVER=1 会让 api.py 在 import 时构建 MCP 服务器,
-               # 而 test_tracing.py 有两处 `with TestClient(app)`(82/189 行),第二次进
-               # lifespan 会撞 StreamableHTTPSessionManager「.run() can only be called
-               # once per instance」。回归默认关;test_mcp_server.py 自己会置 1。
                FOXCLAW_MCP_SERVER="0",
-               # 锁 stub 模型路由:.env 里 FOXCLAW_PROVIDER=openai/FOXCLAW_MODEL=abab6.5s-chat
-               # 是开发者的真实配置,回归不继承(否则路由判定随机器变化)。
                FOXCLAW_PROVIDER="", FOXCLAW_MODEL="",
-               # 产品默认 HKC_EMBEDDING=auto(真语义),但回归锁 stub 保确定+快;
-               # 真语义单独由 test_semantic.py 显式验证。
                HKC_EMBEDDING="stub")
     print("=" * 64)
     print("Foxclaw · 全量回归测试")
@@ -197,34 +155,16 @@ def main():
         if not path.exists():
             results.append((desc, "缺失", 0)); continue
         t0 = time.time()
-        # 每个文件用**独立的 basetemp**,不共用 %TEMP%\pytest-of-<user> 根目录。
-        # 为什么:Windows 上该根目录一旦留下损坏的 reparse point(实测 pytest-current
-        # unlink 报 WinError 5),pytest 会在 sessionfinish 的 cleanup_numbered_dir 阶段
-        # 抛 PermissionError —— 断言全过也返回非 0,7 个文件同时假红,真回归被淹没。
-        # 显式 basetemp 后 pytest 不再遍历/清理共用根目录;目录必须预先存在(pytest 不会
-        # 为 --basetemp 建父目录,缺了直接 FileNotFoundError),故用 mkdtemp 建好再传。
         _bt = Path(tempfile.mkdtemp(prefix="foxclaw-pt-"))
         try:
-            # 统一走 pytest(每文件独立子进程,隔离模块级单例)。
             _cmd = [sys.executable, "-m", "pytest", str(path), "-q",
                     f"--basetemp={_bt}"]
-            # 显式 utf-8 解码子进程输出:子进程已被 PYTHONUTF8=1 强制输出 utf-8,
-            # 父进程若用 Windows 默认 GBK 解码会 UnicodeDecodeError(模型加载进度条等
-            # 含非 GBK 字节)→ r.stdout 变 None → 后续拼接 TypeError。errors=replace 兜底。
             r = subprocess.run(_cmd,
                                capture_output=True, text=True, timeout=300, env=env,
                                encoding="utf-8", errors="replace")
             ok = r.returncode == 0
-            # 简单判定:退出码 0 且输出里没有 Traceback
             if "Traceback" in (r.stdout + r.stderr):
                 ok = False
-            # 原生库偶发崩溃的精准重试:Windows 访问冲突 0xC0000005
-            # 是 torch/FAISS/ST 在模型重加载或解释器 teardown 阶段的进程级崩溃——
-            # 无 Python Traceback、与断言失败(exit=1)互不混淆,故只对它在同一干净
-            # 环境下重试一次(批次4/7 均实锤:基线对照同样崩溃,与业务改动无关;
-            # 手动小范围跑全绿,全量回归高内存压力下概率显著升高)。
-            # 注意:subprocess 在 Windows 返回无符号 DWORD(0xC0000005=3221225477),
-            # PowerShell $LASTEXITCODE 则按有符号显示(-1073741819),两种都表示同一崩溃。
             _ACCESS_VIOLATION = (3221225477, -1073741819)
             if not ok and r.returncode in _ACCESS_VIOLATION and \
                     "Traceback" not in (r.stdout + r.stderr):
@@ -236,20 +176,14 @@ def main():
                     print(f"  ↻ {desc} 首次 0xC0000005 原生崩溃,重试通过(已知环境性偶发)")
             results.append((desc, "通过" if ok else "失败", time.time() - t0))
             if not ok:
-                # 打印 15 行而非 3 行:pytest 的 collection error(如缺依赖)把原因
-                # 放在 traceback 中段,只截最后 3 行会只剩「ERROR xxx.py」+「Interrupted」,
-                # 在 CI 里完全无法定位(2026-10-17 实际踩过:CI 红但日志看不出缺 faiss)。
                 tail = (r.stdout + r.stderr).strip().splitlines()[-15:]
                 print(f"  ✗ {desc} 失败:")
                 for line in tail: print(f"      {line}")
-                # 失败时落盘完整输出,便于复现/定位偶发失败(尤其 teardown 期崩溃)。
                 (here / f"_fail_{fn}.txt").write_text(
                     r.stdout + r.stderr, encoding="utf-8")
         except subprocess.TimeoutExpired:
             results.append((desc, "超时", 300))
         finally:
-            # basetemp 是本文件专用的一次性目录:正常结束由 pytest 自己清,
-            # 子进程崩溃/超时会残留,这里统一回收。ignore_errors 兜 Windows 文件占用。
             shutil.rmtree(_bt, ignore_errors=True)
         print(f"  {'✓' if results[-1][1]=='通过' else '✗'} {desc:<28} [{results[-1][1]}] {results[-1][2]:.0f}s")
 

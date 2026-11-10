@@ -3,7 +3,6 @@ import sys
 import os
 from pathlib import Path
 
-# 默认路径:仓库根下的运行数据目录,可用第一个命令行参数覆盖
 faiss_path = str(Path(__file__).resolve().parents[1] / "foxclaw_data" / "hkc" / "search_vector.faiss")
 if len(sys.argv) > 1:
     faiss_path = sys.argv[1]

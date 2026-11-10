@@ -29,11 +29,11 @@ def _run_n_concurrent(sched, n, work):
 
 def test_unlimited_reaches_peak():
     print("\n【1】无上限(默认):并发不受限,行为直通")
-    sched = Scheduler()                         # max_concurrency=None
+    sched = Scheduler()
     N = 6
-    barrier = threading.Barrier(N)              # 让 N 个任务确定性地同时在跑
+    barrier = threading.Barrier(N)
     def work():
-        barrier.wait(timeout=5)                 # 全部到齐才继续 → 峰值=N
+        barrier.wait(timeout=5)
         time.sleep(0.01)
         return "ok"
     _run_n_concurrent(sched, N, work)
@@ -62,12 +62,10 @@ def test_lifecycle_events_and_accounting():
     print("\n【3】生命周期事件 + 记账 + 失败传播")
     spine = _CapSpine()
     sched = Scheduler(spine=spine)
-    # 成功任务
     r = sched.run(lambda: 42, agent_id="finance", task="算账")
     assert r == 42
     assert spine.events == ["task.lifecycle.scheduled", "task.lifecycle.running",
                             "task.lifecycle.completed"], spine.events
-    # 失败任务:异常透传 + failed 事件 + 记账
     spine.events.clear()
     raised = False
     try:
@@ -90,14 +88,13 @@ def test_pm_delegation_unified_lifecycle():
     spine = EventSpine()
     seen = []
     spine.project(lambda e: seen.append(e.topic))
-    pm = ProcessManager(bus=SystemBus(spine=spine))       # pm 经总线发事件到脊柱
-    sched = Scheduler(spine=spine, process_manager=pm)    # 调度器委托 pm
+    pm = ProcessManager(bus=SystemBus(spine=spine))
+    sched = Scheduler(spine=spine, process_manager=pm)
     r = sched.run(lambda: 7, agent_id="finance", task="t")
     assert r == 7
     life = [t for t in seen if t.startswith("task.lifecycle")]
     assert life == ["task.lifecycle.scheduled", "task.lifecycle.running",
                     "task.lifecycle.completed"], f"应由 pm 发唯一词汇,实得 {life}"
-    # pm 里确有该进程(顶层任务也成了进程),调度器记账仍在
     assert pm.stats()["by_state"].get("completed") == 1
     assert sched.stats()["completed"] == 1
     print("  ✓ pm 发 task.lifecycle.{scheduled,running,completed};顶层任务纳入进程;记账双在")
@@ -116,8 +113,8 @@ def test_priority_admission():
         sched.run(lambda: order.append(name), priority=p, task=name)
     tlo = threading.Thread(target=worker, args=(0, "lo"))
     thi = threading.Thread(target=worker, args=(10, "hi"))
-    tlo.start(); time.sleep(0.05); thi.start(); time.sleep(0.15)   # 两者都已在准入队列里等
-    release.set()                                                  # 释放 blocker 的槽
+    tlo.start(); time.sleep(0.05); thi.start(); time.sleep(0.15)
+    release.set()
     for t in (tb, tlo, thi): t.join(5)
     assert order == ["hi", "lo"], f"高优先应先获空位,实得 {order}"
     print(f"  ✓ 释放后:高优先先获空位 → {order}(准入优先级,非抢占运行中)")

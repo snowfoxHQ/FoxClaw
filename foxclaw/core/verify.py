@@ -31,12 +31,9 @@ VERIFIED = "verified"
 UNVERIFIED = "unverified"
 FAILED = "failed"
 
-#: 每条工具结果最多挂几条证据(再多就成了噪声,用户不会看)
 MAX_EVIDENCE = 8
 
 _URL_RE = re.compile(r"https?://[^\s<>\"'）)\]}]+")
-#: 只保留"真实存在"的路径 —— 正则从文本里认出来的路径九成是误报(URL 片段、示例路径),
-#: 只有能在磁盘上 stat 到的才算证据。这不是限制,是"证据"二字的含义。
 _WIN_PATH_RE = re.compile(r"[A-Za-z]:[\\/][^\s\"'<>|*?，。；]+")
 _POSIX_PATH_RE = re.compile(r"(?<![\w:])/(?:[\w.\-]+/)+[\w.\-]+")
 
@@ -45,10 +42,10 @@ _POSIX_PATH_RE = re.compile(r"(?<![\w:])/(?:[\w.\-]+/)+[\w.\-]+")
 class Evidence:
     """一条可核对的凭据:一个链接、一个真实存在的文件、或一次工具的原始命中。"""
 
-    kind: str                     # url / file
-    ref: str                      # 链接或绝对路径
-    label: str                    # 展示名(域名 / 文件名)
-    source: str                   # 哪个工具产出的
+    kind: str
+    ref: str
+    label: str
+    source: str
     at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -122,14 +119,10 @@ def extract_evidence(source: str, text: str, limit: int = MAX_EVIDENCE) -> list[
     return out
 
 
-#: 工具专属的后置条件检查。返回 (是否通过, 不通过的原因)。
-#: 没登记的工具走通用规则(见 verify),不会被当成"已验证"。
 _CHECKERS: dict[str, Callable[..., tuple[bool, str]]] = {
-    # 联网搜索:结论必须能指回来源,否则就是"模型自己写的" —— 标未核验而不是验证通过
     "web_search": lambda args, text: (
         (True, "") if _URL_RE.search(text or "")
         else (False, "搜索结果没有可核对的来源链接")),
-    # 个人记忆:召回为空是合法结果(确实没记过),非空即有凭据
     "recall_memory": lambda args, text: (
         (True, "") if (text or "").strip().startswith("【召回的相关记忆】")
         else (False, "未返回记忆条目")),
@@ -158,9 +151,7 @@ def verify(name: str, args: dict | None, text: str,
 
     read_only = bool((capability or {}).get("read_only"))
     if read_only:
-        # 只读 + 有返回 = 这一步确实发生过(内容是否可信由污点/证据层管)
         return Verification(VERIFIED, evidence=ev)
-    # 有副作用但没登记后置条件:不能证明效果已发生 → 未核验(不许声称完成)
     return Verification(UNVERIFIED, reason="该工具未声明可观察的后置条件", evidence=ev)
 
 

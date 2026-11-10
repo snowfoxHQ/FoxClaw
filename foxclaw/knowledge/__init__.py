@@ -64,7 +64,6 @@ def _read_custom_model(data_dir, name):
     if not match:
         return None
     key = ""
-    # OS 凭据库优先,回退 base64(旧记录)/ 更早的明文字段
     from ..core.secrets import load as _load_secret
     key = _load_secret(name, match.get("api_key_obf") or "")
     key = key or (match.get("api_key") or "")
@@ -101,7 +100,6 @@ def _selected_llm():
         return None
 
     source = (sel.get("source") or "").strip().lower()
-    # preset 落盘的是 provider;custom 落盘的是 name。两者都当"选中的名字"用。
     name = (sel.get("name") or sel.get("provider") or "").strip()
     model = (sel.get("model_id") or sel.get("model") or "").strip()
 
@@ -113,7 +111,6 @@ def _selected_llm():
         return _to_hkc_provider("generic"), key, base, model or custom_model
 
     if source == "preset" and name:
-        # 界面里配过的同名自定义项(更新的 key)优先,env 只作最后兜底
         got = _read_custom_model(data_dir, name)
         if got:
             key, base, custom_model = got
@@ -144,7 +141,6 @@ def _detect_llm(api_key=None):
 
     返回 ``(provider, key, base_url, model)``。
     """
-    # 1. 显式 HKC_LLM_PROVIDER 覆盖(向后兼容「HKC 独立配」场景)
     env_provider = (os.environ.get("HKC_LLM_PROVIDER") or "").strip().lower()
     if env_provider in ("anthropic", "deepseek", "openai", "openai-compatible"):
         key = (os.environ.get("HKC_LLM_API_KEY")
@@ -158,15 +154,11 @@ def _detect_llm(api_key=None):
                  or "")
         return env_provider, key or api_key, base, model
 
-    # 2. 界面里当前选中的模型(用户显式动作,优先于 env 默认)
     selected = _selected_llm()
     if selected:
         provider, key, base, model = selected
         return provider, (key or api_key or "").strip(), (base or "").strip(), model
 
-    # 3. 单入口 env。未显式指定 provider 时**复用主对话的自动探测**,
-    #    不能默认成 "generic" —— 那是个空 key 的壳,会让抽取打 api.openai.com
-    #    拿 Missing credentials,每次摄入都 0 条。
     provider = (os.environ.get("LLM_PROVIDER") or "").strip().lower()
     key = (os.environ.get("LLM_API_KEY") or api_key or "").strip()
     base = os.environ.get("LLM_BASE_URL", "").strip()
@@ -194,7 +186,7 @@ class HKCService:
 
     def __init__(self, container, client):
         self._container = container
-        self.client = client   # DirectClient;供 HSR 检索 / /api/knowledge 路由使用
+        self.client = client
 
     @property
     def available(self) -> bool:
@@ -245,22 +237,18 @@ def init_hkc(data_dir, api_key=None):
         return None
     try:
         provider, llm_key, llm_base_url, llm_model = _detect_llm(api_key)
-        # 【P2·单 LLM 入口】embedding 模型名优先 EMBEDDING_MODEL(系统唯一本地入口),
-        # 再 HKC_EMBEDDING_MODEL(向后兼容);其他 HKC 行为开关不变。
         _emb_model = (os.environ.get("EMBEDDING_MODEL")
                       or os.environ.get("HKC_EMBEDDING_MODEL")) or None
         container = HKCContainer(
             data_dir=str(Path(data_dir) / "hkc"),
-            embedding_kind=os.environ.get("HKC_EMBEDDING", "auto"),   # 默认真语义(本地优先,无 ST 回退 stub)
+            embedding_kind=os.environ.get("HKC_EMBEDDING", "auto"),
             embedding_url=os.environ.get("HKC_EMBEDDING_URL", "http://localhost:8080"),
-            embedding_model=_emb_model,                                # local/auto 模型名(如 bge-m3)
+            embedding_model=_emb_model,
             llm_api_key=llm_key or None,
             llm_provider=provider,
             llm_model=llm_model or None,
             llm_base_url=llm_base_url or None,
         ).assemble()
-        # 注册为 hkc_api 全局单例:若将来挂 HKC 自身 /hkc REST 路由,
-        # 其 Depends(get_container) 能取到这同一个容器,而非"未初始化"。
         from hkc_api import container as _cm
         _cm._container = container
         print(f"[Foxclaw] ✓ HKC 知识核心已进程内融合 (provider={provider}, "
@@ -275,8 +263,6 @@ def init_hkc(data_dir, api_key=None):
 from .truth_crystallizer import TruthCrystallizer
 
 
-# HKC 知识生命周期事件 → 桥接到 EventSpine 的类型。**刻意不含 memory.***(那是 HMR 域,
-# Foxclaw 已有自己的记忆事件,转发 HKC 的会重复/混淆)。
 _HKC_BRIDGED_EVENTS = (
     "knowledge.created", "knowledge.updated", "knowledge.merged", "knowledge.deleted",
     "conflict.detected", "conflict.resolved", "claim.status_changed",
@@ -351,7 +337,7 @@ def register_abilities_as_skills(registry, hkc) -> list:
     registered = []
     for key in keys:
         try:
-            ab = client.compile_ability(key)   # 覆盖不足抛异常 → 证据 gate 跳过、不注册
+            ab = client.compile_ability(key)
         except Exception:
             continue
         sid = f"ability:{key}"
@@ -363,8 +349,6 @@ def register_abilities_as_skills(registry, hkc) -> list:
             handler=_make_ability_handler(client, ab),
             params={"query": "str"}))
         registered.append(sid)
-    # 【深审修复·陈旧清理】重新同步时,移除此前注册但**本轮不再达标**的 ability skill
-    # (coverage 掉了/能力定义删了)——register-only 会残留陈旧项;prune 使 registry 反映当前覆盖。
     fresh = set(registered)
     for spec in registry.all():
         if spec.id.startswith("ability:") and spec.id not in fresh:

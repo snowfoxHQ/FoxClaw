@@ -91,10 +91,8 @@ async def test_service_wrapper():
     print("\n【3】BrowserService async 包装(注入假 session,经专用工作线程)")
     svc = BrowserService()
     fake = FakeSession()
-    # 绕过 playwright:预置会话,则真实 _ensure_session_sync 因 _session 非 None 直接返回它,
-    # 不构造 SessionManager/不 launch chromium。强制 available=True 走真实工作线程路径。
     svc._session = fake
-    svc.available = lambda: True   # 实例属性覆盖类 staticmethod
+    svc.available = lambda: True
 
     p = await svc.perceive()
     assert p["ok"] and p["semantic_state"]["title"] == "P1"
@@ -104,16 +102,14 @@ async def test_service_wrapper():
     assert r["ok"] and r["verified"]["success"]
     print("  ✓ act(navigate) 返回校验后结果 verified.success=True")
 
-    bad = await svc.act({"target": "3"})  # 缺 type
+    bad = await svc.act({"target": "3"})
     assert bad["ok"] is False and "非法动作" in bad["error"]
     print("  ✓ 非法动作(缺 type)被结构化拒绝")
 
     await svc.close()
     assert fake.closed, "close() 必须在工作线程上释放会话"
     print("  ✓ close() 释放了会话")
-    # 幂等:再次 close 不报错
     await svc.close()
-    # 关停后调用被拒(executor 已关)
     after_close = await svc.perceive()
     assert after_close["ok"] is False
     print("  ✓ close() 幂等 + 关停后调用被安全拒绝")

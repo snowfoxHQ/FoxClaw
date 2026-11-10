@@ -37,8 +37,6 @@ def no_kr(monkeypatch):
     monkeypatch.setattr(secrets, "_keyring", lambda: None)
 
 
-# ── 基础行为 ──────────────────────────────────────────────────
-
 def test_store_takes_over_when_keyring_available(fake_kr):
     assert secrets.store("m1", "sk-abc") is True
     assert fake_kr.store[(secrets.SERVICE, "m1")] == "sk-abc"
@@ -76,15 +74,13 @@ def test_rename_without_source_is_noop(fake_kr):
 def test_delete_is_idempotent(fake_kr):
     secrets.store("m1", "sk-abc")
     secrets.delete("m1")
-    secrets.delete("m1")            # 再删一次不能抛
+    secrets.delete("m1")
     assert secrets.load("m1") == ""
 
 
 def test_delete_without_keyring_does_not_raise(no_kr):
     secrets.delete("m1")
 
-
-# ── 写入侧:JSON 里放什么 ─────────────────────────────────────
 
 def test_save_key_keeps_only_marker_when_keyring_available(fake_kr):
     """有 OS 凭据库时,JSON 里不能再有任何可还原的密文。"""
@@ -110,7 +106,7 @@ def test_save_key_empty_input_clears_both(no_kr):
 
 
 @pytest.mark.parametrize("record,expected", [
-    ({"api_key_kr": True, "api_key_obf": ""}, True),     # 存 keyring
+    ({"api_key_kr": True, "api_key_obf": ""}, True),
     ({"api_key_kr": False, "api_key_obf": "c2stYWJj"}, True),
     ({"api_key": "sk-legacy"}, True),
     ({"api_key_kr": False, "api_key_obf": ""}, False),
@@ -121,8 +117,6 @@ def test_has_key(record, expected):
 
     assert _has_key(record) is expected
 
-
-# ── 回退而非拒绝保存 ─────────────────────────────────────────
 
 def test_obf_is_reversible(no_kr):
     """base64 只是混淆,不要在任何地方当加密用 —— 这条测试的作用是钉住这一点。"""
@@ -152,8 +146,8 @@ def test_backend_probe_is_cached(monkeypatch):
 
     secrets.reset_probe()
     try:
-        assert secrets.available() is False        # Fail 后端等同「没有可用凭据库」
+        assert secrets.available() is False
         secrets.available()
-        assert len(calls) == 1                     # 探测结果被缓存,不反复 import
+        assert len(calls) == 1
     finally:
         secrets.reset_probe()

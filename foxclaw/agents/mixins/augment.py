@@ -9,8 +9,6 @@ from typing import Any, Callable
 
 
 class AugmentMixin:
-    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
-    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
     _think: Callable[..., Any]
     available_abilities: Any
     _call_llm: Callable[..., Any]
@@ -25,9 +23,6 @@ class AugmentMixin:
             payload = _ws.search_answer(query)
             if not payload or (not payload.get("answer") and not payload.get("references")):
                 print("[联网搜索] ⚠ 无结果(未配 BAIDU_SEARCH_KEY 或网络不通)")
-                # 需要联网但没搜到(未配 key / 网络不通)→ 注入明确指令逼 LLM 如实说,绝不编造。
-                # 否则 LLM 被 system_prompt 告知"已接入联网"却拿不到结果,会凭训练数据瞎编版本号/
-                # 新闻/价格(用户实测踩到)。合并进最后一条 user 消息(与下方注入同法,不新增 user 消息)。
                 note = ("【系统提示:本次问题需要实时/最新信息,但联网搜索未返回任何结果"
                         "(可能未配置搜索服务或网络不可用)。请如实告知用户你暂时无法查询实时信息,"
                         "**切勿编造或凭记忆给出可能过时的答案**(如版本号、新闻、模型列表、价格等)。】")
@@ -45,9 +40,6 @@ class AugmentMixin:
                 content=f"联网搜索「{query}」命中,参考 {n} 条",
                 node_type="tool_use", conf=0.9,
             )
-            # 合并式注入:把联网上下文并进「最后一条 user 消息」,而不是前插一条独立
-            # user 消息 —— 后者会产生连续两条 user,某些 OpenAI-compatible 端点会拒绝,
-            # 与「模型无关」铁律冲突。拷贝后改,不动原 messages。
             merged = list(messages)
             for i in range(len(merged) - 1, -1, -1):
                 if merged[i].get("role") == "user":
@@ -55,14 +47,11 @@ class AugmentMixin:
                     m["content"] = ctx + "\n\n" + (m.get("content") or "")
                     merged[i] = m
                     return merged
-            return [{"role": "user", "content": ctx}] + merged   # 无 user 消息则退回前插
+            return [{"role": "user", "content": ctx}] + merged
         except Exception as e:
             print(f"[联网搜索] 异常: {e}")
             return messages
 
-    # 注:_model_augment 已删除 —— 模型身份注入规则化到 ModelRouter._runtime_context,
-    # 在 LLM 唯一咽喉(complete/stream)对每次调用恒定注入真实 provider/model,
-    # 不再靠"模型/大模型/llm"关键词命中才注入,也就没有了漏判/误判两难。
 
     def _ability_augment_enabled(self) -> bool:
         """能力知识增强是否启用。默认**关**(behavior-preserving)。
@@ -95,17 +84,16 @@ class AugmentMixin:
             if not hits:
                 return messages
             lines = "\n".join(f"- {h.name}: {h.summary}" for h in hits[:5])
-            # 知识由摄入的外部文档蒸馏而来,可能被投毒 → 包裹为不可信数据,防间接注入
             from ...core import injection_guard as _ig
             ctx = (f"【能力知识增强 · {best.get('display_name') or best['ability_key']}】"
                    f"以下是知识库中与本任务相关、且该能力已达覆盖的知识,供参考:\n"
                    + _ig.wrap_untrusted(lines, source="knowledge"))
             self._think(content=f"能力增强「{best['ability_key']}」注入 {len(hits)} 条知识",
                         node_type="tool_use", conf=0.85)
-            _taint_raise(self, _ig.taint_level("knowledge"))   # 知识库(个人数据)→ 会话污点
+            _taint_raise(self, _ig.taint_level("knowledge"))
             return [{"role": "user", "content": ctx}] + messages
         except Exception:
-            return messages   # fail-safe:增强失败绝不影响主流程
+            return messages
 
     def _skill_augment(self, query: str, messages: list[dict]) -> list[dict]:
         """按触发词匹配 SKILL.md 指令技能,把正文注入(合并进最后一条 user 消息)。"""
@@ -113,7 +101,7 @@ class AugmentMixin:
             reg = getattr(self, "md_skills", None)
             if not reg:
                 return messages
-            matched = reg.match(query)[:3]        # 触发词匹配,最多3条控 token
+            matched = reg.match(query)[:3]
             if not matched:
                 return messages
             ctx = "以下是可参照的操作指令(SKILL),请据此执行:\n\n" + \
@@ -150,6 +138,6 @@ class AugmentMixin:
         避免堵死 async 事件循环(否则百度慢/超时时整个服务、前端轮询全部冻住)。"""
         import asyncio
         aug = await asyncio.to_thread(self._web_augment, query, messages)
-        aug = await asyncio.to_thread(self._ability_augment, query, aug)   # Step3:opt-in 能力知识注入(默认关)
-        aug = await asyncio.to_thread(self._skill_augment, query, aug)     # SKILL.md 指令技能注入
+        aug = await asyncio.to_thread(self._ability_augment, query, aug)
+        aug = await asyncio.to_thread(self._skill_augment, query, aug)
         return await self._call_llm(aug, max_tokens=max_tokens)

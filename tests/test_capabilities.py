@@ -43,10 +43,8 @@ def test_cycles_broken_structural():
     try:
         from foxclaw import Foxclaw
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
-        # 环1:Agent 不再直接持 search_runtime
         assert not hasattr(os_.finance, "_search_runtime"), "Agent 不应有 _search_runtime 直接引用"
         assert os_.finance._caps is os_.capabilities, "Agent 改持能力中枢"
-        # 环2:Orchestrator 不再把 agents 存为实例字段(改为经中枢解析的 property)
         assert "agents" not in os_.orchestrator.__dict__, "orchestrator 不应把 agents 存为实例字段"
         assert os_.orchestrator._caps is os_.capabilities
         assert os_.orchestrator.agents is os_._agents, "orchestrator.agents 经中枢解析"
@@ -63,17 +61,14 @@ def test_behavior_preserved():
     try:
         from foxclaw import Foxclaw
         os_ = Foxclaw(data_dir=d, shadow_rounds=50)
-        # 跨 Agent 编排(orchestrator 经中枢解析 finance)
         r = os_.supervisor.cross_request(
             from_agent="admin", to_agent="finance", request_type="budget_request",
             payload={"amount": 150, "category": "travel", "entity": "高铁", "account": "default"},
             reason="出差")
         assert r["status"] in ("approved", "confirm_required", "rejected"), f"裁决异常 {r}"
         print(f"  ✓ cross_request 经中枢解析 agents → 状态 {r['status']}")
-        # Agent 反向调用内部搜索(经中枢解析 search_runtime)
         res = os_.finance.search_internal("测试查询")
         assert res is not None, "search_internal 应经中枢解析到 search_runtime"
-        # 中枢缓存:两次解析同一实例
         assert os_.capabilities.get("search_runtime") is os_.search_runtime
         print("  ✓ search_internal 经中枢解析 search_runtime(缓存一致)")
         asyncio.run(os_.aclose())
@@ -101,7 +96,6 @@ def test_lazy_build_once_concurrent():
     for t in ts: t.join()
     assert calls["n"] == 1, f"并发下惰性应只构造 1 次,实得 {calls['n']}"
     assert len({id(r) for r in results}) == 1, "12 线程应拿到同一实例"
-    # 不同能力不互相阻塞(构造锁 per-name;此处只验证正确性:各自构造一次)
     reg.register_lazy("y", lambda: object())
     assert reg.get("y") is reg.get("y")
     print("  ✓ 12 线程并发 get 同一惰性 → 只构造 1 次、同一实例;不同能力独立")

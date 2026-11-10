@@ -68,13 +68,11 @@ onMounted(async () => {
       })),
     ]
   } catch {
-    /* 拿不到就只留命令面板 */
   }
 })
 
 onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
-/* 只看光标左侧的 token:用户在中间补字时也能正确触发 */
 function syncMenu() {
   const el = ta.value
   if (!el) return
@@ -113,7 +111,6 @@ function choose(i) {
   if (menu.value === 'slash') {
     const cmd = CMD.find((c) => c.key === it.label)
     if (cmd && cmd.arg) {
-      /* 带参数的命令:把命令留在输入框,让用户接着写关键词 */
       text.value = `${cmd.key} `
       closeMenu()
       nextTick(() => { el && el.focus(); grow() })
@@ -126,7 +123,6 @@ function choose(i) {
     return
   }
 
-  /* @ 技能:把当前 @token 替换成完整技能名 */
   const idx = before.lastIndexOf('@')
   const after = text.value.slice(pos)
   text.value = `${before.slice(0, idx)}@${it.label} ${after}`
@@ -134,7 +130,6 @@ function choose(i) {
   nextTick(() => { el && el.focus(); grow() })
 }
 
-/* 纯命令(不带面板)也要能执行 */
 function tryCommand(t) {
   if (!t.startsWith('/')) return false
   const [head, ...rest] = t.split(/\s+/)
@@ -160,8 +155,6 @@ function submit() {
   send(t)
 }
 
-/* textarea 高度:聚焦即撑开(约 3 行),内容变多继续长高,到上限才转内部滚动。
-   上限跟视口走,窄屏/高分屏都不会把消息流挤没。 */
 const FOCUS_MIN = 84
 const focused = ref(false)
 function capH() {
@@ -175,7 +168,6 @@ function grow() {
   const min = focused.value ? FOCUS_MIN : 0
   el.style.height = `${Math.min(Math.max(need, min), capH())}px`
 }
-/* blur 时 document.activeElement 已变,不能用它判断,单独跟一个标志 */
 function onFocus() {
   focused.value = true
   grow()
@@ -288,10 +280,6 @@ function kb(n) {
 <style scoped>
 .dock { padding: 0 8px 8px; position: relative; }
 
-/* 输入框宽度 = 正文列宽。正文列是 .ms-in(max-width 780,左右 padding 22)居中于
-   .stage-body(margin 0 8px),这里用同一个算式 100% - 44:
-   宽屏时同为 736,窄屏时同为 列宽-60,任何宽度下左右边都压在正文的文字边上。
-   菜单 / 提示条挂在这层里,才会跟着一起变窄。 */
 .dock-in {
   position: relative;
   width: min(736px, calc(100% - 44px));
@@ -342,13 +330,10 @@ textarea {
   font-size: 13.5px; line-height: 1.6;
   padding: 5px 2px; border: 0; background: none;
   resize: none; overflow-y: auto;
-  /* 高度由 grow() 写死具体 px;max-height 只作兜底,避免 JS 失效时无限长高 */
   max-height: 340px;
   transition: height 0.14s ease;
 }
 textarea:focus { outline: none; }
-/* placeholder 是「第一次进来唯一能读的提示」,用 dim 而不是 faint:
-   输入框是视觉焦点,提示跟着提亮一档才不会被当成禁用态。 */
 textarea::placeholder { color: var(--dim); opacity: 1; }
 
 .send {

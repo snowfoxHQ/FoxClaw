@@ -16,62 +16,47 @@ from __future__ import annotations
 from typing import Literal, cast
 
 
-# ── 标准钩子点(生命周期顺序)──────────────────────────────
 class Hooks:
     """标准钩子点常量。用 Hooks.BEFORE_TOOL_CALL 而非裸字符串,避免拼写错误。"""
 
-    # 会话级
-    SESSION_START = "session_start"     # 一次任务开始
-    AGENT_START = "agent_start"         # Agent 开始处理(分诊后)
-    AGENT_END = "agent_end"             # Agent 处理完成
-    SESSION_END = "session_end"         # 一次任务结束
+    SESSION_START = "session_start"
+    AGENT_START = "agent_start"
+    AGENT_END = "agent_end"
+    SESSION_END = "session_end"
 
-    # 工具/skill 级
-    BEFORE_TOOL_CALL = "before_tool_call"   # 调用前(可阻断/可改参数)
-    AFTER_TOOL_CALL = "after_tool_call"     # 调用成功后
-    ON_ERROR = "on_error"                   # 调用失败
-    ON_LOOP = "on_loop"                     # 检测到死循环
+    BEFORE_TOOL_CALL = "before_tool_call"
+    AFTER_TOOL_CALL = "after_tool_call"
+    ON_ERROR = "on_error"
+    ON_LOOP = "on_loop"
 
-    # 消息级
-    BEFORE_MESSAGE_WRITE = "before_message_write"   # 写入/发送消息前(可改写)
+    BEFORE_MESSAGE_WRITE = "before_message_write"
 
 
-# 所有标准钩子点(供校验)
 ALL_HOOKS = frozenset({
     Hooks.SESSION_START, Hooks.AGENT_START, Hooks.AGENT_END, Hooks.SESSION_END,
     Hooks.BEFORE_TOOL_CALL, Hooks.AFTER_TOOL_CALL, Hooks.ON_ERROR, Hooks.ON_LOOP,
     Hooks.BEFORE_MESSAGE_WRITE,
 })
 
-# 拥有阻断权的钩子(只有这些返回 {block:True} 才生效)
 BLOCKING_HOOKS = frozenset({Hooks.BEFORE_TOOL_CALL})
 
-# 可注入 additionalContext 的钩子(E2:非阻断,但其返回的 additional_context 会被并入推理上下文)。
-# agent_start = 一次 Agent 任务的推理开始点,对应范式 pre_reasoning —— 推理前注入上下文的落点。
 CONTEXT_HOOKS = frozenset({Hooks.AGENT_START})
 
-# 工具级钩子(按 skill_id 做 matcher 过滤)
 TOOL_SCOPED_HOOKS = frozenset({
     Hooks.BEFORE_TOOL_CALL, Hooks.AFTER_TOOL_CALL, Hooks.ON_ERROR, Hooks.ON_LOOP,
 })
 
-# 向后兼容 + 语义别名 → 标准名
 ALIAS = {
     "pre_skill": Hooks.BEFORE_TOOL_CALL,
     "post_skill": Hooks.AFTER_TOOL_CALL,
-    # E2:推理层/会话层语义名(对齐范式 pre_reasoning / Stop),规整到已有的会话级钩子点——
-    # 顺带**复活**此前定义却从未被 fire 的 agent_start / agent_end 孤儿钩子。
-    "pre_reasoning": Hooks.AGENT_START,   # 一次 Agent 任务推理开始前(可注入 additionalContext)
-    "task_complete": Hooks.AGENT_END,     # 一次 Agent 任务结束后(只读观测/上报,对应范式 Stop)
+    "pre_reasoning": Hooks.AGENT_START,
+    "task_complete": Hooks.AGENT_END,
 }
 
 
-# 生命周期钩子点别名。定义放在 spec 模块(而非 lifecycle),这样 normalize_hook 能直接
-# 返回该类型,调用方不再需要 cast:旧名/标准名进来,出去一律是合法的 HookEvent。
 HookEvent = Literal["before_tool_call", "after_tool_call", "on_error", "on_loop",
                     "session_start", "agent_start", "agent_end", "session_end",
                     "before_message_write",
-                    # 向后兼容的旧名 + E2 语义别名(内部规整为标准名)
                     "pre_skill", "post_skill", "pre_reasoning", "task_complete"]
 
 

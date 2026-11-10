@@ -24,7 +24,6 @@ import time
 from pathlib import Path
 
 
-# ── vendor 隔离硬阻断 ────────────────────────────────────────────
 from hkc_search.index_build_manager import IndexBuildManager, _BUILD_STATES
 from hkc_search.vector_search import VectorIndex
 from hkc_search.embedding_backends import StubBackend
@@ -54,8 +53,6 @@ for _cls_name, _cls in [
 ]:
     _assert_vendor_path(_cls, _cls_name)
 
-
-# ── Helpers ─────────────────────────────────────────────────────
 
 def _seed_kus(c: HKCContainer, ids: list[str]) -> None:
     """直接 put 进 store,不发出 KNOWLEDGE_CREATED 事件。
@@ -94,15 +91,11 @@ def _seed_and_start_build(c: HKCContainer, ids: list[str]) -> None:
     """
     _seed_kus(c, ids)
     r = c.index_build_manager.start()
-    # size>0 不应返 None(已加载的 faiss 有数据但库无相同数据时可能返 None;此测试场景是库空)
-    # 这里 size=0 + source>0 → 必起构建 → start 返 task_id
     assert r is not None, (
         f"_seed_and_start_build 应触发新构建,但 start() 返 None。"
         f"当前 stats: {c.index_build_manager.stats()}"
     )
 
-
-# ── S1:无索引启动,manager 后台跑全量构建 ───────────────────
 
 class TestStartNoIndexManagerBuildsBackground:
     def test_assemble_returns_fast_manager_builds_then_ready(self, tmp_path):
@@ -121,7 +114,6 @@ class TestStartNoIndexManagerBuildsBackground:
             assert final["source_total"] == 5, final
             assert final["ready"] == 5, final
             assert final["failed"] == 0, final
-            # 内存索引真存在
             assert c.search.vector.size() == 5
         finally:
             c.close()
@@ -133,7 +125,6 @@ class TestStartNoIndexManagerBuildsBackground:
         data_dir = str(tmp_path)
         c = init_container(data_dir=data_dir, embedding_kind="stub")
         try:
-            # 装配已经返回(库空,manager 立即 idle)。seed + 重 start 让它编码。
             _seed_and_start_build(c, [f"KU_FAST_{i}" for i in range(2)])
             s = c.index_build_manager.stats()
             assert s["index_state"] in _BUILD_STATES
@@ -145,14 +136,11 @@ class TestStartNoIndexManagerBuildsBackground:
             reset_container()
 
 
-# ── S2:旧快照启动(磁盘 faiss 已完整) → 不重起构建 ──────────
-
 class TestStartWithPersistedSnapshotNoRebuild:
     def test_manager_skips_when_disk_snapshot_covers_source(self, tmp_path):
         """先启动一次让 manager 构建完 → close;重启 → manager 看到 faiss 已非空
         → start() 返 None,不再构建。"""
         data_dir = str(tmp_path)
-        # 第一轮:seed + start → manager 构建 → 落盘
         c = init_container(data_dir=data_dir, embedding_kind="stub")
         try:
             _seed_and_start_build(c, [f"KU_S2A_{i}" for i in range(4)])
@@ -162,7 +150,6 @@ class TestStartWithPersistedSnapshotNoRebuild:
             c.close()
             reset_container()
 
-        # 第二轮:simulate 重启 —— 装配后,manager.start() 应返 None (已有快照)
         c2 = init_container(data_dir=data_dir, embedding_kind="stub")
         try:
             s = c2.index_build_manager.stats()
@@ -172,7 +159,6 @@ class TestStartWithPersistedSnapshotNoRebuild:
             assert s["vector_size"] == 4, (
                 f"vector_size 应从磁盘恢复,实际 {s}"
             )
-            # 显式再调 start() 也返 None(幂等)
             r = c2.index_build_manager.start()
             assert r is None, (
                 f"已有快照时 start() 应返 None,实际 {r!r}"
@@ -182,8 +168,6 @@ class TestStartWithPersistedSnapshotNoRebuild:
             reset_container()
 
 
-# ── S3:构建中重启 → 续跑 ───────────────────────────────
-
 class TestMidBuildRestartPicksUp:
     def test_resume_after_disk_vector_partial(self, tmp_path):
         """模拟 '上次构建到一半被杀掉':磁盘 faiss 有 5 条全量,manager 看到库空
@@ -192,7 +176,6 @@ class TestMidBuildRestartPicksUp:
         但因为 manager 的 start() 总是基于「当前 vector vs 当前库」做决策,
         磁盘有 5 条 + 库 5 条相同 → 跳过(等价于 S2 的 happy path)。"""
         data_dir = str(tmp_path)
-        # 第一轮:build 5 条 → save → close
         c = init_container(data_dir=data_dir, embedding_kind="stub")
         try:
             _seed_and_start_build(c, [f"KU_S3_{i}" for i in range(5)])
@@ -202,16 +185,12 @@ class TestMidBuildRestartPicksUp:
             c.close()
             reset_container()
 
-        # 模拟"上次只跑了部分,faiss 是部分加载的" — 删 vector 文件(变 0 条)
-        # manager 装配时会 _load_persisted_index_and_bm25 → load 失败(因为已被我们删)→ 0 条
-        # 然后 manager.start() 看到 size=0 < source=5 → 起新构建
         vec_path = tmp_path / "search_vector"
         if (vec_path.with_suffix(".faiss")).exists():
             (vec_path.with_suffix(".faiss")).unlink()
         if (vec_path.with_suffix(".meta")).exists():
             (vec_path.with_suffix(".meta")).unlink()
 
-        # 写 state.json 模拟"上次未完成",确认 manager.start 决策时能读到历史
         import json as _json
         state = {
             "task_id": "build-deadbeef",
@@ -232,10 +211,8 @@ class TestMidBuildRestartPicksUp:
             encoding="utf-8",
         )
 
-        # 第二轮:重启
         c2 = init_container(data_dir=data_dir, embedding_kind="stub")
         try:
-            # 装配已自动 start → 应启构建(因为 faiss 已删)
             final = _wait_idle(c2, timeout=30)
             assert final["index_state"] == "ready", (
                 f"重启后应到 ready,实际 {final}"
@@ -243,7 +220,6 @@ class TestMidBuildRestartPicksUp:
             assert c2.search.vector.size() == 5, (
                 f"重启后 vector_size 应=5,实际 {c2.search.vector.size()}"
             )
-            # 跑出了新 task_id(不是历史的 deadbeef)
             assert final["task_id"] != "build-deadbeef", (
                 f"应起新 task_id,实际仍用历史的 {final['task_id']!r}"
             )
@@ -251,8 +227,6 @@ class TestMidBuildRestartPicksUp:
             c2.close()
             reset_container()
 
-
-# ── S4:构建中查询 ──────────────────────────────────────────
 
 class TestSearchDuringBuild:
     def test_concurrent_search_does_not_crash(self, tmp_path):
@@ -262,13 +236,11 @@ class TestSearchDuringBuild:
         c = init_container(data_dir=data_dir, embedding_kind="stub")
         try:
             _seed_and_start_build(c, [f"KU_S4_{i}" for i in range(6)])
-            # 不等;立即并发调 search
             results = c.search.search("ku_1 描述", mode="hybrid", top_k=3)
             assert isinstance(results, list)
             for r in results:
                 assert hasattr(r, "ku_id")
                 assert hasattr(r, "score")
-            # 等构建完再做一次 search 确认 6 条都被 indexed
             final = _wait_idle(c, timeout=30)
             assert final["index_state"] == "ready"
             assert c.search.vector.size() == 6
@@ -278,8 +250,6 @@ class TestSearchDuringBuild:
             c.close()
             reset_container()
 
-
-# ── 单元测:IndexBuildManager 状态机字段 ─────────────────
 
 class TestManagerStats:
     def test_stats_keys_present(self, tmp_path):
@@ -307,13 +277,10 @@ class TestManagerStats:
         )
         mgr.start()
         mgr.join(timeout=5)
-        # 空 store 扫描到 0 条 → 直接 _mark_ready
         s = mgr.stats()
         assert s["index_state"] in ("ready", "cancelled", "failed"), s
         assert s["source_total"] == 0, s
 
-
-# ── Fakes(单元测用) ─────────────────────────────────────
 
 class _FakeHybrid:
     """空 hybrid:vector_size=0,_ku_ids 空列表,_lock 是 RLock,vector 假实例。"""

@@ -27,12 +27,12 @@ from typing import Any
 @dataclass
 class SteeringItem:
     item_id: str
-    requester: str                 # 谁在等这个结果(主任务/会话标识)
-    source_agent: str              # 哪个子 Agent 产出的
-    payload: dict                  # 结果内容
+    requester: str
+    source_agent: str
+    payload: dict
     created: float = field(default_factory=time.time)
-    leased_until: float = 0.0      # 0 = 未租出;>0 = 租约到期时间戳
-    lease_id: str = ""             # 当前租约持有者标识
+    leased_until: float = 0.0
+    lease_id: str = ""
 
     @property
     def is_leased(self) -> bool:
@@ -95,7 +95,7 @@ class SteeringQueue:
             if item is None:
                 return False
             if lease_id is not None and item.lease_id != lease_id:
-                return False        # 租约不匹配(可能已过期被别人租走)
+                return False
             del self._items[item_id]
             return True
 
@@ -146,7 +146,7 @@ class SteeringQueue:
                 if item.requester != requester:
                     continue
                 if item.is_leased:
-                    continue        # 正被租用 → 留给租约消费者,drain 不碰
+                    continue
                 out.append(item.payload)
                 to_del.append(item_id)
             for item_id in to_del:

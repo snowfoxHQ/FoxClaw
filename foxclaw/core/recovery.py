@@ -50,25 +50,22 @@ def _pid_alive(pid: int) -> bool:
         handle = kernel32.OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
-            return False       # 打不开句柄 = 进程不存在(或无权限)→ 保守判不存活
+            return False
         try:
             code = wintypes.DWORD()
             if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
                 return False
-            # STILL_ACTIVE=259 表示仍在运行。极少数进程恰以 259 退出会被误判存活,
-            # 但这是"只读探测"的可接受代价——绝不误杀才是首要目标(psutil 同此取舍)。
             return code.value == STILL_ACTIVE
         finally:
             kernel32.CloseHandle(handle)
 
-    # POSIX
     try:
         os.kill(pid, 0)
         return True
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True       # 存在但无权限 → 视为存活
+        return True
     except Exception:
         return False
 
@@ -79,14 +76,13 @@ class TaskRecord:
     description: str
     pid: int
     started: float
-    status: str = "in_progress"        # in_progress / done / failed / interrupted
+    status: str = "in_progress"
     session_id: str = ""
     channel: str = ""
     finished: float = 0.0
-    boot_id: str = ""                  # 哪次启动产生的(防 pid 复用误判)
-    # 【P2-4】恢复策略字段
-    retryable: bool = False            # 调用方标记"可安全重试"(无副作用/幂等)
-    start_count: int = 1               # 同一 task_id 被 start 的次数(重复 start 保留最后一次)
+    boot_id: str = ""
+    retryable: bool = False
+    start_count: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -95,10 +91,10 @@ class TaskRecord:
 @dataclass
 class RecoveryPlan:
     """【P2-4】恢复计划:把中断任务分类,调用方(API 层/前端)据此决定动作。"""
-    retryable: list = field(default_factory=list)      # 可重试的 task_id
-    notify_user: list = field(default_factory=list)    # 需通知用户的(来自某个渠道)
-    needs_manual: list = field(default_factory=list)   # 需人工处理的(保守默认)
-    details: list = field(default_factory=list)        # [{task_id,description,channel,...,action}]
+    retryable: list = field(default_factory=list)
+    notify_user: list = field(default_factory=list)
+    needs_manual: list = field(default_factory=list)
+    details: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -111,16 +107,13 @@ class RestartRecovery:
                  spine=None, fsync: bool = True):
         self.log_path = log_path
         self.current_pid = current_pid or os.getpid()
-        # boot_id:每次启动唯一。任务记录带上它,扫描时"非本次启动的 in_progress"
-        # 即属于上一次运行 —— 比单纯靠 pid 可靠(pid 会被 OS 复用)。
         import uuid
         self.boot_id = boot_id or uuid.uuid4().hex[:16]
-        self._active: dict[str, TaskRecord] = {}   # 当前进程内进行中的任务
-        self._spine = spine                        # 【P2-4】审计脊柱(可空,None 静默)
-        self._fsync = fsync                        # 【P2-4】fsync 可配(默认开=崩溃安全;高频场景可关)
+        self._active: dict[str, TaskRecord] = {}
+        self._spine = spine
+        self._fsync = fsync
         os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
 
-    # ── 任务生命周期 ──────────────────────────────────────
     def task_started(self, task_id: str, description: str,
                      session_id: str = "", channel: str = "",
                      retryable: bool = False) -> TaskRecord:
@@ -142,7 +135,6 @@ class RestartRecovery:
                       "status": status, "pid": self.current_pid,
                       "finished": time.time()})
 
-    # ── 步骤级 checkpoint(P1 断点可续)─────────────────────
     def record_step(self, task_id: str, step: dict) -> None:
         """记一条「已完成的步骤」。管线每完成一个 stage、工具轮每完成一个工具调用各落一条,
         崩溃/断连后 `steps_of()` 能回答「跑到哪一步」,也让续跑知道哪些步骤不必重做。
@@ -171,7 +163,7 @@ class RestartRecovery:
                     try:
                         ev = json.loads(line)
                     except Exception:
-                        continue        # 末行可能写一半(append 崩溃),跳过
+                        continue
                     if ev.get("event") == "step" and ev.get("task_id") == task_id:
                         out.append({k: v for k, v in ev.items()
                                     if k not in ("event", "task_id")})
@@ -179,7 +171,6 @@ class RestartRecovery:
             return out
         return out[-limit:] if limit else out
 
-    # ── 启动恢复扫描 ──────────────────────────────────────
     def scan_interrupted(self) -> list[TaskRecord]:
         """启动时调用:重建日志状态,找出被中断的任务。
 
@@ -194,9 +185,7 @@ class RestartRecovery:
             if rec.status != "in_progress":
                 continue
             if rec.boot_id == self.boot_id:
-                continue        # 本次启动自己的任务,跳过
-            # 非本次启动的 in_progress = 上次运行遗留 = 被中断
-            # (pid 是否存活作为辅助信息记录,但不作为唯一判据)
+                continue
             rec.status = "interrupted"
             interrupted.append(rec)
             self._append({"event": "interrupted", "task_id": task_id,
@@ -220,7 +209,7 @@ class RestartRecovery:
                     try:
                         ev = json.loads(line)
                     except Exception:
-                        continue        # 跳过损坏行(append 模式下末行可能写一半)
+                        continue
                     self._apply_event(records, ev)
         except Exception:
             pass
@@ -233,7 +222,6 @@ class RestartRecovery:
             return
         kind = ev.get("event")
         if kind == "start":
-            # 【P2-4】同一 task_id 多次 start:保留最后一次,但累计 start_count
             existing = records.get(tid)
             start_count = (existing.start_count + 1) if existing else 1
             records[tid] = TaskRecord(
@@ -304,9 +292,9 @@ class RestartRecovery:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 f.flush()
                 if self._fsync:
-                    os.fsync(f.fileno())     # 落盘,防崩溃丢最后一条
+                    os.fsync(f.fileno())
         except Exception:
-            pass        # 日志失败不影响主流程
+            pass
 
     def compact_log(self, keep_recent_days: float = 7):
         """压实日志:丢弃已完成且超过 N 天的记录,防文件无限膨胀。
@@ -317,7 +305,6 @@ class RestartRecovery:
         cutoff = time.time() - keep_recent_days * 86400
         keep = []
         for rec in records.values():
-            # 保留:仍在进行的,或最近有活动(开始或完成)的
             last_activity = max(rec.started, rec.finished or 0)
             if rec.status == "in_progress" or last_activity >= cutoff:
                 keep.append({"event": "start", **rec.to_dict()})
@@ -331,7 +318,7 @@ class RestartRecovery:
             with open(tmp, "w", encoding="utf-8") as f:
                 for e in keep:
                     f.write(json.dumps(e, ensure_ascii=False) + "\n")
-                for e in steps:              # 保留任务的 step 事件随记录一起搬走
+                for e in steps:
                     f.write(json.dumps(e, ensure_ascii=False) + "\n")
             os.replace(tmp, self.log_path)
         except Exception:

@@ -35,5 +35,5 @@ class Retriever:
             try:
                 out += port.search(step.text)
             except Exception:
-                continue  # 单个外部数据源失败不影响其它数据源/主流程
+                continue
         return out

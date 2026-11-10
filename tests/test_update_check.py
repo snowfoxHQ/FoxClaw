@@ -28,9 +28,9 @@ def test_default_disabled(monkeypatch, tmp_path):
 
 def test_version_compare():
     assert uc.parse_version("0.1.10") == (0, 1, 10)
-    assert uc.parse_version("0.2.0rc1") == (0, 2, 0)      # 预发布后缀丢弃
+    assert uc.parse_version("0.2.0rc1") == (0, 2, 0)
     assert uc.parse_version("") == ()
-    assert uc.is_newer("0.1.10", "0.1.2") is True          # 字符串比较会判错,这里逐段比
+    assert uc.is_newer("0.1.10", "0.1.2") is True
     assert uc.is_newer("0.1.2", "0.1.2") is False
     assert uc.is_newer("0.1.2", "0.1.10") is False
 

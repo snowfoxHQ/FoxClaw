@@ -20,7 +20,7 @@ def _is_internal_host(host: str) -> bool:
     try:
         infos = socket.getaddrinfo(host, None)
     except Exception:
-        return False   # 解析不了 → 不在安装期硬挡,交运行时 SSRF 兜底
+        return False
     for info in infos:
         try:
             addr = ipaddress.ip_address(info[4][0])
@@ -28,7 +28,7 @@ def _is_internal_host(host: str) -> bool:
             continue
         if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
             return True
-        if str(addr) == "169.254.169.254":   # 云元数据
+        if str(addr) == "169.254.169.254":
             return True
     return False
 
@@ -69,4 +69,4 @@ def review_mcp_server(url: str) -> dict:
     warnings.append("接入外部 MCP server,其返回内容为外部不可信数据,不应被当作指令执行")
     if reasons:
         return {"verdict": "deny", "reasons": reasons, "warnings": warnings}
-    return {"verdict": "warn", "reasons": [], "warnings": warnings}   # 外部低信任恒 warn
+    return {"verdict": "warn", "reasons": [], "warnings": warnings}

@@ -1,8 +1,4 @@
 <script setup>
-/* 右栏上部的紧凑录入口。
-   和知识库面板里那个是同一个 store 写操作(ingestKnowledge),
-   区别只是这里只留「写一句 + 收录」,标题可填可不填 —— 右栏宽度放不下
-   标题/领域两行输入,而随手记的时候本来也不需要它们。 */
 import { computed, ref, onUnmounted } from 'vue'
 import { panels, ingestKnowledge } from '../stores/panels.js'
 
@@ -30,7 +26,6 @@ async function go() {
     await ingestKnowledge({ text, title: title.value })
     title.value = ''
   } catch {
-    /* 失败原因已经在 kp.ingestErr 里,这里不用再抛 */
   }
   clearLater()
 }
@@ -61,7 +56,6 @@ onUnmounted(() => clearTimeout(timer))
 </template>
 
 <style scoped>
-/* 挂在右栏 .body 里(body 已有 12px 内边距),这里只管垂直节奏 */
 .qi {
   padding: 0 0 10px;
   margin-bottom: 14px;

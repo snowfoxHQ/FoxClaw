@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
 
-if TYPE_CHECKING:  # 仅类型期导入,避免与 foxclaw 包根形成运行时循环
+if TYPE_CHECKING:
     from foxclaw import Foxclaw
 
 _os_instance: Optional["Foxclaw"] = None

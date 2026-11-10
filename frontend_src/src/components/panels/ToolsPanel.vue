@@ -44,9 +44,6 @@ async function flip(s) {
   busy.value = ''
 }
 
-/* ── 单技能测试:POST /ahs/skills/{id}/test ──
-   走真管线(权限/断路器/SSRF),所以界面要能填参数,也要把 needs_confirmation /
-   blocked / circuit_open 这些非成功态原样显示,不能只画个绿勾。 */
 const tId = ref('')
 const tArgs = ref({})
 const tBusy = ref(false)
@@ -74,7 +71,6 @@ function beginTest(s) {
   err.value = ''
 }
 
-/* params 是 {名: 类型} 的朴素 schema,类型只是提示;这里按声明做最小转换,其余原样送字符串 */
 function coerce(params, args) {
   const out = {}
   for (const [k, ty] of Object.entries(params || {})) {
@@ -133,7 +129,6 @@ async function dropSkill(s) {
 
 const splitList = (t) => String(t || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
 
-/* "city:str, days:int" → {city:"str", days:"int"} */
 function parseParams(txt) {
   const out = {}
   for (const part of String(txt || '').split(/[,，;\n]/)) {
@@ -145,7 +140,6 @@ function parseParams(txt) {
   return out
 }
 
-/* "Authorization: Bearer x" 每行一条 → dict(空行 / 无冒号行忽略) */
 function parseHeaders(txt) {
   const out = {}
   for (const line of String(txt || '').split('\n')) {
@@ -155,8 +149,6 @@ function parseHeaders(txt) {
   return out
 }
 
-/* ── 安装技能:POST /ahs/skills ──
-   后端只收 web_api / mcp;审核门 deny → 403, warn → 409 needs_ack(要再点一次「已知风险」) */
 const SIDE = { read: 'read · 只读', write: 'write · 写入', send: 'send · 代发', pay: 'pay · 付款' }
 const showIns = ref(false)
 const insBusy = ref(false)
@@ -220,8 +212,93 @@ async function doInstall(ack = false) {
   }
 }
 
-/* ── 连接器:POST|DELETE /ahs/mcp/servers ──
-   接入会真连一次 server 拉工具清单(可能几十秒);连不上是 502,原样显示 */
+const MI_MAX = 4 * 1024 * 1024
+const miOpen = ref(false)
+const miBusy = ref(false)
+const miErr = ref('')
+const miOk = ref('')
+const miAck = ref(false)
+const miText = ref('')
+const miFile = ref('')
+const miB64 = ref('')          // zip 的 base64;非空时优先于 miText
+const miRef = ref(null)
+
+function toggleMi() {
+  miOpen.value = !miOpen.value
+  miErr.value = ''
+  miOk.value = ''
+  miAck.value = false
+}
+
+function resetMi() {
+  miText.value = ''
+  miFile.value = ''
+  miB64.value = ''
+  miAck.value = false
+  if (miRef.value) miRef.value.value = ''
+}
+
+function toB64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => {
+      const s = String(fr.result || '')
+      resolve(s.slice(s.indexOf(',') + 1))     // 去掉 data:...;base64, 前缀
+    }
+    fr.onerror = () => reject(new Error('读取文件失败'))
+    fr.readAsDataURL(file)
+  })
+}
+
+async function onMiFile(ev) {
+  const f = ev.target.files && ev.target.files[0]
+  miFile.value = ''
+  miB64.value = ''
+  miErr.value = ''
+  miOk.value = ''
+  miAck.value = false
+  if (!f) return
+  miFile.value = `${f.name} · ${(f.size / 1024).toFixed(0)} KB`
+  if (f.size > MI_MAX) { miErr.value = '文件超过 4MB,拒绝上传'; return }
+  try {
+    if (/\.zip$/i.test(f.name)) {
+      miB64.value = await toB64(f)
+      miText.value = ''
+    } else {
+      miText.value = await f.text()
+    }
+  } catch (e) {
+    miErr.value = String(e.message || e)
+  }
+}
+
+async function doMdInstall(ack = false) {
+  if (miBusy.value) return
+  const content = miText.value.trim()
+  if (!ack && !content && !miB64.value) {
+    miErr.value = '粘贴 SKILL.md 正文,或选一个 .md / .zip 文件'
+    return
+  }
+  miBusy.value = true
+  miErr.value = ''
+  miOk.value = ''
+  const body = { acknowledged: ack }
+  if (miB64.value) body.package_b64 = miB64.value
+  else body.content = content
+  try {
+    const d = await postJSON('/ahs/md-skills', body)
+    const name = (d.skill && (d.skill.name || d.skill.id)) || '指令技能'
+    miOk.value = `${d.created ? '已安装' : '已更新'}「${name}」`
+    resetMi()
+    await refreshPanel('tools')
+  } catch (e) {
+    miErr.value = String(e.message || e)
+    miAck.value = !!(e.detail && e.detail.needs_ack)
+  } finally {
+    miBusy.value = false
+  }
+}
+
 const showMcpAdd = ref(false)
 const mcpBusy = ref(false)
 const mcpErr = ref('')
@@ -265,7 +342,6 @@ async function addMcp(ack = false) {
   }
 }
 
-/* 重连:server 那边的工具会变,POST .../refresh 增量对齐注册表 */
 async function refreshMcp(s) {
   if (mcpBusy.value) return
   mcpBusy.value = true
@@ -389,6 +465,43 @@ async function delMcp(s) {
             {{ s.enabled ? '启用' : '停用' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <div class="pn-sec">
+      <div class="pn-h">
+        安装指令技能
+        <button class="mbtn" @click="toggleMi">{{ miOpen ? '收起' : '+ 上传' }}</button>
+      </div>
+      <div v-if="miOpen" class="tk-form">
+        <label class="f"><span>SKILL.md 或 OpenClaw 包(.md / .zip)</span>
+          <input ref="miRef" type="file" accept=".md,.markdown,.zip" @change="onMiFile" />
+        </label>
+        <div v-if="miFile" class="pn-note">{{ miFile }}</div>
+        <label class="f"><span>或粘贴正文(frontmatter + 指示)</span>
+          <textarea
+            v-model="miText"
+            rows="8"
+            spellcheck="false"
+            :disabled="!!miB64"
+            placeholder="--- name: my-skill / description: 什么时候用它 --- 然后写正文"
+          />
+        </label>
+        <div class="fbar">
+          <button class="go" :disabled="miBusy" @click="doMdInstall(false)">
+            {{ miBusy ? '安装中…' : '安装' }}
+          </button>
+          <button v-if="miAck" class="go warn" :disabled="miBusy" @click="doMdInstall(true)">
+            已知风险,继续安装
+          </button>
+          <span v-if="miErr" class="tip bad">{{ miErr }}</span>
+          <span v-else-if="miOk" class="tip ok">{{ miOk }}</span>
+          <span v-else class="tip dim">只取 SKILL.md 与 _meta.json;包内 scripts/ 不落地、不执行</span>
+        </div>
+      </div>
+      <div v-else class="pn-note">
+        指令技能是注入提示词的 markdown,不是可执行工具。命令行也能装:
+        <code>foxclaw skills install @owner/slug</code>、<code>github:owner/repo</code>、<code>./pkg.zip</code>。
       </div>
     </div>
 
@@ -532,11 +645,6 @@ async function delMcp(s) {
         <button class="mbtn danger" @click="delMcp(s)">移除</button>
       </div>
     </div>
-
-    <div class="pn-note">
-      指令技能正文 <code>/api/ahs/md-skills/{id}</code>,执行技能运行 <code>POST /api/ahs/skills/{id}/test</code>;
-      连接器与技能面板是同一份数据(<code>/api/ahs/mcp/servers</code>)。
-    </div>
   </PanelBox>
 </template>
 
@@ -550,7 +658,6 @@ async function delMcp(s) {
 .sw.on { background: rgba(26, 157, 95, 0.12); color: var(--green); }
 .sw:disabled { opacity: 0.5; }
 
-/* 行内小按钮:测试 / 删除 / 新增 —— 原来「执行技能」整行是死的,点了没反应 */
 .mbtn {
   flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
   font-size: 11px; font-family: var(--mono); color: var(--dim);
@@ -562,7 +669,6 @@ async function delMcp(s) {
 .mbtn.danger:hover { color: var(--red); border-color: rgba(229, 72, 77, 0.35); }
 .mbtn:disabled { opacity: 0.5; }
 
-/* ── 表单(安装技能 / 接入连接器 / 技能测试)── */
 .tk-form, .tk-test {
   margin: 4px 0 6px;
   padding: 11px 12px;
@@ -595,6 +701,7 @@ async function delMcp(s) {
 .f textarea { resize: vertical; line-height: 1.6; }
 .f input:focus, .f select:focus, .f textarea:focus { border-color: var(--line); background: #fff; }
 .f input::placeholder, .f textarea::placeholder { color: var(--dim); }
+.f input[type='file'] { padding: 4px 6px; font-size: 11.5px; color: var(--dim); }
 
 .chk {
   display: flex; align-items: center; gap: 6px;
@@ -622,7 +729,6 @@ async function delMcp(s) {
 .tip.ok { color: var(--green); }
 .tip.bad { color: var(--red); white-space: normal; }
 
-/* 测试结果:成功/失败都原文展示,失败(needs_confirmation/blocked)不涂成成功色 */
 .tk-res {
   margin-top: 4px; padding: 8px 10px; border-radius: var(--r-sm);
   background: rgba(23, 32, 26, 0.03); border: 1px solid var(--line-soft);

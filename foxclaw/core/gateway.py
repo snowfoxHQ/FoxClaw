@@ -19,15 +19,15 @@ class Gateway:
     def __init__(self, rate_per_min: int = 600, quota_per_hour: int = 20000,
                  max_clients: int = 4096):
         self.rate = max(1, int(rate_per_min))
-        self.capacity = float(self.rate)               # 桶容量 = 每分钟额度(允许突发到满桶)
-        self.refill = self.capacity / 60.0             # 令牌/秒
+        self.capacity = float(self.rate)
+        self.refill = self.capacity / 60.0
         self.quota = max(1, int(quota_per_hour))
         self.max_clients = max(64, int(max_clients))
         self._lock = threading.Lock()
-        self._buckets: dict = {}    # client -> [tokens, last_ts]
-        self._quota: dict = {}      # client -> [count, window_start]
-        self._seen: dict = {}       # client -> last_ts(用于空闲淘汰)
-        self.rejected = 0           # 累计拒绝数(可观测)
+        self._buckets: dict = {}
+        self._quota: dict = {}
+        self._seen: dict = {}
+        self.rejected = 0
 
     def check(self, client: str):
         """判定一次请求。返回 (allowed: bool, retry_after: int, reason: str)。
@@ -37,7 +37,6 @@ class Gateway:
             self._evict_locked(now)
             self._seen[client] = now
 
-            # ① 配额(固定 1 小时窗口)
             q = self._quota.get(client)
             if q is None or now - q[1] >= 3600.0:
                 q = [0, now]
@@ -46,7 +45,6 @@ class Gateway:
                 self.rejected += 1
                 return False, int(3600.0 - (now - q[1])) + 1, "quota"
 
-            # ② 令牌桶(突发限流)
             b = self._buckets.get(client)
             if b is None:
                 b = [self.capacity, now]
@@ -57,7 +55,6 @@ class Gateway:
                 self.rejected += 1
                 return False, int((1.0 - b[0]) / self.refill) + 1, "rate"
 
-            # 放行:扣 1 令牌 + 计 1 配额
             b[0] -= 1.0
             q[0] += 1
             return True, 0, ""
@@ -67,7 +64,6 @@ class Gateway:
         if len(self._seen) <= self.max_clients:
             return
         n_drop = len(self._seen) - self.max_clients + max(1, self.max_clients // 10)
-        # 按 last_ts 升序取最旧的 n_drop 个
         victims = sorted(self._seen.items(), key=lambda kv: kv[1])[:n_drop]
         for c, _ in victims:
             self._seen.pop(c, None)

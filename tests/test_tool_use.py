@@ -20,7 +20,6 @@ from foxclaw.core.model_router import ModelRouter
 from foxclaw.agents.base import CognitiveAgent
 
 
-# ── 1. P1 运行时注入 ───────────────────────────────────────────────────────────
 def test_runtime_context_and_idempotent():
     r = ModelRouter(provider="stub")
     ctx = r._runtime_context()
@@ -30,7 +29,6 @@ def test_runtime_context_and_idempotent():
     assert r._inject_runtime(a) == a, "二次注入必须幂等(防 stream→complete 重复)"
 
 
-# ── 2. ToolRegistry ────────────────────────────────────────────────────────────
 def test_registry_default_and_deny():
     reg = T.default_registry()
     assert set(reg.names()) == {"web_search", "recall_memory"}
@@ -55,7 +53,6 @@ def test_tool_use_flag_default_off():
         os.environ.pop("FOXCLAW_TOOL_USE", None)
 
 
-# ── 3. call_tools 降级 ─────────────────────────────────────────────────────────
 def test_call_tools_unsupported_degrades():
     r = ModelRouter(provider="stub")
     assert r.supports_tools() is False
@@ -63,7 +60,6 @@ def test_call_tools_unsupported_degrades():
     assert res["supported"] is False and res["tool_calls"] == []
 
 
-# ── 4. 工具循环 ────────────────────────────────────────────────────────────────
 class _FakeRouter:
     """脚本化 call_tools:按序返回预设结果,记录每轮 messages 长度。"""
     def __init__(self, script):
@@ -93,10 +89,8 @@ def _fake_agent(router):
 
 def test_reply_with_tools_multi_round():
     router = _FakeRouter([
-        # 第1轮:模型要求调 web_search
         {"supported": True, "text": "", "assistant_msg": {"role": "assistant", "content": ""},
          "tool_calls": [{"id": "c1", "name": "web_search", "args": {"query": "最新模型"}}]},
-        # 第2轮:拿到结果后给最终答案
         {"supported": True, "text": "根据搜索,最新是 X。", "tool_calls": [],
          "assistant_msg": {"role": "assistant", "content": "根据搜索,最新是 X。"}},
     ])
@@ -104,7 +98,6 @@ def test_reply_with_tools_multi_round():
     out = CognitiveAgent._reply_with_tools(agent, "有哪些新模型",
                                            [{"role": "user", "content": "有哪些新模型"}])
     assert out == "根据搜索,最新是 X。"
-    # 第2轮的 messages 必须已追加 assistant(带 tool_calls)+ tool 结果
     _, round2_msgs = router.seen[1]
     roles = [m["role"] for m in round2_msgs]
     assert "assistant" in roles and "tool" in roles
@@ -129,7 +122,6 @@ def test_reply_with_tools_unsupported_returns_none():
 
 
 def test_reply_with_tools_empty_answer_returns_none():
-    # 阶段五·步骤15:模型无工具调用且文本为空 → 返回 None 让上层 fallback(不再"空回复且不回退")
     router = _FakeRouter([
         {"supported": True, "text": "", "tool_calls": [],
          "assistant_msg": {"role": "assistant", "content": ""}},
@@ -139,7 +131,6 @@ def test_reply_with_tools_empty_answer_returns_none():
     assert out is None, "空答必须返回 None 让上层 fallback"
 
 
-# ── 5. 工具分派 ────────────────────────────────────────────────────────────────
 def test_dispatch_web_search_ok(monkeypatch):
     from foxclaw.core import web_search as ws
     monkeypatch.setattr(ws, "search_answer", lambda q: {"answer": "实时答案XYZ", "references": []})
@@ -168,11 +159,9 @@ def test_dispatch_denied(monkeypatch):
     assert "禁用" in out
 
 
-# ── 6. 动作级权限闸(permission 管线 + HITL)──────────────────────────────────────
 def test_tool_capability_readonly_and_failclosed():
     assert T.tool_capability("web_search")["read_only"] is True
     assert T.tool_capability("recall_memory")["side_effect"] == "read"
-    # 未声明的新工具 → fail-closed:当有副作用 + 外部
     cap = T.tool_capability("some_future_write_tool")
     assert cap["read_only"] is False and cap["side_effect"] == "write" and cap["external"] is True
 
@@ -194,7 +183,6 @@ def test_dispatch_hitl_blocks_side_effect_tool(monkeypatch):
     called = {"n": 0}
     monkeypatch.setattr(ws, "search_answer",
                         lambda q: called.__setitem__("n", called["n"] + 1) or {"answer": "x"})
-    # 把 web_search 强制降级为有副作用 → 应被闸门拦成 HITL
     monkeypatch.setattr(T, "tool_capability",
                         lambda name: {"side_effect": "send", "read_only": False,
                                       "external": True, "destructive": False})
@@ -219,7 +207,6 @@ def test_tool_path_injects_preferences(monkeypatch):
     fake.AGENT_ID = "assistant"
     fake._ability_augment = lambda t, m: m
     fake._skill_augment = lambda t, m: m
-    # 偏好注入:把标记并进最后一条 user
     fake._pref_augment = lambda m: (list(m[:-1]) +
         [{"role": "user", "content": "【用户偏好】喜欢简洁\n\n" + m[-1]["content"]}])
 

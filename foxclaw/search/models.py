@@ -12,17 +12,16 @@ from typing import Any, Optional
 
 
 class RouteType(str, Enum):
-    INTERNAL = "HSR-I"   # 查内部（HMR 记忆 / 未来的 HKC 知识）
-    EXTERNAL = "HSR-E"   # 查外部世界（联网搜索）
-    HYBRID = "HYBRID"    # 内外混合 + 交叉验证
+    INTERNAL = "HSR-I"
+    EXTERNAL = "HSR-E"
+    HYBRID = "HYBRID"
 
 
 class SourceType(str, Enum):
-    MEMORY = "memory"        # 来自 HMR（只读查询）
-    KNOWLEDGE = "knowledge"  # 来自 HKC（通过 foxclaw-hkc 的 hkc_sdk 只读查询）
-    AGENT = "agent"          # 来自五个 Agent 持有的内部数据:领域内核(财务/学习/行程)
-                             # + ThoughtChain 推理链 + 各 Agent HMR 记忆 + 能力/状态目录
-    WEB = "web"              # 来自联网搜索（当前接的是百度 AI 搜索）
+    MEMORY = "memory"
+    KNOWLEDGE = "knowledge"
+    AGENT = "agent"
+    WEB = "web"
 
 
 @dataclass
@@ -45,11 +44,10 @@ class RawEvidence:
     id: str
     fact: str
     source: SourceType
-    origin: str              # 具体来源：hmr 记忆 id / 网页 url
+    origin: str
     confidence: float = 0.5
     raw: Any = None
-    grounded_by: Optional[str] = None  # 指向另一条证据的 id：
-                                        # "这条知识由这条 HMR 记忆溯源支撑"
+    grounded_by: Optional[str] = None
 
 
 @dataclass
@@ -66,7 +64,7 @@ class EvidenceNode:
 class EvidenceEdge:
     src: str
     dst: str
-    relation: str  # "supports" | "contradicts" | "grounded_by"
+    relation: str
 
 
 @dataclass
@@ -103,7 +101,7 @@ class EvidenceGraph:
 
 @dataclass
 class StrategyDecision:
-    action: str  # "continue" | "stop" | "switch_query" | "switch_source"
+    action: str
     reason: str
     next_steps: list[SubQuery] = field(default_factory=list)
 

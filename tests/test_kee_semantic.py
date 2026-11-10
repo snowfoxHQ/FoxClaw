@@ -29,7 +29,6 @@ def test_kee_alias_dedup():
         def query_all(self, limit=100000): return list(self.kus.values())
         def redirect_relations(self, a, b): return 0
 
-    # [1] 别名正向归并:「北平」(aliases=['北京']) → 命中已有「北京」
     store = FakeStore(); d = KnowledgeDeduplicator(store)
     beijing = FakeKU("E1", "Entity", "北京", "", aliases=[])
     store.put(beijing)
@@ -40,7 +39,6 @@ def test_kee_alias_dedup():
     assert "EVD_A" in beijing.sources, "归并应把新证据并入存活 KU"
     print("[1] 别名正向归并 OK")
 
-    # [2] 别名反向归并:已有「北平」(aliases=['北京']),新「北京」无别名 → 命中别名
     store2 = FakeStore(); d2 = KnowledgeDeduplicator(store2)
     beiping2 = FakeKU("E1", "Entity", "北平", "", aliases=["北京"])
     store2.put(beiping2)
@@ -50,7 +48,6 @@ def test_kee_alias_dedup():
     assert d2.check_and_merge(beijing2) == "E1", "新 KU 主名应命中已有 KU 的别名"
     print("[2] 别名反向归并 OK")
 
-    # [3] 无别名 → 纯 exact:不同名不并
     store3 = FakeStore(); d3 = KnowledgeDeduplicator(store3)
     a = FakeKU("C1", "Concept", "value investing", "finance")
     store3.put(a)
@@ -60,7 +57,6 @@ def test_kee_alias_dedup():
     assert d3.check_and_merge(b) is None, "无别名时不同名不应归并(纯 exact)"
     print("[3] 无别名纯 exact OK")
 
-    # [4] Fact 用完整 statement 守 exact:前 80 字符相同但完整陈述不同 → 不误并
     store4 = FakeStore(); d4 = KnowledgeDeduplicator(store4)
     stmt1 = "A" * 80 + "X"
     stmt2 = "A" * 80 + "Y"
@@ -72,7 +68,6 @@ def test_kee_alias_dedup():
     assert d4.check_and_merge(f2) is None, "前 80 字符相同但完整陈述不同,不应误并"
     print("[4] Fact 完整 statement 守 exact OK")
 
-    # [5] 类型隔离:Entity 与 Concept 同名不并
     store5 = FakeStore(); d5 = KnowledgeDeduplicator(store5)
     ent = FakeKU("E", "Entity", "北京", "", aliases=[])
     store5.put(ent)

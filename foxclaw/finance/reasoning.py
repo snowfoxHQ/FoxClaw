@@ -14,7 +14,6 @@ from typing import Any
 class FinanceReasoning:
     """财务推理引擎:把交易流变成可决策的洞察。"""
 
-    # ── 预算推理 ──────────────────────────────────────────
     @staticmethod
     def spend_by_category(transactions: list, period: str | None = None) -> dict:
         """按分类汇总支出(绝对值)。period 形如 '2026-06',None=全部。"""
@@ -47,16 +46,12 @@ class FinanceReasoning:
         period = period or now.strftime("%Y-%m")
         spent = FinanceReasoning.spend_by_category(transactions, period).get(
             budget.category, 0.0)
-        # 当前是本月第几天
         day = now.day
-        days_in_month = 30  # 简化
+        days_in_month = 30
         if day <= 0:
             day = 1
         daily_rate = spent / day
         projected = daily_rate * days_in_month
-        # 月初外推不可信:day=1 时一笔正常消费就被 ×30 放大成"月底将超支"。
-        # 前 7 天样本太少,趋势是噪音 —— 标记 reliable=False,让裁决层(overspend_trend_alert)
-        # 这一周内闭嘴。宁可晚一周提醒真超支,也不要天天误报把用户逼到关掉守门人。
         reliable = day >= 7
         return {
             "category": budget.category,
@@ -70,7 +65,6 @@ class FinanceReasoning:
             "day_of_month": day,
         }
 
-    # ── 风险判断 ──────────────────────────────────────────
     @staticmethod
     def detect_anomalies(transactions: list, threshold: float = 3.5) -> list:
         """异常消费检测:用 MAD(中位数绝对偏差)而非均值/标准差,
@@ -87,13 +81,10 @@ class FinanceReasoning:
             if len(amounts) < 3:
                 continue
             med = median(amounts)
-            # MAD = 偏离中位数的中位数
             mad = median([abs(a - med) for a in amounts])
             if mad == 0:
-                # 退化:用均值兜底
                 mad = (sum(abs(a - med) for a in amounts) / len(amounts)) or 1e-9
             for t in txns:
-                # 修正 Z 分数(0.6745 是正态分布常数)
                 mz = 0.6745 * (abs(t.amount) - med) / mad
                 if mz >= threshold:
                     anomalies.append({
@@ -103,8 +94,6 @@ class FinanceReasoning:
                         "category": cat,
                         "z_score": round(mz, 2),
                         "category_median": round(med, 2),
-                        # med>0 才显示"倍数"(当前 is_expense 排除非负额已保证 med>0,
-                        # 此处显式防御,避免未来改动 is_expense 定义后除零)
                         "reason": (f"{cat} 类异常消费,金额是中位数的 {abs(t.amount)/med:.1f} 倍"
                                    if med > 0 else f"{cat} 类异常消费(金额 {abs(t.amount):.0f})"),
                     })
@@ -145,7 +134,7 @@ class FinanceReasoning:
         同一商户按"最近一次扣款"代表其当前月度订阅价(订阅可能涨价,
         取最新而非遍历到的任意一条;也避免同商户多月记录被累加成虚高总额)。
         """
-        latest: dict[str, tuple[Any, Any]] = {}   # entity -> (dt, amount)
+        latest: dict[str, tuple[Any, Any]] = {}
         for t in transactions:
             if t.is_recurring and t.is_expense:
                 prev = latest.get(t.entity)
@@ -185,7 +174,7 @@ class FinanceReasoning:
         out = []
         for entity, txns in by_entity.items():
             if len(txns) < 2:
-                continue                      # 只有一次扣款 → 无法判周期
+                continue
             ts = sorted(txns, key=lambda x: x.dt)
             gaps = [(ts[i].dt - ts[i - 1].dt).days for i in range(1, len(ts))]
             gaps = [g for g in gaps if g > 0]
@@ -196,7 +185,7 @@ class FinanceReasoning:
             elif 85 <= g <= 95:   cadence, period = "季订", 90
             elif 355 <= g <= 375: cadence, period = "年订", 365
             else:
-                continue                      # 间隔紊乱 → 不预测(不制造误报)
+                continue
             next_dt = ts[-1].dt + timedelta(days=period)
             days_until = (next_dt - now).days
             if 0 <= days_until <= horizon_days:
@@ -216,17 +205,13 @@ class FinanceReasoning:
         """
         now = now or datetime.now()
         credits = [t for t in transactions if not t.is_expense]
-        claimed = set()                 # 已被某笔退款认领的入账(按 id)
+        claimed = set()
         out = []
-        # 先处理较早的支出,让它优先认领入账(FIFO,符合"先欠先还")
         expected = sorted((t for t in transactions
                            if t.is_expense and "refund_expected" in (t.tags or [])),
                           key=lambda x: x.dt)
         for t in expected:
             amt = abs(t.amount)
-            # 同商户、等额、在该支出之后、且**尚未被别的退款认领**的入账 → 退款到账
-            # 消耗式匹配:一笔入账只抵一笔支出。否则用户标了两笔同额 refund_expected、
-            # 只收到一笔退款时,两笔都被误判为已退款 → 第二笔漏报(其实还没到账)。
             match = next((c for c in credits
                           if id(c) not in claimed and c.entity == t.entity
                           and abs(abs(c.amount) - amt) < 0.01 and c.dt >= t.dt), None)
@@ -239,9 +224,6 @@ class FinanceReasoning:
                             "days_waiting": waiting, "transaction_id": t.id})
         return out
 
-    # ── 阈值自校准 ────────────────────────────────────────
-    # 样本门槛:少于这些就不校准,继续用出厂默认。宁可用"公认的经验值",
-    # 也不要用 3 笔数据算出来的、听起来很个性化的垃圾阈值。
     CALIB_MIN_TXNS = 20
     CALIB_MIN_DAYS = 30
 
@@ -273,19 +255,16 @@ class FinanceReasoning:
         dts = [t.dt for t in expenses]
         span_days = (max(dts) - min(dts)).days
         if span_days < FinanceReasoning.CALIB_MIN_DAYS:
-            return {}                      # 跨度太短 → 分布不可信
+            return {}
 
         def _round100(v):
-            # 取整到百:阈值是给人看的,"800" 比 "783.42" 可信也好记
             return max(100.0, round(v / 100.0) * 100.0)
 
         amts = [abs(t.amount) for t in expenses]
         med = median(amts)
         mad = median([abs(a - med) for a in amts])
-        if mad == 0:                       # 退化(消费高度一致)→ 用平均绝对偏差兜底
+        if mad == 0:
             mad = (sum(abs(a - med) for a in amts) / len(amts)) or 1e-9
-        # 3.5/0.6745:把 detect_anomalies 的修正 Z 阈值(3.5)换算回原尺度偏移量,
-        # 使 large 阈值 = 恰好触发异常检测的单笔金额。两条规则从此共用一把尺。
         large = min(_round100(med + (3.5 / 0.6745) * mad), 20000.0)
 
         by_day: defaultdict[Any, float] = defaultdict(float)
@@ -302,7 +281,6 @@ class FinanceReasoning:
                          f"{len(expenses)} 笔 / {span_days} 天)"),
         }
 
-    # ── 预测 ──────────────────────────────────────────────
     @staticmethod
     def burn_rate(transactions: list, days: int = 30) -> dict:
         """烧钱速度:近 N 天的日均净流出。"""

@@ -18,7 +18,6 @@ import os
 import re
 import secrets
 
-# 典型注入/越权特征(中英)。命中不拦截,只在数据块里加醒目告警,提示模型"这是数据里的指令,别执行"。
 _MARKERS = [
     r"ignore\s+(all\s+)?(the\s+)?previous\s+instructions?",
     r"disregard\s+(the\s+)?(above|previous|prior)",
@@ -42,25 +41,17 @@ def scan(text: str) -> bool:
     return bool(text) and bool(_RE.search(str(text)))
 
 
-# ── 输出侧护栏(纵深防御第四道:DLP)────────────────────────────────────────────
-# 回复返回/落库前扫一道:① 密钥/令牌等敏感串 → 脱敏;② 系统提示词被整段吐出 → 拦截。
-# 纯正则、零额外模型调用(适配 flash 成本)。与"输入-隔离-模型"三层凑齐四道墙。
-
-# 常见密钥/令牌形态(含 Foxclaw 实际用的百度千帆 bce-v3 AppBuilder key)。
 _SECRET_PATTERNS = [
-    r"sk-[A-Za-z0-9]{20,}",                                  # OpenAI 风格
-    r"bce-v3/[A-Za-z0-9-]{6,}/[A-Za-z0-9]{6,}",              # 百度千帆 AppBuilder(Foxclaw 在用)
-    r"AKIA[0-9A-Z]{16}",                                     # AWS Access Key
-    r"gh[pousr]_[A-Za-z0-9]{20,}",                           # GitHub token
-    r"xox[baprs]-[A-Za-z0-9-]{10,}",                         # Slack token
-    r"Bearer\s+[A-Za-z0-9._\-]{20,}",                        # Bearer 令牌
+    r"sk-[A-Za-z0-9]{20,}",
+    r"bce-v3/[A-Za-z0-9-]{6,}/[A-Za-z0-9]{6,}",
+    r"AKIA[0-9A-Z]{16}",
+    r"gh[pousr]_[A-Za-z0-9]{20,}",
+    r"xox[baprs]-[A-Za-z0-9-]{10,}",
+    r"Bearer\s+[A-Za-z0-9._\-]{20,}",
     r"(api[_-]?key|secret|token|password|passwd)\s*[:=]\s*['\"]?[A-Za-z0-9._\-/]{12,}",
 ]
 _SECRET_RE = re.compile("|".join(_SECRET_PATTERNS), re.IGNORECASE)
 
-# 系统提示词泄露判定:不用"单个短语命中"(会误伤——如用户正常问"Principle 07 是什么")。
-# 改为**更强信号**:① 输出里出现 KERNEL 的长段**逐字串**(dump 才会逐字复现,提及概念不会);
-# ② 或同时出现 ≥2 个**章节标记**(无 kernel 参照时的兜底)。
 _SECTION_MARKS = ("【一、", "【二、", "【三、", "【四、", "【五、", "【六、", "【七、")
 
 
@@ -101,7 +92,6 @@ def _has_semantic_leak(text: str, kernel: str, threshold: float = 0.88,
         if model is None:
             return False
         import numpy as np
-        # 固定 ~200 字块;向量已 normalize → 余弦 = 点积。内核块进共享缓存(只编码一次)。
         kblocks = [kernel[i:i + 200] for i in range(0, len(kernel), 200)]
         tblocks = [text[i:i + 200] for i in range(0, len(text), 200)]
         kv = encode_cached(model, name, kblocks)
@@ -165,8 +155,6 @@ def guard_output(text: str, kernel: str = "") -> tuple:
     return (text, issues)
 
 
-# 分隔符伪造防护:外部内容里若自带 <untrusted>/</untrusted>,会伪造边界把恶意指令挤出隔离区
-# (经典分隔符注入)。包裹前把内容中一切 <(/)untrusted 的尖括号中和成 ‹,使其无法充当真边界。
 _UNTRUSTED_DELIM = re.compile(r"<\s*/?\s*untrusted", re.IGNORECASE)
 
 
@@ -196,17 +184,10 @@ def wrap_untrusted(text: str, source: str = "external") -> str:
     return block + note
 
 
-# ── 数据污点分级(Muse「eBPF 污点追踪」的纯软件版)────────────────────────────
-# 对齐 Meta Muse 的安全内核:不靠"模型自觉不泄露",而靠"数据一旦来自用户/敏感源,
-# 就在会话上打污点;之后凡外发/副作用动作,污点达标则动态提高审批门槛(见
-# skills.permission 的 taint_threshold)。这里只做「来源 → 敏感度」映射;污点的
-# 传播与裁决在调用方(agents.base / skills.permission)。
-#
-# 敏感度分级(数值越高越敏感,单调可比):
-TAINT_NONE = 0        # 无外部数据(会话初始态)
-TAINT_EXTERNAL = 1    # 外部不可控但非个人:web_search 结果
-TAINT_PERSONAL = 2    # 用户个人数据:知识库(knowledge)/文件(file)
-TAINT_SENSITIVE = 3   # 高敏感个人数据:个人记忆(memory)
+TAINT_NONE = 0
+TAINT_EXTERNAL = 1
+TAINT_PERSONAL = 2
+TAINT_SENSITIVE = 3
 
 _TAINT_BY_SOURCE = {
     "web_search": TAINT_EXTERNAL,

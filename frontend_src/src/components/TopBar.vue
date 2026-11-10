@@ -7,13 +7,8 @@ import { system, loadSystemInfo } from '../stores/system.js'
 const uplink = ref('···')
 const tone = ref('dim')
 
-/* 版本号唯一来源是后端(pyproject → foxclaw.__version__ → /system/info)。
-   前端此前把版本写死在模板里,后端发版后左上角仍是旧数字,对外就对不上。
-   取不到就干脆不显示,不猜一个值。 */
 const ver = computed(() => system.version)
 
-/* 更新提示:后端默认不查(FOXCLAW_UPDATE_CHECK=1 才查),所以这里只在
-   它明确说「有新版本」时出一个小箭头 —— 不自己判断,也不制造焦虑。 */
 const upd = computed(() => (system.update?.update_available ? system.update : null))
 
 onMounted(async () => {
@@ -32,7 +27,6 @@ function openPlanet() {
   window.open('/planet/', '_blank', 'noopener')
 }
 
-/* 这个 ⚙ 一直是死按钮(title 写着「P3 接入」)。设置面板补齐后接上去。 */
 function openSettings() {
   setModule(state.module === 'settings' ? 'overview' : 'settings')
 }
@@ -90,7 +84,6 @@ function openSettings() {
   padding: 2px 7px; border-radius: var(--r-pill);
   background: rgba(255, 255, 255, 0.7); border: 1px solid var(--line);
 }
-/* 更新提示:一个小箭头,不抢视觉,但点得到(点了进设置看详情) */
 .upd {
   display: grid; place-items: center;
   width: 18px; height: 18px; margin-left: -3px;

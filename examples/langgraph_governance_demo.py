@@ -18,16 +18,14 @@ from langgraph.graph import StateGraph, END
 from foxclaw.governance import GovernanceSession
 
 
-# ── 图状态 ────────────────────────────────────────────────
 class AgentState(TypedDict):
-    plan: list        # [(tool_name, args)] 计划执行的工具序列
-    idx: int          # 当前步
-    outputs: list     # 已执行工具的结果
-    halted: bool      # 是否被治理层拦停
-    reason: str       # 拦停原因
+    plan: list
+    idx: int
+    outputs: list
+    halted: bool
+    reason: str
 
 
-# ── "某框架里的"工具(纯 stub)────────────────────────────────
 def get_balance(account="default"):
     return {"account": account, "balance": 1234.5}
 
@@ -35,7 +33,7 @@ def list_transactions(account="default"):
     return {"account": account, "count": 12}
 
 def delete_account(account="default"):
-    return {"deleted": account}        # 越权:只读任务里不该出现
+    return {"deleted": account}
 
 TOOLS = {"get_balance": get_balance, "list_transactions": list_transactions,
          "delete_account": delete_account}
@@ -47,7 +45,6 @@ def build_graph(gov: GovernanceSession):
     def step(state: AgentState) -> dict:
         i = state["idx"]
         tool, args = state["plan"][i]
-        # ★ 治理网关:工具授权检查(semantic=False,只按 tool/scope 判,语言无关)
         r = gov.observe(f"tool call: {tool}", tool=tool, semantic=False)
         if r.tool_violation or r.scope_violation or r.blocked:
             return {"halted": True, "reason": r.reason, "idx": i}
@@ -78,7 +75,7 @@ def main():
 
     graph = build_graph(gov)
     plan = [("get_balance", {}), ("list_transactions", {}),
-            ("delete_account", {}), ("get_balance", {})]   # 第3步越权
+            ("delete_account", {}), ("get_balance", {})]
     final = graph.invoke(
         {"plan": plan, "idx": 0, "outputs": [], "halted": False, "reason": ""},
         config={"recursion_limit": 50})
@@ -92,7 +89,6 @@ def main():
     for n in gov.audit():
         print(f"   - [{n['harness_status']:<5}] {n['content'][:24]:<24} tool={n['tool_name']}")
 
-    # 断言:图在越权步停机 + 审计链含 BLOCK
     ok = (final["halted"] and final["idx"] == 2
           and [o["tool"] for o in final["outputs"]] == ["get_balance", "list_transactions"]
           and any(n["harness_status"] == "BLOCK" and n["tool_name"] == "delete_account"

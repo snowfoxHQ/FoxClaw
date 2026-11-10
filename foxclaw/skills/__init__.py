@@ -13,7 +13,7 @@ import threading
 from dataclasses import dataclass, field, asdict
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 
-if TYPE_CHECKING:                      # 仅类型检查期导入:这两个模块会连带 mcp/sqlite 依赖
+if TYPE_CHECKING:
     from .mcp_client import McpManager
     from .policy import SkillPolicy
 
@@ -22,11 +22,6 @@ SkillKind = Literal["local", "mcp", "web_api"]
 SideEffect = Literal["read", "write", "send", "pay"]
 
 
-# ── 循环检测的会话分槽 key(阶段四·步骤13:loop_detector per-session 化)────────────────
-# SkillAdapter 是全局单例(Foxclaw 装配一个,所有 Agent/会话共享),其循环检测历史若共享,
-# A 会话的工具调用会污染 B 会话的"重复/横跳/无进展"判定。故用 contextvar 承载"当前会话
-# 标识",随 asyncio Task / asyncio.to_thread 自动传播;循环检测按它分槽,消除跨会话污染。
-# 调用方在会话/执行入口 set_loop_session(session_id),退出时 reset_loop_session(token)。
 _loop_session: contextvars.ContextVar = contextvars.ContextVar(
     "foxclaw_skill_loop_session", default=None)
 
@@ -47,33 +42,26 @@ class SkillSpec:
     name: str
     description: str
     kind: SkillKind = "local"
-    triggers: list = field(default_factory=list)     # 触发关键词
-    # 【fail-closed】未声明 = 按有副作用处理。漏写一行不该等于「放行」:
-    # 工具侧 core/tools.py 的未声明能力兜底为 write+external → 强制确认,这里对齐同一口径。
-    side_effect: SideEffect = "write"                # read/write/send/pay → 守门人据此裁决
-    destructive: bool = False                         # 不可逆操作(read_only 一票否决);write 已触发确认
-    external: bool = False                             # 是否调用外部服务(联网/API)
-    read_only: Optional[bool] = None                  # 是否只读(None=按 side_effect 推断)
-    params: dict = field(default_factory=dict)        # 参数 schema
-    # 调用配置(按 kind 不同)
-    handler: Optional[Callable] = None                # local: 直接函数
-    compensate: Optional[Callable] = None             # 回滚补偿:撤销本 skill 的副作用(逆操作)。
-    # ⚠【预留·未接线】(2026-07-17 V3·B1):SkillAdapter 从不调用本字段(失败分支只 record_failure
-    #    +on_error,无回滚);且**无任何内置 skill 提供 compensate**。是"未来副作用型能力回滚接口"
-    #    的预留,非在工作的机制。要真回滚须:① 副作用 skill 提供逆操作 ② invoke 失败分支调它。
-    #    见 docs/internal/AGENT_HARNESS_REMEDIATION_PLAN.md「未接线清单」。
-    mcp_server: str = ""                              # mcp: server 名/URL
-    mcp_tool: str = ""                                # mcp: tool 名
-    endpoint: str = ""                                # web_api: URL
-    http_method: str = "GET"                          # web_api: GET/POST/PUT/DELETE
-    http_headers: dict = field(default_factory=dict)  # web_api: 请求头(如 auth)
-    secret_ref: str = ""                              # web_api: 凭证引用名(存守门人 vault);空=凭证仍在 http_headers(现状)
-    auth_scheme: str = "bearer"                       # web_api: 凭证注入方式 bearer / header:<name> / query:<name>
-    param_location: str = "auto"                      # web_api: query/json/auto
-    timeout: float = 10.0                             # web_api: 超时秒
-    allow_local: bool = False                         # web_api: 是否信任本地/内网地址(默认拒,防SSRF)
+    triggers: list = field(default_factory=list)
+    side_effect: SideEffect = "write"
+    destructive: bool = False
+    external: bool = False
+    read_only: Optional[bool] = None
+    params: dict = field(default_factory=dict)
+    handler: Optional[Callable] = None
+    compensate: Optional[Callable] = None
+    mcp_server: str = ""
+    mcp_tool: str = ""
+    endpoint: str = ""
+    http_method: str = "GET"
+    http_headers: dict = field(default_factory=dict)
+    secret_ref: str = ""
+    auth_scheme: str = "bearer"
+    param_location: str = "auto"
+    timeout: float = 10.0
+    allow_local: bool = False
     enabled: bool = True
-    source: str = "builtin"                           # builtin(内置) / user(UI 安装,可删)
+    source: str = "builtin"
 
     def trust_level(self) -> str:
         """信任分级(治理信号)。外部 kind 优先(不管谁注册):mcp 调外部 server=低、
@@ -98,10 +86,9 @@ class SkillResult:
     skill_id: str
     success: bool
     output: dict = field(default_factory=dict)
-    status: str = "done"                              # done / needs_confirmation / blocked
+    status: str = "done"
     message: str = ""
-    loop_warning: Optional[dict] = None  # 循环检测告警(卡死时填充)
-    # 关键操作二次确认:status=needs_confirmation 时携带一次性确认码(绑定本次动作+参数)
+    loop_warning: Optional[dict] = None
     confirm_nonce: str = ""
     confirm_expires_at: float = 0.0
 
@@ -114,9 +101,6 @@ class SkillRegistry:
 
     def __init__(self):
         self._skills: dict = {}
-        # 【深审修复·线程安全】Step4 引入运行时注册(sync_abilities_to_skills)后,register 会与
-        # 每次路由的 all()/match() 并发——无锁则 list 推导迭代 _skills 时若并发 register/unregister
-        # 会 "dict changed size during iteration"。RLock 保护;all() 返回快照,迭代在锁外(安全)。
         self._lock = threading.RLock()
 
     def register(self, spec: SkillSpec):
@@ -144,7 +128,7 @@ class SkillRegistry:
     def match(self, task: str) -> Optional[SkillSpec]:
         """按触发词匹配最合适的 skill(命中最多者胜)。"""
         best, best_score = None, 0
-        for s in self.all():                 # all() 已在锁内取快照,这里迭代快照(安全)
+        for s in self.all():
             score = sum(1 for t in s.triggers if t in task)
             if score > best_score:
                 best, best_score = s, score
@@ -181,28 +165,19 @@ class SkillAdapter:
                  rules=None, breaker=None, hooks=None, policy_gate=None, sentinel=None,
                  confirms=None):
         self.registry = registry
-        # 关键操作(send/pay/destructive)的会话 nonce 二次确认器(core.confirm_nonce)。
-        # None → 不启用:confirmed=True 直通(既有语义,进程内调用/测试不受影响)。
-        # 外部入口(HTTP)应注入,否则「确认」只是可重放的布尔。
         self.confirms = confirms
-        # server名 -> 客户端。宿主可注入 McpManager(同样实现 .get(id)),故两者都允许。
         self.mcp_clients: dict | McpManager = mcp_clients or {}
-        self.policy_gate = policy_gate         # 【Step4】统一准入门(可空:standalone 直接 evaluate)
-        self.sentinel = sentinel               # 【P-Muse】守门人客户端(可空):非空且 skill.secret_ref 时,web_api 走代执行
-        self.skill_policy: SkillPolicy | None = None   # 全局封杀策略(deny/allow kill-switch),宿主注入
-        # 权限规则集(deny>ask>allow)。宿主可注入,默认空规则。
+        self.policy_gate = policy_gate
+        self.sentinel = sentinel
+        self.skill_policy: SkillPolicy | None = None
         from .permission import PermissionRules
         self.rules = rules or PermissionRules()
-        # 断路器 + 钩子(AHS FRAMEWORK 横切机制)
         from .lifecycle import CircuitBreaker, HookManager
         self.breaker = breaker if breaker is not None else CircuitBreaker()
         self.hooks = hooks if hooks is not None else HookManager()
-        # 工具循环检测(防无进展死循环,与断路器互补:断路器管失败,它管卡死)
-        # 【阶段四·步骤13】按会话 keyed 的检测器池:全局单例 adapter 被所有 Agent/会话共享,
-        # 循环检测历史必须按 session 分槽(见 _detector_for),否则跨会话交叉污染。
-        self._loop_detectors: dict = {}          # session_key -> ToolLoopDetector
+        self._loop_detectors: dict = {}
         self._loop_lock = threading.RLock()
-        self._loop_detectors_max = 256           # 会话槽上限:淘汰最久未用的槽,防无限增长
+        self._loop_detectors_max = 256
 
     def _detector_for(self, session_key: Optional[str]):
         """取当前会话的循环检测器(按 session 分槽);无会话用共享默认槽(向后兼容)。"""
@@ -211,7 +186,6 @@ class SkillAdapter:
             d = self._loop_detectors.get(key)
             if d is None:
                 if len(self._loop_detectors) >= self._loop_detectors_max:
-                    # 淘汰最久未用(插入序最前)的非默认槽,防 session 无限增长
                     for k in list(self._loop_detectors):
                         if k != "__default__":
                             del self._loop_detectors[k]
@@ -266,14 +240,12 @@ class SkillAdapter:
                       confirm_nonce: str = "", taint_level: int = 0,
                       taint_threshold: int = 0) -> SkillResult:
 
-        # —— 全局封杀策略(deny 压倒一切,kill-switch:所有结构化技能执行的唯一咽喉)——
         pol = self.skill_policy
         if pol is not None and pol.is_blocked(skill.id):
             self._audit_terminal(skill, None, "deny", "该技能已被策略封杀(deny)",
                                  {"gate": "skill_policy"})
             return SkillResult(skill.id, False, status="blocked", message="该技能已被策略封杀(deny)")
 
-        # —— pre_skill 钩子(可阻断 / 可改 args)——
         pre = self.hooks.fire("pre_skill", skill.id, {"args": args, "skill": skill.to_dict()})
         if pre.blocked:
             self._audit_terminal(skill, None, "deny", f"pre钩子阻断: {pre.reason}",
@@ -283,10 +255,6 @@ class SkillAdapter:
         if pre.modified_args is not None:
             args = pre.modified_args
 
-        # —— 关键操作会话 nonce 二次确认(必须在权限裁决**之前**)——
-        # `confirmed=True` 只说明"调用方说确认了",对 send/pay/destructive 还不够:确认码
-        # 绑定 (会话, 动作, 参数) 且单次使用 → 堵住「确认了 A 却执行 B」和「同一个 true 反复重放」。
-        # 无效/缺失 → 降级为**未确认**,走 ask 并签发新码(绝不静默放行)。
         from ..core.confirm_nonce import is_critical as _is_critical
         _session = _loop_session.get() or ""
         _critical = _is_critical(getattr(skill, "side_effect", "write"),
@@ -299,10 +267,6 @@ class SkillAdapter:
                 confirmed = False
                 _nonce_reject = _why
 
-        # —— 四阶段权限管线(先判权限,再占断路器探针)。经统一 PolicyGate(Step4);
-        #    拿到的仍是同一 PermissionDecision(行为一致),门面额外发统一 policy.decision 事件。——
-        # 【P3-4】保留整个 Verdict:decision_id 要作为本层执行审计的 correlation_id,
-        #    把「谁批准的(permission 裁决)」与「执行结果如何(skill 终态)」join 起来。
         verdict = None
         if self.policy_gate is not None:
             verdict = self.policy_gate.check_action(
@@ -331,8 +295,6 @@ class SkillAdapter:
                                message=_msg, **_extra)
         _downgrade = decision.trust_downgrade
 
-        # —— 断路器:open 且未过冷却 → 走降级,不调用 ——
-        # (放在权限判定之后:deny/ask 不会执行,就不该占用 half_open 探针名额)
         if not self.breaker.allow(skill.id):
             st = self.breaker.status(skill.id)
             self._audit_terminal(skill, verdict, "deny",
@@ -341,7 +303,6 @@ class SkillAdapter:
             return SkillResult(skill.id, False, status="circuit_open",
                 message=f"「{skill.name}」连续失败 {st['failures']} 次,断路器已开启,暂停调用")
 
-        # —— 执行 + 记账(成功/失败驱动断路器)——
         try:
             res = self._dispatch(skill, args, _downgrade)
             if res.success:
@@ -350,12 +311,10 @@ class SkillAdapter:
             else:
                 self.breaker.record_failure(skill.id)
                 self.hooks.fire("on_error", skill.id, {"result": res.to_dict()})
-            # 【P2-0】执行终态审计(成功/失败都记;deny/ask 已由 permission 层记录,不重复)
             self._audit_terminal(
                 skill, verdict, "success" if res.success else "failed",
                 res.message, {"kind": skill.kind,
                               "trust_downgrade": _downgrade})
-            # 循环检测:记录本次调用(按会话 keyed,消除跨会话污染),若检测到死循环附警告
             loop = self._detector_for(_loop_session.get()).record(skill.id, args, res.output)
             if loop.stuck:
                 res.loop_warning = loop.to_dict()
@@ -376,7 +335,6 @@ class SkillAdapter:
             return SkillResult(skill.id, True, output=out if isinstance(out, dict)
                                else {"result": out}, message="本地 skill 执行完成")
         elif skill.kind == "mcp":
-            # 【P-Muse·第3步】挂了守门人 → 代执行:守门人持有 MCP 凭证并调用,主进程只发意图。
             if self.sentinel is not None:
                 res = self._invoke_mcp_via_sentinel(skill, args)
             else:
@@ -386,8 +344,6 @@ class SkillAdapter:
                 res.message += "(来源不可信,结果不可驱动后续危险操作)"
             return res
         elif skill.kind == "web_api":
-            # 【P-Muse】声明了凭证 ref 且挂了守门人 → 代执行:真凭证只在守门人 vault,
-            # 主进程不直发请求(拿不到真值),改走 IPC 由守门人注入凭证后执行。
             if skill.secret_ref and self.sentinel is not None:
                 return self._invoke_web_via_sentinel(skill, args)
             return self._invoke_web(skill, args)
@@ -405,7 +361,7 @@ class SkillAdapter:
                         f"本地配置后即可调用 {skill.mcp_tool}")
         try:
             out = client.call_tool(skill.mcp_tool, args)
-            out = _mark_untrusted(out)   # 外部 MCP 返回=不可信,框住内容防被当指令(提示注入)
+            out = _mark_untrusted(out)
             return SkillResult(skill.id, True, output=out, message="MCP 调用完成(外部不可信数据)")
         except Exception as e:
             return SkillResult(skill.id, False, status="blocked",
@@ -436,7 +392,6 @@ class SkillAdapter:
             return SkillResult(skill.id, False, status="blocked",
                                message="缺少 httpx 依赖,无法发起 Web API 调用")
 
-        # —— SSRF 防护:只允许 http/https + 拦截内网/环回/元数据地址 ——
         allow_local = getattr(skill, "allow_local", False)
         block = self._ssrf_check(skill.endpoint, allow_local=allow_local)
         if block:
@@ -444,15 +399,14 @@ class SkillAdapter:
                                message=f"端点被安全策略拒绝: {block}")
 
         method = (skill.http_method or "GET").upper()
-        headers = {"User-Agent": "Foxclaw/1.0"}     # 默认 UA(很多 API 必需)
-        headers.update(skill.http_headers or {})     # 用户头可覆盖
+        headers = {"User-Agent": "Foxclaw/1.0"}
+        headers.update(skill.http_headers or {})
         args = args or {}
-        # 参数位置:auto → GET/DELETE 走 query,POST/PUT 走 json body
         loc = skill.param_location
         if loc == "auto":
             loc = "query" if method in ("GET", "DELETE") else "json"
         req_kwargs: dict[str, Any] = {"headers": headers, "timeout": skill.timeout,
-                      "follow_redirects": False}     # 禁止重定向(防绕过 SSRF 校验)
+                      "follow_redirects": False}
         if loc == "query":
             req_kwargs["params"] = args
         else:
@@ -468,17 +422,14 @@ class SkillAdapter:
             return SkillResult(skill.id, False, status="blocked",
                                message=f"Web API 请求失败: {e}")
 
-        # 3xx 重定向(已禁跟随)→ 视为需人工确认的可疑响应
         if 300 <= resp.status_code < 400:
             return SkillResult(skill.id, False, status="blocked",
                                message=f"Web API 返回重定向 HTTP {resp.status_code}(已阻止跟随)")
-        # 非 2xx → 失败(交给断路器计数)
         if resp.status_code >= 400:
             return SkillResult(skill.id, False, status="blocked",
                                message=f"Web API 返回 HTTP {resp.status_code}",
                                output={"status_code": resp.status_code,
                                        "body": resp.text[:500]})
-        # 解析响应:优先 JSON,失败则文本
         try:
             data = resp.json()
         except Exception:
@@ -522,39 +473,31 @@ def ssrf_check(url: str, allow_local: bool = False) -> str | None:
     if not host:
         return "缺少 host"
     if allow_local:
-        return None        # 显式信任本地/内网(对接本地服务时)
-    # 明确的危险主机名
+        return None
     if host.lower() in ("localhost", "metadata.google.internal"):
         return f"内部主机: {host}"
-    # 显式的云元数据 IP(各云厂商,标准库可能漏判)
-    CLOUD_METADATA = {"169.254.169.254", "100.100.100.200",  # AWS/GCP/Azure, 阿里云
-                      "fd00:ec2::254"}                        # IPv6 云元数据
+    CLOUD_METADATA = {"169.254.169.254", "100.100.100.200",
+                      "fd00:ec2::254"}
     if host in CLOUD_METADATA:
         return f"云元数据地址: {host}"
-    # IP 地址 → 拦截私网/环回/链路本地/元数据
     try:
         ip = ipaddress.ip_address(host)
         if (ip.is_private or ip.is_loopback or ip.is_link_local
                 or ip.is_reserved or ip.is_multicast):
             return f"内网/保留地址: {host}"
-        # carrier-grade NAT 100.64.0.0/10(标准 is_private 不含,阿里云元数据在此段)
         if isinstance(ip, ipaddress.IPv4Address) and \
                 ip in ipaddress.ip_network("100.64.0.0/10"):
             return f"运营商级 NAT 段: {host}"
     except ValueError:
-        pass   # 不是 IP(是域名),放行(域名解析后的 IP 拦截需更复杂方案,此处够用)
+        pass
     return None
 
 
-# ── 内置示例 skill(演示用,真实 MCP/API 留接口)─────────────
 def _demo_calc(expression: str = "") -> dict:
     """安全的演示计算 skill。"""
     allowed = set("0123456789+-*/(). ")
     if not set(expression) <= allowed:
         return {"error": "仅支持数字和基本运算符"}
-    # 字符白名单只挡住"取名字/取属性"(字母被禁),挡不住**计算量攻击**:
-    # `9**9**9` 这类表达式在 eval 阶段就会长时间计算并吃满内存 —— 属 R2 检测出的低危项。
-    # 故在 eval 之前限长度、限连续乘方、限指数大小;eval 之后再兜底检查结果规模。
     if len(expression) > 200:
         return {"error": "表达式过长"}
     if expression.count("**") > 1:
@@ -579,14 +522,12 @@ def build_default_registry() -> SkillRegistry:
     """构建默认 skill 注册表:演示本地 skill + 留口的 MCP skill。"""
     reg = SkillRegistry()
 
-    # 本地只读 skill(直接可用)
     reg.register(SkillSpec(
         id="calculator", name="计算器", description="数学表达式计算",
         kind="local", triggers=["计算", "算一下", "算", "等于多少", "加", "减", "乘", "除"],
         side_effect="read", handler=_demo_calc,
         params={"expression": "str"}))
 
-    # MCP skill(留接口,本地配 server 后可用)——对齐我们接过的生态
     reg.register(SkillSpec(
         id="amap_route", name="高德路线", description="查询两地真实路线和时间",
         kind="mcp", triggers=["路线", "怎么走", "多久到", "导航"],

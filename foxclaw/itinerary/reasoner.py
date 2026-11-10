@@ -14,8 +14,6 @@ from __future__ import annotations
 from ..cognitive.reasoner import DomainReasoner, ReasonedVerdict, Evidence
 from .reasoning import ItineraryReasoning
 
-# "紧凑"阈值:某段空档 / 所需通勤 < 该比例的倍数即算逼近(未赶不及但很赶),
-# 交给可选 LLM 复核是否提醒用户。仅在启用 LLM 时生效。
 TIGHT_RATIO = 1.5
 
 
@@ -43,12 +41,11 @@ class ItineraryConflictReasoner(DomainReasoner):
     def gather_evidence(self, subject, obs: dict) -> list:
         waypoints, mode = subject
         mode = obs["mode"]
-        conflicts = ItineraryReasoning.detect_conflicts(waypoints, mode)   # 规则=裁决证据
+        conflicts = ItineraryReasoning.detect_conflicts(waypoints, mode)
         ev = [Evidence(factor=c["type"], detail=c["reason"], weight=1.0, raw=c)
               for c in conflicts]
         if not conflicts:
             ev.append(Evidence("no_conflict", "未检测到时间冲突或通勤不可达", 0.5))
-        # informational(raw=None):顺路簇/密度,丰满证据链但不参与裁决
         try:
             clusters = ItineraryReasoning.cluster_by_proximity(waypoints)
             if clusters:
@@ -65,11 +62,9 @@ class ItineraryConflictReasoner(DomainReasoner):
     def arbitrate(self, subject, obs, hyps, ev) -> ReasonedVerdict:
         triggered = [e for e in ev if e.raw is not None]
         if triggered:
-            # 【规则权威】检出硬冲突 → confirm,绝不被 LLM 推翻/隐藏
             return ReasonedVerdict(
                 "confirm", "；".join(e.detail for e in triggered),
                 ev, hyps, "rules")
-        # 无硬冲突:可选让 LLM 就"紧凑排程"复核是否升级(只 approve→confirm)
         if DomainReasoner.llm_available(self.llm, self.llm_enabled) and self._is_tight(subject, obs):
             if DomainReasoner.llm_should_escalate(self.llm, *self._llm_prompt(subject, obs, ev)):
                 return ReasonedVerdict("confirm", "排程紧凑,LLM 建议人工确认", ev, hyps, "llm")

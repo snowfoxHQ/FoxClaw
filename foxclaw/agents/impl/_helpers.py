@@ -2,10 +2,8 @@
 
 from ...core.dispatch import dispatch_failed as _dispatch_failed  # noqa: F401  (re-export)
 
-# ── 多步链式上下文 ────────────────────────────────────────────
-# 注入的前序步数与单步字符必须封顶:长链会把提示词越滚越大(且越往后越贵/越容易超窗)。
-PRIOR_MAX_STEPS = 3      # 只带最近 N 步(更早的通常已被后续步骤消化)
-PRIOR_MAX_CHARS = 300    # 单步输出截断
+PRIOR_MAX_STEPS = 3
+PRIOR_MAX_CHARS = 300
 
 
 def _with_prior(subtask: str, prior: list) -> str:
@@ -47,12 +45,6 @@ def _fmt_mem(m: dict, max_chars: int | None = None) -> str:
         parts.append("[共享]")
     head = " ".join(parts)
     return f"{head}：{content}" if head else content
-
-
-# ── P0-1 反思重规划:执行结果判定 ────────────────────────────
-# 实现已下沉到 core.dispatch(见文件头 import):pipeline 的 replan stage 也要用它,
-# 而 pipeline 不能反向 import agents —— 两处都只依赖 core,依赖方向单一。
-# `_dispatch_failed` 在此保留为 re-export,历史导入路径(agents.agents / impl.supervisor)不变。
 
 
 def _extract_step_results(dr) -> list:

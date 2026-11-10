@@ -24,8 +24,6 @@ def _write_chain(path: Path, records) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-# ── 链 ─────────────────────────────────────────────────────────────
-
 def test_chain_passes(tmp_path):
     from foxclaw.core import audit_chain
 
@@ -42,7 +40,7 @@ def test_tampered_line_detected(tmp_path):
     _write_chain(p, [{"verdict": "deny"}, {"verdict": "allow"}])
     lines = p.read_text(encoding="utf-8").splitlines()
     rec = json.loads(lines[0])
-    rec["verdict"] = "allow"                     # 把一次拒绝抹成放行
+    rec["verdict"] = "allow"
     lines[0] = json.dumps(rec, ensure_ascii=False)
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -69,7 +67,7 @@ def test_resume_after_restart(tmp_path):
     p = tmp_path / "governance.jsonl"
     GovernanceAuditor(sink_path=p).record(
         layer="skill", actor="office", action="write_note", verdict="success")
-    aud = GovernanceAuditor(sink_path=p)          # 模拟重启
+    aud = GovernanceAuditor(sink_path=p)
     aud.record(layer="skill", actor="office", action="write_note", verdict="success")
 
     ok, n, msg = aud.verify()
@@ -96,8 +94,6 @@ def test_tail_hash_ignores_torn_line(tmp_path):
     assert audit_chain.tail_hash(p) == "h1"
 
 
-# ── recovery 脱敏 ──────────────────────────────────────────────────
-
 def test_recovery_step_args_and_result_redacted():
     from types import SimpleNamespace
 
@@ -117,5 +113,4 @@ def test_recovery_step_args_and_result_redacted():
 
     assert "sk-" not in json.dumps(got["args"]), got["args"]
     assert "[已脱敏]" in got["result"], got["result"]
-    # key 必须用未脱敏的 args 算,否则同一步骤前后 key 不一致(缓存/回放对不上)
     assert got["key"] == _step_key("http", {"api_key": key})

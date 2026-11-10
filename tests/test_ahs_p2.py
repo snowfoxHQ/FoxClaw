@@ -33,7 +33,6 @@ def check(cond, label):
         print(f"  ✗ {label}")
 
 
-# ═══════════════ [1]-[3] P2-2 compose pending ═══════════════
 from foxclaw.skills import SkillRegistry, SkillSpec, SkillAdapter
 from foxclaw.skills.pipeline import compose, plan, AHSPipeline
 
@@ -58,7 +57,7 @@ def _make_pending_registry(counter: dict):
     reg.register(SkillSpec(
         id="send_email", name="发邮件", description="发邮件",
         kind="local", triggers=["发送", "邮件"], side_effect="send",
-        destructive=True,                       # ← 未确认 → needs_confirmation
+        destructive=True,
         handler=lambda to="": {"sent": to}, params={"to": "str"}))
     return reg
 
@@ -92,8 +91,6 @@ def test_compose_pending():
 
 def test_compose_failed_still_rolls_back():
     print("\n【1b】对照:P2-2 后真失败(not_connected)仍触发回滚")
-    # confirmed=True:write/send 都过权限;第二步 handler=None → dispatch not_connected
-    # → 真失败 → 回滚第一步(write 副作用,有 compensate)。若误走 pending 则不回滚。
     reg = SkillRegistry()
     rolled = []
     reg.register(SkillSpec(
@@ -104,7 +101,7 @@ def test_compose_failed_still_rolls_back():
     reg.register(SkillSpec(
         id="send_email", name="发邮件", description="发邮件",
         kind="local", triggers=["发送", "邮件"], side_effect="send",
-        handler=None,                            # ← 无 handler → not_connected(非 pending)
+        handler=None,
         params={"to": "str"}))
     adp = SkillAdapter(reg)
     res = compose(plan("创建日程 然后 发送邮件", reg), reg, adp, confirmed=True)
@@ -151,7 +148,6 @@ def test_ahs_pipeline_pending():
           "composition 字典带 pending_confirmation/completed_steps,未回滚")
 
 
-# ═══════════════ [4] P2-1 run_async ═══════════════
 def test_run_async():
     print("\n【4】P2-1:run_async 异步入口")
     reg = SkillRegistry()
@@ -171,24 +167,19 @@ def test_run_async():
     pipe = AHSPipeline(reg, SkillAdapter(reg))
 
     async def _main():
-        # a) 返回 PipelineResult
         r = await pipe.run_async("计算 1+1")
         check(r.task == "计算 1+1" and (r.success or r.is_pending),
               "run_async 返回 PipelineResult")
-        # b) 不阻塞事件循环:两个 0.5s 慢任务并发,若串行 ≥1.0s,并发 ≈0.5s
-        #    (阈值 0.9s:串行/并发区分度大,且留足调度抖动余量——0.3/0.5 的窄距实测会偶抖)
         t0 = time.perf_counter()
         await asyncio.gather(pipe.run_async("慢 1+1"), pipe.run_async("慢 2+2"))
         elapsed = time.perf_counter() - t0
         check(elapsed < 0.9,
               f"并发两个慢 run_async 耗时 {elapsed:.2f}s < 0.9s(未阻塞事件循环)")
     asyncio.run(_main())
-    # c) 同步 run 向后兼容
     r_sync = pipe.run("计算 1+1")
     check(r_sync.task == "计算 1+1", "同步 run 仍可用(向后兼容)")
 
 
-# ═══════════════ [5]-[7] P2-3 idempotency ═══════════════
 from foxclaw.core.idempotency import IdempotencyGuard
 
 
@@ -204,7 +195,7 @@ def test_idem_append_log():
     print("\n【5】P2-3:追加日志(O(1) 写)+ compact 合并 + 重启回放")
     d = tempfile.mkdtemp(prefix="idem_a_")
     path = os.path.join(d, "idem.json")
-    g = IdempotencyGuard(persist_path=path, compact_every=1000)   # 不触发 compact
+    g = IdempotencyGuard(persist_path=path, compact_every=1000)
     g.mark("k1"); g.mark("k2"); g.mark("k3")
     log_path = path + ".log"
     check(os.path.exists(log_path), "mark 产生追加日志")
@@ -213,7 +204,6 @@ def test_idem_append_log():
     check(len(lines) == 3, f"3 次 mark = 3 行日志(实为 {len(lines)}),非全量写")
     check(not os.path.exists(path), "未达阈值不写全量快照")
 
-    # compact 合并:compact_every=5,第 5 次 mark 触发(轮转日志→快照;新 append 开新文件)
     d2 = tempfile.mkdtemp(prefix="idem_b_")
     path2 = os.path.join(d2, "idem.json")
     g2 = IdempotencyGuard(persist_path=path2, compact_every=5)
@@ -225,13 +215,11 @@ def test_idem_append_log():
     with open(path2, encoding="utf-8") as f:
         data = json.load(f)
     check(len(data) == 5, f"快照含全部 5 条(实为 {len(data)})")
-    # compact 之后的新 mark 进新日志;重启 = 读快照(5) + 回放新日志(1) = 6
     g2.mark("k5")
     g2b = IdempotencyGuard(persist_path=path2, compact_every=10000)
     check(all(g2b.seen(f"k{i}") for i in range(6)),
           "compact 后继续 mark:重启回放 = 快照5 + 新日志1 = 6 全可见")
 
-    # 重启回放:g3 不写快照(阈值大),g4 启动 = 读快照(无)+ 回放日志
     d3 = tempfile.mkdtemp(prefix="idem_c_")
     path3 = os.path.join(d3, "idem.json")
     g3 = IdempotencyGuard(persist_path=path3, compact_every=10000)
@@ -243,7 +231,6 @@ def test_idem_append_log():
 
 def test_idem_compat_and_eviction():
     print("\n【6】P2-3:旧快照兼容 + 容量淘汰发 delete(重启不复活)")
-    # 旧格式:纯全量快照,无 .log → 直接可读
     d = tempfile.mkdtemp(prefix="idem_d_")
     path = os.path.join(d, "idem.json")
     with open(path, "w", encoding="utf-8") as f:
@@ -252,7 +239,6 @@ def test_idem_compat_and_eviction():
     check(g.seen("legacy_k") and g.get_result("legacy_k") == {"x": 1},
           "旧版纯快照格式兼容(无日志,回放为空)")
 
-    # 容量淘汰必须落 delete:否则重启回放 mark 日志会"复活"被淘汰的 key
     d2 = tempfile.mkdtemp(prefix="idem_e_")
     path2 = os.path.join(d2, "idem.json")
     g2 = IdempotencyGuard(persist_path=path2, max_size=2, compact_every=10000)
@@ -277,7 +263,7 @@ def test_idem_persist_failure():
         return orig_open(*a, **kw)
     builtins.open = _bad_open
     try:
-        g.mark("k1")          # 追加日志失败 → 计数 + 事件;主流程不炸
+        g.mark("k1")
     finally:
         builtins.open = orig_open
     check(g.seen("k1"), "持久化失败不影响内存主流程")
@@ -289,7 +275,6 @@ def test_idem_persist_failure():
           "stats() 含新字段(无 persist_path 也一样)")
 
 
-# ═══════════════ [8]-[9] P2-4 recovery ═══════════════
 from foxclaw.core.recovery import RestartRecovery, RecoveryPlan
 
 
@@ -313,7 +298,6 @@ def test_recovery_plan():
           "details 逐任务带 action")
     evts = [e for e in spine.events if e[0] == "recovery.plan"]
     check(len(evts) == 3, f"每个分类决定发 recovery.plan 事件(实为 {len(evts)})")
-    # scan_interrupted 返回类型不变(兼容)
     check(isinstance(r2.scan_interrupted(), list), "scan_interrupted 仍返回 list(兼容)")
 
 
@@ -330,7 +314,6 @@ def test_recovery_details():
     check(records["t1"].status == "in_progress" and records["t1"].description == "second",
           "重复 start 保留最后一次")
 
-    # compact_log:started 很早、finished 刚刚 → 旧逻辑(只看 started)会丢,新逻辑保留
     d2 = tempfile.mkdtemp(prefix="recv_c_")
     log2 = os.path.join(d2, "log.jsonl")
     old = time.time() - 30 * 86400
@@ -345,20 +328,17 @@ def test_recovery_details():
           "compact 用 max(started,finished):started 30 天前但刚完成的记录不丢")
     check(r2._replay()["t_old"].finished > 0, "compact 保留 finished 时间戳")
 
-    # fsync=False 可用(高频场景开关)
     d3 = tempfile.mkdtemp(prefix="recv_d_")
     log3 = os.path.join(d3, "log.jsonl")
     r3 = RestartRecovery(log3, boot_id="boot1", fsync=False)
     r3.task_started("t1", "x")
     r3.task_finished("t1")
     check(r3._replay()["t1"].status == "done", "fsync=False 正常读写(开关兼容)")
-    # 空中断 → 空计划
     r4 = RestartRecovery(os.path.join(d3, "empty.jsonl"), boot_id="b")
     p4 = r4.plan_recovery([])
     check(p4.details == [] and p4.retryable == [], "无中断 → 空计划(不炸)")
 
 
-# ═══════════════ [10] P3-2 /api/ahs/run ═══════════════
 def test_api_ahs_run():
     print("\n【10】P3-2:/api/ahs/run 走 run_async + 暴露 pending 字段")
     os.environ["FOXCLAW_SHADOW_ROUNDS"] = "6"
@@ -377,7 +357,6 @@ def test_api_ahs_run():
         check("is_pending" in body and "pending_confirmation" in body,
               "响应暴露 is_pending/pending_confirmation 字段")
         check(body.get("success") in (True, False), "success 字段正常返回")
-        # resume_state 参数被接受(闭环 P2-2 续跑;空断点现场 → 正常全跑)
         r2 = c.post("/api/ahs/run", json={
             "task": "计算 3*3", "confirmed": True,
             "resume_state": {"completed_steps": [], "resume_at": None}})

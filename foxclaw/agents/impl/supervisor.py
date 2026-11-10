@@ -14,7 +14,7 @@ class SupervisorAgent(CognitiveAgent):
     AGENT_ID = "supervisor"
     AGENT_NAME = "主管 Agent"
     ALLOWED_TOOL_CATEGORIES = {"read", "write", "calendar", "finance", "network"}
-    IS_ROUTER = True  # 调度层:豁免语义漂移拦截(接收任意输入是其本职)
+    IS_ROUTER = True
 
     @property
     def _role_prompt(self) -> str:
@@ -38,11 +38,6 @@ class SupervisorAgent(CognitiveAgent):
     def register_subagents(self, subagents: dict):
         """注入可调度的子 Agent 登记表。"""
         self._subagents = subagents
-        # 【深审硬化·消除懒建 race】主管单例会被并发任务共享,_scheduler/_steering_queue 原先在
-        # _schedule/_dispatch_parallel 里 `if not hasattr` 懒建——并发下是 check-then-act race
-        # (现因 steering 队列 batch 隔离 + scheduler 无状态而良性,但依赖此实现细节脆弱)。改在
-        # 本方法(Foxclaw 启动时单线程调一次)**预建**,并发任务到达时属性已就绪、不再 race。
-        # 保留下游懒建作 standalone(未 register)兜底。
         from ...core.scheduler import CognitiveScheduler
         from ...core.steering_queue import SteeringQueue
         if not hasattr(self, "_scheduler"):
@@ -77,8 +72,6 @@ class SupervisorAgent(CognitiveAgent):
         req = CrossAgentRequest(from_agent=from_agent, to_agent=to_agent,
                                 request_type=cast(RequestType, request_type), payload=payload,
                                 reason=reason)
-        # 走协商闭环:被拒时给发起方让步重报的机会。对未实现 concede 的 Agent 而言
-        # 只会跑一轮 → 与原先的一次性 route_request 逐字等价(零行为变更)。
         result = orch.negotiate(req)
         rounds = len(result.negotiation) or 1
         self._think(
@@ -88,24 +81,18 @@ class SupervisorAgent(CognitiveAgent):
         )
         return result.to_dict()
 
-    # 路由关键词表:无 LLM 时也能基于关键词分发。
-    # 拓扑 5 → 3 后:原行政(日程/行程)关键词并入办公;"助手"那组(整理/汇总/沟通)
-    # 不再有归属 —— 它们正是主管自己该干的兜底活,未命中 → 主管自答。
     ROUTING_KEYWORDS = {
         "finance": ["收支", "支出", "预算", "理财", "投资", "储蓄", "财务", "消费", "报销", "账"],
         "office":  ["学习", "论文", "知识", "总结", "研究", "文档", "写作", "资料", "搜索", "查",
                     "日程", "行程", "会议", "出差", "预约", "日历", "计划表", "提醒",
-                    # 原助手的"整理/汇总/邮件"归办公:那是内容活,主管只兜底通用与协调
                     "整理", "汇总", "邮件", "纪要"],
     }
 
-    # 子 Agent 职责描述(P0-1 LLM 规划用):喂给 submit_plan 工具做 agent 枚举约束
     SUBAGENT_DESC = {
         "finance": "财务 Agent：理财、收支、预算、风控、对账",
         "office": "办公学习 Agent：学习、知识管理、研究、写作、日程与行程安排",
     }
 
-    # 元问题关键词:这类"系统级/自我介绍"问题由主管自己回答,不分派
     META_KEYWORDS = ["你会做什么", "你能做什么", "你是谁", "你能干", "你会干",
                      "介绍一下", "介绍下", "自我介绍", "有什么功能", "能帮我做什么",
                      "你都能", "怎么用", "如何使用", "你好", "在吗", "干什么",
@@ -142,18 +129,15 @@ class SupervisorAgent(CognitiveAgent):
         """
         if self._is_expense_report(task):
             return "finance"
-        # 关键词命中计数走统一原语(negation=False,与原计数逐字一致)
         scores = {aid: P.keyword_hits(task, kws)
                   for aid, kws in self.ROUTING_KEYWORDS.items()}
         best = max(scores, key=lambda k: scores[k])
         if scores[best] > 0:
             return best
-        # 关键词不明:用调度意图做辅助判断
         if sched is not None:
             intent = getattr(getattr(sched, "intent", None), "category", None)
             if intent in ("reasoning", "memory"):
-                return "office"     # 推理/记忆类 → 知识研究 Agent
-        # 无明确归属 → 主管自答(dispatch 见 target 不在 subagents 即走 _dispatch_fallback)
+                return "office"
         return "supervisor"
 
     def _coerce_agent(self, ag: str, subtask: str, subagents: dict) -> str:
@@ -176,13 +160,6 @@ class SupervisorAgent(CognitiveAgent):
         return (any(P.keyword_hits(task, kws) for kws in self.ROUTING_KEYWORDS.values())
                 or self._is_expense_report(task))
 
-    # 【已删除 · 请勿凭记忆加回】这里原有一个 `_llm_classify(task) -> Optional[str]`:
-    # 关键词未命中时用一次 LLM 把任务分诊到领域 Agent。它已被「无关键词命中 → 主管直接
-    # 自答」分支取代并成为死代码(全仓库零调用点),故删除。当时的取舍:每次分诊要多一次
-    # 约 5s 的串行 LLM 往返,正面对话不值当,于是改为主管自答。P1-1 后该分支在
-    # pipeline/supervisor_stages.py 的 route(决策)/dispatch(执行)两个 stage 里。
-    # 如需恢复精修,应从 git 历史取回本方法,并同时改回那两个 stage、补回对应测试
-    # —— 只加回方法不接线等于再制造一处死代码。
 
     def _plan_task(self, task: str, sched=None):
         """用 planner 判断任务是否需要拆解(多步)。
@@ -204,7 +181,6 @@ class SupervisorAgent(CognitiveAgent):
             p = ahs_plan(task, reg)
             if len(p.tasks) <= 1:
                 return None, None
-            # 为每个子任务单独算路由(关键词为主)→ planner 拆解真正落到不同 Agent
             step_routes = [(t.name, self._route(t.name)) for t in p.tasks]
             return p, step_routes
         except Exception:
@@ -234,7 +210,7 @@ class SupervisorAgent(CognitiveAgent):
             return None
         steps = result["steps"]
         if len(steps) <= 1:
-            return None            # 单步 → 交回 _route 关键词路由，不改变单步行为
+            return None
         from ...skills.pipeline import Plan, PlanTask
         n = len(steps)
         parallel = result.get("flow") == "parallel"
@@ -310,8 +286,6 @@ class SupervisorAgent(CognitiveAgent):
         from ...core.scheduler import CognitiveScheduler, SystemContext
         if not hasattr(self, "_scheduler"):
             self._scheduler = CognitiveScheduler()
-        # 系统上下文:活跃 Agent 数 = 当前持有活跃 session 的子 Agent 数
-        # (用真实可得的 _session_id 判断忙碌,而非不存在的 is_busy 属性)
         active = sum(1 for a in subagents.values()
                      if getattr(a, "_session_id", None))
         ctx = SystemContext(active_agents=active, queue_depth=0, system_load=0.1)
@@ -326,7 +300,7 @@ class SupervisorAgent(CognitiveAgent):
         pm: Any = getattr(self, "_process_manager", None)
         bus = getattr(self, "_system_bus", None)
         steps_out = []
-        prior: list[Any] = []                 # 已完成步骤的结果,供后续步骤参考
+        prior: list[Any] = []
         any_blocked = False
         for idx, (subtask, ag) in enumerate(step_routes, 1):
             if ag not in subagents:
@@ -338,10 +312,6 @@ class SupervisorAgent(CognitiveAgent):
             )
             if proc:
                 pm.mark_running(proc.process_id)
-            # _no_emit:子 Agent 不自发 execution.completed,由下方主管统一发(带 schedule),避免双发
-            # prior_steps 同时也放进 context,便于管线/Agent 按结构化方式取用
-            # 补超时(D 类修复):与 _dispatch_single / _dispatch_parallel 三处标准一致,
-            # 子 Agent 卡死不再让整条多步链永久挂起。
             _timeout = float(context.get("parallel_timeout", 120))
             try:
                 sub_result = await asyncio.wait_for(
@@ -357,25 +327,16 @@ class SupervisorAgent(CognitiveAgent):
             sub_output = sub_result.get("result", "")
             if isinstance(sub_output, dict):
                 sub_output = json.dumps(sub_output, ensure_ascii=False)
-            # 未完成(含超时)一律视为 blocked —— 不得让超时步骤被当成
-            # 成功结果进入 prior 链,否则后续步骤会基于"不存在的产出"继续推理。
             blocked = sub_result.get("error") in ("harness_blocked", "subagent_timeout")
             any_blocked = any_blocked or blocked
             if proc:
                 (pm.mark_failed(proc.process_id, reason=sub_result.get("error") or "")
                  if blocked else pm.mark_completed(proc.process_id))
-            # 展示用的 subtask 保留**原始**文本(不含前序上下文前言,免污染 UI)
             steps_out.append({"step": idx, "subtask": subtask, "agent": ag,
                               "output": str(sub_output)[:200], "blocked": blocked})
-            if not blocked and sub_output:      # 被拦截/空输出的步骤无可参考内容,不入链
-                # 入链即截断:渲染时本就只用最近 PRIOR_MAX_STEPS 步 × PRIOR_MAX_CHARS 字符,
-                # 存全量纯属浪费——且 prior 会被 list(prior) 复制进**每个**后续步骤的 context,
-                # 长链 + 大输出会滚成可观的内存与拷贝开销。
+            if not blocked and sub_output:
                 prior.append({"step": idx, "agent": ag,
                               "output": str(sub_output)[:PRIOR_MAX_CHARS]})
-            # 【P1-1】execution.completed 不再逐子任务手动 publish——改由 base 模板
-            # `_emit_execution` 统一发一条**任务级**事件(子 Agent 均带 _no_emit=True)。
-            # 无总线(部分测试/独立调用)→ 主管手动兜底沉淀记忆,与单步路径一致
             if bus is None and not blocked:
                 self._store_memory(
                     content=f"任务「{subtask}」由 {ag} 处理。要点:{str(sub_output)[:200]}",
@@ -424,13 +385,11 @@ class SupervisorAgent(CognitiveAgent):
         timeout = float(context.get("parallel_timeout", 120))
 
         agents_involved = sorted({ag for _, ag in step_routes})
-        # fork 记录(串行,主管自身 think 不并发)
         self._think(
             content=f"并行 fork {len(step_routes)} 个子任务 → {agents_involved}",
             node_type="tool_intent", tool_name="fork_parallel", conf=0.9,
         )
 
-        # 按 Agent 分组:不同组并行,同组内串行(护 per-agent 会话态)
         groups: dict[str, list] = {}
         for idx, (subtask, ag) in enumerate(step_routes):
             if ag not in subagents:
@@ -457,8 +416,6 @@ class SupervisorAgent(CognitiveAgent):
                     q.publish(batch, ag, {"idx": idx, "subtask": subtask, "agent": ag,
                                           "output": str(out)[:200], "blocked": blocked,
                                           "failed": False})
-                    # 【P1-1】execution.completed 不再逐子任务手动 publish——
-                    # 改由 base 模板 `_emit_execution` 统一发任务级事件。
                 except asyncio.TimeoutError:
                     if proc:
                         pm.mark_failed(proc.process_id, reason="timeout")
@@ -476,7 +433,6 @@ class SupervisorAgent(CognitiveAgent):
         await asyncio.gather(*[run_group(ag, items) for ag, items in groups.items()])
         wall_ms = round((time.perf_counter() - t0) * 1000, 1)
 
-        # join:租约收集(不丢不重)→ 按 idx 还原原始顺序 → ack
         leased = q.lease(batch, max_items=len(step_routes) * 2)
         steps_out = []
         for it in leased:
@@ -486,13 +442,11 @@ class SupervisorAgent(CognitiveAgent):
 
         any_blocked = any(s.get("blocked") for s in steps_out)
         any_failed = any(s.get("failed") for s in steps_out)
-        # join 记录(串行)
         self._think(
             content=f"并行 join:{len(steps_out)}/{len(step_routes)} 步汇聚,"
                     f"墙钟 {wall_ms}ms,blocked={any_blocked},failed={any_failed}",
             node_type="reflection", conf=0.88,
         )
-        # 无总线时兜底沉淀记忆(与顺序路径一致)
         if bus is None:
             for s in steps_out:
                 if not s.get("blocked") and not s.get("failed"):
@@ -519,11 +473,6 @@ class SupervisorAgent(CognitiveAgent):
             "thought_summary": self.thought_chain.get_summary(self.AGENT_ID),
         }
 
-    # ── 【P1-1】主管 pipeline 化:不再重写 run_task ────────────────────
-    # 生命周期(会话/召回/返回体/Harness 兜底/hooks/流式/中断/统一 _emit_execution)
-    # 全部走 base 的 _run_task_core;路由分发逻辑拆成 7 个 pipeline stage
-    # (foxclaw/pipeline/supervisor_stages.py:recall→meta_check→schedule→route→plan→
-    # dispatch→aggregate)。本类只保留:pipeline 覆盖、领域钩子、恢复记账、分发执行体。
 
     def _cognitive_pipeline(self):
         """主管的认知管线:SUPERVISOR_STAGES(路由分发),而非领域 Agent 的 DEFAULT_STAGES。"""
@@ -538,8 +487,6 @@ class SupervisorAgent(CognitiveAgent):
         """主管的目标基线实体(旧 run_task 用 _extract_entities 开会话,逐字保留)。"""
         return self._extract_entities(task)
 
-    # 崩溃/重启恢复记账已上移到 base 生命周期钩子(领域 Agent 此前完全没接线,跑一半崩掉
-    # 在恢复扫描里不可见);主管只是"恰好也装着 _recovery",无需再覆盖。
 
     async def _dispatch_single(self, task, target, sched, session_id,
                                subagents, context, memories, plan_obj) -> dict:
@@ -547,7 +494,6 @@ class SupervisorAgent(CognitiveAgent):
         ① execution.completed 不再在此手动 publish——改由 base 模板 `_emit_execution`
           统一发一条**任务级**事件(子 Agent 调用带 _no_emit=True 仍不双发);
         ② 返回体不再带 session_id/agent/thought_summary(由 base 模板统一组装)。"""
-        # 创建进程(任务即进程),携带调度决策 → 状态 scheduled
         pm: Any = getattr(self, "_process_manager", None)
         proc = pm.create(task, agent_id=target, schedule=sched.to_dict()) if pm else None
 
@@ -557,35 +503,25 @@ class SupervisorAgent(CognitiveAgent):
             tool_name=f"dispatch_{target}",
             conf=0.92,
         )
-        # 进程进入 running
         if proc:
             pm.mark_running(proc.process_id)
-        # _no_emit:子 Agent 不自发,主管任务级统一 emit(见 base._emit_execution),避免双发
-        #
-        # 补超时(D 类修复:同文件内标准一致性)。此前只有并行路径
-        # (_dispatch_parallel)有 asyncio.wait_for,单步/链式路径直接 await ——
-        # 子 Agent 卡死(LLM 挂起/工具阻塞)会让主管任务**永久挂起**,且无日志
-        # 无告警无释放。同一语义必须两套标准一致,超时值同样取 parallel_timeout。
         _timeout = float(context.get("parallel_timeout", 120))
         try:
             sub_result = await asyncio.wait_for(
                 subagents[target].run_task(task, {**context, "_no_emit": True}),
                 timeout=_timeout)
         except asyncio.TimeoutError:
-            # 诚实交代:不伪造子 Agent 的产出,明确回报"超时未完成"
             _note = f"子 Agent {target} 执行超时({_timeout:g}s),已中止并如实回报未完成结果"
             if proc:
                 pm.mark_failed(proc.process_id, reason="subagent_timeout")
             self._think(content=_note, node_type="decision", conf=0.95)
             sub_result = {"result": _note, "error": "subagent_timeout", "agent": target}
 
-        # 汇聚子 Agent 结果
         sub_output = sub_result.get("result", "")
         if isinstance(sub_output, dict):
             sub_output = json.dumps(sub_output, ensure_ascii=False)
         blocked = sub_result.get("error") == "harness_blocked"
 
-        # 进程终态:被拦截/出错→failed,否则→completed
         if proc:
             if blocked:
                 pm.mark_failed(proc.process_id, reason="harness_blocked")
@@ -598,8 +534,6 @@ class SupervisorAgent(CognitiveAgent):
             conf=0.88,
         )
 
-        # 记忆沉淀:正常由真值管线(事件驱动,经 base._emit_execution)负责;
-        # 无总线时(如部分测试场景)主管手动兜底,避免丢记忆。
         bus = getattr(self, "_system_bus", None)
         if bus is None:
             self._store_memory(
@@ -647,11 +581,9 @@ class SupervisorAgent(CognitiveAgent):
         (因中文无大小写,原首字母逻辑对中文无效)。
         """
         keywords = []
-        # 英文:首字母大写的词
         for word in text.split():
             if len(word) > 3 and word[0].isupper():
                 keywords.append(word)
-        # 中文:命中路由关键词的领域词(作为实体线索)
         for kws in self.ROUTING_KEYWORDS.values():
             for kw in kws:
                 if kw in text and kw not in keywords:

@@ -17,7 +17,6 @@ from ...core import settings
 from ...core.injection_guard import redact_obj, redact_secrets
 from typing import Any
 
-#: 同轮最多并发几个工具(再多也是网络等待,收益递减;避免打爆 provider/搜索服务)
 MAX_PARALLEL = 4
 
 
@@ -47,7 +46,7 @@ class _Spawn:
         def _run():
             try:
                 self.box["v"] = fn()
-            except BaseException as e:      # 统一交主线程降级成错误文本
+            except BaseException as e:
                 self.box["e"] = e
             finally:
                 self.done.set()
@@ -84,29 +83,19 @@ def _guard_tool(agent, name: str, args: dict):
     _reg = _tools.default_registry()
     if not _reg.has(name):
         return f"(未知工具 {name},未执行)", {}
-    # ── 参数校验(用注册表里同一份 JSON Schema)────────────────────
-    # 修复前:schema 只发给模型,执行侧不校验 → 模型给错类型/漏参数会直接流到
-    # 下游。且下方 permission Stage 1 因 params={} 恒不触发,只靠手工 if-not 兜。
-    # 新增校验闸后,错误**回注模型**让其自修正,而不是静默用空参数继续
-    # (那会让模型误以为工具已执行,进而编造基于"工具结果"的结论)。
     _errs = _reg.validate_args(name, args or {})
     if _errs:
         agent._think(content=f"工具 {name} 入参校验失败: {'; '.join(_errs)[:120]}",
                      node_type="tool_intent", conf=0.9)
         return (f"(工具 {name} 入参不合法: {'; '.join(_errs)}。"
                 f"请按工具声明修正参数后重试。)"), {}
-    # ── 权限管线:动作级闸门。构造 tool-spec 交四阶段裁决 ──
     cap = _tools.tool_capability(name)
-    # 传入真实 params schema,使 permission Stage 1(必填校验)真正生效,
-    # 不再依赖下游手工检查兜底。兼容 permission 的两种 params 格式。
     _schema = _reg.param_schema(name)
     _req = set(_schema.get("required") or [])
     _params = {k: {"required": k in _req, "type": v.get("type")}
                for k, v in (_schema.get("properties") or {}).items()
                if isinstance(v, dict)}
     spec = _types.SimpleNamespace(id=f"tool:{name}", params=_params, **cap)
-    # 来源不可信(外部聊天渠道 / 远程驱动)→ 按「已接触敏感数据」处理:写/发送/外发强制 HITL。
-    # 只读工具不受影响(污点分支只作用于副作用动作),所以读操作不会被这一条拖慢。
     _taint = _taint_get(agent)
     if _untrusted_get(agent):
         _taint = max(_taint, _ig.TAINT_PERSONAL)
@@ -116,7 +105,6 @@ def _guard_tool(agent, name: str, args: dict):
     if decision.decision == "deny":
         return f"(工具 {name} 被权限策略拒绝:{decision.reason},未执行)", cap
     if decision.decision == "ask":
-        # 红线/副作用/未声明工具 → 人在回路:不自动执行,交回由用户确认(KERNEL §6 同旨)
         agent._think(content=f"工具 {name} 需用户确认({decision.reason}),已暂停执行",
                      node_type="decision", conf=0.9)
         return (f"(工具 {name} 属于需确认的动作:{decision.reason}。按安全策略我不会自动执行——"
@@ -145,19 +133,17 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
             q = str((args or {}).get("query", "")).strip()
             if not q:
                 return "(web_search 缺少 query 参数)"
-            if _ws.is_personal_query(q):   # 私人账本/行程/记忆 → 绝不外发,让模型用本地信息答
+            if _ws.is_personal_query(q):
                 return "(该问题属于用户本地数据,已跳过联网;请依据本地领域信息回答)"
             payload = _ws.search_answer(q)
             if not payload or (not payload.get("answer") and not payload.get("references")):
                 return ("联网搜索未返回结果(可能未配置搜索服务或网络不可用);"
                         "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。")
             agent._think(content=f"工具 web_search「{q}」命中", node_type="tool_use", conf=0.9)
-            _raise(_ig.taint_level("web_search"))   # 外部不可控数据 → 会话污点
+            _raise(_ig.taint_level("web_search"))
             return _ws.format_for_prompt(q, payload)
         if name == "recall_memory":
             q = str((args or {}).get("query", "")).strip()
-            # top_k 此前硬编码 5,模型传值无效 → 加边界校验后尊重模型意图
-            # (schema 已声明 top_k,1-20;越界回落默认,防一次召回拉爆上下文)
             try:
                 top_k = max(1, min(20, int((args or {}).get("top_k", 5))))
             except Exception:
@@ -166,8 +152,7 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
             if not res:
                 return "(未召回到相关记忆)"
             lines = "\n".join(f"- {r.get('content', '')}" for r in res[:top_k])
-            # 记忆可能被投毒(此前注入固化) → 当作不可信数据回注,防记忆投毒二次生效
-            _raise(_ig.taint_level("memory"))   # 个人记忆 → 会话污点(高敏感)
+            _raise(_ig.taint_level("memory"))
             return "【召回的相关记忆】\n" + _ig.wrap_untrusted(lines, source="memory")
     except Exception as e:
         return f"(工具 {name} 执行异常:{type(e).__name__})"
@@ -180,7 +165,7 @@ def _timeout_text(name: str) -> str:
 
 
 def _merge_taint(agent, sink: list) -> None:
-    for lvl in sink:                      # 只在主线程动会话污点(单调取 max)
+    for lvl in sink:
         try:
             _taint_raise(agent, lvl)
         except Exception:
@@ -222,8 +207,6 @@ def _run_tools_batch(agent, calls: list) -> list:
             if p[2] is not None:
                 out.append(p[2])
                 continue
-            # 串行走 agent._dispatch_tool(保留「实例级覆盖」这一扩展点,单测常这么替身);
-            # 没有该方法时才直接执行。
             _disp = getattr(agent, "_dispatch_tool", None)
             out.append(_disp(p[0], p[1]) if callable(_disp)
                        else _exec_guarded(agent, p[0], p[1]))
@@ -238,7 +221,7 @@ def _run_tools_batch(agent, calls: list) -> list:
     for n, sp, sink in spawns:
         left = max(0.0, timeout - (time.monotonic() - started))
         try:
-            ok, val = sp.wait(left)        # 各自独立计时:一个超时不拖累已完成的
+            ok, val = sp.wait(left)
         except Exception as e:
             out.append(f"(工具 {n} 执行异常:{type(e).__name__})")
             continue
@@ -250,7 +233,6 @@ def _run_tools_batch(agent, calls: list) -> list:
     return out
 
 
-#: checkpoint 里单步结果最多存多少字符(超出即标记 truncated,续跑时不复用、改为重跑)
 _STEP_RESULT_MAX = 4000
 
 
@@ -338,8 +320,6 @@ def _settle(agent, call: dict, result: str) -> str:
     text, kind = _apply_failure_policy(agent, call, result)
     try:
         cap = _tools.tool_capability(name)
-        # 核验看的是**工具原始返回**,不是我们追加过提示的文本 —— 否则提示里的
-        # "超时/未完成"字样会反过来影响判定。
         v = _verify.verify(name, args, result, cap)
         note = _verify.note_for_model(v, read_only=bool(cap.get("read_only")))
         if note:
@@ -348,12 +328,10 @@ def _settle(agent, call: dict, result: str) -> str:
             "tool": name, "kind": kind, "status": v.status,
             "reason": v.reason, "evidence": [e.to_dict() for e in v.evidence],
         })
-        # 判定"可复用"以核验结论为准,而不是文本开头是不是 "(" ——
-        # 失败文本追加提示后就不再以 "(" 开头,靠形态判会把它当成功存进断点。
         if v.status != _verify.FAILED and _step_ok(result):
             _record_step(agent, call, result)
     except Exception:
-        pass                              # 核验/记账失败不影响工具结果本身
+        pass
     return text
 
 
@@ -382,13 +360,9 @@ def _run_tool_calls(agent, calls: list) -> list:
 
 
 class ToolExecMixin:
-    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
-    # 不声明的话,检查器在每个 self.xxx 处报 attr-defined。
     AGENT_ID: str
     router: Any
     system_prompt: str
-    # 以下四个方法均为薄包装:真实 agent 走 self.xxx;单测可用 SimpleNamespace 直接调
-    # 模块级函数或 `CognitiveAgent._dispatch_tool(fake, ...)`(鸭子类型)。
     def _guard_tool(self, name: str, args: dict):
         return _guard_tool(self, name, args)
 
@@ -420,30 +394,24 @@ class ToolExecMixin:
             return None
         conv = list(messages)
         for _ in range(max_rounds):
-            # 上下文预算:工具轮每轮追加 assistant.tool_calls + tool 结果,不压会撑爆窗口
-            # (Compactor 保证 tool_calls 与其结果同进同出,缺口见 core/compaction.py:100)。
-            # getattr 兜底:本 mixin 也被只实现 router 的轻量对象复用(_compact_context
-            # 定义在 CognitiveAgent 上),缺该方法时退化为不压缩。
             _compact = getattr(self, "_compact_context", None)
             if _compact is not None:
                 conv = _compact(conv, "tool_loop")
             if stop_event is not None and stop_event.is_set():
-                return None                      # 断连 → None(回退;fallback 也会因 stop 立即终止)
+                return None
             res = self.router.call_tools(self.system_prompt, conv, schemas,
                                          agent_id=self.AGENT_ID)
             if not res.get("supported"):
-                return None                      # 端点实际不支持 tools → fallback
+                return None
             calls = res.get("tool_calls") or []
             if not calls:
-                return res.get("text") or None   # 模型直接给出最终答案;空答 → None → fallback(不再空回复不回退)
+                return res.get("text") or None
             conv.append(res["assistant_msg"])
-            # 只读并发 / 写串行 / 单工具带超时 + 每步 checkpoint + 续跑复用已完成步骤
             results = _run_tool_calls(self, calls)
             for c, result in zip(calls, results):
                 conv.append(self.router.format_tool_result(c, result))
-        # 轮数超限 → 强制不再调工具、收敛出文本答案
         final = self.router.call_tools(self.system_prompt, conv, schemas,
                                        tool_choice="none", agent_id=self.AGENT_ID)
         if not final.get("supported"):
-            return None                          # 收敛调用失败 → fallback(不再空回复不回退)
-        return final.get("text") or None         # 收敛出空答 → None → fallback
+            return None
+        return final.get("text") or None

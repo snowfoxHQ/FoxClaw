@@ -46,7 +46,6 @@ function startAdd() {
   form.value = { edit: false, name: '', base_url: '', api_key: '', model: '', note: '' }
 }
 
-/* 编辑:先 GET 详情预填(key 只回 has_key,输入框留空 = 保留原值,后端语义一致) */
 async function startEdit(m) {
   busy.value = true
   try {
@@ -91,7 +90,6 @@ async function submit() {
   }
 }
 
-/* 连通性测试:POST /llm/test,后端失败也返回 200 + {ok:false,error},原样显示原因 */
 const tState = ref('idle')   // idle | busy | ok | err
 const tKey = ref('')
 const tMsg = ref('')
@@ -295,12 +293,10 @@ function isCur(source, key) {
 .tg.warn { color: var(--amber); background: rgba(200, 140, 40, 0.13); }
 .it .x { flex-shrink: 0; font-size: 11px; color: var(--dim); padding: 2px 4px; }
 .it .x:hover { color: var(--red); }
-/* 测 / 编 是 button,去掉按钮底框,和 ✕ 同一个观感 */
 button.x { background: none; border: 0; font-family: inherit; cursor: pointer; }
 button.x:hover:not(:disabled) { color: var(--accent); }
 button.x:disabled { opacity: 0.4; cursor: default; }
 
-/* 连通性测试结果条:失败原因原样显示(常见是 key 错 / base_url 多一层 /v1) */
 .tres {
   margin-top: 5px; padding: 7px 9px; border-radius: var(--r-sm);
   font-size: 11.5px; line-height: 1.55; color: var(--dim);
@@ -317,7 +313,6 @@ button.x:disabled { opacity: 0.4; cursor: default; }
 }
 .empty { padding: 10px 7px; font-size: 12px; color: var(--dim); }
 
-/* 列表可能长到滚出视口,底部两个按钮必须常驻可点 */
 .foot {
   position: sticky; bottom: -6px;
   display: flex; gap: 5px;

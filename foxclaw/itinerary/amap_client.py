@@ -40,12 +40,11 @@ class AMapClient:
         except Exception:
             return None
 
-    # ── 地理编码 ──────────────────────────────────────────
     def geocode(self, address: str, city: str = "") -> Optional[tuple]:
         """地址 → (lng, lat)。"""
         data = self._get("geocode/geo", {"address": address, "city": city})
         if data and data.get("geocodes"):
-            loc = data["geocodes"][0]["location"]      # "lng,lat"
+            loc = data["geocodes"][0]["location"]
             lng, lat = loc.split(",")
             return float(lng), float(lat)
         return None
@@ -57,7 +56,6 @@ class AMapClient:
             return data["regeocode"].get("formatted_address")
         return None
 
-    # ── 路线规划 ──────────────────────────────────────────
     def route(self, origin: str, destination: str, mode: str = "driving",
               city: str = "") -> Optional[dict]:
         """真实路线。origin/destination 为 'lng,lat'。
@@ -90,7 +88,6 @@ class AMapClient:
         except Exception:
             return None
 
-    # ── POI / 周边 / 天气 ─────────────────────────────────
     def search_poi(self, keywords: str, city: str = "", offset: int = 10) -> Optional[list]:
         data = self._get("place/text",
                          {"keywords": keywords, "city": city, "offset": offset})

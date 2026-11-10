@@ -10,7 +10,6 @@ onMounted(() => loadPanel('tasks'))
 const ready = computed(() => p.state === 'ok' && Object.keys(p.sched).length > 0)
 const byState = computed(() => p.procStats?.by_state || {})
 
-/* 后端把每个任务建模成「进程」,状态机 created→queued→scheduled→running→completed/failed */
 function stateTag(s) {
   return s === 'completed' ? 'green' : s === 'failed' ? 'red' : s === 'running' ? 'amber' : ''
 }

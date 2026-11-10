@@ -1,4 +1,3 @@
-// 缓存刷新:改动子模块时,连同顶栏版本号一起把 ?v= 递增(零构建下的显式 cache-bust)
 import './auth.js?v=5.37';
 import { escapeHtml } from './util.js?v=2.9';
 import { renderMarkdown, renderReply } from './markdown.js?v=2.9';
@@ -8,22 +7,14 @@ import { fetchAMapConfig, kpSet, renderFinance, renderLearning, renderItinerary,
 import { openSetMenu, switchProvider, uiPref, openAuthSetting } from './settings.js?v=5.36';   // uiPref.ballAnim 默认 false
 import './chat_model_picker.js?v=1.4';   // chat 输入框旁的下拉式模型选择器;v1.4 保存即切换 + BASE URL 自动补 /v1 + 模型 ID 软提示
 
-/* ════════════ 后端数据层:接真实 Foxclaw ════════════ */
-
-
-
 let activeAgent='supervisor';
-// 三个 Agent(supervisor/finance/office) + 一个**视图** admin(行程地图,已不是 Agent)
 const AGENT_CN={supervisor:'主管',finance:'财务',office:'办公学习',admin:'行程'};
 
-/* 在线状态 */
 function setUplink(on){
   const el=document.getElementById('upStat');
   if(el){el.textContent=on?'100%':'离线'; el.style.color=on?'var(--green)':'var(--amber)';}
-  // 副标题固定为品牌语,不再被状态文字覆盖(状态已在右上角显示)
 }
 
-/* 鉴权提示条:后端 401 → 顶部弹一条,引导去「访问密钥」配置(只弹一次) */
 function showAuthHint(){
   if(document.getElementById('authHint')) return;
   const bar=document.createElement('div');
@@ -34,10 +25,8 @@ function showAuthHint(){
   document.getElementById('ah-go').onclick=()=>{ bar.remove(); openAuthSetting(); };
   document.getElementById('ah-x').onclick=()=>bar.remove();
 }
-// 鉴权注入模块(auth.js)检测到 401 时回调此函数弹提示条
 window.__foxclawAuthHint=showAuthHint;
 
-/* 1. 加载五 Agent 状态 */
 async function loadStatus(){
   try{
     const r=await fetch(`${API}/status`); if(!r.ok)throw 0;
@@ -50,10 +39,6 @@ async function loadStatus(){
   }catch(e){ setUplink(false); }
 }
 
-/* 2. 记忆中心真实统计 */
-/* 右栏「记忆」面板:四联统计 + 最近记忆信息条。
-   沿用 loadMemStats 这个名字 —— 全文已有 8 处调用点(状态刷新/录入后/定时),
-   改这一个函数即可让新面板处处自动刷新,无需再散布新调用。 */
 async function loadMemStats(){
   const set=(id,v)=>{const el=document.getElementById(id); if(el)el.textContent=v;};
   try{
@@ -66,10 +51,8 @@ async function loadMemStats(){
     set('memVec',(d.total_memories||0).toLocaleString());   // 兼容旧元素(若仍存在)
     set('memRel',(d.relations||0).toLocaleString());
   }catch(e){}
-  // 会话列表现由 loadSessions() 渲染进同一右栏(记忆面板下),这里不再管"最近记忆列表"。
 }
 
-/* 右栏「知识库」面板:知识信息条 */
 async function loadKnowList(){
   const list=document.getElementById('knowList'); if(!list)return;
   try{
@@ -89,7 +72,6 @@ async function loadKnowList(){
   }catch(e){ list.innerHTML='<div class="kp-empty">后端未连接</div>'; }
 }
 
-/* 3. Agent 卡片点击切换 */
 document.querySelectorAll('.acard').forEach(card=>{
   card.addEventListener('click',()=>{
     document.querySelectorAll('.acard').forEach(c=>c.classList.remove('on'));
@@ -102,8 +84,6 @@ document.querySelectorAll('.acard').forEach(card=>{
     refreshAgentStatus();
   });
 });
-/* 顶栏右侧「财务/地图」面板入口:只开中央仪表盘,不改 activeAgent —— 对话统一走
-   输入框(主管自动分诊)。再点一次收起面板。 */
 document.querySelectorAll('.abtn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     const ag=btn.dataset.agent, wasOn=btn.classList.contains('on');
@@ -113,7 +93,6 @@ document.querySelectorAll('.abtn').forEach(btn=>{
     loadKernel(ag); showInCore(ag);
   });
 });
-/* 统一刷新各卡状态文字:工作中 / 在线(选中) / 离线(灰) */
 function refreshAgentStatus(){
   document.querySelectorAll('.acard').forEach(c=>{
     const st=c.querySelector('.st-tx'); if(!st)return;
@@ -124,13 +103,6 @@ function refreshAgentStatus(){
 }
 refreshAgentStatus();
 
-
-/* ===== 中央焦点空间:激活 Agent 显示其当前内容,空闲回到全息球 ===== */
-/* ═══ 中间栏输出中枢(Center)═══════════════════════════════════════════════
-   中间栏有两个叠放的输出层 —— 对话浮层 coreChat(z5)/ 面板层 coreStage(z3),外加背后的 3D 核心。
-   过去每个入口自己开关这两层,常忘关另一层 → 页面盖着不退、白白渲染(用户实测踩到)。
-   现在**统一由 Center 管**:凡要在中间栏显示东西,一律走 Center.panel()/chat()/home(),
-   同一时刻只有一个视图活着,天然互斥,不必再各处补"记得关另一层"。 */
 const Center = {
   mode:'home',
   panel(){   // 打开面板层(知识/模块/领域视图);返回 #coreStage 供调用方写 innerHTML
@@ -157,10 +129,8 @@ const Center = {
 function clearCore(){ Center.home(); _syncNav('overview'); }   // 兼容旧调用名(9 处)→ 统一走中枢
 async function showInCore(agent){
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
-  // 打开中间栏面板前先关掉对话浮层(core-chat z5 会盖住 core-stage z3,否则点侧栏"像没反应")
   document.getElementById('coreChat')?.classList.remove('show');
   const m=KP_META[agent]||KP_META.office;
-  // 主管空闲态:回到全息球(它没有"专属任务画面")
   if(agent==='supervisor'){ clearCore(); return; }
   Center.panel();
   stage.innerHTML=`<div class="cs-head"><div class="t"><span class="dot"></span>${m.title} <em>${m.tag}</em></div>
@@ -178,7 +148,6 @@ async function showInCore(agent){
       setTimeout(()=>{drawAMapInto('coreMap',d.map_data||[]); initMapSearch();},60);
     }else if(agent==='office'){
       const items=(d.items||[]);
-      // 摄入入口必须常在(此前只挂在右栏内核面板,右栏改版后就消失了 —— 回归过一次,别再删)
       const ingest='<div class="ingest-row" style="max-width:520px;margin:0 auto 14px">'
         +'<button class="ing-btn" onclick="document.getElementById(\'cmdAttach\')?.click()">📄 导入文件</button>'
         +'<button class="ing-btn" onclick="document.getElementById(\'cmdFolder\')?.click()">📁 导入文件夹</button>'
@@ -195,7 +164,6 @@ async function showInCore(agent){
   }catch(e){ body.innerHTML='<div class="kp-empty">后端未连接</div>'; }
 }
 
-/* 3b. 内核详情面板:随 Agent 切换展示对应内核数据 */
 const KP_META={
   supervisor:{title:'全局态势',tag:'Situation'},
   finance:{title:'财务驾驶舱',tag:'Finance'},
@@ -206,8 +174,6 @@ const KP_META={
 async function loadKernel(agent){
   const m=KP_META[agent]||KP_META.office;
   try{
-    // 每个分支独立容错:数据请求失败(如首次 HKC 装配慢/500)→ 用空数据 {} 渲染面板,
-    // **保留录入/导入入口**(它们不依赖数据),而不是抛到外层 catch 把整个面板变成"后端未连接"。
     if(agent==='finance'){
       const d=await fetch(`${API}/finance/analysis?period=2026-06&current_balance=11000`).then(r=>r.json()).catch(()=>({}));
       _lastKernelData.finance=d; kpSet(m.title,m.tag,renderFinance(d||{}));
@@ -227,7 +193,6 @@ async function loadKernel(agent){
   }catch(e){ kpSet(m.title,m.tag,'<div class="kp-empty">后端未连接 · 该面板需真实数据</div>'); }
 }
 
-/* 领域文件导入:上传 csv/xlsx/json → /api/{domain}/import/file(超越 csv_path)*/
 function importDomainFile(agent){
   const map={finance:{d:'finance',cn:'交易'}, office:{d:'learning',cn:'知识点'}, admin:{d:'itinerary',cn:'行程点'}};
   const m=map[agent]||map.finance;
@@ -249,8 +214,6 @@ function importDomainFile(agent){
   inp.click();
 }
 
-/* 4. 发任务到后端 */
-/* Agent 忙碌态:有任务时卡片亮主题色 + 显示任务标题 */
 const agentTasks={};
 function setAgentBusy(agent, task){
   agentTasks[agent]=task;
@@ -275,20 +238,15 @@ async function transmit(){
   const inp=document.getElementById('cmd'); let task=(inp.value||'').trim();
   const hasImgs=_pendingImages.length>0, hasFiles=_pendingFiles.length>0;
   if(!task && !hasImgs && !hasFiles)return;
-  // 斜杠指令:以 / 开头交给命令处理器,不发给后端(如 /搜索 记忆架构、/工具、/清库 确认)
   if(task[0]==='/'){ inp.value=''; hideSlashMenu(); runSlash(task); return; }
   inp.value='';
   if((hasImgs||hasFiles) && !task) task=hasImgs?'请描述并分析这张图片':'请阅读并总结这个文件';
   prependTask(task,activeAgent,'pending');
-  // 标记当前 Agent 忙碌 + 显示任务标题
   setAgentBusy(activeAgent, task);
-  // 数据流:核心连发数束光点射向当前 Agent(看得见它在工作)
   if(window._emitStream){ for(let i=0;i<3;i++) setTimeout(()=>window._emitStream(activeAgent), i*180); }
-  // 弹出回复浮窗(加载态);带图则把用户图片缩略图渲染进提问区
   const qThumbs=hasImgs?_pendingImages.map(x=>x.url):null;
   const qFiles=hasFiles?_pendingFiles.map(x=>({name:x.name,size:x.size,url:x.url})):null;
   showReplyPop(task, activeAgent, false, qThumbs, qFiles);
-  // 多模态/附件:带图或带文件必走流式(/chat/stream 消费 images/attachments);发送后清空附件条
   if(hasImgs || hasFiles){
     const imgs=hasImgs?_pendingImages.map(x=>({media_type:x.media_type, data:x.data})):null;
     const atts=hasFiles?_pendingFiles.map(x=>({name:x.name,size:x.size,mime:x.mime,url:x.url,text:x.text})):null;
@@ -297,10 +255,7 @@ async function transmit(){
     return transmitStream(task, activeAgent, imgs, atts);
   }
   if(chatModeStream){ _refTriggers={}; return transmitStream(task, activeAgent); }
-  // 任务模式:@引用把技能触发词带入后端 task(用户可见输入保留 @名称)
   const outTask=applyRefs(task);
-  // 领域 Agent 任务 → 流式认知管线(逐 stage 进度 + act 逐字);主管编排任务不支持流式
-  // (/api/task/stream 只跑单 Agent 管线、不做多 Agent 分派),仍走阻塞 /api/task 保住编排能力。
   if(activeAgent!=='supervisor'){ _refTriggers={}; return transmitTaskStream(outTask, activeAgent); }
   try{
     const r=await fetch(`${API}/task`,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -312,7 +267,6 @@ async function transmit(){
     }else{
       markTask(task,'ok');
       const res=data.result||{};
-      // 多 Agent 顺序执行:展示每一步的子任务 + 处理 Agent + 回复
       if(res.dispatched_to==='multi' && Array.isArray(res.multi_steps)){
         let html=`<div style="margin-bottom:10px;color:var(--cyan);font-weight:600">${escapeHtml(res.summary||'多步任务')}</div>`;
         res.multi_steps.forEach(s=>{
@@ -332,7 +286,6 @@ async function transmit(){
       let via='';
       if(res.dispatched_to&&res.dispatched_to!=='supervisor'&&res.dispatched_to!==activeAgent){
         via=`⤷ 主管已分派给 ${AGENT_CN[res.dispatched_to]||res.dispatched_to} Agent 处理`;
-        // 实际处理的 Agent 也标忙碌
         setAgentBusy(res.dispatched_to, task);
       }else if(res.self_answered){
         via='⤷ 主管直接答复';
@@ -345,13 +298,9 @@ async function transmit(){
     fillReplyPop('', '请求失败:后端未连接,或模型未配置 Key', 'err');
   }
 }
-/* 回复显示在中央对话层(最上层)*/
 function showReplyPop(task, agent, force, qImages, qFiles){
-  // 偏好关闭则不弹被动回复;但 force=true(如用户主动发起的文件摄入)必须可见,
-  // 否则点了 📎 却因偏好静默 → 屏幕零反应,以为坏了。
   if(!force && typeof uiPref!=='undefined' && !uiPref.autoChat) return;
   document.getElementById('ccAgent').textContent=`${AGENT_CN[agent]||agent} Agent`;
-  // 重置为单轮结构(对话线程 renderChatThread 可能已替换过 cc-body,这里恢复 ccQ/ccReply/ccStatus)
   const _b=document.querySelector('#coreChat .cc-body');
   if(_b && !document.getElementById('ccQ'))
     _b.innerHTML='<div class="cc-q" id="ccQ"></div><div id="ccReply"></div><div class="cc-status" id="ccStatus"></div>';
@@ -380,10 +329,6 @@ document.getElementById('ccClose')?.addEventListener('click',()=>document.getEle
 document.querySelector('.cmdbar .send')?.addEventListener('click',transmit);
 document.getElementById('cmd')?.addEventListener('keydown',e=>{if(e.key==='Enter')transmit();});
 
-
-/* ── 附件摄入:chat 栏 📎 → 文件进 HKC 知识库(异步 + 进度轮询)──────────────
-   交互层与知识层打通:对话框既能聊天,也能直接喂文件蒸馏成长期知识。
-   走 /knowledge/ingest/file/async(秒返 job_id,后台线程池抽取),前端轮询进度。*/
 const _INGEST_MAX_BYTES=20*1024*1024;
 let _ingestBusy=false;   // 串行守卫:一次只摄入一个文件,避免并发轮询串写同一进度弹层
 (function(){
@@ -400,21 +345,16 @@ let _ingestBusy=false;   // 串行守卫:一次只摄入一个文件,避免并�
     try{ await ingestChatFile(f); } finally{ _ingestBusy=false; }
   });
 })();
-/* 若知识星球 iframe 已打开,刷新它拉最新图(同源 /planet/);未打开无需动作(下次懒加载自然是新数据)*/
 function _refreshPlanet(){
   try{ const fr=document.getElementById('planetFrame'); const w=fr&&fr.contentWindow;
     if(w && fr.src && fr.src!=='about:blank' && typeof w.loadData==='function') w.loadData(); }catch(e){}
 }
-/* 摄入单个文件:上传 + 轮询,返回 {ok,ku_count,error,skipped};不弹窗(由调用方展示),不抛异常。
-   onStatus(msg) 可选进度回调。供单文件(📎)与文件夹(📁)逐个摄入共用。 */
 async function _ingestFileOnce(file, onStatus, collection){
   if(file.size>_INGEST_MAX_BYTES) return {ok:false, skipped:true, error:`过大(${(file.size/1048576).toFixed(1)}MB>20MB)`};
   let job;
   try{
     const fd=new FormData(); fd.append('file', file);
-    // 文件名(去扩展名)当来源标题 → 文件 Evidence 以「文件名/章节名」命名(二级)
     fd.append('source_title', (file.name||'').replace(/\.[^.]+$/,''));
-    // 文件夹名 → 合集(一级);后端据此建/挂合集节点、并让 KEE 按合集判同源
     if(collection) fd.append('collection', collection);
     const r=await fetch(`${_origin}/knowledge/ingest/file/async`,{method:'POST',body:fd});
     if(!r.ok) return {ok:false, error: r.status===415?'不支持的格式': r.status===503?'知识核心未启用':`上传失败(${r.status})`};
@@ -448,7 +388,6 @@ async function ingestChatFile(file){
   }
 }
 
-/* ── 文件夹摄入:📁 一次选一个文件夹 → 过滤支持格式 → 顺序逐个摄入(不做多文件夹/并发批量)── */
 const _INGEST_EXTS=['.pdf','.md','.markdown','.txt','.epub','.mobi','.azw3','.azw','.docx','.xlsx'];
 const _FOLDER_MAX_FILES=100;   // 单文件夹一次最多摄入的文件数(防选到超大目录顺序摄入几小时+烧 LLM)
 function _supportedFile(name){ const n=(name||'').toLowerCase(); return _INGEST_EXTS.some(e=>n.endsWith(e)); }
@@ -472,8 +411,6 @@ async function ingestFolder(fileList){
     files=files.slice(0, _FOLDER_MAX_FILES);
   }
   const N=files.length; let doneCount=0, failCount=0, totalKu=0, done=0; const log=[];
-  // 并发摄入:后端线程池 max_workers=2,前端开 3 个 worker 正好把池占满(匹配星球吞吐)。
-  // 之前严格串行(一次 1 个文件)比星球慢一倍。合集 find-or-create 已加锁,并发安全。
   const CONC=Math.min(3, N); let idx=0;
   async function _worker(){
     while(idx<N){
@@ -495,8 +432,6 @@ async function ingestFolder(fileList){
   if(!btn||!inp) return;
   btn.addEventListener('click',()=>inp.click());
   inp.addEventListener('change',async ()=>{
-    // 先把 FileList 拷成数组再清空输入 —— inp.value='' 会清空 inp.files,
-    // 而 fs 若是它的活引用就会一起变空(fs.length→0)导致下面直接 return、什么都不做。
     const fs=[...inp.files]; inp.value=''; if(!fs.length) return;
     if(_ingestBusy){ showReplyPop('📁 文件夹', activeAgent, true); fillReplyPop('', '请等当前摄入完成再选文件夹', 'err'); return; }
     _ingestBusy=true;
@@ -504,7 +439,6 @@ async function ingestFolder(fileList){
   });
 })();
 
-/* 流式/任务 模式开关:默认流式(逐字直答);任务模式走编排(/api/task,不流式) */
 let chatModeStream=true;
 (function(){
   const el=document.getElementById('chatMode');
@@ -515,9 +449,6 @@ let chatModeStream=true;
   sync();
 })();
 
-/* ===== 工具菜单:输入框左侧「＋」→ 上方竖排弹窗(模式/上传/文件夹/图片/连接器)=====
-   原先这些是 chat 栏一排横向图标,太挤。现收进弹窗;菜单项点击的是**隐藏保留的原按钮**,
-   因此上传/文件夹/图片/连接器/模式切换全部复用既有逻辑,零重复实现。 */
 function toolMenuOpen(){ const m=document.getElementById('toolMenu'); return !!(m&&m.classList.contains('show')); }
 function hideToolMenu(){ const m=document.getElementById('toolMenu'); if(m)m.classList.remove('show'); }
 function _toolRows(){
@@ -554,16 +485,11 @@ function renderToolMenu(){
     const m=document.getElementById('toolMenu'), tools=document.getElementById('cmdTools');
     if(!toolMenuOpen() || !m) return;
     if(m.contains(e.target) || e.target.id==='cmdMore') return;
-    // 菜单项内部是用 .click() 触发隐藏原按钮的,那个合成事件会冒泡到 document——
-    // 不能把它当"点外部"而关掉菜单(否则切模式时菜单会意外收起)
     if(tools && tools.contains(e.target)) return;
     hideToolMenu();
   });
 })();
 
-/* ===== 斜杠指令:输入框以 / 开头弹命令菜单,复用现有操作(纯前端,零新后端)=====
-   输入 / → 弹菜单;↑↓ 选择、Enter/Tab 执行或补全、Esc 关闭。
-   带 <参数> 的命令(如 /搜索)Enter 先补全命令名,再输参数回车执行。 */
 const SLASH_COMMANDS=[
   {cmd:'搜索', icon:'🔍', arg:'关键词', desc:'检索知识库', aliases:['search'], run:(q)=>slashSearch(q)},
   {cmd:'摄入', icon:'📎', desc:'上传文件进知识库', aliases:['上传','upload'], run:()=>{ const f=document.getElementById('cmdFile'); if(f)f.click(); }},
@@ -631,7 +557,6 @@ async function slashReset(arg){
       if(w&&fr.src&&fr.src!=='about:blank'&&typeof w.loadData==='function')w.loadData(); }catch(e){}
   }catch(e){ fillReplyPop('', '清库失败:后端未连接', 'err'); }
 }
-/* 菜单 UI + 键盘导航 */
 let _slashSel=0, _slashList=[];
 function slashFilter(text){
   const q=text.slice(1).toLowerCase();
@@ -669,7 +594,6 @@ function onSlashInput(){
   const inp=document.getElementById('cmd'); if(!inp)return;
   inp.addEventListener('input', onSlashInput);
   inp.addEventListener('blur', ()=>setTimeout(hideSlashMenu,150));   // 失焦关(留时间给 mousedown)
-  // 捕获阶段拦截:菜单开时,Enter/方向键先于 transmit 的 bubble 监听被处理
   document.addEventListener('keydown', function(e){
     if(e.target!==inp || !slashMenuOpen()) return;
     if(e.key==='ArrowDown'){ e.preventDefault(); e.stopPropagation(); _slashSel=(_slashSel+1)%_slashList.length; updateSlashSel(); }
@@ -679,9 +603,7 @@ function onSlashInput(){
   }, true);
 })();
 
-/* ===== 连接器/插件入口:🔌 面板 + @引用(纯前端,复用现有 AHS API)===== */
 let _atList=[], _atSel=0, _atCache=null, _atCtx=null, _refTriggers={};
-/* --- 🔌 面板:列出 MCP 连接器 / 技能 / SKILL.md,徽章 + 启停 --- */
 async function openConnPanel(){
   const p=document.getElementById('connPanel'); if(!p)return;
   if(p.classList.contains('show')){ p.classList.remove('show'); return; }
@@ -736,7 +658,6 @@ function renderConnPanel(p, skills, servers, md){
     if(p&&p.classList.contains('show')&&!p.contains(e.target)&&e.target.id!=='cmdConn') p.classList.remove('show'); });
 })();
 
-/* --- @引用:输入 @ 弹技能/连接器 → 插入 @名称;发送(任务模式)时把其触发词带入 task,让技能匹配可靠命中 --- */
 async function ensureAtCache(){
   if(_atCache) return _atCache;
   try{
@@ -795,7 +716,6 @@ async function onAtInput(){
   _atList=all.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.trigger||'').toLowerCase().includes(q)).slice(0,8);
   _atSel=0; renderAtMenu();
 }
-/* 发送任务模式时,把已引用技能的触发词带入 task(不改用户可见输入),让后端 match 命中 */
 function applyRefs(task){
   let out=task;
   for(const nm in _refTriggers){
@@ -817,7 +737,6 @@ function applyRefs(task){
   }, true);
 })();
 
-/* ===== 图片附件 → 多模态对话:附图 + 缩放压缩 + 随问题发给视觉模型 ===== */
 let _pendingImages=[];   // [{media_type,data(base64),url(预览),name}]
 const _IMG_MAX=6, _IMG_MAXDIM=1280, _IMG_Q=0.85;
 function _downscaleImage(file){
@@ -875,7 +794,6 @@ async function visionAdvisory(){
   }
 })();
 
-/* ===== 文件附件 → 聊天附件:上传落盘 + 随问题发给 LLM(文本类提取正文,其它降级元数据) ===== */
 let _pendingFiles=[];   // [{id,name,size,mime,url,text}]
 const _FILE_MAX=6, _FILE_MAXB=20*1024*1024;
 function _fileSize(sz){
@@ -924,11 +842,9 @@ function clearPendingFiles(){ _pendingFiles=[]; renderFileStrip(); }
   }
 })();
 
-/* 流式直答:SSE 逐字追加进回复浮窗 */
 let _chatHistory=[];   // 多轮对话历史 [{role,content}];随请求带给后端 + 界面渲染成对话线程
 function clearChatHistory(){ _chatHistory=[]; }   // 新话题/清屏可调
 
-/* ═══ 会话历史:对话不再刷新即丢,落盘到后端、左栏可回看 ═══ */
 let _sessionId = localStorage.getItem('foxclawSessionId') || '';
 async function ensureSession(){
   if(_sessionId){
@@ -957,7 +873,6 @@ async function openSession(id){
     await loadSessions();
   }catch(e){}
 }
-/* 渲染已存在会话(只有历史,没有"当前问"和空答槽)*/
 function renderSessionThread(agent){
   const body=document.querySelector('#coreChat .cc-body'); if(!body)return;
   const a=document.getElementById('ccAgent'); if(a)a.textContent=`${AGENT_CN[agent]||agent} Agent`;
@@ -970,8 +885,6 @@ function renderSessionThread(agent){
   Center.chat();
   body.scrollTop=body.scrollHeight;
 }
-/* 会话列表:渲染进左栏 #nsList(会话历史是这个界面的主体内容)。
-   每条 → openSession(id) 真实打开对应会话;✕ → 删除。 */
 async function loadSessions(){
   const list=document.getElementById('nsList'); if(!list)return;
   const cnt=document.getElementById('nsCount');
@@ -1006,8 +919,6 @@ async function delSession(id){
   }
   await loadSessions();
 }
-// 把 _chatHistory + 当前问 重建成双方对称的气泡对话线程(助手左/用户右,各自独立圆角框),
-// cc-body 可滚动 = 下拉浏览历史。保留上下文,不再只显示最新一条。
 function _fmtTime(ts){ const d=new Date(ts||Date.now()); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
 function _chatRow(role, inner, agent, ts, isSlot){
   const t=_fmtTime(ts);
@@ -1040,9 +951,6 @@ function renderChatThread(currentQ, agent, attachments){
   Center.chat();
   body.scrollTop=body.scrollHeight;
 }
-/* 执行证据渲染:把后端每步的核验结论摊开给人看。
-   三态有意不做成"全部打勾"——unverified 显示为「未核验」,failed 显示为「未完成」,
-   因为把没凭据的步骤画成绿色,正是这套机制要消灭的东西。 */
 function renderEvidence(items){
   const wrap=document.getElementById('ccEvidence'); if(!wrap)return;
   if(!items||!items.length){ wrap.hidden=true; wrap.innerHTML=''; return; }
@@ -1070,8 +978,6 @@ async function transmitStream(task, agent, images, attachments){
   const rp=document.getElementById('ccReply'), st=document.getElementById('ccStatus');
   rp.textContent=''; rp.style.color='var(--ink)'; st.style.color='var(--ink-dim)'; st.textContent='◌ 流式生成中…';
   let acc='';
-  // 推理过程折叠块:每轮重置。后端以 SSE `event: thinking` 单独送出思考增量,
-  // 正文(delta)不含思考,这里只做展示,不参与落库/复制。
   let _thinkWrap=document.getElementById('ccThink');
   if(!_thinkWrap && rp.parentNode){
     _thinkWrap=document.createElement('details');
@@ -1082,8 +988,6 @@ async function transmitStream(task, agent, images, attachments){
   const _thinkBody=document.getElementById('ccThinkBody');
   if(_thinkBody) _thinkBody.textContent='';
   if(_thinkWrap){ _thinkWrap.hidden=true; _thinkWrap.open=false; }
-  // 执行证据:工具轮每步「核验到没到位」+ 可点开的凭据(来源链接 / 真实文件)。
-  // 挂在答案**下方**——正文是给用户读的结论,这里是给人查的凭据,两回事。
   let _evWrap=document.getElementById('ccEvidence');
   if(!_evWrap && rp.parentNode){
     _evWrap=document.createElement('div');
@@ -1106,7 +1010,6 @@ async function transmitStream(task, agent, images, attachments){
       let idx;
       while((idx=buf.indexOf('\n\n'))>=0){
         const block=buf.slice(0,idx); buf=buf.slice(idx+2);
-        // 兼容命名事件(SSE 规范):`event: thinking` + `data: {...}`;无 event 行按默认事件处理。
         const evName=((block.match(/^event:\s*(\S+)/m)||[])[1])||'message';
         const dataLine=((block.match(/^data:\s*([\s\S]*)$/m)||[])[1]||'').trim();
         if(!dataLine)continue;
@@ -1138,15 +1041,11 @@ async function transmitStream(task, agent, images, attachments){
   if(typeof loadMemStats==='function') loadMemStats();
 }
 
-/* 任务模式流式(/api/task/stream):SSE 逐 stage 进度 + act 逐字 + 最终结果。仅领域 Agent 用——
-   该端点跑单 Agent 认知管线,不做主管的多 Agent 分派(主管编排任务仍走阻塞 /api/task)。 */
 async function transmitTaskStream(task, agent){
   const rp=document.getElementById('ccReply'), st=document.getElementById('ccStatus');
   rp.textContent=''; rp.style.color='var(--ink)'; st.style.color='var(--ink-dim)'; st.textContent='◌ 认知管线启动…';
   let acc='', stages=[];
   const STAGE_CN={perceive:'感知',recall:'召回',plan:'规划',route:'路由',act:'执行',verify:'校验',reflect:'反思'};
-  // 显式计划块:后端在 plan stage 之后补发 {"plan":{steps,flow,multi_step}} → 列出计划步骤,
-  // 让"它打算怎么做"在执行前就可见(此前只在跑完后才能从 thought chain 里翻)。
   let _planWrap=document.getElementById('ccPlan');
   if(!_planWrap && rp.parentNode){
     _planWrap=document.createElement('details');
@@ -1198,7 +1097,6 @@ async function transmitTaskStream(task, agent){
   if(typeof loadMemStats==='function') loadMemStats();
 }
 
-/* 任务流操作 */
 function prependTask(name,agent,status){
   const list=document.getElementById('taskList'); if(!list)return;
   const now=new Date(); const hh=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
@@ -1216,11 +1114,9 @@ function markTask(name,status){
     row.querySelector('.ti').textContent=status==='ok'?'✓':status==='blocked'?'✕':'◌';}
 }
 
-/* 5. WebSocket 实时事件流 */
 window.actPulse=0;
 function connectWS(){
   try{
-    // 后端若开了鉴权,WS 用 ?key= 传(浏览器无法给 WS 设请求头)
     const _k=localStorage.getItem('foxclawApiKey');
     const ws=new WebSocket(WS + (_k?('?key='+encodeURIComponent(_k)):''));
     ws.onmessage=ev=>{
@@ -1240,7 +1136,6 @@ function flashCmd(c){
   setTimeout(()=>{bar.style.boxShadow=''; bar.style.borderColor='';},700);
 }
 
-/* ===== 全屏 overlay 浮层 ===== */
 function openOverlay(agent){
   const m=KP_META[agent]||KP_META.office;
   document.getElementById('ovTitle').textContent=m.title;
@@ -1248,7 +1143,6 @@ function openOverlay(agent){
   const body=document.getElementById('ovBody');
   const d=_lastKernelData[agent]||{};
   if(agent==='admin'){
-    // 行程:左留白 + 地图 + 右栏(录入行程),左右等宽对称
     body.innerHTML=`<div class="ov-grid">
       <div class="ov-spacer"></div>
       <div style="position:relative;height:100%">
@@ -1279,11 +1173,9 @@ document.getElementById('ovClose')?.addEventListener('click',closeOverlay);
 document.getElementById('ovMask')?.addEventListener('click',e=>{if(e.target.id==='ovMask')closeOverlay();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlay();});
 
-/* 地图自动全屏开关(持久化到内存) */
 let autoMap=false;
 document.getElementById('ovAutoMap')?.addEventListener('change',e=>{autoMap=e.target.checked;});
 
-/* 全屏知识图谱(Canvas 节点连线) */
 function drawKnowledgeGraph(canvasId,d){
   const c=document.getElementById(canvasId); if(!c)return;
   const x=c.getContext('2d');
@@ -1301,7 +1193,6 @@ function drawKnowledgeGraph(canvasId,d){
     x.clearRect(0,0,c.width,c.height);rot+=0.002;
     const cx=c.width/2,cy=c.height/2,R=Math.min(cx,cy)*0.8;
     nodes.forEach(n=>{n._x=cx+Math.cos(n.a+rot)*n.r*R;n._y=cy+Math.sin(n.a+rot)*n.r*R;});
-    // 连线(同主题相连)
     x.lineWidth=1;
     for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){
       if(nodes[i].topic&&nodes[i].topic===nodes[j].topic){
@@ -1316,8 +1207,6 @@ function drawKnowledgeGraph(canvasId,d){
   loop();
 }
 
-
-/* ===== 左侧导航 hover 弹出精简条目 + 点击进中央大屏 ===== */
 const MODULE_META={
   tasks:{title:'任务中心',tag:'Tasks'},
   memory:{title:'记忆中心',tag:'Memory'},
@@ -1327,7 +1216,6 @@ const MODULE_META={
   agents:{title:'代理',tag:'Agents'},
   usage:{title:'使用情况',tag:'Usage'},
 };
-/* 取模块精简条目(供轮播框 + 中央大屏用)*/
 async function fetchModuleBrief(mod){
   try{
     if(mod==='tasks'){
@@ -1357,19 +1245,16 @@ async function fetchModuleBrief(mod){
   return [{title:'加载失败',sub:'后端未连接'}];
 }
 
-/* 填充三个轮播框 + 自动滚动 */
 function fillFeed(mod, trackId){
   const track=document.getElementById(trackId); if(!track)return;
   fetchModuleBrief(mod).then(items=>{
     if(!items||!items.length){ track.innerHTML='<div class="feed-empty">暂无数据</div>'; return; }
     const render=()=>items.map((it,idx)=>`<div class="feed-item" data-mod="${mod}" data-idx="${idx}"><b>${escapeHtml(it.title)}</b>${it.sub?`<span>${escapeHtml(it.sub)}</span>`:''}</div>`).join('');
-    // 内容较多才滚动:复制一份首尾相接,无缝循环
     const enough=items.length>=4;
     track.innerHTML=render()+(enough?render():'');
     track.classList.toggle('rolling', enough);
     if(enough){ track.style.animationDuration=(items.length*2.2)+'s'; }
     else{ track.style.animationDuration=''; }
-    // 点条目 → 中央大屏
     track.querySelectorAll('.feed-item').forEach(el=>el.onclick=()=>{
       if(mod==='knowledge'){ const it=items[+el.dataset.idx]; if(it) showKnowledgeArticle(it); }
       else showModuleInCore(mod);
@@ -1381,7 +1266,6 @@ function refreshFeeds(){
   fillFeed('memory','feedMemory');
   fillFeed('knowledge','feedKnowledge');
 }
-/* 单篇全文卡片(含删除 + 我的笔记)*/
 function _knowCardHtml(k){
   const notes=(k.notes||[]);
   return `<div class="know-card">
@@ -1399,7 +1283,6 @@ function _knowCardHtml(k){
     </div>
   </div>`;
 }
-/* 列表视图:每篇一行(标题+摘要+删除),点击进详情。reload=删除/刷新后重新加载 */
 function _renderKnowList(body, items, reload){
   body.innerHTML='<div class="know-index">'+items.map((k,i)=>`
     <div class="know-row" data-i="${i}">
@@ -1409,8 +1292,6 @@ function _renderKnowList(body, items, reload){
   body.querySelectorAll('.know-row').forEach(el=>el.onclick=(e)=>{ if(e.target.closest('.know-del'))return; _renderKnowDetail(body, items, +el.dataset.i, reload); });
   _wireKnowDelete(body, reload);
 }
-/* 详情视图:只显示这一篇的全文 + 返回列表 */
-/* 笔记保存(有内容才提交;保存后回调 onSaved 重渲染),多处复用 */
 function _wireKnowNote(body, item, onSaved){
   const saveBtn=body.querySelector('.know-note-save');
   if(!saveBtn)return;
@@ -1432,7 +1313,6 @@ function _renderKnowDetail(body, items, i, reload){
   _wireKnowDelete(body, reload);
   _wireKnowNote(body, k, ()=>_renderKnowDetail(body, items, i, reload));
 }
-/* 左栏点单条文章 → 中央「独立阅读器」只显示这一篇(不显示全部列表) */
 function showKnowledgeArticle(item){
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
   if(!wrap||!stage||!item)return;
@@ -1455,7 +1335,6 @@ function _wireKnowDelete(container, onDone){
     }catch(e){ alert('删除失败:'+e); }
   });
 }
-/* 知识库 → 中央展开全文卡片(读完整录入内容,保留换行) */
 async function showKnowledgeFull(){
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
   if(!wrap||!stage)return;
@@ -1472,8 +1351,6 @@ async function showKnowledgeFull(){
     _renderKnowList(body, items, showKnowledgeFull);
   }catch(e){ body.innerHTML='<div class="kp-empty" style="padding:30px 0">后端未连接</div>'; }
 }
-/* 左栏「菜单」按钮:把原来平铺的八项功能收进一个分类菜单(浮层贴着按钮右侧展开)。
-   靠按钮的实时位置定位,不写死坐标 —— 窗口缩放 / 侧栏宽度变化都不会错位。 */
 const _navMenu=document.getElementById('navMenu');
 const _navMenuBtn=document.getElementById('navMenuBtn');
 function setNavMenu(open){
@@ -1500,8 +1377,6 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') setNavMenu(false); });
 window.addEventListener('resize',()=>setNavMenu(false));
 
-/* 当前视图 → 菜单按钮文案 + 菜单内高亮(视图可能从菜单、右栏 ›、slash 命令等多处打开,
-   统一在这里同步,免得各处各写一份 active 状态) */
 function _syncNav(mod){
   let name='';
   document.querySelectorAll('#navList .nav-link').forEach(x=>{
@@ -1510,11 +1385,9 @@ function _syncNav(mod){
     if(hit) name=x.querySelector('b')?.textContent||'';
   });
   const lbl=document.getElementById('navMenuLabel');
-  // 回显成「菜单 · 任务」:既保留"这是个菜单"的语义,又能一眼看出在哪一屏
   if(lbl) lbl.textContent=(name&&mod!=='overview')?`菜单 · ${name}`:'菜单';
 }
 
-// 左栏导航:点击 → 中央大屏显示对应视图(overview 回核心;knowledge 走全屏知识视图)
 document.querySelectorAll('#navList .nav-link').forEach(el=>{
   el.addEventListener('click',()=>{
     const mod=el.dataset.module;
@@ -1526,7 +1399,6 @@ document.querySelectorAll('#navList .nav-link').forEach(el=>{
   });
 });
 
-/* 中央大屏显示模块详情 */
 async function showModuleInCore(mod){
   const meta=MODULE_META[mod]||{title:mod,tag:''};
   const wrap=document.querySelector('.corewrap'), stage=document.getElementById('coreStage');
@@ -1544,7 +1416,6 @@ async function showModuleInCore(mod){
     if(mod==='memory') wirePrefDelete(body);
   }catch(e){ body.innerHTML='<div class="kp-empty">后端未连接</div>'; }
 }
-/* 偏好删除按钮:删一条误记的偏好 → 刷新记忆中心大屏(F3 前端闭环) */
 function wirePrefDelete(body){
   body.querySelectorAll('.pref-del').forEach(btn=>{
     btn.onclick=async()=>{
@@ -1573,7 +1444,6 @@ async function renderModuleBig(mod){
     const d=await fetch(`${API}/bus/history?limit=40`).then(x=>x.json()).catch(()=>({}));
     const evs=(d.events||[]);
     if(!evs.length) return '<div class="kp-empty" style="padding:40px">暂无活动记录 · 系统事件(执行→审计→记忆)会实时汇入这里</div>';
-    // 事件真实字段:{channel, topic, payload, ts(epoch 秒·浮点), source, correlation_id}
     return '<div class="big-list">'+evs.slice().reverse().map(e=>{
       const topic=e.topic||e.channel||'事件';
       const ts=Number(e.ts);
@@ -1849,9 +1719,6 @@ async function wireToolCenter(root){
   };
 }
 
-
-
-/* ===== 数据录入表单 ===== */
 const ENTRY_FORMS={
   finance:{title:'录入交易',sub:'添加一笔收支记录',endpoint:'/finance/import',
     fields:[
@@ -1891,7 +1758,6 @@ function openEntry(kind){
   document.getElementById('entrySub').textContent=f.sub;
   document.getElementById('entryMsg').textContent='';
   let h='';
-  // 行程点的经纬度并排
   f.fields.forEach(fd=>{
     const ctl = fd.type==='textarea'
       ? `<textarea data-k="${fd.k}" placeholder="${fd.ph||''}" rows="8" style="width:100%;resize:vertical;font-family:inherit;line-height:1.6"></textarea>`
@@ -1917,9 +1783,6 @@ document.getElementById('entrySubmit')?.addEventListener('click',async()=>{
   }catch(e){ msg.style.color='var(--amber)'; msg.textContent='录入失败:后端未连接'; }
 });
 
-
-
-/* 启动 —— 全部包 try-catch,任一失败不影响其他;还失败的也在 upStat 显示具体错 */
 const _bootTry=(fn,name)=>{ try{ const r=fn(); if(r&&r.catch) r.catch(e=>{ try{document.getElementById('upStat').textContent='启动失败:'+name}catch(_){ } }); }
                        catch(e){ try{document.getElementById('upStat').textContent='启动失败:'+name}catch(_){ } } };
 _bootTry(fetchAMapConfig, 'fetchAMapConfig');
@@ -1931,20 +1794,13 @@ _bootTry(()=>loadKernel('supervisor'), 'loadKernel');
 try{ setInterval(loadStatus,15000); }catch(e){}
 try{ setInterval(loadMemStats,20000); }catch(e){}
 try{ setInterval(loadKnowList,30000); }catch(e){}
-// 右栏面板标题的 "›" → 打开对应中央大屏
 document.getElementById('memMore')?.addEventListener('click',()=>showModuleInCore('memory'));
 document.getElementById('knowMore')?.addEventListener('click',()=>showKnowledgeFull());
-// 知识摄入入口:复用底部指令栏里那三个隐藏的原有控件(逻辑不重复实现)
 document.getElementById('ingFile')?.addEventListener('click',()=>document.getElementById('cmdAttach')?.click());
 document.getElementById('ingFolder')?.addEventListener('click',()=>document.getElementById('cmdFolder')?.click());
 document.getElementById('ingNote')?.addEventListener('click',()=>{ try{ openEntry('office'); }catch(e){} });
-// 会话历史:只渲染列表,**不预建空会话**(否则每次刷新都堆一条 0 条的空壳);
-// 真正建会话推迟到用户发第一条消息时(transmitStream 里 ensureSession)。
 _bootTry(loadSessions, 'loadSessions');
 document.getElementById('sessNew')?.addEventListener('click',()=>newSession(true));
 
-
-
-/* 内联 onclick 桥接:模块作用域下,HTML 里 onclick="fn()" 需从 window 解析 */
 Object.assign(window, { openEntry, importDomainFile, switchProvider });
 

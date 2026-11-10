@@ -8,8 +8,6 @@ from typing import Any, Callable
 
 
 class SkillBoxMixin:
-    # ── 宿主 CognitiveAgent 注入的状态与方法:纯声明,不产生运行时属性 ──
-    # 不声明的话,检查器在每个 self._think / self._session_id 处报 attr-defined。
     _session_id: str | None
     _think: Callable[..., Any]
     def attach_skills(self, registry, adapter):
@@ -28,13 +26,12 @@ class SkillBoxMixin:
         adp = getattr(self, "skill_adapter", None)
         if not (reg and adp):
             return {"error": "skill 接入层未挂载"}
-        # 用升级版 router(三步打分 + 否定词检测),优于老的 reg.match 纯子串匹配
         try:
             from ...skills.pipeline import route as ahs_route
             r = ahs_route(task, reg)
             skill = reg.get(r.primary) if r.primary else None
         except Exception:
-            skill = reg.match(task)   # 兜底
+            skill = reg.match(task)
         if not skill:
             return {"matched": None, "message": "未匹配到合适的 skill"}
         self._think(
@@ -46,9 +43,6 @@ class SkillBoxMixin:
         from ._context import _taint_get, _untrusted_get
         token = set_loop_session(self._session_id)
         try:
-            # 会话已取回敏感数据(知识库/记忆/网页)后,技能的外发/副作用动作同样要二次确认——
-            # 此前技能路径不带污点,permission.evaluate 的 Stage 3.5 只对工具生效。
-            # 来源不可信(外部聊天渠道)时按同一口径抬到 TAINT_PERSONAL。
             _taint = _taint_get(self)
             if _untrusted_get(self):
                 _taint = max(_taint, _ig.TAINT_PERSONAL)

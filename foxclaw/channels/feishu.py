@@ -30,15 +30,14 @@ class FeishuAdapter(ChannelAdapter):
         super().__init__(on_message=on_message)
         self.app_id = app_id
         self.app_secret = app_secret
-        self.verification_token = verification_token   # webhook 模式校验
-        self.encrypt_key = encrypt_key                 # 若开启加密
+        self.verification_token = verification_token
+        self.encrypt_key = encrypt_key
         self.base = FEISHU_BASE if domain == "feishu" else LARK_BASE
         self.timeout = timeout
-        self._token = ""           # 缓存的 tenant_access_token
-        self._token_exp = 0.0      # 过期时间戳
-        self._last_error = ""      # 最近一次解密/处理错误(便于排查)
+        self._token = ""
+        self._token_exp = 0.0
+        self._last_error = ""
 
-    # ── 入站:事件订阅 ──────────────────────────────────────
     def decrypt_event(self, encrypt: str) -> Optional[dict]:
         """解密飞书加密事件(AES-256-CBC,key=sha256(encrypt_key))。
 
@@ -60,7 +59,6 @@ class FeishuAdapter(ChannelAdapter):
         plain = self._aes_cbc_decrypt(key, iv, ciphertext)
         if plain is None:
             return None
-        # PKCS7 去 padding(带校验,防损坏数据)
         if not plain:
             return None
         pad = plain[-1]
@@ -76,7 +74,6 @@ class FeishuAdapter(ChannelAdapter):
 
     def _aes_cbc_decrypt(self, key: bytes, iv: bytes, ciphertext: bytes) -> Optional[bytes]:
         """AES-256-CBC 解密。优先用 cryptography,回退 pycryptodome。"""
-        # 优先 cryptography(更常见)
         try:
             from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
             cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
@@ -85,7 +82,7 @@ class FeishuAdapter(ChannelAdapter):
         except ImportError:
             pass
         try:
-            from Crypto.Cipher import AES   # pycryptodome
+            from Crypto.Cipher import AES
             return AES.new(key, AES.MODE_CBC, iv).decrypt(ciphertext)
         except ImportError:
             self._last_error = ("缺少 AES 库,无法解密飞书加密事件。"
@@ -99,7 +96,7 @@ class FeishuAdapter(ChannelAdapter):
                          signature: str) -> bool:
         """验签:sha256(timestamp + nonce + encrypt_key + body)。"""
         if not self.encrypt_key:
-            return True       # 未开启加密则不验签(飞书此时也不发签名)
+            return True
         content = (timestamp + nonce + self.encrypt_key).encode() + body
         digest = hashlib.sha256(content).hexdigest()
         return digest == signature
@@ -114,23 +111,19 @@ class FeishuAdapter(ChannelAdapter):
         - 验签 → normalize → on_message
         """
         headers = headers or {}
-        # 1. 加密:先解密外层
         if "encrypt" in payload:
             dec = self.decrypt_event(payload["encrypt"])
             if dec is None:
                 return {"error": "decrypt_failed"}
             payload = dec
-        # 2. URL 验证(首次配置回调地址时)
         if payload.get("type") == "url_verification":
             return {"challenge": payload.get("challenge", "")}
-        # 3. 验签(若有签名头)
         sig = headers.get("X-Lark-Signature") or headers.get("x-lark-signature")
         if sig:
             ts = headers.get("X-Lark-Request-Timestamp", "")
             nonce = headers.get("X-Lark-Request-Nonce", "")
             if not self.verify_signature(ts, nonce, raw_body, sig):
                 return {"error": "invalid_signature"}
-        # 4. 消息事件 → normalize → 回调
         inbound = self.normalize(payload)
         if inbound and self.on_message:
             self.on_message(inbound)
@@ -145,7 +138,6 @@ class FeishuAdapter(ChannelAdapter):
         message = event.get("message", {})
         sender = event.get("sender", {})
         sender_sid = sender.get("sender_id", {})
-        # 飞书消息内容是 JSON 字符串,文本在 {"text": "..."}
         text = ""
         try:
             import json
@@ -155,19 +147,18 @@ class FeishuAdapter(ChannelAdapter):
             pass
         if not text:
             return None
-        chat_type = message.get("chat_type", "p2p")   # p2p=私聊, group=群
+        chat_type = message.get("chat_type", "p2p")
         return InboundMessage(
             channel=self.CHANNEL,
             message_id=message.get("message_id", ""),
             text=text,
             sender_id=sender_sid.get("open_id", ""),
-            sender_name="",            # 飞书需额外调 API 取名,默认留空(可选 resolveSenderNames)
+            sender_name="",
             conversation_id=message.get("chat_id", ""),
             is_group=(chat_type == "group"),
             timestamp=float(message.get("create_time", 0)) / 1000 or time.time(),
             raw=raw)
 
-    # ── 出站:tenant_access_token + 发消息 ──────────────────
     def _get_token(self) -> str:
         """取 tenant_access_token,带缓存与自动刷新(过期前 5 分钟刷新)。"""
         if self._token and time.time() < self._token_exp - 300:
@@ -197,7 +188,6 @@ class FeishuAdapter(ChannelAdapter):
         token = self._get_token()
         if not token:
             return SendResult(False, error="获取 tenant_access_token 失败")
-        # receive_id_type 用 chat_id(群和私聊的会话 ID 都用 chat_id 发)
         payload = {
             "receive_id": msg.conversation_id,
             "msg_type": "text",

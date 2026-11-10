@@ -18,7 +18,6 @@ import { openKu } from '../stores/panels.js'
 import { getJSON } from '../api.js'
 import { clip } from '../lib/fmt.js'
 
-/* 菜单 8 项 → 真实面板。overview 是核心对话视图,不在这里。 */
 const PANELS = {
   activity: ActivityPanel,
   tasks: TasksPanel,
@@ -32,14 +31,8 @@ const PANELS = {
 }
 const panel = computed(() => PANELS[state.module] || null)
 
-/* 标签条只在打开文档时需要(文档 + 回到面板)。
-   没文档时面板头部已经写着模块名,再挂一条同名 tab 就是重复。 */
 const hasTabs = computed(() => !!state.doc)
 
-/* ── 空态引导 ──
-   一块空白 + 一句「问我任何事」等于让用户自己想问题。给三条真实可用的起点:
-   示例提问(点了直接发)、继续上次会话、最近知识(点了开正文)。
-   数据各自 .catch:任何一条挂了都只是少一块引导,不该让空态变成报错页。 */
 const EXAMPLES = [
   '现在系统里有哪些技能可以用?',
   '帮我把今天要做的事排个优先级',
@@ -48,9 +41,6 @@ const EXAMPLES = [
 
 const recent = ref([])
 
-/* ── 首次引导:问称呼 ──
-   只在「后端还没存过称呼」时出现一次。点「跳过」记在 localStorage,之后不再问;
-   设置页里随时能改。存进去的是一条 preference,每轮注入,所以模型真的会这么叫。 */
 const nick = ref('')
 const nickSkipped = ref(localStorage.getItem('sfx.nick.skip') === '1')
 const askNick = computed(() => profile.loaded && !profile.nickname && !nickSkipped.value)
@@ -78,8 +68,6 @@ function skipNick() {
   localStorage.setItem('sfx.nick.skip', '1')
 }
 
-/* 「继续上次」:取列表里最新一条**真的有消息**的会话。
-   不能只看 sessions[0] —— 那个常常是刚建的空会话(count=0),跳过它才能拿到上次聊的。 */
 const lastSession = computed(() => {
   const cur = chat.messages.length ? state.sessionId : ''
   return state.sessions.find((s) => s.id !== cur && (s.message_count || 0) > 0) || null
@@ -197,10 +185,8 @@ function resume() {
   overflow: hidden;
   display: flex;
 }
-/* 没有标签条时不留缺口,四角全圆 */
 .stage-body.bare { margin-top: 8px; border-radius: var(--r-mid); }
 
-/* ── 核心:空态居中,有消息时整块交给消息流 ── */
 .core { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .core-empty {
   flex: 1; display: flex; flex-direction: column;
@@ -217,7 +203,6 @@ function resume() {
   color: var(--ink); margin-bottom: 6px;
 }
 
-/* 首次引导的问称呼条:与下面的示例提问同宽,不弹窗、不挡操作 */
 .ask-nick {
   display: flex; align-items: center; gap: 8px;
   width: 100%; max-width: 420px;
@@ -243,7 +228,6 @@ function resume() {
 .an-skip { flex-shrink: 0; padding: 4px 2px; font-size: 11.5px; color: var(--dim); }
 .an-skip:hover { color: var(--ink); }
 
-/* 示例提问:原来空态只有一句提示,用户不知道从哪开口 */
 .tries { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 420px; }
 .try {
   display: flex; align-items: center; gap: 8px; width: 100%;

@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def test_chat_stream_emits_named_thinking_event():
-    # ISOLATION_GUARD:依赖 import 期固化的单例(路由配置/限流器),须独立进程跑。
     if "foxclaw.api" in sys.modules:
         import pytest
         pytest.skip("需独立进程运行(模块级单例已固化),请用 tests/run_all.py")

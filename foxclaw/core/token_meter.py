@@ -36,7 +36,6 @@ def estimate_tokens(text: str, model: str = "") -> int:
             enc = tiktoken.get_encoding("cl100k_base")
         return len(enc.encode(text))
     except Exception:
-        # 字符估算:中文(非ASCII)按 1.1 字符/token,英文(ASCII)按 4 字符/token。
         ascii_chars = sum(1 for c in text if ord(c) < 128)
         cjk_chars = len(text) - ascii_chars
         return int(ascii_chars / 4 + cjk_chars * 1.1) + 1
@@ -50,8 +49,8 @@ class CallRecord:
     agent_id: str
     input_tokens: int
     output_tokens: int
-    estimated: bool          # True=估算,False=API真实usage
-    task_kind: str = ""      # 可选:single/multi/...
+    estimated: bool
+    task_kind: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -73,7 +72,7 @@ class TokenMeter:
         self.max_log_bytes = int(max_log_mb * 1024 * 1024)
         self._records: list[CallRecord] = []
         self._lock = threading.RLock()
-        self._append_count = 0     # 触发轮转检查的计数器
+        self._append_count = 0
         if log_path:
             os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
 
@@ -104,7 +103,6 @@ class TokenMeter:
                                usage.get("input_tokens", 0),
                                usage.get("output_tokens", 0),
                                estimated=False, task_kind=task_kind)
-        # 估算:输入 = system + 所有 message content,输出 = output
         input_text = (system or "") + "\n".join(
             str(m.get("content", "")) for m in (messages or []))
         in_tok = estimate_tokens(input_text, model)
@@ -112,7 +110,6 @@ class TokenMeter:
         return self.record(provider, model, agent_id, in_tok, out_tok,
                            estimated=True, task_kind=task_kind)
 
-    # ── 聚合查询 ──────────────────────────────────────────
     def summary(self) -> dict:
         """总体统计。"""
         with self._lock:
@@ -211,8 +208,7 @@ class TokenMeter:
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec.to_dict(), ensure_ascii=False) + "\n")
         except Exception:
-            pass        # 计量落盘失败不影响主流程
-        # 每 100 次追加检查一次文件大小,超限则轮转(防磁盘无限膨胀)
+            pass
         self._append_count += 1
         if self._append_count % 100 == 0:
             self._rotate_if_needed()
@@ -226,10 +222,10 @@ class TokenMeter:
                 return
             with open(self.log_path, encoding="utf-8") as f:
                 lines = f.readlines()
-            keep = lines[len(lines) // 2:]      # 保留较新的一半
+            keep = lines[len(lines) // 2:]
             tmp = self.log_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 f.writelines(keep)
-            os.replace(tmp, self.log_path)      # 原子替换
+            os.replace(tmp, self.log_path)
         except Exception:
-            pass        # 轮转失败不影响主流程
+            pass

@@ -20,7 +20,6 @@ async def get_memory_stats():
         return {"backend": "?", "total_memories": 0, "relations": 0}
 
 
-# ── 会话历史 ───────────────────────────────────────────────
 class SessionCreate(BaseModel):
     title: str = ""
     agent_id: str = "supervisor"
@@ -89,9 +88,6 @@ async def delete_preference(pref_id: str):
     return {"ok": ag.delete_preference(pref_id)}
 
 
-# ── 用户档案:称呼 ────────────────────────────────────────────
-# 前端首次打开问一句「怎么称呼你」,设置页可改。存的仍是一条 preference
-# (每轮注入、跨会话),所以不需要账号/用户表。
 class ProfilePayload(BaseModel):
     nickname: str = ""
 

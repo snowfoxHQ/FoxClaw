@@ -3,7 +3,6 @@ const props = defineProps({
   title: { type: String, default: '' },
   tag: { type: String, default: '' },
   state: { type: String, default: 'idle' },
-  /* 已有旧数据时,刷新不要整块闪成「加载中」 */
   ready: { type: Boolean, default: false },
 })
 defineEmits(['refresh'])
@@ -29,8 +28,6 @@ defineEmits(['refresh'])
 </template>
 
 <style scoped>
-/* min-width: 0 让面板能被父级 flex 压窄 —— 否则 flex item 的 min-width:auto 会把它按
-   min-content 撑开,窗口拉到 420px 时面板比中栏还宽,右侧内容直接落到视口外。 */
 .panel { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ph {
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;

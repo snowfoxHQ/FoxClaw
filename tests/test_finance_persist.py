@@ -41,7 +41,6 @@ def test_交易预算余额重启后可恢复(tmp_path):
     assert rt.save() is True
     assert (tmp_path / "finance_data.json").exists()
 
-    # 新实例 = 进程重启后的状态
     rt2 = _rt(tmp_path)
     assert len(rt2.transactions) == 2
     assert rt2.transactions[0].amount == -88.5
@@ -51,7 +50,6 @@ def test_交易预算余额重启后可恢复(tmp_path):
     assert rt2.transactions[1].amount == 12000
     assert len(rt2.budgets) == 1 and rt2.budgets[0].monthly_limit == 400
     assert rt2.account_balances == {"debit": 11800}
-    # 实体统计随交易一起恢复(重启后 trace_category / status 不该突然归零)
     assert rt2.entities["星巴克"].txn_count == 1
     assert rt2.entities["星巴克"].entity_type == "subscription"
     assert rt2.entities["公司"].total_amount == 12000
@@ -64,7 +62,7 @@ def test_写入即落盘下次实例自动加载(tmp_path):
     rt.set_balance("debit", 100)
 
     loaded = _rt(tmp_path)
-    assert loaded.load()  # 已显式 load 过,再次 load 幂等
+    assert loaded.load()
     assert len(loaded.transactions) == 1
     assert loaded.status()["persist"]["load_error"] == ""
 
@@ -83,14 +81,14 @@ def test_损坏文件不阻断启动且可自愈(tmp_path):
     p = tmp_path / "finance_data.json"
     p.write_text("{ 这不是 json ", encoding="utf-8")
 
-    rt = _rt(tmp_path)              # 构造本身不得抛
+    rt = _rt(tmp_path)
     assert rt.transactions == [] and rt.budgets == []
-    assert rt.load_error                    # 错误必须可见,不能静默吞掉
+    assert rt.load_error
 
     rt.add_transaction(Transaction(amount=-5, category="misc",
                                    entity="y", account="debit"))
     assert rt.save() is True
-    assert rt.load_error == ""              # 覆盖写成功后重新可读
+    assert rt.load_error == ""
     assert len(_rt(tmp_path).transactions) == 1
 
 
@@ -106,8 +104,8 @@ def test_单条坏记录只跳过自己不废掉整份(tmp_path):
         "version": 1,
         "transactions": [
             {"amount": -10, "category": "food", "entity": "a", "account": "debit"},
-            {"category": "food"},            # 缺 amount/entity/account → 跳过
-            "not-a-dict",                    # 非对象 → 跳过
+            {"category": "food"},
+            "not-a-dict",
             {"amount": -20, "category": "food", "entity": "b", "account": "debit"},
         ],
         "budgets": [{"category": "food", "monthly_limit": 300}],
@@ -117,7 +115,7 @@ def test_单条坏记录只跳过自己不废掉整份(tmp_path):
     rt = _rt(tmp_path)
     assert [t.entity for t in rt.transactions] == ["a", "b"]
     assert len(rt.budgets) == 1
-    assert rt.account_balances == {"cash": 50.0}   # 坏值单独跳过
+    assert rt.account_balances == {"cash": 50.0}
 
 
 def test_实体段缺失时按交易重建(tmp_path):
@@ -154,12 +152,10 @@ def test_批量导入只写一次盘(tmp_path, monkeypatch):
 def test_落盘失败只回报不抛异常(tmp_path):
     blocker = tmp_path / "blocker"
     blocker.write_text("我是个文件,不是目录", encoding="utf-8")
-    # 父目录被一个文件占住 → mkdir/写入必失败
     rt = FinanceRuntime(policy_path=str(tmp_path / "finance_policy.yaml"),
                         data_path=str(blocker / "finance_data.json"))
     assert rt.save() is False
-    assert rt.save_error                   # 失败原因必须留痕
-    # 内存里的数据仍在,用户这次会话不至于丢东西
+    assert rt.save_error
     rt.add_transaction(Transaction(amount=-1, category="misc",
                                    entity="z", account="debit"))
     assert len(rt.transactions) == 1

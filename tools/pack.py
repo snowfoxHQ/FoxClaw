@@ -37,7 +37,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 
-# docs/internal/ 只在「内部版」允许出现
 _INTERNAL_DOCS = "docs/internal/"
 
 
@@ -58,12 +57,10 @@ def _forbidden(path: str, allow_internal_docs: bool) -> str | None:
     if p.endswith("/"):
         return None
     parts = p.split("/")
-    # 归档带 --prefix=Foxclaw-xxx/,故按「任意层级」匹配
     joined = "/".join(parts[1:]) if len(parts) > 1 else p
 
     if not allow_internal_docs and _INTERNAL_DOCS in p:
         return "内部机密文档 docs/internal/(对外分发版必须排除)"
-    # .env / .env.bak-* / .env.local —— 但 .env.example 模板必须保留
     base = parts[-1]
     if base == ".env" or (base.startswith(".env.") and base != ".env.example"):
         return "密钥配置文件"
@@ -122,7 +119,6 @@ def build(variant: str, ref: str) -> Path | None:
 
     cmd = ["archive", "--format=zip", f"--prefix={prefix}", "-o", str(out), ref]
     if variant == "public":
-        # 用 git pathspec magic 排除内部文档目录
         cmd += ["--", ".", f":(exclude){_INTERNAL_DOCS.rstrip('/')}"]
 
     r = git(cmd)
@@ -131,7 +127,6 @@ def build(variant: str, ref: str) -> Path | None:
         out.unlink(missing_ok=True)
         return None
 
-    # 内容校验 —— 宁可不出包,也不出错包
     bad = check_archive(out, allow_internal_docs=(variant == "internal"))
     if bad:
         out.unlink(missing_ok=True)

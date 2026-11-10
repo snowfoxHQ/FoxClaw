@@ -26,10 +26,6 @@ from pathlib import Path
 from typing import Any
 
 
-# ── 凭证保险箱(vault)────────────────────────────────────────
-# 真实凭证只进守门人进程,主进程内存里从不出现。两个来源:
-#   1. 环境变量前缀 FOXCLAW_GUARDIAN_SECRET_<REF>(REF 统一小写);
-#   2. FOXCLAW_GUARDIAN_SECRETS 指向的 JSON 文件 {"ref": "secret", ...}。
 def load_vault() -> dict:
     vault: dict = {}
     prefix = "FOXCLAW_GUARDIAN_SECRET_"
@@ -43,13 +39,10 @@ def load_vault() -> dict:
             if isinstance(d, dict):
                 vault.update({str(k).lower(): v for k, v in d.items()})
         except Exception:
-            pass  # 损坏的 secrets 文件不拖垮守门人;宁可少借不错借
+            pass
     return vault
 
 
-# ── MCP server 配置(守门人持有凭证)──────────────────────────
-# 与 vault 对称:MCP 的 headers 里可能含真凭证(Authorization/x-api-key 等)。
-# 主进程通过 mcp_register 推送配置;也可用 FOXCLAW_GUARDIAN_MCP_SERVERS 指向 JSON 文件做初始加载。
 def _mcp_servers_path() -> str:
     """守门人侧 MCP 配置持久化文件。优先 FOXCLAW_GUARDIAN_MCP_SERVERS 显式指定;
     否则用 FOXCLAW_GUARDIAN_DATA_DIR 下的 mcp_guardian_servers.json。主进程的 mcp_servers.json 已不含 headers。"""
@@ -80,7 +73,7 @@ def load_mcp_servers() -> dict:
                 "transport": c.get("transport") or "streamable_http",
             }
     except Exception:
-        pass  # 损坏配置不拖垮守门人;宁可少配不错配
+        pass
     return servers
 
 
@@ -95,12 +88,9 @@ def _persist_mcp_servers(servers: dict) -> None:
         tmp.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(Path(path))
     except Exception:
-        pass  # 持久化失败不拖垮守门人;重启后主进程会重新 mcp_register
+        pass
 
 
-# ── 短期可撤销能力令牌 ──────────────────────────────────────
-# 彻底取代「resolve 真值借出」:主进程只拿得到一个不透明随机 token,真值永不出守门人进程。
-# 令牌 = 一次性 + 过期 + 可撤销,进程内状态表(不依赖 HMAC 签名,因为 token 本身高熵、无法伪造/猜中)。
 class TokenStore:
     def __init__(self, default_ttl: float = 60.0):
         self._default_ttl = default_ttl
@@ -138,7 +128,6 @@ class TokenStore:
         return True
 
 
-# ── 跨进程重建(守门人侧)─────────────────────────────────────
 def _rebuild_skill(sd: dict):
     """主进程只传 evaluate 需要的字段 + 已算好的 trust。重建为鸭子类型对象。"""
     from types import SimpleNamespace
@@ -146,7 +135,7 @@ def _rebuild_skill(sd: dict):
     return SimpleNamespace(
         id=sd.get("id", ""),
         kind=sd.get("kind", "local"),
-        side_effect=sd.get("side_effect", "write"),     # 未声明 → 有副作用
+        side_effect=sd.get("side_effect", "write"),
         destructive=bool(sd.get("destructive", False)),
         external=bool(sd.get("external", False)),
         read_only=sd.get("read_only", None),
@@ -188,7 +177,7 @@ def _handle_mint(msg: dict, vault: dict, store: TokenStore) -> dict:
     ttl = float(ttl) if ttl else None
     out = store.mint(ref, ttl)
     print(f"[Sentinel] mint {ref}", file=sys.stderr, flush=True)
-    return out  # {"token", "expires_in"} —— 不含真值
+    return out
 
 
 def _handle_revoke(msg: dict, store: TokenStore) -> dict:
@@ -213,7 +202,7 @@ def _handle_mcp_register(msg: dict, servers: dict) -> dict:
         headers = dict(c.get("headers") or {})
         old = servers.get(sid)
         if not headers and old:
-            headers = dict(old.get("headers") or {})  # 主进程不持 headers,不覆盖守门人已有凭证
+            headers = dict(old.get("headers") or {})
         new_servers[sid] = {
             "name": c.get("name") or sid,
             "url": c.get("url", ""),
@@ -252,7 +241,7 @@ def _handle_mcp_call(msg: dict, servers: dict) -> dict:
         if out.get("isError"):
             return SkillResult(skill_id, False, status="blocked",
                                message=f"MCP 工具返回错误: {out.get('content') or 'unknown'}").to_dict()
-        out = _mark_untrusted(out)   # 外部 MCP 返回=不可信,防提示注入
+        out = _mark_untrusted(out)
         print(f"[Sentinel] mcp_call {server_id}.{tool}", file=sys.stderr, flush=True)
         return SkillResult(skill_id, True, output=out,
                            message="MCP 调用完成(外部不可信数据)").to_dict()
@@ -330,7 +319,7 @@ def _handle_execute_web(msg: dict, vault: dict, store: TokenStore) -> dict:
     secret = None
     used_ref = None
     if token:
-        ref = store.redeem(token)   # 一次性:兑换即作废
+        ref = store.redeem(token)
         if ref is None:
             return SkillResult(skill_id, False, status="blocked",
                                message="能力令牌无效/已过期/已使用/已撤销").to_dict()
@@ -346,7 +335,6 @@ def _handle_execute_web(msg: dict, vault: dict, store: TokenStore) -> dict:
             return SkillResult(skill_id, False, status="blocked",
                                message=f"凭证 ref「{secret_ref}」未在守门人 vault 中配置").to_dict()
 
-    # SSRF 校验:守门人侧也做(主进程可能被攻破传内网地址,不能只信主进程)
     block = ssrf_check(endpoint, allow_local=allow_local)
     if block:
         return SkillResult(skill_id, False, status="blocked",
@@ -440,7 +428,7 @@ def serve_stdio(vault: dict, store: TokenStore, servers: dict) -> None:
             else:
                 result = {"error": f"unknown op: {op}"}
             _reply({"id": mid, "ok": True, "result": result})
-        except Exception as e:  # 单条请求失败不影响守门人存活
+        except Exception as e:
             _reply({"id": mid, "ok": False, "error": str(e)})
 
 

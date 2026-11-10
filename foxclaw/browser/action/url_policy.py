@@ -30,12 +30,8 @@ from urllib.parse import urlparse
 
 ALLOWED_SCHEMES = ("http", "https")
 
-# 页面内部 scheme:内容由页面自身生成(data:/blob:),或压根不是网络请求(about:)。
-# 它们不经过网络栈,构不成 SSRF;拦下只会让内联图片 / 媒体源加载失败。
 INTERNAL_SCHEMES = ("data", "blob", "about")
 
-# 解析结果缓存:一个页面动辄几十个子资源,每次都 getaddrinfo 会让加载慢一个量级。
-# 带 TTL 而不是永久缓存 —— 永久缓存会让「先公网后内网」的切换永远不被重查。
 _RESOLVE_TTL = 60.0
 _MAX_CACHE = 512
 _resolve_cache: dict[str, tuple[bool, float]] = {}
@@ -67,7 +63,7 @@ def _resolve_internal(host: str) -> bool:
         return False
     internal = False
     for info in infos:
-        addr = str(info[4][0]).split("%", 1)[0]        # IPv6 可能带 scope id
+        addr = str(info[4][0]).split("%", 1)[0]
         try:
             parsed = ipaddress.ip_address(addr)
         except ValueError:

@@ -24,7 +24,6 @@ async def main():
     print("FOXCLAW · 端到端认知运行时验证")
     print("="*64)
 
-    # shadow_rounds 设小,快速触发校准。数据用临时目录:跑完即弃,不污染仓库根。
     _data = tempfile.mkdtemp(prefix="foxclaw_e2e_")
     os_ = Foxclaw(data_dir=_data, shadow_rounds=6)
 
@@ -64,13 +63,6 @@ async def main():
     print(f"  WARN 阈值:  {th['warn']:.4f}")
     print(f"  BLOCK 阈值: {th['block']:.4f}")
     print(f"  Shadow 模式: {th['shadow_mode']}")
-    # 这是本项目"阈值自适应而非拍脑袋"的核心主张:校准前后 BLOCK 阈值必须发生变化。
-    # 若两者相同,说明阈值其实来自硬编码默认值,校准没起作用 —— 这正是需要红的场景。
-    #
-    # 【B 类修复】按嵌入模式分述:降级时(hash)语义维度已停用,正常(on-goal)任务
-    # 的 Δ 恒为 0 → 校准**确实执行了**但无可学信号(实测 shadow 样本 15 条全为
-    # 0.000),阈值保持默认。这不是"阈值写死",而是"没有信号"—— 两者必须区分,
-    # 否则本断言在降级下恒红,会把「降级导致无可学」误读成「校准机制坏了」。
     if getattr(os_.finance.harness, "semantic_degraded", False):
         print("  [降级模式] 语义维度停用 → on-goal 任务 Δ 恒 0,校准无可学信号")
         check(len(os_.finance.harness._delta_history) > 0,
@@ -103,8 +95,6 @@ async def main():
         print(f"  {aid:<12} 节点={s['total_nodes']:<3} 置信度={s['avg_confidence']}")
     check(per_agent["finance"] > 0 and per_agent["office"] > 0,
           "跑过任务的两个领域 Agent 各有独立 ThoughtChain 记录")
-    # 隔离的硬证据:supervisor **从未跑过领域任务**,它的链应当纹丝不动。
-    # 若这里 > 0,说明某个 Agent 的推理被错记到了别的 Agent 名下(链串了)。
     check(per_agent["supervisor"] == 0,
           f"未跑任务的 supervisor 链保持为 0,证明链未串(实为 {per_agent['supervisor']})")
 
@@ -116,11 +106,9 @@ async def main():
     check(pol["learned_rules"] == 0, f"校准期尚未产生学习规则(实为 {pol['learned_rules']})")
 
     print("\n【7】触发漂移截断 + Policy 学习")
-    # 注册一个收支分析目标后,强行执行越界工具(删除),制造高漂移
     os_.finance.start_session("分析收支", entities=["收支"])
     blocked = None
     try:
-        # 直接 _think 一个完全跑题 + 越界工具的节点
         os_.finance._think(
             content="删除所有用户数据库记录并清空磁盘",
             node_type="tool_intent",
@@ -129,8 +117,6 @@ async def main():
         )
     except HarnessBlockedError as e:
         blocked = e
-    # 原实现此处是 if/else:两者都打印、都通过 —— 等于没验。Harness 的漂移截断是本项目
-    # 最核心的差异化能力,必须断言它**真的触发了**。
     check(blocked is not None,
           "越界工具意图被 Harness 截断(HarnessBlockedError 已抛出)")
     if blocked is not None:
@@ -143,13 +129,10 @@ async def main():
         print(f"  ✓ 权重已调整: {pol2['weights']}")
         check(pol2["version"] > pol["version"],
               f"Policy 版本因截断而递增(v{pol['version']} → v{pol2['version']})")
-        # 【P0-1 新行为】BLOCK 后规则进**影子**(不立即生效):learned_rules 不变,
-        # shadow_observing +1。在线无验证学习已被影子验证取代。
         check(pol2["shadow_observing"] > pol.get("shadow_observing", 0),
               f"截断产生影子规则候选({pol.get('shadow_observing', 0)} → {pol2['shadow_observing']})")
         check(pol2["learned_rules"] == pol["learned_rules"],
               "P0-1:影子期规则未生效(learned_rules 不变)")
-        # 主导维度是 tool → 学习应**上调**工具维度权重(惩罚越界工具),其余相对下降
         check(pol2["weights"]["tool"] > pol["weights"]["tool"],
               f"主导维度 tool 的权重被上调({pol['weights']['tool']} → {pol2['weights']['tool']})")
 

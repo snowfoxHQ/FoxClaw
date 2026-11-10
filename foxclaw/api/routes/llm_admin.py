@@ -28,7 +28,6 @@ CUSTOM_MODELS_PATH = _DATA_DIR / "custom_models.json"
 CURRENT_MODEL_PATH = _DATA_DIR / ".current_model"
 
 
-# 预置 provider(展示用:标签 + 配色 + 探测 key 名)
 _PRESET_PROVIDERS = [
     {"provider": "generic",   "label": "通用 OpenAI 兼容", "color": "#7e93b8"},
     {"provider": "anthropic", "label": "Claude",            "color": "#ff9d00"},
@@ -51,8 +50,6 @@ _PROVIDER_KEY_ENV = {
     "generic":   "GENERIC_LLM_API_KEY",
 }
 
-
-# ── 工具 ─────────────────────────────────────────────────
 
 def _save_key(name: str, key: str) -> dict:
     """把 key 存到最安全的地方,返回该写进 custom_models.json 的字段。
@@ -110,11 +107,9 @@ def _sync_hkc_llm() -> None:
             model=model or None,
             base_url=base or None,
         )
-    except Exception as e:      # 同步失败绝不影响"切模型"这个主操作
+    except Exception as e:
         print(f"[llm_admin] 同步知识抽取(HKC)配置失败: {e}")
 
-
-# ── 端点 ─────────────────────────────────────────────────
 
 @app.get("/api/llm/models")
 async def list_models():
@@ -144,7 +139,7 @@ async def list_models():
 
 
 class _SelectReq(BaseModel):
-    source: str                  # "auto" | "preset" | "custom"
+    source: str
     provider: Optional[str] = None
     name: Optional[str] = None
 
@@ -180,7 +175,6 @@ async def select_model(req: _SelectReq):
         match = next((m for m in models if m.get("name") == name), None)
         if not match:
             raise HTTPException(404, f"未找到自定义模型: {name}")
-        # 预检:能不能真构造出 client(否则"切换成功"是假象)
         if router is not None:
             client, _model, err = router._build_custom_client(name)
             if client is None:
@@ -190,10 +184,9 @@ async def select_model(req: _SelectReq):
         raise HTTPException(400, f"未知 source: {req.source}")
     CURRENT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     CURRENT_MODEL_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    # 立即 reload(mtime 变了);正常聊天路径也会 lazy reload,这里只是让 /runtime 立刻正确
     if router is not None:
         router._maybe_reload_selection()
-    _sync_hkc_llm()      # 知识抽取跟着切,别让它继续用旧 key
+    _sync_hkc_llm()
     return {"ok": True, "current": data,
             "runtime": ({"provider": router.provider,
                          "model": getattr(router, "model", ""),
@@ -253,7 +246,7 @@ class _CustomUpdateReq(BaseModel):
     api_key:       Optional[str] = None
     model:         Optional[str] = None
     extra_headers: Optional[Dict[str, str]] = None
-    group_id:      Optional[str] = None   # 显式空字符串 = 移除 MiniMax-Group-Id header
+    group_id:      Optional[str] = None
     note:          Optional[str] = None
 
 
@@ -267,7 +260,6 @@ async def get_custom_model(name: str):
         raise HTTPException(404, f"未找到: {name}")
     extra = dict(match.get("extra_headers") or {})
     gid = extra.get("MiniMax-Group-Id", "")
-    # extra_headers 拆成 group_id + 其它(避免两边都返回重复键)
     extra_only = {k: v for k, v in extra.items() if k != "MiniMax-Group-Id"}
     return {
         "name":          match.get("name", ""),
@@ -296,18 +288,15 @@ async def update_custom_model(name: str, req: _CustomUpdateReq):
         raise HTTPException(404, f"未找到: {name}")
     target = models[idx]
 
-    # 改名冲突检测
     new_name = (req.name or "").strip() or target["name"]
     if new_name != name and any(m.get("name") == new_name for m in models):
         raise HTTPException(409, f"已存在同名模型: {new_name}")
 
-    # 必填校验
     if req.base_url is not None and not req.base_url.strip():
         raise HTTPException(400, "base_url 不能为空")
     if req.model is not None and not req.model.strip():
         raise HTTPException(400, "model 不能为空")
 
-    # 应用普通字段
     if req.base_url is not None:
         try:
             target["base_url"] = normalize_base_url(req.base_url)
@@ -316,12 +305,10 @@ async def update_custom_model(name: str, req: _CustomUpdateReq):
     if req.model is not None:
         target["model"] = req.model.strip()
     if req.api_key is not None and req.api_key.strip():
-        # 留空 = 保留原 key(防误清);非空 = 覆盖(按新名字存,改名时不会留下孤儿条目)
         target.update(_save_key(new_name, req.api_key))
     if req.note is not None:
         target["note"] = req.note
 
-    # extra_headers + group_id 合并处理
     if req.extra_headers is not None or req.group_id is not None:
         extra = dict(target.get("extra_headers") or {})
         if req.extra_headers is not None:
@@ -334,10 +321,7 @@ async def update_custom_model(name: str, req: _CustomUpdateReq):
                 extra.pop("MiniMax-Group-Id", None)
         target["extra_headers"] = extra
 
-    # 改名:同步 .current_model
     if new_name != name:
-        # 凭据按模型名存放 → 不改名搬迁就再也 load 不到(key 静默丢失)。
-        # 已换新 key 时新条目已在 new_name 下,这里只需清掉旧的。
         if req.api_key is not None and req.api_key.strip():
             _secrets.delete(name)
         else:
@@ -366,8 +350,7 @@ async def delete_custom_model(name: str):
     if len(new_models) == len(models):
         raise HTTPException(404, f"未找到: {name}")
     _save_custom(new_models)
-    _secrets.delete(name)        # 别在 OS 凭据库里留孤儿条目
-    # 如果当前选的就是它 → 清空选择
+    _secrets.delete(name)
     if CURRENT_MODEL_PATH.exists():
         try:
             cur = json.loads(CURRENT_MODEL_PATH.read_text(encoding="utf-8"))
@@ -379,7 +362,7 @@ async def delete_custom_model(name: str):
 
 
 class _TestReq(BaseModel):
-    source: str                  # "preset" | "custom"
+    source: str
     provider: Optional[str] = None
     name: Optional[str] = None
 
@@ -454,8 +437,6 @@ async def get_runtime():
     router = os_inst.router if os_inst is not None else None
     if router is None:
         return {"ok": False, "error": "OS 未就绪"}
-    # runtime 端点也走 lazy reload,让前端选完模型 → 立刻看到生效值
-    # (complete() 入口也会调;这里额外调一次,GET 路径无副作用)
     try:
         router._maybe_reload_selection()
     except Exception:

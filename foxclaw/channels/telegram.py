@@ -22,7 +22,7 @@ class TelegramAdapter(ChannelAdapter):
         super().__init__(on_message=on_message)
         self.bot_token = bot_token
         self.timeout = timeout
-        self._offset = 0          # getUpdates 增量游标(避免重复拉取)
+        self._offset = 0
 
     @property
     def _base(self) -> str:
@@ -32,7 +32,7 @@ class TelegramAdapter(ChannelAdapter):
         """Telegram update → 标准 InboundMessage。非文本消息返回 None。"""
         msg = raw.get("message") or raw.get("edited_message")
         if not msg or "text" not in msg:
-            return None       # 非文本消息(贴纸/图片/已读等)暂忽略
+            return None
         chat = msg.get("chat", {})
         sender = msg.get("from", {})
         chat_type = chat.get("type", "private")
@@ -97,11 +97,10 @@ class TelegramAdapter(ChannelAdapter):
             return []
         out = []
         for update in data.get("result", []):
-            # 推进游标:下次从最大 update_id + 1 开始,避免重复
             uid = update.get("update_id", 0)
             if uid >= self._offset:
                 self._offset = uid + 1
-            inbound = self.handle_raw(update)   # normalize + 触发 on_message
+            inbound = self.handle_raw(update)
             if inbound:
                 out.append(inbound)
         return out

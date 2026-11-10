@@ -7,7 +7,6 @@ DOM 提取器。
 （比如以后换成 CDP driver，只需要改这一层）。
 """
 
-# 只关心这些角色的元素，减少噪音；按需扩展
 INTERACTIVE_ROLES = ("button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem")
 
 

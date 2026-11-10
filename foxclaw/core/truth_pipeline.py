@@ -35,13 +35,10 @@ class TruthPipeline:
 
     def __init__(self, bus, hmr=None):
         self.bus = bus
-        self.hmr = hmr                 # 真实 HMR 记忆后端(可空,空则跳过记忆沉淀)
+        self.hmr = hmr
         self.last_trace = None
         self.last_memory_update = None
 
-        # 订阅事件链。【P4-1】三个都是精确 channel 名 → exact=True:
-        # 门面化后 SystemBus 默认是前缀匹配,不锁定的话 "execution.completed.extra"
-        # 之类的前缀事件也会触发真值链(语义漂移)。
         bus.subscribe("execution.completed", self._on_execution_completed, exact=True)
         bus.subscribe("trace.recorded", self._on_trace_recorded, exact=True)
         bus.subscribe("truth.appended", self._on_truth_appended, exact=True)
@@ -73,7 +70,6 @@ class TruthPipeline:
             self.last_memory_update = {"persisted": False, "reason": "blocked"}
             self.bus.publish("truth.skipped", {**p, "reason": "blocked"})
             return
-        # 真值 = "任务被如此处理"的事实 + 产出要点(信息量足够供日后召回)
         result_brief = str(p.get("result", ""))[:200]
         truth = {
             "fact": (f"任务「{p.get('task')}」由 {p.get('agent_id')} 处理。"
@@ -97,15 +93,14 @@ class TruthPipeline:
         update: dict[str, Any] = {"persisted": False}
         if self.hmr is not None and not p.get("blocked"):
             try:
-                # 沉淀到 HMR 共享层(所有 Agent 可见),用真实的 ingest 接口
                 content = p.get("truth", {}).get("fact", "")
                 origin_agent = p.get("agent_id", "unknown")
                 self.hmr.ingest(
                     content,
                     type="execution",
-                    agent_id="system",      # 【P3-0】系统级写入(非来源 Agent)
+                    agent_id="system",
                     title=f"真值_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                    tags=["truth_pipeline", f"origin:{origin_agent}"],   # 来源可追溯
+                    tags=["truth_pipeline", f"origin:{origin_agent}"],
                     shared=True,
                 )
                 update = {"persisted": True, "content": content}

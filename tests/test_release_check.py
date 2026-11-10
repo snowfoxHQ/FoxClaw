@@ -28,15 +28,13 @@ def _load():
     spec = importlib.util.spec_from_file_location(
         "release_check", REPO / "tools" / "release_check.py")
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["release_check"] = mod      # dataclass 需要能按模块名回查,否则 exec 时炸
+    sys.modules["release_check"] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
 rc = _load()
 
-
-# ── 造最小产物 ────────────────────────────────────────────
 
 def _wheel(dist: Path, version="0.1.0", name="foxclaw", extra=(),
            description=True) -> Path:
@@ -93,8 +91,6 @@ def _mini_repo(root: Path, version: str, npm_version: str) -> Path:
     return root
 
 
-# ── 版本与 tag ────────────────────────────────────────────
-
 def test_repo_versions_are_consistent():
     """真仓库当前状态:四处一致,无 error。"""
     assert [i for i in rc.check_versions(REPO) if i.level == "error"] == []
@@ -127,8 +123,6 @@ def test_empty_tag_is_skipped():
     assert rc.check_tag("", "0.1.0") == []
 
 
-# ── 项目页正文(long_description)────────────────────────────
-
 def test_repo_declares_readme():
     """真仓库必须声明正文:0.1.1 在 PyPI 上的项目页就是空白的,这就是回归点。"""
     assert [i for i in rc.check_metadata(REPO) if i.level == "error"] == []
@@ -157,8 +151,6 @@ def test_readme_pointing_to_missing_file_is_error(tmp_path):
     assert any(i.code == "readme_missing" for i in rc.check_metadata(root))
 
 
-# ── 归档内容 ──────────────────────────────────────────────
-
 @pytest.mark.parametrize("entry", [
     "foxclaw/.env",
     "foxclaw/.env.local",
@@ -173,15 +165,13 @@ def test_forbidden_entries_detected(entry):
 
 
 @pytest.mark.parametrize("entry", [
-    "foxclaw/.env.example",     # 模板必须能进包
+    "foxclaw/.env.example",
     "foxclaw/cli.py",
     "foxclaw/vendor/hmr/hmr/__init__.py",
 ])
 def test_allowed_entries_pass(entry):
     assert rc.forbidden_entry(entry) is None
 
-
-# ── dist / npm ────────────────────────────────────────────
 
 def test_check_dist_passes_with_vendor_warning_only(tmp_path):
     dist = tmp_path / "dist"
@@ -254,7 +244,6 @@ def test_run_end_to_end(tmp_path):
     dist.mkdir()
     issues = rc.run(REPO, tag="", dist=dist, npm_tgz=None)
     assert any(i.level == "error" for i in issues), "空 dist 应报错"
-    # 版本号跟着仓库走:写死 0.1.0 会在每次改版本时假红
     version = rc.collect_versions(REPO)["pyproject.toml:project.version"]
     _wheel(dist, version=version)
     _sdist(dist, version=version)

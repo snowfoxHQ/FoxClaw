@@ -27,23 +27,19 @@ def main():
     print(f"\n采集 {n} 个知识点")
     check(n == 8, f"采集 8 个知识点(实为 {n})")
 
-    # 1. 间隔重复:模拟几次复习
     print("\n【固化:间隔重复】")
     ids = list(rt.items.keys())
     check(len(ids) >= 4, f"至少 4 个知识点可供复习(实为 {len(ids)})")
-    # 模拟:前两个记得好,第三个记不住
-    rt.review(ids[0], grade=5)  # 完美
+    rt.review(ids[0], grade=5)
     rt.review(ids[0], grade=4)
     rt.review(ids[1], grade=4)
-    rt.review(ids[2], grade=1)  # 没记住
-    rt.review(ids[2], grade=2)  # 又没记住
+    rt.review(ids[2], grade=1)
+    rt.review(ids[2], grade=2)
     for iid in ids[:4]:
         st = rt.review_states[iid]
         item = rt.items[iid]
         print(f"  掌握度 {st.mastery:.2f} | 间隔 {st.interval}天 | "
               f"复习{st.total_reviews}次 遗忘{st.lapses}次 | {item.content[:24]}...")
-    # SM-2 的语义后果:连续答不好应累积 lapses,且掌握度被压低。
-    # 这是"间隔重复真的在起作用"的核心断言 —— 只打印 0.60/0.11 两个数字不算验证。
     st_good, st_bad = rt.review_states[ids[0]], rt.review_states[ids[2]]
     check(st_bad.lapses == 2, f"连错两次的知识点累积 lapses=2(实为 {st_bad.lapses})")
     check(st_bad.mastery < st_good.mastery,
@@ -51,7 +47,6 @@ def main():
     check(st_good.total_reviews == 2 and st_bad.total_reviews == 2,
           "复习次数被正确累计(各 2 次)")
 
-    # 2. 知识图谱:构建连接
     print("\n【连接:知识图谱】")
     conn = rt.build_connections(semantic_threshold=0.5)
     print(f"  同主题边: {conn['topic_edges']} · 语义边: {conn['semantic_edges']}")
@@ -61,12 +56,10 @@ def main():
     print(f"  边类型: {g['edge_types']}")
     check(conn["topic_edges"] > 0, f"同主题连接已建立({conn['topic_edges']} 条)")
     check(g["items"] == n, f"图谱节点数 = 知识点数({g['items']} == {n})")
-    # 结构不变式:总边数必须等于各类边之和,否则说明有一类边被漏计/重复计
     check(g["edges"] == conn["topic_edges"] + conn["semantic_edges"],
           f"总边数 = 同主题边 + 语义边({g['edges']} == {conn['topic_edges']}+{conn['semantic_edges']})")
     check(g["clusters"] > 0, f"聚类非空({g['clusters']} 个知识簇)")
 
-    # 3. 连接发现:某知识点的关联
     print("\n【连接发现】")
     related = rt.related(ids[0])
     base = rt.items[ids[0]].content[:20]
@@ -77,7 +70,6 @@ def main():
     check(all(("edge_type" in x and "weight" in x and "item" in x) for x in related),
           "每条关联都带 edge_type / weight / item 结构")
 
-    # 4. 综合分析
     print("\n【综合分析】")
     rep = rt.analyze()
     print(f"  知识点 {rep['total_items']} · 平均掌握度 {rep['avg_mastery']}")
@@ -89,7 +81,6 @@ def main():
     check(rep["weakest_topic"] in rep["topic_mastery"],
           f"最薄弱主题来自主题掌握度表(weakest_topic={rep['weakest_topic']})")
 
-    # 5. 学习策略裁决
     print("\n【学习策略裁决】")
     for v in rep["strategy"]:
         print(f"  [{v['action']}] {v['message']}")

@@ -49,7 +49,7 @@ def allowed_import_roots() -> list[Path]:
         try:
             roots.append(Path(item).expanduser().resolve())
         except (OSError, RuntimeError):
-            continue        # 无效配置不值当让请求 500,忽略即可(settings check 会提示)
+            continue
     return roots
 
 

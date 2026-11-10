@@ -22,8 +22,6 @@ import base64
 
 SERVICE = "foxclaw.llm"
 
-# 后端探测结果缓存(含失败):每个请求都 import + 探测一次没必要。
-# 失败也缓存是有意的 —— 没有可用后端时不该反复重试。
 _kr_cache = None
 _kr_probed = False
 
@@ -37,7 +35,6 @@ def _keyring():
     try:
         import keyring
         from keyring.backends.fail import Keyring as _FailBackend
-        # 默认后端是 Fail 时说明系统上没有可用凭据库(典型:无桌面会话的 Linux)
         if isinstance(keyring.get_keyring(), _FailBackend):
             _kr_cache = None
         else:

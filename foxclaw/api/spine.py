@@ -35,11 +35,9 @@ def _prewarm_hkc(osi):
     def _run():
         t0 = _t.time()
         try:
-            svc = getattr(osi, "hkc", None)      # 访问即触发 HKC 惰性装配
+            svc = getattr(osi, "hkc", None)
             if not svc or not getattr(svc, "available", False):
                 return
-            # 搜索索引已在 assemble() 内构建(向量索引持久化加载优先,避免每次启动全量
-            # embedding 把 CPU 打满、启动卡几分钟),这里不再重复 build_index。
             try:
                 lr = getattr(osi, "learning_runtime", None)
                 if lr is not None:
@@ -50,6 +48,5 @@ def _prewarm_hkc(osi):
         except Exception as e:
             print(f"[Foxclaw API] · HKC 预热未启用(可选): {e}")
 
-    # 晚绑定:把守护线程挂到主模块 `__init__.py` 的 `_prewarm_thread`(lifespan 关闭前需 join)。
     _api._prewarm_thread = threading.Thread(target=_run, name="hkc-prewarm", daemon=True)
     _api._prewarm_thread.start()

@@ -25,10 +25,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
-#: 视为「关键操作」的副作用级别(发送/支付);destructive 无条件算关键
 CRITICAL_SIDE_EFFECTS = ("send", "pay")
 
-DEFAULT_TTL = 300.0        # 秒;确认码有效期
+DEFAULT_TTL = 300.0
 
 
 def action_fingerprint(action: str, args: dict) -> str:
@@ -78,14 +77,13 @@ class ConfirmationBroker:
         self._items: dict[str, PendingConfirm] = {}
         self._lock = threading.Lock()
 
-    # ── 签发 ────────────────────────────────────────────
     def issue(self, session: str, action: str, args: dict,
               ttl: float | None = None) -> dict:
         """签发一个绑定到 (会话, 动作, 参数) 的一次性确认码。"""
         now = self._clock()
         ttl = self.ttl if ttl is None else float(ttl)
         item = PendingConfirm(
-            nonce=secrets.token_hex(8),          # 16 hex 字符,人类也能念出来
+            nonce=secrets.token_hex(8),
             action=action or "",
             fingerprint=action_fingerprint(action or "", args or {}),
             session=session or "",
@@ -99,7 +97,6 @@ class ConfirmationBroker:
         return {"nonce": item.nonce, "action": item.action,
                 "expires_at": item.expires, "ttl": ttl}
 
-    # ── 校验并消费 ──────────────────────────────────────
     def consume(self, session: str, nonce: str, action: str = "",
                 args: dict | None = None, now: float | None = None) -> Tuple[bool, str]:
         """校验确认码并**立即作废**。返回 (是否通过, 原因码)。
@@ -113,8 +110,6 @@ class ConfirmationBroker:
         now = now if now is not None else self._clock()
         with self._lock:
             item: Optional[PendingConfirm] = self._items.get(nonce)
-            # 先看这一条再清理:否则过期的码会被 _purge 抹掉,排错时只会看到
-            # unknown_nonce,分不清"从没发过"和"发过但过期了"
             if item is not None and item.expires <= now:
                 self._items.pop(nonce, None)
                 return False, "expired"
@@ -130,10 +125,9 @@ class ConfirmationBroker:
             if args is not None and item.fingerprint != action_fingerprint(item.action, args):
                 return False, "args_mismatch"
             item.used = True
-            self._items.pop(nonce, None)     # 单次使用:消费即删
+            self._items.pop(nonce, None)
             return True, "ok"
 
-    # ── 观测 ────────────────────────────────────────────
     def pending(self, session: str = "") -> list:
         """未消费且未过期的确认码(可按会话过滤),供排查/前端展示。"""
         now = self._clock()

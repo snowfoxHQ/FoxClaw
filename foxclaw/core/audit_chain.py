@@ -28,10 +28,8 @@ import hashlib
 import json
 from pathlib import Path
 
-#: 首条记录的 prev_hash。用 64 个 0 而不是空串:一眼能看出「这是链头」。
 GENESIS = "0" * 64
 
-#: 从文件尾部回读的字节数:找 tail hash 只需最后一行,64KB 足够容下超长记录。
 _TAIL_WINDOW = 65536
 
 
@@ -100,7 +98,7 @@ def verify(path) -> tuple:
                     return False, n, f"第 {i} 行不是合法 JSON"
                 h = rec.get("hash")
                 if not h:
-                    continue                      # legacy 段:无链可验,跳过
+                    continue
                 if rec.get("prev_hash") != prev:
                     return False, n, (f"第 {i} 行链断:prev_hash 与上一条 hash 不符"
                                       "(中间记录被删或被挪动)")

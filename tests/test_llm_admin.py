@@ -11,7 +11,6 @@ import os, sys, json, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ── 环境隔离:必须在 import foxclaw 之前 ──────────────────────────────
 for _k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GOOGLE_API_KEY",
            "DASHSCOPE_API_KEY", "MINIMAX_API_KEY", "LLM_API_KEY", "FOXCLAW_API_KEY"):
     os.environ.pop(_k, None)
@@ -32,17 +31,14 @@ import foxclaw.api as _api
 from foxclaw.api.routes import llm_admin
 
 
-# ── 1. BASE URL 规范化 ───────────────────────────────────────────────
-
 @pytest.mark.parametrize("raw,expected", [
     ("https://api.deepseek.com",            "https://api.deepseek.com/v1"),
     ("https://api.deepseek.com/",           "https://api.deepseek.com/v1"),
     ("https://api.deepseek.com/v1",         "https://api.deepseek.com/v1"),
     ("https://api.deepseek.com/v1/",        "https://api.deepseek.com/v1"),
     ("  https://api.openai.com/v1  ",       "https://api.openai.com/v1"),
-    ("api.deepseek.com",                    "https://api.deepseek.com/v1"),   # 漏 scheme
+    ("api.deepseek.com",                    "https://api.deepseek.com/v1"),
     ("api.deepseek.com/v1",                 "https://api.deepseek.com/v1"),
-    # 已有非 /v1 的 path 必须原样保留(通义兼容模式 / 自建网关 /openai/v1)
     ("https://dashscope.aliyuncs.com/compatible-mode/v1",
      "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     ("http://localhost:11434/v1",           "http://localhost:11434/v1"),
@@ -50,7 +46,6 @@ from foxclaw.api.routes import llm_admin
 ])
 def test_normalize_base_url(raw, expected):
     assert normalize_base_url(raw) == expected
-    # 幂等:规范化两次结果不变(前端 blur + 后端保存 + router 构造都会过一遍)
     assert normalize_base_url(expected) == expected
 
 
@@ -59,8 +54,6 @@ def test_normalize_base_url_rejects(bad):
     with pytest.raises(ValueError):
         normalize_base_url(bad)
 
-
-# ── 2. custom 必须被当作 openai-compatible 家族成员 ──────────────────
 
 def test_custom_is_openai_family():
     assert "custom" in ModelRouter._OPENAI_FAMILY, \
@@ -71,28 +64,22 @@ def test_custom_is_openai_family():
 def test_custom_provider_supports_tools():
     r = ModelRouter(provider="stub")
     r.provider = "custom"
-    r._client = object()          # 假装已构造好(不联网)
+    r._client = object()
     assert r.supports_tools() is True
 
-
-# ── 3. stream() 必须 reload 选择(聊天主路径)─────────────────────────
 
 def test_stream_reloads_selection():
     r = ModelRouter(provider="stub")
     hits = []
-    r._maybe_reload_selection = lambda: hits.append(True)   # 不打真实文件
+    r._maybe_reload_selection = lambda: hits.append(True)
     list(r.stream("sys", [{"role": "user", "content": "hi"}]))
     assert hits, "stream() 未调用 _maybe_reload_selection → 切模型后流式对话不生效"
 
-
-# ── 4. 保存 / 切换端点 ───────────────────────────────────────────────
 
 @pytest.fixture()
 def fresh_store(monkeypatch):
     """每个用例一份干净的 custom_models.json + .current_model。"""
     d = Path(tempfile.mkdtemp(prefix="llm_admin_store_"))
-    # router 侧按 env 现算路径(_custom_models_path / _selection_path),必须一起指过来,
-    # 否则端点写 A 目录、router 读 B 目录 → 预检假失败。
     monkeypatch.setenv("FOXCLAW_DATA_DIR", str(d))
     monkeypatch.setattr(llm_admin, "CUSTOM_MODELS_PATH", d / "custom_models.json")
     monkeypatch.setattr(llm_admin, "CURRENT_MODEL_PATH", d / ".current_model")
@@ -110,7 +97,6 @@ def test_add_normalizes_base_url(fresh_store):
     saved = json.loads((fresh_store / "custom_models.json").read_text(encoding="utf-8"))
     assert saved[0]["base_url"] == "https://api.deepseek.com/v1"
 
-    # 更新时同样规范化
     import asyncio
     asyncio.run(llm_admin.update_custom_model("deepseek", llm_admin._CustomUpdateReq(
         base_url="https://api.deepseek.com")))
@@ -143,7 +129,6 @@ def test_select_custom_takes_effect_immediately(fresh_store, monkeypatch):
     assert out["runtime"]["provider"] == "custom"
     assert out["runtime"]["model"] == "deepseek-chat"
     assert router.provider == "custom" and router.model == "deepseek-chat"
-    # .current_model 落盘,重启后 lazy reload 仍能读到
     cur = json.loads((fresh_store / ".current_model").read_text(encoding="utf-8"))
     assert cur["source"] == "custom" and cur["name"] == "deepseek"
 

@@ -50,24 +50,19 @@ class FinanceRuntime:
                  data_path: str | None = None):
         self.transactions: list = []
         self.budgets: list = []
-        self.entities: dict = {}            # name -> FinancialEntity
-        self.account_balances: dict = {}    # account -> balance
+        self.entities: dict = {}
+        self.account_balances: dict = {}
         self.policy = FinancePolicyEngine(policy_path)
         self.reasoning = FinanceReasoning()
-        self.hmr = hmr                      # 可选:把交易写入 HMR 共享认知
-        # 交易/预算/余额/实体的落盘点:默认与 policy 同目录(调用方传的就是 data_dir)。
-        # 此前这些只在内存,进程一重启就清零 → 财务分析永远是"0 笔交易"。
+        self.hmr = hmr
         self._data_path = Path(data_path) if data_path else (
             Path(policy_path).resolve().parent / "finance_data.json")
-        # 写侧串行:runtime 是单例,请求线程会并发 add/import,analyze 还会触发阈值自校准写盘。
         self._lock = threading.RLock()
         self.load_error: str = ""
         self.save_error: str = ""
-        # 多币种:账本按本位币(CNY)算账,汇率表与账本同目录
         self.fx = FxTable(str(self._data_path.parent / "finance_fx.json"))
         self.load()
 
-    # ── 持久化(原子写 tmp→replace;损坏文件只降级、不阻断启动)──────
     def load(self) -> int:
         """从落盘点恢复交易/预算/余额/实体,返回恢复的交易条数。
 
@@ -107,7 +102,7 @@ class FinanceRuntime:
                 except (TypeError, ValueError):
                     continue
         if not self.entities and self.transactions:
-            self._rebuild_entities()        # 实体段缺失(旧格式/被裁)→ 按交易重算
+            self._rebuild_entities()
         return len(self.transactions)
 
     def save(self) -> bool:
@@ -128,11 +123,9 @@ class FinanceRuntime:
                                encoding="utf-8")
                 tmp.replace(self._data_path)
                 self.save_error = ""
-                # 文件已被本进程的完整快照覆盖 → 上一轮"读不进来"的原因作废(自愈)
                 self.load_error = ""
                 return True
             except Exception as e:
-                # 落盘失败不能假装成功:留在内存里 + 暴露错误,让调用方/界面能看到
                 self.save_error = f"{type(e).__name__}: {e}"
                 return False
 
@@ -150,14 +143,12 @@ class FinanceRuntime:
             if txn.is_recurring:
                 ent.recurring_amount = abs(txn.amount)
 
-    # ── 数据录入 ──────────────────────────────────────────
     def add_transaction(self, txn: Transaction,
                         run_gatekeeper: bool = True,
                         save: bool = True) -> dict:
         """录入一笔交易,经过守门人裁决,并落盘(save=False 供批量导入只写一次)。"""
         with self._lock:
             self.transactions.append(txn)
-            # 更新实体统计
             ent = self.entities.get(txn.entity)
             if not ent:
                 etype: EntityType = "subscription" if txn.is_recurring else "merchant"
@@ -169,7 +160,6 @@ class FinanceRuntime:
             if txn.is_recurring:
                 ent.recurring_amount = abs(txn.amount)
 
-            # 写入 HMR(可选)
             if self.hmr:
                 try:
                     self.hmr.ingest(
@@ -180,7 +170,6 @@ class FinanceRuntime:
                 except Exception:
                     pass
 
-            # 守门人裁决
             verdicts = []
             if run_gatekeeper:
                 bal = self.account_balances.get(txn.account)
@@ -191,7 +180,6 @@ class FinanceRuntime:
                 "gated": any(v.action in ("veto", "freeze", "require_confirmation")
                              for v in verdicts),
             }
-        # 写盘放在锁外:避免一次磁盘 IO 把并发进来的读请求全堵住
         if save:
             self.save()
         return result
@@ -207,7 +195,6 @@ class FinanceRuntime:
             self.account_balances[account] = balance
         self.save()
 
-    # ── 自然语言记账(第一线功能)────────────────────────────
     def record_text(self, text: str, account: str = "default",
                     now: datetime | None = None, dry_run: bool = False) -> dict:
         """「今天买了一件衣服花了 105 块」→ 落一笔账,返回可读回执。
@@ -280,7 +267,6 @@ class FinanceRuntime:
             lines.append(f"· {day} {it.get('description') or it.get('entity') or ''}"
                          f" {money} · {label}{flag}")
 
-        # 汇总期跟着这笔账走:记的是上月 5 号的账,就别报"本月已花"
         period = (items[0].get("timestamp") or "")[:7] or None
         led = self.ledger(period)
         head = "本月" if period == datetime.now().strftime("%Y-%m") else f"{period} "
@@ -385,8 +371,6 @@ class FinanceRuntime:
             reader = csv.DictReader(f)
             for row in reader:
                 tags = [t.strip() for t in (row.get("tags") or "").split("|") if t.strip()]
-                # 可选的 currency 列:外币行按当天记账汇率折成本位币再入账,
-                # 否则「100 美元」会和「100 元」一起被求和。
                 cur = (row.get("currency") or row.get("币种") or "CNY").strip().upper()
                 raw = float(row["amount"])
                 base, rate = self.fx.to_base(abs(raw), cur)
@@ -404,10 +388,9 @@ class FinanceRuntime:
                 self.add_transaction(txn, run_gatekeeper=False, save=False)
                 count += 1
         if count:
-            self.save()      # 批量导入只落盘一次,不按每笔交易各做一次磁盘 IO
+            self.save()
         return count
 
-    # ── 综合分析(财务 Agent 的核心输出)──────────────────
     def analyze(self, period: str | None = None, current_balance: float | None = None,
                 calibrate: bool = True) -> dict:
         """一次性产出完整财务洞察:预算/风险/预测/守门人裁决。
@@ -416,17 +399,12 @@ class FinanceRuntime:
         再裁决 —— 让阈值随消费水平自己长,而不是永远停在出厂拍的经验值上。
         """
         period = period or datetime.now().strftime("%Y-%m")
-        # 快照:分析期间可能有并发录入(持久化后 import 端点就是可并发的写方),
-        # 直接遍历 self.transactions 会撞上 "list changed size during iteration"。
-        # 计划支出(明天/下个月)必须排除:还没发生的钱不能算进"本月已花",
-        # 否则「明天交房租 3000」会立刻把这个月的预算打爆。
         txns = [t for t in self.transactions if not getattr(t, "is_planned", False)]
         budgets = list(self.budgets)
         bal = current_balance
         if bal is None and self.account_balances:
             bal = sum(dict(self.account_balances).values())
 
-        # 阈值自校准:必须在裁决**之前**,否则这次分析用的还是上一轮的旧阈值
         calibration = (self.policy.apply_calibration(
             self.reasoning.calibrate_thresholds(txns)) if calibrate else [])
 
@@ -438,21 +416,16 @@ class FinanceRuntime:
         cashflow = (self.reasoning.cashflow_projection(txns, bal)
                     if bal is not None else None)
 
-        # 超支预测(对每个有预算的分类)—— 提到裁决之前算,好一并交给守门人
         forecasts = [self.reasoning.overspend_forecast(txns, b, period)
                      for b in budgets]
         renewals = self.reasoning.detect_upcoming_renewals(txns)
         pending_refunds = self.reasoning.detect_pending_refunds(txns)
 
-        # 守门人对整体状态裁决
-        # duplicates/forecasts 此前已被算出来、却只进报告不进裁决(检测到了却不吭声);
-        # renewals/pending_refunds 为新增信号。现在一并交给守门人。
         state_verdicts = self.policy.evaluate_state(
             subscription_total=sub_creep["monthly_total"], anomalies=anomalies,
             duplicates=duplicates, forecasts=forecasts,
             renewals=renewals, pending_refunds=pending_refunds)
 
-        # 结构化证据链(可解释决策,可沉淀到 ThoughtChain)
         from .evidence import FinanceExplainer
         evidence_chains = [
             FinanceExplainer.explain_budget_risk(budget_status).to_dict(),
@@ -470,11 +443,10 @@ class FinanceRuntime:
             "burn_rate": burn,
             "cashflow_projection": cashflow,
             "gatekeeper_verdicts": [v.to_dict() for v in state_verdicts],
-            "threshold_calibration": calibration,   # 阈值自己变了要让用户看见,不能偷偷改
+            "threshold_calibration": calibration,
             "evidence_chains": evidence_chains,
         }
 
-    # ── 守门人审批流(不自动动钱)─────────────────────────
     def request_action(self, action_type: str, detail: dict) -> dict:
         """请求一个资金操作(如取消订阅、转账)。
         不自动执行——返回审批请求,标记需用户确认 / 需接真实支付 API。"""
@@ -492,7 +464,6 @@ class FinanceRuntime:
             "entities": len(self.entities),
             "accounts": self.account_balances,
             "policy": self.policy.summary(),
-            # 落盘状态一并回给界面:否则"数据到底存哪了/为什么重启就没了"只能靠猜
             "persist": {"path": str(self._data_path),
                         "exists": self._data_path.exists(),
                         "load_error": self.load_error,
@@ -516,7 +487,6 @@ class FinanceRuntime:
         返回:匹配/差异分类 + 审计日志。
         """
         from .reconcile import Reconciler, ExternalRecord
-        # 容忍 dict 输入,自动转 ExternalRecord
         ext = []
         for r in external_records:
             if isinstance(r, ExternalRecord):

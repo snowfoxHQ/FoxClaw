@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from typing import Optional, Any
 
 
-# HIR-Browser 支持的动作类型，故意保持极简，不做扩展性设计
 SUPPORTED_ACTIONS = ("navigate", "click", "type", "scroll", "extract", "wait")
 
 

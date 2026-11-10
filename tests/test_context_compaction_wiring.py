@@ -26,8 +26,6 @@ def _long_history(n: int = 12, chars: int = 400) -> list:
             for i in range(n)]
 
 
-# ── 1. Compactor.maybe_compact 契约 ─────────────────────────────
-
 def test_maybe_compact_noop_when_under_budget() -> None:
     msgs = [{"role": "user", "content": "短问题"}]
     out, res = Compactor(router=None, max_tokens=6000).maybe_compact(msgs)
@@ -57,8 +55,6 @@ def test_maybe_compact_never_raises_on_garbage() -> None:
     assert isinstance(out, list)
 
 
-# ── 2. CognitiveAgent._compact_context 接入层 ────────────────────────
-
 def _stub_agent(thoughts: list) -> SimpleNamespace:
     return SimpleNamespace(router=None,
                            _think=lambda **kw: thoughts.append(kw.get("content", "")))
@@ -84,10 +80,8 @@ def test_compact_context_swallows_errors(monkeypatch) -> None:
     monkeypatch.setenv("FOXCLAW_CONTEXT_MAX_TOKENS", "100")
     msgs = _long_history()
     out = CognitiveAgent._compact_context(SimpleNamespace(router=None), msgs, "chat")
-    assert isinstance(out, list)          # _think 缺失 → 内部异常被吞,不影响主流程
+    assert isinstance(out, list)
 
-
-# ── 3. 工具调用循环里确实过闸 ───────────────────────────────────
 
 class _NoToolRouter:
     """supports_tools=True 但模型直接给答案:只跑一轮,便于断言压缩闸被调用。"""

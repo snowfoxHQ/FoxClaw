@@ -34,7 +34,6 @@ def _tool(name: str, description: str, properties: dict, required: list) -> dict
     }
 
 
-# ── 首批工具声明(高价值、正好替掉现有关键词坑)──────────────────────────────
 WEB_SEARCH = _tool(
     "web_search",
     "联网搜索实时/时效性的**外部**信息:新闻、产品的版本与型号、发布动态、价格、汇率、"
@@ -123,7 +122,6 @@ class ToolRegistry:
             stype = spec.get("type")
             want = _tmap.get(stype) if isinstance(stype, str) else None
             if not want or not isinstance(v, want):
-                # bool 是 int 的子类,须排除,否则 True 会被当成合法 integer
                 if not (want is not bool and isinstance(v, bool)):
                     errs.append(f"参数 {k} 类型应为 {spec.get('type')},"
                                 f"实为 {type(v).__name__}")
@@ -145,20 +143,12 @@ def default_registry() -> ToolRegistry:
     return ToolRegistry().register(WEB_SEARCH).register(RECALL_MEMORY)
 
 
-# ── 工具能力分级(供 permission.evaluate 四阶段管线判定)────────────────────────
-# 病根提醒:prompt 级隔离挡不住弱模型被块内强指令诱导(实测 flash ~2/3 被劫持),真正的
-# 安全阀在**动作级**——工具执行前过权限管线,写/副作用/不可逆动作走人在回路(HITL)。
-# 字段对齐 permission.evaluate:side_effect(read/write/send/pay)/ read_only / external / destructive。
-# parallel_safe 不在权限语义里,只用于**同轮多工具是否可并发**:置 True 表示"纯读、可与其他
-# parallel_safe 工具同时跑"(见 agents/mixins/tool_exec.py::_run_tools)。未声明 = 串行。
-# **新增任何工具都应在此声明能力;未声明者 fail-closed 当作有副作用 → 强制 HITL(见 _DEFAULT_CAP)。**
 TOOL_CAPABILITIES: dict[str, dict] = {
     "web_search":    {"side_effect": "read", "read_only": True, "external": False,
                       "destructive": False, "parallel_safe": True},
     "recall_memory": {"side_effect": "read", "read_only": True, "external": False,
                       "destructive": False, "parallel_safe": True},
 }
-# 未声明工具的兜底:当有副作用 + 外部 → permission 管线判 ask → 强制人在回路。宁误拦不漏放。
 _DEFAULT_CAP = {"side_effect": "write", "read_only": False, "external": True, "destructive": False}
 
 

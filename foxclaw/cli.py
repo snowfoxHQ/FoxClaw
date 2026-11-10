@@ -7,6 +7,8 @@
     foxclaw serve          # 启动 API 服务(默认 http://127.0.0.1:8000)
     foxclaw config check   # 检查 .env / 环境变量:类型写错、拼错的键、互相矛盾的组合
     foxclaw config show     # 打印当前生效配置(密钥默认脱敏)
+    foxclaw skills install @owner/slug   # 装 SKILL.md 技能(ClawHub/GitHub/URL/本地包)
+    foxclaw skills list                  # 列出已装技能
     foxclaw --version      # 打印版本
 
 `serve` 用字符串目标 `foxclaw.api:app` 交给 uvicorn 导入,避免 CLI 进程
@@ -34,8 +36,6 @@ def _repo_root() -> Path:
 def _cmd_serve(args: argparse.Namespace) -> int:
     from foxclaw.core import settings
 
-    # 启动前先查配置:类型写错的值今天会崩在很远的地方(uvicorn 40 行 traceback 中间的
-    # `int()`),用户看不出是自己 .env 写错了。这里提前拦下并说清怎么改。
     issues = settings.check()
     fatal = settings.fatal_issues(issues)
     if fatal:
@@ -43,22 +43,17 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print("\n以上配置会让启动直接失败,已中止。改好后重试。", file=sys.stderr)
         return 2
     if issues:
-        # 不影响启动的问题(可疑但能跑)只提醒一次,不拦
         print(settings.format_issues(issues, limit=8), file=sys.stderr)
         print("(以上不阻断启动;`foxclaw config check` 看完整诊断)", file=sys.stderr)
 
     import uvicorn
 
-    # 显式传参,不用 **dict 展开:uvicorn.run() 的每个参数都是单独的重载位置,
-    # 用 dict[str, object] 展开会让每个参数各报一条 arg-type,而且 uvicorn 每加一个
-    # 字面量成员就多一条(实测 4 条 → 5 条,直接把 mypy 棘轮顶红)。
     uvicorn.run(
         APP_TARGET,
         host=args.host,
         port=args.port,
         log_level=args.log_level,
         reload=bool(args.reload),
-        # 只监听源码目录,避免 vendor/ 与测试临时文件触发重启
         reload_dirs=[str(_repo_root() / "foxclaw")] if args.reload else None,
     )
     return 0
@@ -99,6 +94,12 @@ def _cmd_config_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_skills(args: argparse.Namespace) -> int:
+    from foxclaw.skills.install_cmd import run
+
+    return run(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="foxclaw",
@@ -133,6 +134,28 @@ def build_parser() -> argparse.ArgumentParser:
                         help="显示密钥原文(默认脱敏;别在截图/日志里用)")
     c_show.set_defaults(handler=_cmd_config_show)
 
+    skills = subparsers.add_parser("skills", help="安装/查看/卸载指令技能(SKILL.md)")
+    skills_sub = skills.add_subparsers(dest="skills_action", metavar="<action>")
+
+    s_install = skills_sub.add_parser("install", help="从 ClawHub/GitHub/URL/本地包装一个技能")
+    s_install.add_argument(
+        "ref",
+        help="@owner/slug(ClawHub) | github:owner/repo[/子路径][@ref] | "
+             "http(s)://包地址 | 本地 .zip/.tar.gz/SKILL.md/目录")
+    s_install.add_argument("--yes", action="store_true",
+                           help="跳过确认(脚本/CI 必填;非终端环境没有它一定失败)")
+    s_install.add_argument("--id", default="", help="覆盖技能 id(默认取 SKILL.md 里的 name)")
+    s_install.add_argument("--json", action="store_true", help="输出 JSON")
+    s_install.set_defaults(handler=_cmd_skills)
+
+    s_list = skills_sub.add_parser("list", help="列出已安装的指令技能")
+    s_list.add_argument("--json", action="store_true", help="输出 JSON")
+    s_list.set_defaults(handler=_cmd_skills)
+
+    s_remove = skills_sub.add_parser("remove", help="卸载一个指令技能")
+    s_remove.add_argument("id", help="技能 id(`foxclaw skills list` 第一列)")
+    s_remove.set_defaults(handler=_cmd_skills)
+
     return parser
 
 
@@ -144,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
     if handler is None:
         if getattr(args, "command", None) == "config":
             print("用法:`foxclaw config check` 或 `foxclaw config show`")
+            return 2
+        if getattr(args, "command", None) == "skills":
+            print("用法:`foxclaw skills install <ref>` / `foxclaw skills list` / "
+                  "`foxclaw skills remove <id>`")
             return 2
         print(f"foxclaw {__version__}")
         print("用 `foxclaw serve` 启动本地服务;`foxclaw config check` 检查配置;"

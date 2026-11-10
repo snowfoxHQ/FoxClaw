@@ -78,7 +78,5 @@ function evSub(e) {
 </template>
 
 <style scoped>
-/* 事件行是只读快照,没有可点的动作 —— hover 高亮会让人以为点了能看详情。
-   之前这里是 <button> 但没绑事件,视觉上"能点"、实际不动。 */
 .pn-row.static:hover { background: transparent; }
 </style>

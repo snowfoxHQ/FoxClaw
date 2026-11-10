@@ -26,7 +26,6 @@ from foxclaw.core.model_router import ModelRouter  # noqa: E402
 _SYS = "你是 Foxclaw 助手。"
 _MSG = [{"role": "user", "content": "请只回复两个字：你好"}]
 _MAX_TOKENS = 64
-# stub/故障 的特征文案(出现即视为"非真实成功")
 _BAD_MARKERS = ("【未执行】", "【模型返回为空】", "【全部模型失败】", "【模型流式中断】", "STUB")
 
 

@@ -23,8 +23,6 @@ def _headers(secret: str = SECRET, body: bytes = b'{"a":1}', ts: float = 1_700_0
     return signer.headers(body, nonce="n0nce", now=ts)
 
 
-# ── canonical / 签名 ────────────────────────────────────────
-
 def test_canonical_format_is_locked() -> None:
     """canonical 是两端的协议:字段顺序/分隔符一改,对方全部验签失败。"""
     line = S.canonical("1700000000", "abc", b"body").decode()
@@ -63,7 +61,6 @@ def test_replay_guard_rejects_second_use() -> None:
     guard = S.ReplayGuard(ttl=300)
     assert S.verify(h, body, SECRET, replay=guard, now=1_700_000_000) == (True, "ok")
     assert S.verify(h, body, SECRET, replay=guard, now=1_700_000_000) == (False, "replay")
-    # 换一个 nonce(正常新请求)→ 通过
     h2 = S.OutboundSigner(SECRET).headers(body, nonce="other", now=1_700_000_000)
     assert S.verify(h2, body, SECRET, replay=guard, now=1_700_000_000) == (True, "ok")
 
@@ -82,11 +79,9 @@ def test_verify_reason_codes() -> None:
 
 def test_header_lookup_is_case_insensitive() -> None:
     body = b"{}"
-    h = {k.lower(): v for k, v in _headers(body=body).items()}   # ASGI 常给小写
+    h = {k.lower(): v for k, v in _headers(body=body).items()}
     assert S.verify(h, body, SECRET, now=1_700_000_000) == (True, "ok")
 
-
-# ── signer ─────────────────────────────────────────────────
 
 def test_signer_optional_key_id_and_disabled_state() -> None:
     h = S.OutboundSigner(SECRET, key_id="k9").headers(b"{}")
@@ -104,8 +99,6 @@ def test_from_env_opt_in() -> None:
     assert s is not None and s.key_id == "k2" and s.enabled
     assert S.from_env({S.ENV_SECRET: "   "}) is None
 
-
-# ── 桥接层 ─────────────────────────────────────────────────
 
 class _Resp:
     status_code = 200
@@ -155,7 +148,7 @@ def test_bridge_signs_the_bytes_it_sends(fake_http) -> None:
     assert isinstance(body, bytes) and json.loads(body)["text"] == "hi"
     assert cap["headers"]["Content-Type"] == "application/json"
     assert cap["headers"]["Authorization"] == "Bearer t"
-    ok, why = S.verify(cap["headers"], body, SECRET)      # 网关侧照此验签
+    ok, why = S.verify(cap["headers"], body, SECRET)
     assert (ok, why) == (True, "ok")
 
 

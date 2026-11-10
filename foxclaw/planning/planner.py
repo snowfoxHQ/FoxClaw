@@ -13,13 +13,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-# ── 单一真源:否定词 + 顺序/并行/列表 标记 ──────────────────────
 NEGATIONS = ["不", "别", "无需", "不要", "取消", "甭", "don't", "no need", "without"]
-# 顺序拆分信号(明确的顺序连接词;不用"和/并"等高风险常用字,避免误拆名词短语)
 SPLIT_MARKERS = ["然后", "接着", "之后", "再", "最后", "；", ";"]
-# 并行信号:出现这些"同时性"连接词 → 子任务彼此无依赖,可并行 fork
 PARALLEL_TRIGGERS = ["同时", "分别", "并行", "一并"]
-# 列表分隔符(仅在检出并行触发词时才当拆分点,避免误拆普通名词短语)
 LIST_SEPS = ["、", "，", ",", "；", ";"]
 
 
@@ -58,7 +54,7 @@ class ScoredCandidate:
 class TriggerRoute:
     primary: Optional[str] = None
     confidence: float = 0.0
-    candidates: list = field(default_factory=list)   # [(id, score)]
+    candidates: list = field(default_factory=list)
     fallback: Optional[str] = None
     needs_composition: bool = False
     reason: str = ""
@@ -76,17 +72,15 @@ def trigger_route(task: str, candidates: list, fallback_id: str | None = None,
         triggers = c.triggers or []
         if not triggers:
             scored.append((c.id, 0.0)); continue
-        # 第1步:否定过滤后的触发命中数 → 命中即给强基础分,不被触发词总数稀释
         hits = keyword_hits(task, triggers, negation=True)
         hit_score = 0.0 if hits == 0 else min(0.6 + 0.15 * (hits - 1), 1.0)
-        # 第2步:领域匹配(描述里的词出现在任务中,粗略语义近似)
         desc_words = [w for w in re.split(r"[\s,，、]", c.description or "") if len(w) >= 2]
         domain_hit = sum(1 for w in desc_words if w in task)
         domain_score = min(domain_hit / max(len(desc_words), 1), 1.0)
         score = 0.8 * hit_score + 0.2 * domain_score
         scored.append((c.id, round(score, 3)))
 
-    scored.sort(key=lambda x: (-x[1], x[0]))   # 分降序,平局按 id 字典序(确定性)
+    scored.sort(key=lambda x: (-x[1], x[0]))
     top_id, top_score = scored[0]
     cands = [(i, s) for i, s in scored if s > 0]
 

@@ -21,10 +21,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-# 必须在 import VectorIndex 之前设,否则模块级常量已固化
 os.environ["HKC_VECTOR_IVF_THRESHOLD"] = "500"
 
-# 让 vendor.hkc.* 可导入(脚本放在 bench/,不在 vendor 树内)
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -70,7 +68,6 @@ def main() -> None:
     idx = VectorIndex(backend=backend)
     print(f"index type 初始: {type(idx._index).__name__}")
 
-    # ── Phase 1: append < threshold,保持 Flat ──────────────────
     phase1_n = threshold - 1
     print(f"\n[Phase 1] append {phase1_n} 条(< {threshold},应保持 Flat)...")
     for ku in kus[:phase1_n]:
@@ -79,7 +76,6 @@ def main() -> None:
     med, mn, mx = bench_search(idx, "find something about topic 7")
     print(f"  search ×100: median={med:.2f}ms  min={mn:.2f}ms  max={mx:.2f}ms")
 
-    # ── Phase 2: append 触发升级 Flat → IVF ──────────────────
     print(f"\n[Phase 2] append 第 {threshold} 条(应触发升级)...")
     t0 = time.perf_counter()
     idx.append_ku(kus[phase1_n])
@@ -91,7 +87,6 @@ def main() -> None:
     med, mn, mx = bench_search(idx, "find something about topic 7")
     print(f"  search ×100: median={med:.2f}ms  min={mn:.2f}ms  max={mx:.2f}ms")
 
-    # ── Phase 3: append 1000 条,验证 IVF 追加正常 ──────────────────
     rest = N - threshold
     print(f"\n[Phase 3] append {rest} 条(应直接 add 到 IVF)...")
     t0 = time.perf_counter()
@@ -103,7 +98,6 @@ def main() -> None:
     med, mn, mx = bench_search(idx, "find something about topic 7")
     print(f"  search ×100: median={med:.2f}ms  min={mn:.2f}ms  max={mx:.2f}ms")
 
-    # ── Phase 4: save/load roundtrip(IVF 必须正确持久化) ──────────────────
     print(f"\n[Phase 4] save/load roundtrip(IVF 持久化)...")
     with tempfile.TemporaryDirectory() as td:
         p = str(Path(td) / "vec")
@@ -120,7 +114,7 @@ def main() -> None:
         print(f"  loaded ntotal={n_loaded}, type={type_loaded}")
         if n_loaded != N:
             print(f"  [FAIL] 数据丢失! 期望 {N} 实际 {n_loaded}")
-        elif "FlatIP" in type_loaded:   # 严格判:IndexFlatIP 才算 Flat(IndexIVFFlat 含 "Flat" 字符串,要排除)
+        elif "FlatIP" in type_loaded:
             print(f"  [FAIL] IVF 没保存,降回 FlatIP")
         else:
             print(f"  [OK] IVF 完整保存/加载(ntotal={n_loaded}, type={type_loaded})")

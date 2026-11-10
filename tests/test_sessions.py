@@ -35,15 +35,14 @@ def test_append_and_title_derivation(store):
     d = store.get(s["id"])
     assert len(d["messages"]) == 2
     assert d["messages"][0]["role"] == "user"
-    # 标题从首条用户消息提炼(截到句读)
     assert d["title"] == "帮我分析本月支出情况"
 
 
 def test_append_rejects_bad_role_and_missing_session(store):
     s = store.create()
-    assert store.append(s["id"], "system", "x") is False   # 非法角色
-    assert store.append(s["id"], "user", "") is False      # 空内容
-    assert store.append("deadbeef1234", "user", "x") is False   # 会话不存在
+    assert store.append(s["id"], "system", "x") is False
+    assert store.append(s["id"], "user", "") is False
+    assert store.append("deadbeef1234", "user", "x") is False
 
 
 def test_list_is_light_and_sorted(store):

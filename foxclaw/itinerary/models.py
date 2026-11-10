@@ -19,12 +19,12 @@ TravelMode = Literal["walking", "driving", "transit", "cycling"]
 @dataclass
 class Waypoint:
     """一个行程点 = 时空中的一个约束"""
-    name: str                           # 地点名:公司、客户A、机场
-    address: str = ""                   # 地址(可经地理编码转坐标)
-    lng: Optional[float] = None         # 经度(高德:经度在前)
-    lat: Optional[float] = None         # 纬度
-    start_time: Optional[str] = None    # 计划到达时间 ISO
-    duration_min: int = 0               # 停留时长(分钟)
+    name: str
+    address: str = ""
+    lng: Optional[float] = None
+    lat: Optional[float] = None
+    start_time: Optional[str] = None
+    duration_min: int = 0
     city: str = ""
     note: str = ""
     id: str = field(default_factory=lambda: f"wp_{uuid.uuid4().hex[:10]}")
@@ -58,7 +58,7 @@ class RouteLeg:
     mode: TravelMode = "driving"
     distance_km: float = 0.0
     duration_min: float = 0.0
-    source: Literal["estimated", "amap"] = "estimated"  # 估算 or 高德真实
+    source: Literal["estimated", "amap"] = "estimated"
     note: str = ""
 
     def to_dict(self) -> dict:

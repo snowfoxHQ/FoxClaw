@@ -10,8 +10,6 @@ from foxclaw.browser.action import url_policy
 from foxclaw.browser.driver.playwright_driver import PlaywrightDriver
 
 
-# ── 判定层 ────────────────────────────────────────────────────
-
 @pytest.mark.parametrize("url", [
     "data:image/png;base64,iVBORw0KGgo=",
     "blob:https://example.com/2f8c-4a",
@@ -111,8 +109,6 @@ def test_short_ipv6_with_scope_is_not_mistaken(monkeypatch):
         url_policy.validate_request_url("http://v6.example.com/")
     url_policy._resolve_cache.clear()
 
-
-# ── 路由回调 ──────────────────────────────────────────────────
 
 class _FakeRoute:
     def __init__(self, url):

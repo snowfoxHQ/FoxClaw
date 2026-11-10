@@ -1,11 +1,3 @@
-// chat_model_picker.js — chat 输入框旁的「下拉式模型选择器」
-//
-// 视觉:参考图1 (CodeBuddy 模型列表) + 图2 (「添加自定义」对话框)。
-// 数据:全部走 foxclaw/api/routes/llm_admin.py 的 REST 端点(GET/POST/DELETE)。
-// 状态:切换写入 FOXCLAW_DATA_DIR/.current_model,model_router 用 mtime 缓存 lazy reload,
-//     用户改完**无需重启 foxclaw**,下次 chat 自动走新模型。
-//
-// 不会外泄:GET /api/llm/models 只返 has_key 布尔;POST /api/llm/custom/add 只在服务端保存。
 
 const API_BASE = (typeof window !== 'undefined' && window.API_BASE) || '';
 const _api = (p) => `${API_BASE}/api/llm${p}`;
@@ -13,18 +5,12 @@ const _api = (p) => `${API_BASE}/api/llm${p}`;
 let _models = { providers: [], custom: [], current: null };
 let _menuOpen = false;
 
-// ── 工具 ─────────────────────────────────────────────
-
 function _esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// BASE URL 规范化(与后端 core/model_router.normalize_base_url 同规则):
-// 无 scheme → 补 https://;path 为空 → 补 /v1;已有 path(/v1、/compatible-mode/v1…)原样保留。
-// 病根:用户照厂商文档填 https://api.deepseek.com,SDK 拼出 /chat/completions → 多数网关 404/401,
-// 用户以为是"模型填不上"。前端先收拾干净,后端再兜一层(旧记录 / 直接调 API 的场景)。
 function _normalizeBaseUrl(u) {
   let s = String(u || '').trim();
   if (!s) return s;
@@ -37,7 +23,6 @@ function _normalizeBaseUrl(u) {
   return `${parsed.protocol}//${parsed.host}${path}${parsed.search || ''}`;
 }
 
-// 常见厂商的模型 ID 提示(只做 placeholder 引导,不阻断保存 —— 自建网关可能有自定义名)
 const _MODEL_HINTS = [
   { re: /api\.deepseek\.com/i,  hint: 'deepseek-chat',   note: 'DeepSeek 官方 ID:deepseek-chat / deepseek-reasoner' },
   { re: /api\.openai\.com/i,    hint: 'gpt-4o-mini',     note: 'OpenAI 官方 ID:gpt-4o-mini / gpt-4o' },
@@ -61,7 +46,6 @@ function _autoCurrent() {
   return !_models.current;
 }
 
-// 当前显示在 pill 上的名称 + 颜色
 function _currentLabel() {
   if (_isCustomCurrent()) {
     const m = _models.custom.find(m => m.name === _models.current.name);
@@ -76,15 +60,12 @@ function _currentLabel() {
   return { name: 'Auto', color: '#7e93b8', isCustom: false };
 }
 
-// ── 渲染:菜单内容 ─────────────────────────────────────
-
 function renderMenu() {
   const menu = document.getElementById('chatModelMenu');
   if (!menu) return;
   const cur = _currentLabel();
   let h = '';
 
-  // Auto(让用户能清掉选择,退回 .env 默认)
   h += `<div class="mp-item ${_autoCurrent() ? 'active' : ''}" data-act="auto">
     <span class="mp-dot" style="background:#7e93b8"></span>
     <span class="mp-name"><b>Auto</b><span>跟随 .env 默认</span></span>
@@ -107,9 +88,6 @@ function renderMenu() {
     h += '<div class="mp-sep">自定义</div>';
     _models.custom.forEach(m => {
       const isCur = _isCustomCurrent() && _models.current.name === m.name;
-      // 三个 tag 都常驻:当前(按需显隐)+ ✎ 编辑 + ✕ 删除
-      // 即使是当前选中的,用户也应该能直接编辑它(改 key / 加 group_id),不能强制切走
-      // 删除当前选中的也安全 —— 后端 DELETE 已处理清 .current_model
       h += `<div class="mp-item ${isCur ? 'active' : ''}" data-act="custom" data-name="${_esc(m.name)}">
         <span class="mp-dot" style="background:#a78bfa;box-shadow:0 0 6px #a78bfa"></span>
         <span class="mp-name"><b>${_esc(m.name)}</b><span>${_esc(m.model)}</span></span>
@@ -127,7 +105,6 @@ function renderMenu() {
 
   menu.innerHTML = h;
 
-  // 事件
   menu.querySelectorAll('.mp-item').forEach(el => {
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('mp-del')) {
@@ -163,8 +140,6 @@ function renderPill() {
   if (dot)  dot.style.cssText = `background:${cur.color};box-shadow:0 0 6px ${cur.color}`;
   if (name) name.textContent = cur.name;
 }
-
-// ── API ─────────────────────────────────────────────
 
 async function loadModels() {
   try {
@@ -230,14 +205,12 @@ async function addCustom(payload) {
 }
 
 async function getCustom(name) {
-  // 取单个自定义模型详情(后端不返回 api_key 明文,只返 has_key)
   const r = await fetch(_api(`/custom/${encodeURIComponent(name)}`));
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
 
 async function updateCustom(name, payload) {
-  // payload 字段语义:填了非空 = 用新值;没传(或不传该字段)= 不变;api_key 留空=保留原值
   const r = await fetch(_api(`/custom/${encodeURIComponent(name)}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -252,7 +225,6 @@ async function updateCustom(name, payload) {
 }
 
 async function editCustom(name) {
-  // 加载详情 → 复用 openAddDialog 切到 edit 模式预填表单
   try {
     const m = await getCustom(name);
     openAddDialog('edit', { ...m, _editingName: name });
@@ -274,9 +246,6 @@ async function testModel(source, provider, name) {
   return r.json();
 }
 
-// ── 添加对话框(图2 风格)────────────────────────────
-
-// 对话框全局状态:add / edit 模式共用同一表单
 let _cmMode = 'add';          // 'add' | 'edit'
 let _cmEditingName = null;    // edit 模式下的原名(PUT URL 用);改名后仍指向磁盘上那条记录
 
@@ -289,7 +258,6 @@ function openAddDialog(mode = 'add', preset = null) {
   const mask = document.getElementById('cmAddMask');
   if (!mask) return;
 
-  // 标题 + 副标题
   const title = document.getElementById('cmAddTitle');
   if (title) {
     title.textContent = mode === 'edit' && preset?.name
@@ -297,7 +265,6 @@ function openAddDialog(mode = 'add', preset = null) {
       : '添加自定义模型';
   }
 
-  // 填表单 — api_key 永远不清空回填(安全考虑)
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
   set('cm_name',          preset?.name);
   set('cm_base_url',      preset?.base_url);
@@ -309,7 +276,6 @@ function openAddDialog(mode = 'add', preset = null) {
   set('cm_note',          preset?.note);
   _applyModelHint(preset?.base_url);
 
-  // API KEY 字段 placeholder 区分 add / edit
   const keyInp = document.getElementById('cm_api_key');
   if (keyInp) {
     keyInp.placeholder = (mode === 'edit' && preset?.has_key)
@@ -323,7 +289,6 @@ function openAddDialog(mode = 'add', preset = null) {
   setTimeout(() => document.getElementById('cm_name')?.focus(), 50);
 }
 
-// 已知厂商的"模型 ID 写错"软提示(只警告不阻断 —— 自建网关可以有自定义别名)
 function _modelWarning(baseUrl, modelId) {
   const s = String(baseUrl || ''), m = String(modelId || '').trim();
   if (!m) return '';
@@ -332,7 +297,6 @@ function _modelWarning(baseUrl, modelId) {
   return '';
 }
 
-// 按 BASE URL 域名更新「模型 ID」的 placeholder + 副标题提示(不阻断保存)
 function _applyModelHint(baseUrl) {
   const hint = _hintForBaseUrl(baseUrl);
   const inp = document.getElementById('cm_model');
@@ -360,7 +324,6 @@ function _readForm() {
   const v = (id) => (document.getElementById(id)?.value || '').trim();
   const out = {
     name:         v('cm_name'),
-    // 保存前再规范化一次(用户可能没触发 blur 直接点保存);后端也会兜一层
     base_url:     _normalizeBaseUrl(v('cm_base_url')),
     api_key:      v('cm_api_key'),
     model:        v('cm_model'),
@@ -384,7 +347,6 @@ function _readForm() {
 async function _onSave() {
   try {
     const payload = _readForm();
-    // name / base_url / model 必填;api_key 在 edit 模式下留空 = 保留(后端校验)
     if (!payload.name || !payload.base_url || !payload.model) {
       _setMsg('请填全 * 号必填项', 'err');
       return;
@@ -401,13 +363,9 @@ async function _onSave() {
     } else {
       const r = await updateCustom(_cmEditingName, payload);
       savedName = r.name;
-      // 改名后,_cmEditingName 失效 → 下次 _onTest 会失败 → 清掉,避免误测
       _cmEditingName = r.name;
     }
     await loadModels();
-    // 保存即生效 —— 用户点「保存」的诉求就是「用它」。
-    // 病根:此前只写盘不切换,聊天仍走 .env 的旧 provider,用户看到 AuthenticationError/stub,
-    // 以为是"模型填不上";实际上是要再回菜单点一次这个条目。现在省掉这一步。
     _setMsg('已保存,正在切换…', 'info');
     const ok = await selectModel('custom', null, savedName);
     _setMsg(ok ? `已保存并切换到 ${savedName}` : `已保存 ${savedName},但切换失败(见弹窗)`,
@@ -426,8 +384,6 @@ async function _onTest() {
       return;
     }
     if (_cmMode === 'edit') {
-      // edit 模式:测磁盘上**已保存**的配置(避免被 form 里未保存的改动误导)
-      // 若想测表单里的新值,先点「保存」再点「测试连通性」
       _setMsg(`测试已保存配置(${_cmEditingName})…`, 'info');
       const r = await testModel('custom', null, _cmEditingName);
       if (r.ok) {
@@ -437,7 +393,6 @@ async function _onTest() {
       }
       return;
     }
-    // add 模式:必须 name + api_key,临时 add 一个 tmp 名测,失败保留
     if (!payload.name || !payload.api_key) {
       _setMsg('add 模式请先填「模型名称」+「API KEY」再测试', 'err');
       return;
@@ -446,7 +401,6 @@ async function _onTest() {
     await addCustom(payload);
     const r = await testModel('custom', null, payload.name);
     if (r.ok) {
-      // 测试通过 = 这份配置真的能用 → 直接切过去,不用用户再回菜单点一次
       await loadModels();
       await selectModel('custom', null, payload.name);
       _setMsg(`✓ 连通 (${r.latency_ms} ms, model=${r.model}) — 已切换`, 'ok');
@@ -459,8 +413,6 @@ async function _onTest() {
   }
 }
 
-// ── 事件绑定 ─────────────────────────────────────
-
 function bindEvents() {
   const pill = document.getElementById('chatModelPill');
   const menu = document.getElementById('chatModelMenu');
@@ -470,7 +422,6 @@ function bindEvents() {
       _menuOpen = !_menuOpen;
       menu.classList.toggle('show', _menuOpen);
     });
-    // 点外面收起
     document.addEventListener('click', (e) => {
       if (!_menuOpen) return;
       if (e.target.closest('#chatModelPick')) return;
@@ -500,7 +451,6 @@ function bindEvents() {
       if (e.target === mask) closeAddDialog();
     });
   }
-  // BASE URL 失焦即规范化(补 https:// / 补 /v1),并联动模型 ID 提示
   const baseInp = document.getElementById('cm_base_url');
   if (baseInp) {
     baseInp.addEventListener('blur', () => {
@@ -521,16 +471,12 @@ function bindEvents() {
   });
 }
 
-// ── 启动 ─────────────────────────────────────────
-
 (function init() {
   bindEvents();
   loadModels();
-  // 多 tab 同步:监听 storage 事件
   window.addEventListener('storage', (e) => {
     if (e.key === '__foxclaw_model_changed__') loadModels();
   });
-  // 切完模型后,广播给其它 tab(简版:周期性 reload)
   setInterval(() => {
     if (_menuOpen) loadModels();
   }, 5000);

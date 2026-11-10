@@ -64,17 +64,15 @@ def _plan_tool():
                                         "required": ["flow"]}}}
 
 
-# ── 1. 格式转换 ───────────────────────────────────────────────────────────────
 def test_to_anthropic_tools():
     out = ModelRouter._to_anthropic_tools([
         _plan_tool(),
-        {"name": "direct", "description": "", "input_schema": {}},   # 已是 anthropic 格式
+        {"name": "direct", "description": "", "input_schema": {}},
     ])
     assert len(out) == 2
     assert out[0]["name"] == "submit_plan"
     assert out[0]["input_schema"]["required"] == ["flow"]
     assert out[1]["name"] == "direct"
-    # 非法项(空名/非 dict)跳过
     assert ModelRouter._to_anthropic_tools([{"type": "function", "function": {"name": ""}}]) == []
     assert ModelRouter._to_anthropic_tools(None) == []
 
@@ -88,18 +86,15 @@ def test_to_anthropic_tool_choice():
         {"type": "function", "function": {"name": "x"}}) == {"type": "tool", "name": "x"}
 
 
-# ── 2. supports_tools ──────────────────────────────────────────────────────────
 def test_supports_tools_anthropic():
     r = _router(_fake_client([[]]))
     assert r.is_stub is False
     assert r.supports_tools() is True
-    # 无 client(stub)→ 不支持
     r2 = ModelRouter.__new__(ModelRouter)
     r2.provider = "anthropic"; r2._client = None
     assert r2.supports_tools() is False
 
 
-# ── 3. call_tools anthropic 分支 ──────────────────────────────────────────────
 def test_call_tools_anthropic_tool_use():
     client = _fake_client([[
         _block(type="tool_use", id="toolu_1", name="submit_plan",
@@ -113,13 +108,11 @@ def test_call_tools_anthropic_tool_use():
                                   "args": {"flow": "sequential",
                                            "steps": [{"name": "查支出", "agent": "finance"}]},
                                   "args_parse_failed": False}]
-    # 入参:tools 转 anthropic 格式 + tool_choice 转 auto + system 单独传 + 运行时注入
     kw = client.calls[0]
     assert kw["system"].startswith("【运行时信息") and "sys" in kw["system"]
     assert kw["tools"][0]["name"] == "submit_plan"
     assert kw["tool_choice"] == {"type": "auto"}
     assert all(m["role"] != "system" for m in kw["messages"]), "anthropic 不允许 system 角色入 messages"
-    # assistant_msg 是 anthropic 原生 blocks
     assert res["assistant_msg"]["role"] == "assistant"
     assert res["assistant_msg"]["content"][0]["type"] == "tool_use"
 
@@ -144,7 +137,6 @@ def test_call_tools_anthropic_tool_choice_none():
     assert kw["tools"][0]["name"] == "submit_plan", "历史含 tool_use 时必须仍传 tools"
 
 
-# ── 4. format_tool_result ─────────────────────────────────────────────────────
 def test_format_tool_result_anthropic():
     r = _router(_fake_client([[]]))
     out = r.format_tool_result({"id": "toolu_9", "name": "web_search"}, "结果")
@@ -152,7 +144,6 @@ def test_format_tool_result_anthropic():
         {"type": "tool_result", "tool_use_id": "toolu_9", "content": "结果"}]}
 
 
-# ── 5. fail-safe ──────────────────────────────────────────────────────────────
 def test_call_tools_anthropic_failsafe():
     def create(**kw):
         raise RuntimeError("boom")
@@ -162,19 +153,15 @@ def test_call_tools_anthropic_failsafe():
     res = r.call_tools("sys", [{"role": "user", "content": "t"}], [])
     assert res["supported"] is False and res.get("error")
 
-    # stub(无 client)→ supported=False
     r2 = _router(None)
     res2 = r2.call_tools("sys", [{"role": "user", "content": "t"}], [])
     assert res2["supported"] is False
 
 
-# ── 6. 回灌闭环(_reply_with_tools 在 anthropic 下)────────────────────────────
 def test_reply_with_tools_anthropic_loop():
     from foxclaw.agents.base import CognitiveAgent
     client = _fake_client([
-        # 第1轮:模型要求调 recall_memory
         [_block(type="tool_use", id="c1", name="recall_memory", input={"query": "偏好"})],
-        # 第2轮:拿到结果后给最终答案
         [_block(type="text", text="根据记忆,你喜欢灰色。")],
     ])
     r = _router(client)
@@ -187,7 +174,6 @@ def test_reply_with_tools_anthropic_loop():
     out = CognitiveAgent._reply_with_tools(
         agent, "我喜欢什么颜色", [{"role": "user", "content": "我喜欢什么颜色"}])
     assert out == "根据记忆,你喜欢灰色。"
-    # 第2轮的 messages 必须含 anthropic 格式 assistant(tool_use) + user(tool_result)
     kw2 = client.calls[1]
     has_tool_result = any(
         isinstance(m.get("content"), list)

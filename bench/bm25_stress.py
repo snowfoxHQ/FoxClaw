@@ -116,7 +116,6 @@ def main():
     print("BM25 压测: 5万/10万 corpus build + search + remove + save/load")
     print("=" * 60)
 
-    # 5万
     idx, corpus = bench_build(50_000)
     queries = gen_queries(200)
     bench_search(idx, queries)
@@ -125,11 +124,8 @@ def main():
     bench_save_load(idx, tmp)
     os.remove(tmp)
 
-    # 10万 (增量:在 5万 上 append 5万,模拟冷构建期分批)
     print(f"\n[build] +5万 增量 (5万 -> 10万) ...")
     extra_corpus = gen_corpus(50_000, seed=43)
-    # 取后 5万 (id 范围 0-49999 是 5万 corpus;这里 gen 同一 seed 重叠,改 seed)
-    # 实际:重新 gen 5万不同 id
     extra_corpus = []
     rng = random.Random(43)
     for i in range(50_000, 100_000):

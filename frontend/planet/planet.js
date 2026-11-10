@@ -1,6 +1,3 @@
-// ════════════════════════════════════════════════════════
-//  HKC UI — 数据层：演示数据 + API 客户端（与 hkc_sdk 对齐）
-// ════════════════════════════════════════════════════════
 
 const KU_COLORS = {
   Entity:   '#002FA7',  // 克莱因蓝
@@ -15,7 +12,6 @@ const KU_LABEL = {
   Claim:'观点', Evidence:'证据', Ability:'能力'
 };
 
-// ── 演示数据：一个投资领域的小知识图谱 ──
 const DEMO = {
   kus: {
     ENT_01:{ku_id:'ENT_01',ku_type:'Entity',name:'Charlie Munger',summary:'伯克希尔·哈撒韦副董事长，价值投资与多元思维模型的代表人物。',domain:'Investment',confidence:1.0,status:'active',tags:['投资','心理学'],extra:{entity_type:'Person',aliases:['查理·芒格']}},
@@ -66,7 +62,6 @@ const DEMO = {
   ],
 };
 
-// ── API 客户端：连真实 hkc-api，失败回退演示 ──
 class HKCClient{
   constructor(){ this.base=null; this.demo=true; this.apiKey=''; }
   async connect(url){
@@ -77,7 +72,6 @@ class HKCClient{
     }catch(e){ this.demo=true; this.base=null; return false; }
   }
   useDemo(){ this.demo=true; this.base=null; }
-  // 后端若设了 HKC_API_KEY，前端在此带上 X-API-Key；未配置则为空、不影响开放部署。
   _h(extra){ const h=Object.assign({}, extra||{}); if(this.apiKey) h['X-API-Key']=this.apiKey; return h; }
   async _get(p){ const r=await fetch(this.base+p,{headers:this._h()}); if(!r.ok) throw new Error(r.status); return r.json(); }
   async _post(p,b){ const r=await fetch(this.base+p,{method:'POST',headers:this._h({'Content-Type':'application/json'}),body:JSON.stringify(b)});
@@ -87,9 +81,6 @@ class HKCClient{
 }
 const client=new HKCClient();
 
-// ════════════════════════════════════════════════════════
-//  状态 + 工具
-// ════════════════════════════════════════════════════════
 const state={ kus:{}, relations:[], abilities:[], conflicts:[], selected:null, mode:'hybrid', conflictPick:{}, synth:{}, pathSel:{} };
 const $=s=>document.querySelector(s);
 const $$=s=>document.querySelectorAll(s);
@@ -102,7 +93,6 @@ function toast(msg,kind=''){
   setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300)},2600);
 }
 
-// ── 载入数据（演示或真实）──
 async function loadData(){
   if(client.demo){
     state.kus=JSON.parse(JSON.stringify(DEMO.kus));
@@ -110,11 +100,8 @@ async function loadData(){
     state.abilities=DEMO.abilities.map(a=>({...a}));
     state.conflicts=DEMO.conflicts.map(c=>({...c}));
   }else{
-    // 真实模式：一次拉取全量知识图谱（所有 KU + 关系），不再写死领域
     try{
       const g=await client._get('/knowledge/graph?limit=5000');   // 拉到后端硬上限(默认仅 2000)
-      // 真实库为空 → 本次用演示数据渲染(星球不空白);**不翻 client.demo**,连接保留、摄入仍走真实后端,
-      // 摄入知识后刷新即自动显示真实星球。修「嵌入 Foxclaw 空库时星球一片空白」。
       if(!(g.kus && g.kus.length)){
         toast('知识库为空,先展示演示星球;摄入知识后自动显示真实数据','');
         state.kus=JSON.parse(JSON.stringify(DEMO.kus));
@@ -136,19 +123,14 @@ async function loadData(){
           domain:(rep.domains||[]).join(' / '),
           coverage:rep.coverage,can_compile:rep.can_compile,missing:rep.missing_skills});
       }
-      // 冲突
       const cf=await client._get('/conflicts?status=open').catch(()=>({conflicts:[]}));
       state.conflicts=cf.conflicts||[];
-      // 数据可见性安全网:拉 /stats 拿真实 data_dir + 全库 KU 总数,
-      // 显示到连接胶囊(hover)+ toast,空库时明显告警——防止"连错目录以为数据丢了"。
       updateDataInfo().catch(()=>{});
     }catch(e){ toast('数据加载出错，回退演示模式','err'); client.useDemo(); return loadData(); }
   }
   renderAll();
 }
 
-// 拉 /stats,把「后端实际数据目录 + 全库知识总数」暴露给用户。
-// 关键:total_kus 是全库真实数,可能 > 星球显示数(星球有 limit 上限)。
 async function updateDataInfo(){
   const pill=$('#conn-pill');
   const st=await client._get('/stats');
@@ -180,19 +162,11 @@ function renderPanels(){
   $('#conflict-count').textContent=oc;
 }
 
-// ════════════════════════════════════════════════════════
-//  G6 知识图谱（本地 vendor/g6.min.js，零网络）
-// ════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════
-//  知识星球 3D 引擎（Three.js，本地 vendor，零网络）
-//  节点 = 3D 球体浮于空间，语义引力聚拢，缓慢有机漂浮
-// ════════════════════════════════════════════════════════
 let THREE = null;            // 动态加载的 Three.js 命名空间
 let planet = null;           // 当前星球实例
 
 function disputedOf(k){ return k.extra && k.extra.claim_status==='disputed'; }
 
-// 节点半径（3D 世界单位）
 function nodeRadius(k){
   if(k.ku_type==='Ability') return 7;
   if(k.ku_type==='Entity'||k.ku_type==='Concept') return 6;
@@ -200,20 +174,10 @@ function nodeRadius(k){
   return 5;
 }
 
-// ── 星球布局策略(伸缩的统一接入点)────────────────────────────
-// 所有"节点/标签太多放不下怎么办"的逻辑都集中在此,后续扩展只改这个对象,
-// 不动其它渲染代码:
-//   已实现 · 单层 Fibonacci 球面 + 圆点随节点总数自适应缩小(dotScale)。
-//   预留接入点 ↓
-//   · shells>1     → 分层多壳星球(外壳放不下→往里再套一层球);position() 已按
-//                    shell 分配、内层半径递减,只需让 compute() 返回 shells>1 即启用。
-//   · labelScale   → 书名标签随书数自适应缩小(_makeLabel 已乘该系数)。
-//   · SHELL_CAPACITY→ 单层舒适容量阈值,决定何时缩点 / 何时该分层。
 const PLANET_LAYOUT = {
   SHELL_CAPACITY: 800,          // 单层舒适容量;超过开始缩点,(未来)超过可分层
   BASE_R_MIN: 160, BASE_R_MAX: 320,
 
-  // 按节点总数计算布局参数(集中调参)
   compute(n){
     const radius     = Math.max(this.BASE_R_MIN, Math.min(this.BASE_R_MAX, 90 + n*11));
     const dotScale   = Math.max(0.45, Math.min(1, Math.sqrt(this.SHELL_CAPACITY / Math.max(1, n))));
@@ -222,8 +186,6 @@ const PLANET_LAYOUT = {
     return { radius, dotScale, shells, labelScale };
   },
 
-  // 第 i 个节点(共 n 个)的球面坐标。已支持多壳:shells>1 时按层分配、内层半径递减;
-  // shells=1 时退化为单层 Fibonacci,布局与旧版完全一致。
   position(i, n, params, T){
     const golden = Math.PI * (3 - Math.sqrt(5));
     const shells = params.shells || 1;
@@ -239,10 +201,6 @@ const PLANET_LAYOUT = {
   },
 };
 
-// 关系标签
-
-
-// ── 知识星球类 ──
 class KnowledgePlanet {
   constructor(container, THREE){
     this.T = THREE;
@@ -263,11 +221,9 @@ class KnowledgePlanet {
 
     this.scene = new T.Scene();
 
-    // 相机
     this.camera = new T.PerspectiveCamera(55, w/h, 1, 4000);
     this.camera.position.set(0, 0, 720);
 
-    // 渲染器
     this.renderer = new T.WebGLRenderer({ antialias:true, alpha:true });
     this.renderer.setSize(w, h);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
@@ -276,20 +232,16 @@ class KnowledgePlanet {
     this.canvas = this.renderer.domElement;
     this.canvas.style.display = 'block';
 
-    // 灯光：环境光 + 两个点光（冷暖对冲，呼应品牌绿/蓝）
     this.scene.add(new T.AmbientLight(0xffffff, 0.75));
     const l1 = new T.PointLight(0x9fe8d2, 0.9, 0); l1.position.set(200, 180, 300); this.scene.add(l1);
     const l2 = new T.PointLight(0x7d97ff, 0.7, 0); l2.position.set(-220, -120, 160); this.scene.add(l2);
 
-    // 旋转容器：所有节点挂在这个 group 上，整体缓缓自转
     this.world = new T.Group();
     this.scene.add(this.world);
 
-    // 轨道控制（自写：拖拽转视角 + 滚轮缩放）
     this._initControls();
   }
 
-  // 轻量轨道控制
   _initControls(){
     this.rot = { x: 0, y: 0 };          // 目标旋转
     this.rotCur = { x: 0, y: 0 };       // 当前（缓动）
@@ -303,9 +255,7 @@ class KnowledgePlanet {
 
     this._onDown = (e)=>{ dragging = true; this.dragging = true; lastX = e.clientX; lastY = e.clientY; el.style.cursor='grabbing';
       this._downX = e.clientX; this._downY = e.clientY;   // 记录起点,用于区分"拖动"与"点击"
-      // 接管当前视觉朝向再停自转,避免从摆动倾斜切到手动时跳变
       this.rot.x = this.rotCur.x; this.rot.y = this.rotCur.y; this.autoSpin = false;
-      // 关键:清掉 flyTarget,否则聚焦态每帧把旋转拉回目标节点朝向 → 拖动被牵扯、松手即反弹
       this._flyTarget = null; };
     this._onMove = (e)=>{
       if(!dragging) return;
@@ -327,18 +277,12 @@ class KnowledgePlanet {
     el.addEventListener('wheel', this._onWheel, { passive:false });
   }
 
-  // 构建节点与边
   build(kus, relations){
     const T = this.T;
     const ids = Object.keys(kus);
     const n = ids.length;
     if(!n) return;
 
-    // 稳定打散:后端按类型分组返回 KU,直接按序号布 Fibonacci 会把同类型节点
-    // (尤其只有几个的"书"/Evidence)全挤到同一极点、标签叠成一坨。按 id 哈希
-    // 稳定排序,让各类型均匀铺满球面(布局跨刷新稳定,不随机跳)。
-    // 必须用有雪崩效应的哈希(FNV-1a+混合):id 是 EVD_0000000X 这类共享前缀、
-    // 仅末位不同的序列,简单滚动哈希会给相近值 → 同前缀仍聚堆,起不到打散作用。
     const _h = s => {
       let h = 2166136261 >>> 0;
       for(let k=0;k<s.length;k++){ h ^= s.charCodeAt(k); h = Math.imul(h, 16777619); }
@@ -347,7 +291,6 @@ class KnowledgePlanet {
     };
     ids.sort((a,b)=> _h(a) - _h(b));
 
-    // 布局参数(半径/圆点缩放/层数/标签缩放)统一由 PLANET_LAYOUT 计算,便于扩展
     const params = PLANET_LAYOUT.compute(n);
     this._layoutParams = params;   // 供 _makeLabel 读取 labelScale 等
 
@@ -356,7 +299,6 @@ class KnowledgePlanet {
       const radius = nodeRadius(ku) * params.dotScale;   // 圆点随节点总数自适应缩小
       const pos = PLANET_LAYOUT.position(i, n, params, T);
 
-      // 球体
       const color = new T.Color(KU_COLORS[ku.ku_type] || '#888');
       const geo = new T.SphereGeometry(radius, 24, 24);
       const mat = new T.MeshStandardMaterial({
@@ -368,12 +310,10 @@ class KnowledgePlanet {
       mesh.userData.id = id;
       this.world.add(mesh);
 
-      // 外发光（稍大的半透明球）
       const glowMat = new T.MeshBasicMaterial({ color, transparent:true, opacity:0.12, side:T.BackSide });
       const glow = new T.Mesh(new T.SphereGeometry(radius*1.6, 20, 20), glowMat);
       mesh.add(glow);
 
-      // 冲突节点：暗红描边光环
       if(disputedOf(ku)){
         const ring = new T.Mesh(
           new T.SphereGeometry(radius*1.35, 20, 20),
@@ -391,23 +331,17 @@ class KnowledgePlanet {
         phase: Math.random()*Math.PI*2,   // 漂浮相位
       });
 
-      // 文字标签（Sprite，始终面向相机）
       const label = this._makeLabel(ku.name);
       label.position.set(0, -(radius+9), 0);
       mesh.add(label);
       const _nd = this.nodes[this.nodes.length-1];
       _nd.label = label;
-      // 分级标签(按重要度钻取):
-      //  一级 = 书/来源(Evidence),默认在球面常显书名;
-      //  二级/三级 = 点击后按连接数(degree)展开该节点 top-N 重要邻居标签。
-      //  这样几十上百本默认只见几十个书名,清爽且可层层下钻。
       _nd.isBook = (ku.ku_type === 'Evidence');
       _nd.deg = 0;           // 连接数,建边后回填(作重要度)
       _nd._revealLabel = false;
       label.visible = _nd.isBook;
     });
 
-    // 边（连线）
     const nodeById = {};
     this.nodes.forEach(nd=> nodeById[nd.id] = nd);
     (relations||[]).forEach(r=>{
@@ -425,13 +359,11 @@ class KnowledgePlanet {
       this.edges.push({ from:a, to:b, line, contradicts });
     });
 
-    // 连接数(degree)=重要度,用于钻取时挑 top-N 邻居标签
     this.edges.forEach(e=>{ e.from.deg++; e.to.deg++; });
 
     this._buildPicking();
   }
 
-  // 射线拾取（hover / click）
   _buildPicking(){
     const T = this.T;
     this.raycaster = new T.Raycaster();
@@ -444,8 +376,6 @@ class KnowledgePlanet {
       this.pointer.y = -((e.clientY - rect.top)/rect.height)*2 + 1;
     };
     this._onClick = (e)=>{
-      // 拖动松手也会带出一次 click;若指针移动过阈值,判定为拖动而非点击 → 忽略,
-      // 否则空白处会 clearSelection 重开自转、有节点处会 selectKU 飞入,都表现为"反弹"。
       const moved = Math.hypot(e.clientX - (this._downX||0), e.clientY - (this._downY||0));
       if(moved > 6) return;
       const hit = this._pick();
@@ -467,7 +397,6 @@ class KnowledgePlanet {
     return null;
   }
 
-  // 动画循环
   start(){
     const T = this.T;
     const tick = ()=>{
@@ -483,28 +412,20 @@ class KnowledgePlanet {
     const T = this.T;
     const t = performance.now() * 0.001;
 
-    // 自动自转(绕 Y 轴)——静默时缓慢转动(约 100s/圈)
     if(this.autoSpin) this.rot.y += 0.0011;
 
-    // 旋转缓动；自转时让倾斜角缓慢大幅度上下摆动(±~77°),使两极也周期性
-    // 转到正面,避免单轴自转把两极节点永久"沉"在顶/底而无法点击
-    // (即用户要的"无固定方向转动、无重力沉淀")。
     const tiltX = this.autoSpin ? Math.sin(t*0.045)*1.35 : this.rot.x;
-    // 拖动时近乎 1:1 跟手,消除"橡皮筋/反馈力牵扯"感;静默时才平滑缓动。
     const rotEase = this.dragging ? 0.85 : 0.08;
     this.rotCur.x += (tiltX - this.rotCur.x) * rotEase;
     this.rotCur.y += (this.rot.y - this.rotCur.y) * rotEase;
     this.world.rotation.x = this.rotCur.x;
     this.world.rotation.y = this.rotCur.y;
 
-    // 相机距离缓动
     this.camDist += (this.camDistTarget - this.camDist) * 0.1;
     this.camera.position.z = this.camDist;
 
-    // 飞入:把选中节点缓缓转到正面中心
     if(this._flyTarget){
       const nd = this._flyTarget;
-      // 期望旋转:让节点world坐标朝向 +Z(正对相机)
       const p = nd.pos;
       const targetRotY = -Math.atan2(p.x, p.z);
       const targetRotX = Math.atan2(p.y, Math.sqrt(p.x*p.x+p.z*p.z));
@@ -512,12 +433,8 @@ class KnowledgePlanet {
       this.rot.x = targetRotX;   // 不钳制:点击两极节点也能完整转到正面中心
     }
 
-    // ── 球面分布 + 聚焦汇聚 ──
-    // 正常态:节点固定在球面 + 轻微呼吸,整体自转
-    // 聚焦态:点击某节点,相关节点汇聚到它周围并发光,无关节点淡出退远
     const nodes = this.nodes;
     nodes.forEach(nd=>{
-      // 目标位置:有 focusPos(聚焦汇聚)用它,否则回球面 basePos
       let tx, ty, tz;
       if(nd.focusPos){
         tx = nd.focusPos.x; ty = nd.focusPos.y; tz = nd.focusPos.z;
@@ -526,7 +443,6 @@ class KnowledgePlanet {
         const by = Math.cos(t*0.4 + nd.phase)*1.0;
         tx = nd.basePos.x + bx; ty = nd.basePos.y + by; tz = nd.basePos.z;
       }
-      // 平滑移动到目标(汇聚/回归动画)
       const cur = nd.mesh.position;
       const ease = nd.focusPos ? 0.10 : 0.06;
       cur.x += (tx - cur.x)*ease;
@@ -534,33 +450,23 @@ class KnowledgePlanet {
       cur.z += (tz - cur.z)*ease;
       nd.pos.copy(cur);
 
-      // 发光过渡:聚焦的相关节点发光增强,淡出的减弱
       const targetEmissive = nd.glowOn ? 1.0 : 0.35;
       nd._emi = (nd._emi===undefined?0.35:nd._emi) + (targetEmissive - (nd._emi||0.35))*0.12;
       if(nd.mesh.material && nd.mesh.material.emissive && nd.baseColor){
         nd.mesh.material.emissive.copy(nd.baseColor).multiplyScalar(nd._emi);
       }
-      // 淡出:无关节点透明度降低
       const targetOpacity = (nd.dim ? 0.18 : 1.0);
       nd._op = (nd._op===undefined?1:nd._op) + (targetOpacity - (nd._op||1))*0.12;
       nd.mesh.material.opacity = nd._op;
       nd.mesh.material.transparent = nd._op < 0.99;
-      // 标签分级可见性:
-      //  - 聚焦态(选中了某节点):只显示发光簇(glowOn)+悬停的标签,淡出的隐藏
-      //  - 默认态:只显示常显类型(Entity/Concept)+悬停的标签
       if(nd.label){
         const forced = (nd===this.hovered || nd.id===this.selected);
-        // 分级:钻取态只显示当前选中节点点亮的 top-N 邻居(二级/三级);
-        //       默认态只显示一级书名(Evidence);悬停/选中强制显示。
-        // 分级后可见标签本就稀疏(默认≈书数、钻取≈7),不做背面剔除,
-        // 否则仅有的几个书名会在球背面时被剔空,出现"无标签"空窗。
         const show = forced || (this.selected ? nd._revealLabel : nd.isBook);
         nd.label.visible = show;
         if(show) nd.label.material.opacity = nd._op;
       }
     });
 
-    // 更新边的端点(只更新可见的边,省性能)
     this.edges.forEach(e=>{
       if(!e.line.visible) return;
       const arr = e.line.geometry.attributes.position.array;
@@ -569,7 +475,6 @@ class KnowledgePlanet {
       e.line.geometry.attributes.position.needsUpdate = true;
     });
 
-    // hover 检测 + 放大（用 scale，不改几何，不抖）
     const hit = this._pick();
     if(hit !== this.hovered){
       if(this.hovered) this._setHover(this.hovered, false);
@@ -577,7 +482,6 @@ class KnowledgePlanet {
       this.hovered = hit;
       this.canvas.style.cursor = hit ? 'pointer' : 'grab';
     }
-    // 平滑 scale
     this.nodes.forEach(nd=>{
       const target = (nd===this.hovered || nd.id===this.selected) ? 1.5 : 1.0;
       const s = nd.mesh.scale.x + (target - nd.mesh.scale.x)*0.18;
@@ -587,7 +491,6 @@ class KnowledgePlanet {
 
   _setHover(nd, on){ /* 状态切换占位，scale 在 _update 平滑处理 */ }
 
-  // 生成文字标签 Sprite
   _makeLabel(text){
     const T = this.T;
     const label = (text||'').length>12 ? text.slice(0,11)+'…' : (text||'');
@@ -597,10 +500,8 @@ class KnowledgePlanet {
     ctx.font = `600 ${fs}px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif`;
     const w = Math.ceil(ctx.measureText(label).width) + 24;
     cv.width = w; cv.height = fs+24;
-    // 重设 font(canvas resize 后失效)
     ctx.font = `600 ${fs}px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    // 半透明深色描边底,深空背景上清晰
     ctx.fillStyle='rgba(255,255,255,.92)';
     ctx.shadowColor='rgba(0,0,0,.85)'; ctx.shadowBlur=8;
     ctx.fillText(label, cv.width/2, cv.height/2);
@@ -613,12 +514,10 @@ class KnowledgePlanet {
     return sp;
   }
 
-  // 相机平滑飞到某节点
   flyTo(id){
     const nd = this.nodes.find(n=>n.id===id);
     if(!nd) return;
     this.autoSpin = false;
-    // 把该节点转到正面:根据其当前世界位置反推目标旋转
     this._flyTarget = nd;
     this.camDistTarget = 380;
   }
@@ -629,7 +528,6 @@ class KnowledgePlanet {
     else this.clearFocus();
   }
 
-  // 聚焦汇聚:点击节点 → 相关节点发光 + 汇聚到它周围,无关节点淡出
   focusOn(id){
     const T = this.T;
     const center = this.nodes.find(n=>n.id===id);
@@ -638,7 +536,6 @@ class KnowledgePlanet {
     this._flyTarget = center;
     this.camDistTarget = 420;
 
-    // 找出所有与中心节点直接相连的节点;同时只显示该节点的连线(默认全隐藏)
     const relatedIds = new Set([id]);
     this.edges.forEach(e=>{
       const on = (e.from.id===id || e.to.id===id);
@@ -647,22 +544,17 @@ class KnowledgePlanet {
     });
     const related = this.nodes.filter(n=>relatedIds.has(n.id) && n.id!==id);
 
-    // 分级标签:本次钻取只点亮 top-N 最重要(连接数最高)的邻居标签。
-    // 点书 → 看全书最核心的几个;点其中一个 → 再看它的核心邻居(逐级下钻)。
     this.nodes.forEach(n=> n._revealLabel=false);
     related.slice().sort((a,b)=> (b.deg||0)-(a.deg||0)).slice(0, 6)
            .forEach(n=> n._revealLabel=true);
 
-    // 中心节点:移到球心附近、发光、不淡出
     center.focusPos = new T.Vector3(0, 0, 0);
     center.glowOn = true; center.dim = false;
 
-    // 相关节点:围绕中心排成一圈(球面环),发光
     const R = 95;   // 汇聚半径
     const n = related.length;
     related.forEach((nd, i)=>{
       const ang = (i / Math.max(1,n)) * Math.PI*2;
-      // 在一个倾斜的环上分布,有立体感
       const tilt = 0.5;
       nd.focusPos = new T.Vector3(
         Math.cos(ang)*R,
@@ -672,7 +564,6 @@ class KnowledgePlanet {
       nd.glowOn = true; nd.dim = false;
     });
 
-    // 无关节点:淡出、退远、不发光
     this.nodes.forEach(nd=>{
       if(!relatedIds.has(nd.id)){
         nd.focusPos = nd.basePos.clone().multiplyScalar(2.4);  // 退远
@@ -681,7 +572,6 @@ class KnowledgePlanet {
     });
   }
 
-  // 清除聚焦:所有节点平滑回归球面
   clearFocus(){
     this._flyTarget = null;
     this.camDistTarget = 720;
@@ -695,7 +585,6 @@ class KnowledgePlanet {
     this.edges.forEach(e=>{ e.line.visible = false; });   // 回到默认:不画边
   }
 
-  // 搜索高亮:命中节点发光+显标签,其余淡出(原地,不汇聚);清空传空数组。
   highlight(ids){
     const set = new Set(ids || []);
     if(!set.size){ this.setSelected(null); return; }   // 无命中→恢复默认视图
@@ -727,7 +616,6 @@ class KnowledgePlanet {
     this.disposed = true;
     if(this.raf) cancelAnimationFrame(this.raf);
 
-    // 移除所有事件监听器
     try{
       window.removeEventListener('pointermove', this._onMove);
       window.removeEventListener('pointerup', this._onUp);
@@ -739,7 +627,6 @@ class KnowledgePlanet {
       }
     }catch(e){}
 
-    // 递归释放场景里所有 geometry / material / texture
     try{
       this.scene.traverse(obj=>{
         if(obj.geometry) obj.geometry.dispose();
@@ -753,25 +640,21 @@ class KnowledgePlanet {
       });
     }catch(e){}
 
-    // 强制释放 WebGL context(renderer.dispose 不会释放 context,必须 forceContextLoss)
     try{
       this.renderer.dispose();
       this.renderer.forceContextLoss();
       if(this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
     }catch(e){}
 
-    // 断开引用,助 GC
     this.nodes = []; this.edges = []; this._meshes = null;
     this.scene = null; this.renderer = null; this.camera = null; this.world = null;
   }
 }
 
-// ── 等待 Three.js（由 head 的 module 预加载到 window.THREE）──
 async function ensureThree(){
   if(THREE) return THREE;
   if(window.THREE){ THREE = window.THREE; return THREE; }
   if(window.__threeLoadError) return null;
-  // 等待 three-ready 事件（最多 5 秒）
   return await new Promise(resolve=>{
     let done = false;
     const onReady = ()=>{ if(done) return; done=true; THREE = window.THREE; resolve(THREE); };
@@ -788,9 +671,7 @@ async function renderGraph(){
   const container = document.getElementById('graph-canvas');
   if(!container) return;
 
-  // 清旧实例
   if(planet){ try{ planet.dispose(); }catch(e){} planet = null; }
-  // 移除旧 canvas（保留 hint/legend 等覆盖层）
   Array.from(container.querySelectorAll('canvas')).forEach(c=>c.remove());
 
   const T = await ensureThree();
@@ -814,10 +695,6 @@ async function renderGraph(){
   }
 }
 
-// startRotation/stopRotation:上传/解析/摄入期间停掉星球渲染循环 ——
-// 每帧 _update() + renderer.render() 会争 GPU 和主线程,拖慢大文件上传。
-// 真正省 CPU 的是停 RAF(只关 autoSpin 不够,缓动还在跑)。
-// planet.raf 在 start() 里被赋值,dispose() 里被 cancel —— 这里只 cancel。
 function startRotation(){
   if(!planet) return;
   if(planet.raf) return;       // 已在跑(避免 start() 双重 RAF 嵌套)
@@ -830,7 +707,6 @@ function stopRotation(){
     planet.raf = null;
   }
 }
-
 
 function relLabel(t){
   const m={CREATED_BY:'提出',SUPPORTS:'支持',CONTRADICTS:'冲突',MENTIONS:'提及',
@@ -846,9 +722,6 @@ function renderLegend(){
     <span class="lg-dot" style="background:none;border:2px dashed var(--alert);width:8px;height:8px"></span>观点冲突</div>`;
 }
 
-// ════════════════════════════════════════════════════════
-//  Wiki 详情面板
-// ════════════════════════════════════════════════════════
 function selectKU(id){
   if(!state.kus[id]) return;
   state.selected=id;
@@ -858,7 +731,6 @@ function selectKU(id){
   loadSynthesis(id); // 若该节点已有缓存综述,自动显示(GET,不调 LLM)
 }
 
-// 读缓存综述(只 GET,不触发 LLM/不花钱)。有缓存就填进 state.synth 并重渲染。
 async function loadSynthesis(id){
   if(client.demo) return;
   const cur=state.synth[id];
@@ -872,7 +744,6 @@ async function loadSynthesis(id){
   }catch(e){ /* 无缓存/出错都静默,维持"生成"按钮 */ }
 }
 
-// 点「生成综述」→ 调 LLM 生成(或返回缓存)。派生只读视图,后端不写知识库。
 async function genSynthesis(id, force){
   if(client.demo){ toast('演示模式无法生成综述,请先连接后端','err'); return; }
   state.synth[id]='loading';
@@ -888,7 +759,6 @@ async function genSynthesis(id, force){
 }
 window.genSynthesis=genSynthesis;
 
-// 路径查询(高级检索):把当前节点设为起/终点,查两点最短路径并在星球高亮。
 function setPathNode(id, which){
   state.pathSel=state.pathSel||{};
   state.pathSel[which]=id; state.pathSel.result='';
@@ -910,8 +780,6 @@ async function findPath(){
 }
 window.findPath=findPath;
 
-// 按需补全:星球全量接口为瘦身省略了 source_text,点开节点时单独拉 /ku/{id} 拿完整原文,
-// 合并回 state.kus 并重渲染(仍选中才刷新,避免快速点击的竞态覆盖)。
 async function hydrateKU(id){
   const ku=state.kus[id];
   if(!ku || client.demo) return;                 // 演示数据自带原文,无需拉
@@ -928,19 +796,15 @@ function clearSelection(){
   if(planet){ try{ planet.setSelected(null); }catch(e){} }
   $('#wiki-body').innerHTML=emptyWiki();
 }
-// 暴露给 3D 引擎(planet 点击节点时回调)
 window.selectKU = selectKU;
 window.clearSelection = clearSelection;
 
-// 可折叠区块开关(供 side-label 的 onclick 调用)
 function toggleCollapse(id){ const el=document.getElementById(id); if(el) el.classList.toggle('collapsed'); }
 window.toggleCollapse = toggleCollapse;
 function emptyWiki(){
   return `<div class="wiki-empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><p>点击图谱中的节点<br>查看知识单元详情</p></div>`;
 }
 
-// 综合页(synthesis page):把节点在图里的邻域组织成可读的 wiki 词条,
-// 而不只是几个原子字段。图仍是唯一真相源,这里只是它的一个只读投影(同 3D 星球)。
 function renderWiki(ku){
   if(!ku){ $('#wiki-body').innerHTML=emptyWiki(); return; }
   const c=KU_COLORS[ku.ku_type];
@@ -951,7 +815,6 @@ function renderWiki(ku){
   html+=`<div class="wiki-title">${esc(ku.name)}</div>`;
   if(ku.domain) html+=`<div class="wiki-domain">${esc(ku.domain)}</div>`;
 
-  // ── 概述 ──
   if(ku.ku_type==='Claim'){
     if(ex.statement) html+=`<div class="wiki-summary">${esc(ex.statement)}</div>`;
     const cs=ex.claim_status||'pending';
@@ -966,7 +829,6 @@ function renderWiki(ku){
     if(ku.summary) html+=`<div class="wiki-summary">${esc(ku.summary)}</div>`;
   }
 
-  // ── AI 综述(第2档:LLM 把节点邻域组织成连贯词条;派生只读视图,不写回知识库)──
   if(!client.demo){
     const sy=state.synth[ku.ku_id];
     html+=`<div class="wiki-section"><h4>AI 综述</h4>`;
@@ -984,7 +846,6 @@ function renderWiki(ku){
     html+=`</div>`;
   }
 
-  // ── 路径查询(高级检索:两节点间最短路径,结果在星球高亮)──
   if(!client.demo){
     const ps=state.pathSel||{};
     const nm=id=>id?esc(state.kus[id]&&state.kus[id].name||id):'（未设）';
@@ -999,16 +860,13 @@ function renderWiki(ku){
     html+=`</div>`;
   }
 
-  // ── 原文段落 ──
   if(ex.source_text && ex.source_text.trim()){
     html+=`<div class="wiki-section"><h4>原文段落</h4><div class="wiki-source">${esc(ex.source_text)}</div></div>`;
   }
-  // Entity 别名
   if(ku.ku_type==='Entity'&&ex.aliases&&ex.aliases.length){
     html+=`<div class="wiki-section"><h4>别名</h4><div class="tag-row">${ex.aliases.map(a=>`<span class="tag">${esc(a)}</span>`).join('')}</div></div>`;
   }
 
-  // ── 邻域按类型分组(去重),组织成词条各段 ──
   const nb={Fact:[],Claim:[],Concept:[],Entity:[],Evidence:[]};
   const seen=new Set([ku.ku_id]);
   getRelations(ku.ku_id).forEach(r=>{
@@ -1017,8 +875,6 @@ function renderWiki(ku){
     seen.add(o.ku_id);
     if(nb[o.ku_type]) nb[o.ku_type].push(o);
   });
-  // 图里事实/观点通常只连到 Evidence(书),不直接连实体/概念。为让词条真正丰满,
-  // 再按"陈述里提到本节点名字/别名"补充相关事实与观点(纯前端聚合,不改图)。
   if(ku.ku_type!=='Evidence'){
     const names=[ku.name, ...((ex.aliases)||[])].filter(n=>n && n.length>=2);
     if(names.length){
@@ -1035,7 +891,6 @@ function renderWiki(ku){
   if(ku.ku_type==='Evidence'){
     const isColl=(ku.tags||[]).includes('_collection');
     if(isColl){
-      // 一级:合集(文件夹)→ 列出所含文件/章节(PART_OF 子节点),点击逐级下钻
       const files=(state.relations||[]).filter(r=>r.type==='PART_OF'&&r.to===ku.ku_id).map(r=>state.kus[r.from]).filter(Boolean);
       html+=`<div class="wiki-section"><h4>合集 · 来源</h4><div class="evid-item"><div class="evid-src">📁 ${esc(ku.name)}</div></div></div>`;
       if(files.length){
@@ -1044,7 +899,6 @@ function renderWiki(ku){
         html+=`</div></div>`;
       }
     } else {
-      // 二级:文件(章节)或独立来源 → 来源 + 所属合集 + 本文件关键词
       html+=`<div class="wiki-section"><h4>来源</h4><div class="evid-item">
         <div class="evid-src">${esc(ex.source||ku.name)}</div>
         <div class="evid-meta">${[ex.author,ex.year,ex.page?'p.'+ex.page:''].filter(Boolean).join(' · ')}</div></div></div>`;
@@ -1064,7 +918,6 @@ function renderWiki(ku){
       }
     }
   } else {
-    // 实体/概念/事实/观点:综合成词条。相关事实/观点放进固定高度框,内部滚动,省纵向空间。
     if(nb.Fact.length){
       let inner='';
       nb.Fact.slice(0,50).forEach(k=>{ inner+=`<div class="wiki-item fact" onclick="selectKU('${k.ku_id}')">${esc(stmt(k))}</div>`; });
@@ -1078,7 +931,6 @@ function renderWiki(ku){
       });
       html+=`<div class="wiki-section"><h4>相关观点 ${nb.Claim.length}</h4><div class="wiki-scroll">${inner}</div></div>`;
     }
-    // 关联概念/实体:小星球式散点(省空间,悬停看名、点击进入)
     const linked=[...nb.Concept,...nb.Entity];
     if(linked.length){
       html+=`<div class="wiki-section"><h4>关联 ${linked.length}</h4>${kwCluster(linked)}</div>`;
@@ -1090,7 +942,6 @@ function renderWiki(ku){
     }
   }
 
-  // 标签
   if(ku.tags&&ku.tags.length){
     html+=`<div class="wiki-section"><h4>标签</h4><div class="tag-row">${ku.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></div>`;
   }
@@ -1099,8 +950,6 @@ function renderWiki(ku){
   $('#wiki-body').innerHTML=html;
 }
 
-// 关联关键词的小星球式散点:fibonacci 圆盘分布、按类型着色、悬停显名(<title>)、点击进入。
-// 比一长串 chip 省纵向空间,且呼应星球主题。
 function kwCluster(list, capN){
   const N=Math.min(list.length, capN||80);
   const cx=130, cy=90, R=82, ga=Math.PI*(3-Math.sqrt(5));
@@ -1126,9 +975,6 @@ function getRelations(id){
   return out;
 }
 
-// ════════════════════════════════════════════════════════
-//  能力卡片
-// ════════════════════════════════════════════════════════
 function renderAbilities(){
   const body=$('#ability-body');
   body.innerHTML=state.abilities.map(a=>{
@@ -1182,9 +1028,6 @@ async function compileAbility(key,btn){
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  冲突裁决
-// ════════════════════════════════════════════════════════
 function renderConflicts(){
   const open=state.conflicts.filter(c=>c.status==='open');
   const body=$('#conflict-body');
@@ -1227,17 +1070,14 @@ async function resolveConflict(cid){
     await new Promise(r=>setTimeout(r,500));
     const c=state.conflicts.find(x=>x.conflict_id===cid);
     if(c) c.status='resolved';
-    // 落败方标 superseded
     const loser=c.claim_a_id===winner?c.claim_b_id:c.claim_a_id;
     if(state.kus[loser]) state.kus[loser].extra.claim_status='superseded';
     if(state.kus[winner]) state.kus[winner].extra.claim_status='active';
-    // 移除这对 Claim 间的 CONTRADICTS 关系
     state.relations=state.relations.filter(r=>
       !(r.type==='CONTRADICTS' &&
         ((r.from===loser&&r.to===winner)||(r.from===winner&&r.to===loser))));
     delete state.conflictPick[cid];
     toast('冲突已裁决，落败观点标记为 superseded','ok');
-    // 裁决是低频操作，destroy 重建最稳（增量更新与 G6 hover-activate 有内部时序冲突）
     renderGraph();
     renderPanels();
     return;
@@ -1250,14 +1090,10 @@ async function resolveConflict(cid){
   }catch(e){ toast('裁决失败','err'); }
 }
 
-// ════════════════════════════════════════════════════════
-//  搜索
-// ════════════════════════════════════════════════════════
 let searchTimer;
 async function doSearch(q){
   if(!q.trim()){ if(window.planet) window.planet.setSelected(null); return; }   // 清空搜索→恢复默认视图(不重建星球)
   if(client.demo){
-    // 演示：名字/摘要匹配，高亮命中节点
     const hits=Object.values(state.kus).filter(k=>
       (k.name+k.summary+((k.extra&&k.extra.statement)||'')).toLowerCase().includes(q.toLowerCase()));
     highlightNodes(hits.map(h=>h.ku_id));
@@ -1272,13 +1108,9 @@ async function doSearch(q){
   }catch(e){ toast('搜索失败','err'); }
 }
 function highlightNodes(ids){
-  // 在 Three.js 星球上高亮命中节点(旧 G6 实现已废弃)
   if(window.planet) window.planet.highlight(ids || []);
 }
 
-// ════════════════════════════════════════════════════════
-//  摄入（文本 + 文件/文件夹批量）
-// ════════════════════════════════════════════════════════
 let pickedFiles = [];   // 待摄入文件列表
 
 function fmtSize(b){
@@ -1312,7 +1144,6 @@ function renderFileList(){
   });
 }
 
-// 异步摄入(方案A):文件上传后立即转后台,前端轮询 job 真进度,期间可继续操作。
 let ingJobs = [];      // {jobId,name,status,processed,total,ku,error}
 let _ingPoll = null;
 
@@ -1346,7 +1177,6 @@ async function pollIngestJobs(){
         if((s.ku_count||0) > 0){
           toast(`『${j.name}』摄入完成：${s.ku_count} 个知识单元`,'ok');
         }else{
-          // 上传/解析成功但抽取 0 知识:最常见是 LLM API Key 无效/未配置(如 401),或内容太短
           toast(`『${j.name}』已上传但未抽取到知识(0 个)。多半是 LLM API Key 无效/未配置——请到「连接设置」重填正确 key 后重传`,'err');
         }
       }
@@ -1358,10 +1188,6 @@ async function pollIngestJobs(){
   ingJobs = ingJobs.filter(j=> j.status!=='done' && j.status!=='error');
   if(!ingJobs.length){ clearInterval(_ingPoll); _ingPoll=null; renderIngestStatus(); }
 }
-
-// 「清空知识库」已从前端移除(危险的破坏性操作不该是任何人可点的按钮)。
-// 需要清库改走后端 API:POST /knowledge/reset(设了 HKC_API_KEY 时需带 X-API-Key),
-// 例:curl -X POST http://127.0.0.1:8000/knowledge/reset -H "X-API-Key: <key>"
 
 async function submitIngest(){
   const text=$('#ingest-text').value.trim();
@@ -1378,13 +1204,11 @@ async function submitIngest(){
   if(client.demo){
     btn.disabled=false; btn.textContent='开始摄入';
     toast('未连接后端,无法摄入。请点左下「连接设置」连接 hkc-api 后再试','err');
-    // 自动打开连接设置,引导用户
     closeModal('#ingest-modal');
     openModal('#settings-modal');
     return;
   }
 
-  // 1) 文本（若有）——通常较短,走同步端点,拿到结果即刷新
   if(text){
     btn.disabled=true; btn.innerHTML='<span class="spinner"></span> 摄入文本';
     try{
@@ -1397,7 +1221,6 @@ async function submitIngest(){
     btn.disabled=false; btn.textContent='开始摄入';
   }
 
-  // 1.5) 网页 URL——同步抓取正文 + 抽取(单页通常较短)
   if(url){
     btn.disabled=true; btn.innerHTML='<span class="spinner"></span> 抓取网页';
     try{
@@ -1413,7 +1236,6 @@ async function submitIngest(){
     btn.disabled=false; btn.textContent='开始摄入';
   }
 
-  // 2) 文件——异步提交,秒返回 job_id,转后台;不阻塞,可继续添加/上传下一个
   if(hasFiles){
     btn.disabled=true; btn.innerHTML='<span class="spinner"></span> 提交中';
     let submitted=0;
@@ -1442,21 +1264,15 @@ async function submitIngest(){
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  模态 + 连接
-// ════════════════════════════════════════════════════════
-// 打开摄入模态 → 停星球渲染(避免大文件上传被 GPU/主线程争用拖慢)
 function openModal(s){
   $(s).classList.add('show');
   if(s === '#ingest-modal') stopRotation();
 }
-// 关闭摄入模态 → 恢复星球渲染(idempotent:stopRotation 未调过也无害)
 function closeModal(s){
   $(s).classList.remove('show');
   if(s === '#ingest-modal') startRotation();
 }
 
-// ── 书籍管理(按来源删除)──
 async function openBooks(){
   if(client.demo){ toast('未连接后端,无法管理书籍','err'); openModal('#settings-modal'); return; }
   openModal('#books-modal');
@@ -1502,7 +1318,6 @@ function setConn(){
   else{ p.className='conn-pill live'; t.textContent='已连接'; }
 }
 
-// 连接设置持久化（localStorage）：刷新后回填 + 自动重连，避免每次重填 key。
 const CONN_KEY='hkc_conn_v1';
 function _connSnapshot(){
   return {
@@ -1534,7 +1349,6 @@ async function tryConnect(){
   const btn=$('#btn-connect'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> 连接中';
   const ok=await client.connect(url);
   if(ok){
-    // 连接成功后,把 LLM 配置发给后端(若填了 key)
     const provider=$('#llm-provider').value;
     const key=$('#llm-key').value.trim();
     const model=$('#llm-model').value.trim();
@@ -1562,7 +1376,6 @@ async function tryConnect(){
   }
 }
 
-// provider 切换:联动 model 占位符 + base_url 显隐
 function _syncLLMFields(){
   const p=$('#llm-provider').value;
   const modelInput=$('#llm-model');
@@ -1570,9 +1383,7 @@ function _syncLLMFields(){
   const baseInput=$('#llm-baseurl');
   const defaults={ deepseek:'deepseek-chat', anthropic:'claude-sonnet-4-6', openai:'gpt-4o-mini', 'openai-compatible':'(自定义模型名)' };
   modelInput.placeholder=defaults[p]||'';
-  // 只有自定义/本地需要填 base_url
   baseField.style.display=(p==='openai-compatible')?'':'none';
-  // 本地模型默认填 Ollama 地址(后端要求 openai-compatible 必填 base_url,留空会 400);已有值不覆盖
   if(p==='openai-compatible' && !baseInput.value.trim()){
     baseInput.value='http://localhost:11434/v1';
   }
@@ -1580,9 +1391,6 @@ function _syncLLMFields(){
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
-// ════════════════════════════════════════════════════════
-//  事件绑定 + 启动
-// ════════════════════════════════════════════════════════
 $('#modes').addEventListener('click',e=>{
   const b=e.target.closest('.mode-btn'); if(!b)return;
   $$('.mode-btn').forEach(x=>x.classList.remove('on'));
@@ -1597,7 +1405,6 @@ $('#search-input').addEventListener('keydown',e=>{ if(e.key==='Enter') doSearch(
 $('#btn-ingest').onclick=()=>openModal('#ingest-modal');
 $('#btn-books').onclick=openBooks;
 $('#btn-settings').onclick=()=>openModal('#settings-modal');
-// 文件/文件夹选择
 $('#btn-pick-files').onclick=()=>$('#ingest-files').click();
 $('#btn-pick-folder').onclick=()=>$('#ingest-folder').click();
 $('#ingest-files').addEventListener('change',e=>{ addFiles(e.target.files); e.target.value=''; });
@@ -1609,11 +1416,8 @@ _syncLLMFields();  // 初始化字段状态
 $('#btn-use-demo').onclick=()=>{ client.useDemo(); setConn(); closeModal('#settings-modal'); loadData(); toast('已切换到演示数据'); };
 $('#btn-fit').onclick=()=>window._fitGraph&&window._fitGraph();
 $$('[data-close]').forEach(b=>b.onclick=()=>{ closeModal('#ingest-modal'); closeModal('#settings-modal'); closeModal('#books-modal'); });
-// 点背景关模态:走 closeModal(里面会触发 ingest 的 startRotation,见 openModal 注释)
 $$('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) closeModal('#'+m.id); }));
-// G6 的 autoResize:true 已处理窗口缩放，无需手动重建
 
-// 启动：有保存的连接设置则回填并静默自动重连，否则按演示模式启动
 async function startup(){
   const saved=loadConnSettings();
   if(saved && saved.url){
@@ -1621,15 +1425,10 @@ async function startup(){
     client.apiKey=saved.apiKey||'';   // 鉴权 key 只能取保存的 apiKey,绝不混用模型的 key
     const ok=await client.connect(saved.url);
     if(ok){
-      // 不再启动时自动 POST 保存的 LLM 配置:那会把 localStorage 里可能过期的配置
-      // 覆盖到后端、压掉 .env 的权威配置。模型配置只在用户点「连接」时显式应用。
       setConn(); await loadData(); return;
     }
-    // 自动重连失败(后端没起/地址变了)→ 回退演示,字段已回填,用户可手动重连
     toast('已保存的后端未连上，回退演示模式（设置已回填，可在「连接设置」重连）','err');
   }
-  // 嵌入 Foxclaw(同源部署):无保存设置或保存地址连不上时,优先自动连**当前站点**(相对 /knowledge/*),
-  // 连通即用真实知识;连不上(如独立打开本文件)再回退演示。
   if(await client.connect('')){ setConn(); await loadData(); return; }
   setConn();
   loadData();

@@ -19,8 +19,6 @@ from ..middleware import _gateway_on, _GATEWAY
 from ...core import settings, update_check
 
 
-# ── 系统状态 ───────────────────────────────────────────────
-
 @app.get("/api/status")
 async def get_system_status():
     """获取所有 Agent 的状态"""
@@ -49,8 +47,6 @@ async def get_token_report():
     return {"report": meter.report()}
 
 
-# ── 模型路由与系统信息 ─────────────────────────────────────
-
 @app.get("/api/model")
 async def get_model():
     """当前模型路由状态 + 可用 provider 列表。"""
@@ -69,7 +65,7 @@ async def get_amap_config():
 @app.get("/api/system/info")
 async def get_system_info():
     """系统级只读信息:版本、运行参数、各 Agent、模块状态(供设置面板展示)。"""
-    update_check.maybe_refresh()      # 未启用 / 缓存新鲜时立即返回;否则起 daemon 线程
+    update_check.maybe_refresh()
     agents = {}
     for aid, ag in _api.os_instance()._agents.items():
         h = ag.harness
@@ -78,15 +74,11 @@ async def get_system_info():
             "shadow_mode": h.is_shadow_mode,
             "shadow_rounds": h.shadow_rounds,
             "run_count": getattr(h, "_run_count", 0),
-            # 降级可见性(B 类修复):语义维度停用时,漂移检测只剩 tool/scope 两维,
-            # 跑题不会被拦截 —— 前端需据此提示,不能只在服务端日志里静默。
             "semantic_degraded": getattr(h, "semantic_degraded", False),
             "embedding_mode": getattr(getattr(h, "sem_drift", None), "mode", "unknown"),
         }
     return {
         "version": __version__,
-        # 更新提示:默认关(FOXCLAW_UPDATE_CHECK=1 才查),这里只读缓存 + 需要时起后台线程,
-        # 不会让这个请求等网络。
         "update": update_check.status(),
         "data_dir": os.environ.get("FOXCLAW_DATA_DIR", "./foxclaw_data"),
         "shadow_rounds": settings.get_int("FOXCLAW_SHADOW_ROUNDS"),
@@ -121,8 +113,6 @@ async def get_agent_status(agent_id: str):
         raise HTTPException(404, f"Agent {agent_id} 不存在")
     return agent.get_status()
 
-
-# ── 认知调度 / 事件总线 / 真值 / 进程 / 认知状态 ─────────────
 
 class SchedulePreviewPayload(BaseModel):
     task: str
@@ -185,8 +175,6 @@ async def cognitive_state():
         return {"error": str(e)}
 
 
-# ── ThoughtChain 查询 ──────────────────────────────────────
-
 @app.get("/api/thoughtchain/{agent_id}/chain")
 async def get_thought_chain(agent_id: str, session_id: str | None = None):
     """获取 Agent 的推理链"""
@@ -194,7 +182,6 @@ async def get_thought_chain(agent_id: str, session_id: str | None = None):
     if session_id:
         nodes = tc.get_chain(session_id, agent_id)
     else:
-        # 返回最近 20 个节点
         nodes = tc.get_blocked_nodes(agent_id, limit=20)
     return {"nodes": [n.to_dict() for n in nodes]}
 
@@ -221,8 +208,6 @@ async def get_thought_summary(agent_id: str):
     return _api.os_instance().thought_chain.get_summary(agent_id)
 
 
-# ── Harness 状态 ───────────────────────────────────────────
-
 @app.get("/api/harness/{agent_id}/status")
 async def get_harness_status(agent_id: str):
     """获取 Harness 状态：阈值、shadow mode、policy 摘要"""
@@ -246,9 +231,6 @@ async def get_policy(agent_id: str):
     return agent.harness._policy
 
 
-# ── 健康探活 ───────────────────────────────────────────────
-# 标准探活端点(开放,不在鉴权前缀内、不触发 HKC 装配)。星球 UI 的 connect() 用它探活,
-# 也供部署/监控用。放在静态挂载("/")之前,否则会被 StaticFiles 的 catch-all 吞成 404。
 @app.get("/health")
 async def health():
     """存活探针(liveness):浅、快,不触发子系统。"""
@@ -268,17 +250,15 @@ async def health_ready():
     elif getattr(_router, "is_stub", True):
         comps["router"] = "stub"
     else:
-        comps["router"] = "ok"                       # 不回传 provider 名(开放端点,防泄露)
+        comps["router"] = "ok"
     comps["scheduler"] = "ok" if getattr(o, "scheduler", None) is not None else "down"
-    hkc_svc = getattr(o, "_hkc_service", None)   # 只看已初始化的,不触发惰性 init
+    hkc_svc = getattr(o, "_hkc_service", None)
     comps["hkc"] = ("ok" if (hkc_svc is not None and getattr(hkc_svc, "available", False))
                     else ("uninitialized" if hkc_svc is None else "degraded"))
     comps["mcp_server"] = "on" if getattr(o, "mcp_manager", None) is not None else "off"
     down = [k for k, v in comps.items() if v == "down"]
     return {"status": "degraded" if down else "ok", "components": comps, "version": __version__}
 
-
-# ── 监控 / 追踪 / 网关 ──────────────────────────────────────
 
 @app.get("/api/metrics")
 async def metrics_json():

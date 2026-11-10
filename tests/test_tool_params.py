@@ -46,13 +46,11 @@ def main():
     print("\n【3】类型不符被检出(C 类:静默失败改为可见)")
     errs = r.validate_args("web_search", {"query": {"a": 1}})
     check(any("类型" in e for e in errs), f"dict 传 string 位被检出({errs})")
-    # top_k 声明在 recall_memory 上(不在 web_search),故用它验 integer 校验
     errs = r.validate_args("recall_memory", {"query": "x", "top_k": "ten"})
     check(any("类型" in e for e in errs), f"字符串传 integer 被检出({errs})")
     errs = r.validate_args("recall_memory", {"query": "x", "top_k": True})
     check(not any("top_k" in e for e in errs),
-          f"bool 不被误判为 integer({errs})")  # bool 是 int 子类,须排除
-    # 未在 schema 中声明的额外字段应放过(不引入 jsonschema 依赖的宽松设计)
+          f"bool 不被误判为 integer({errs})")
     check(r.validate_args("web_search", {"query": "ok", "未声明字段": 1}) == [],
           "未声明的额外字段不报错(避免过度约束模型)")
 
@@ -82,8 +80,6 @@ def main():
     print("\n【6】参数解析失败不再静默(args_parse_failed 标记存在)")
     import inspect
     from foxclaw.core.model_router import ModelRouter
-    # 检查整个类:标记可能随重构从 call_tools 移到 _call_openai_tools 等子方法,
-    # 锁「类内存在该标记」而非锁某个方法名(避免重构后误报)。
     src = inspect.getsource(ModelRouter)
     check("args_parse_failed" in src,
           "call_tools 标记解析失败(可观测)")

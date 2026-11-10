@@ -17,9 +17,6 @@ const idx = computed(() => p.index || {})
 const kus = computed(() => Object.entries(p.stats?.ku_counts || {}))
 const busy = computed(() => p.ingest === 'busy')
 
-/* 用户开始写新内容时,把上一次的「已收录 N 条」收起来,否则会让人以为这版也提交过了。
-   只在**写入了非空内容**时清 —— 提交成功后代码会把 draft 置空,那不是用户输入,
-   不能让它把刚拿到的结果提示擦掉。 */
 watch(draft, (v) => {
   if (v && !busy.value) { p.ingest = 'idle'; p.ingestMsg = ''; p.ingestErr = '' }
 })
@@ -31,12 +28,9 @@ async function submit() {
     draft.value = ''
     title.value = ''
   } catch {
-    /* 错误已写进 store,模板里显示 */
   }
 }
 
-/* ── 检索:POST /api/knowledge/search ──
-   后端一直有这条混合检索,界面却只给「最近录入」,想按关键词翻库只能去知识星球。 */
 const q = ref('')
 const mode = ref('hybrid')
 const MODES = [
@@ -77,8 +71,6 @@ async function doSearch() {
   }
 }
 
-/* ── 能力详情:GET /api/knowledge/ability/{key} ──
-   能力 chip 以前是死的,点了没反应 —— 而这条接口正是"这个能力到底够不够"的答案。 */
 const abKey = ref('')
 const abState = ref('idle') // idle | busy | ok | err
 const abErr = ref('')
@@ -104,7 +96,6 @@ async function showAbility(k) {
   }
 }
 
-/* coverage 在不同能力下是数字或对象,取几个常见键;取不到就显示 '—',不猜格式 */
 function covText(c) {
   if (c == null) return ''
   if (typeof c === 'number') return `${Math.round(c * 100)}%`
@@ -124,7 +115,6 @@ function covText(c) {
     :ready="ready"
     @refresh="refreshPanel('knowledge')"
   >
-    <!-- 录入:短知识在这里手录;整本书 / 大文档走知识星球 -->
     <div class="kb-in">
       <textarea
         v-model="draft"
@@ -273,7 +263,6 @@ function covText(c) {
           <div class="pn-note meta">HKC 未启用,无法编译能力。</div>
         </template>
 
-        <!-- 覆盖不足不是错误,是"知识还不足以具备该能力"(证据驱动 gate) -->
         <template v-else-if="ab.sufficient === false">
           <div class="kb-ab-h">{{ abKey }}<span class="v">知识不足</span></div>
           <div class="pn-note meta">{{ ab.reason || '覆盖不足,暂不授予该能力。' }}</div>
@@ -312,7 +301,6 @@ function covText(c) {
 </template>
 
 <style scoped>
-/* ── 录入卡 ── */
 .kb-in {
   margin-bottom: 14px;
   border-radius: var(--r-mid);
@@ -369,8 +357,6 @@ function covText(c) {
 }
 .go:hover:not(:disabled) { opacity: 0.9; }
 .go:active:not(:disabled) { transform: scale(0.97); }
-/* 禁用态原来用 --faint 压在 12% 墨底上,对比度不到 2:1、几乎读不出字。
-   改成实心浅底 + 深墨字:一眼看得出「现在点不了」,但字仍然清楚。 */
 .go:disabled {
   background: rgba(23, 32, 26, 0.07); color: var(--dim);
   border: 1px solid var(--line-soft);
@@ -380,7 +366,6 @@ function covText(c) {
 .sec-gap { margin-top: 14px; }
 .pn-note.meta.bad { color: var(--red); }
 
-/* ── 检索条 ── */
 .kb-find {
   display: flex; align-items: center; gap: 6px;
   margin-bottom: 8px;
@@ -424,7 +409,6 @@ function covText(c) {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 能力详情 ── */
 .pn-chips.gap { margin-top: 8px; }
 .kb-ab {
   margin-top: 10px; padding: 10px 12px;

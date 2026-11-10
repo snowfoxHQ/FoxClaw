@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "foxclaw"
 BASELINE = ROOT / "tools" / "size_baseline.txt"
-LIMIT = 15 * 1024  # 15360 bytes
+LIMIT = 15 * 1024
 
 for _s in (sys.stdout, sys.stderr):
     try:

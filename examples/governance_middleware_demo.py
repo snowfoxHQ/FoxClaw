@@ -20,13 +20,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from foxclaw.governance import GovernanceSession, governed, GovernanceBlocked
 
 
-# ── Tools that live inside "some framework" (plain functions) ─────────
 def get_balance(account="default"):
     return {"account": account, "balance": 1234.5}
 
 
 def delete_account(account):
-    return {"deleted": account}       # dangerous: must not happen in a read-only task
+    return {"deleted": account}
 
 
 def main():
@@ -34,14 +33,12 @@ def main():
     print("Governance middleware · framework-agnostic demo")
     print("=" * 58)
 
-    # 1) open a governance session: goal + allowed tool categories + baseline entities
     gov = GovernanceSession(
         goal="only read the account balance and transaction history",
         allowed_tools={"read"},
         entities={"balance", "account"},
     )
 
-    # 2) wrap tools so every call passes the Harness first
     guarded_get = governed(gov)(get_balance)
     guarded_delete = governed(gov)(delete_account)
 
@@ -55,12 +52,10 @@ def main():
         print(f"   x blocked by governance · dim={e.result.dimension} "
               f"tool_score={e.result.scores.get('tool')} reason={e.result.reason}")
 
-    # 3) observe() governs reasoning steps too (soft WARN / hard BLOCK), not just tools
     print("\n[observe] observe an off-goal reasoning step:")
     r = gov.observe("write me a romantic poem about the night sky")
     print(f"   -> status={r.status} dim={r.dimension} delta={r.delta:.3f}")
 
-    # 4) pull back the full auditable reason chain
     print("\n[audit] this session's reason chain:")
     for n in gov.audit():
         print(f"   - [{n['harness_status']:<5}] {n['type']:<11} "

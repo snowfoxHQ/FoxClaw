@@ -23,12 +23,8 @@ _SR = SpacedRepetition()
 
 _CARD_TYPES = {"Concept", "Fact", "Claim", "Entity"}
 
-# 扫描上限(每种卡片类型)。之前统一 query_all(4000),一是把 Evidence 这种绝对不会
-# 成卡的原文出处也一起拉出来(大文档导入后它是绝大多数行),二是 4000 之后的部分
-# 会被静默截断 → 复习统计少算。这里只查四种卡片类型,上限给到实际用不满的量级。
 _SCAN_LIMIT = 50000
 
-# ReviewState.to_dict() 会额外塞 mastery / is_due,读回来时必须剔掉才能重建
 _STATE_FIELDS = ("repetitions", "interval", "ease_factor", "due_date",
                  "last_review", "total_reviews", "lapses")
 
@@ -251,11 +247,6 @@ async def review_grade(body: GradeIn):
         if ku is None or _status_of(ku) != "active":
             raise HTTPException(404, f"没有这条知识:{body.ku_id}")
 
-        # 关键:只更新 extra 这一列,而且「读 extra → SM-2 推演 → 写回」整段在
-        # graph_store 的锁里完成。走 put() 是整行 UPSERT,会把整行其它列按写入前的
-        # 快照回写 —— 知识星球正在摄入时,KEE 刚合并进去的 sources / confidence /
-        # supports 会被这次评分悄悄冲掉(反向亦然:复习进度被 KEE 写回覆盖)。
-        # 锁内做还有个好处:连点两次评分不会两次都基于同一份旧状态推演。
         graded: list[ReviewState] = []
 
         def _apply(extra: dict) -> dict:

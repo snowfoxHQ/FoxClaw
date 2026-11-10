@@ -25,15 +25,12 @@ from foxclaw.skills import pipeline as sk_pipeline
 SESSION = "sess-1"
 
 
-# ── broker 单元 ────────────────────────────────────────────
-
 def test_issue_consume_single_use() -> None:
     b = ConfirmationBroker(ttl=300, clock=lambda: 1000.0)
     ch = b.issue(SESSION, "skill:mail_send", {"to": "a@x"})
     assert ch["nonce"] and ch["expires_at"] == 1300.0
     assert b.consume(SESSION, ch["nonce"], "skill:mail_send", {"to": "a@x"},
                      now=1000.0) == (True, "ok")
-    # 第二次:已消费 → 拒绝(单次使用)
     assert b.consume(SESSION, ch["nonce"], "skill:mail_send", {"to": "a@x"},
                      now=1000.0) == (False, "unknown_nonce")
 
@@ -48,12 +45,10 @@ def test_expired_nonce_rejected() -> None:
 def test_args_and_action_drift_rejected() -> None:
     b = ConfirmationBroker(clock=lambda: 1000.0)
     ch = b.issue(SESSION, "skill:mail_send", {"to": "a@x"})
-    # 确认"发给 A"却执行"发给 B" → 指纹不匹配
     assert b.consume(SESSION, ch["nonce"], "skill:mail_send", {"to": "b@x"},
                      now=1000.0) == (False, "args_mismatch")
     assert b.consume(SESSION, ch["nonce"], "skill:pay", {"to": "a@x"},
                      now=1000.0) == (False, "action_mismatch")
-    # 原动作原参数仍可用(前两次失败没有消费掉它)
     assert b.consume(SESSION, ch["nonce"], "skill:mail_send", {"to": "a@x"},
                      now=1000.0) == (True, "ok")
 
@@ -82,8 +77,6 @@ def test_pending_is_bounded() -> None:
     assert len(b.pending(SESSION)) == 8
     assert b.pending("nobody") == []
 
-
-# ── adapter 集成 ───────────────────────────────────────────
 
 class _Calls:
     def __init__(self):
@@ -118,7 +111,6 @@ def test_send_requires_nonce_even_when_confirmed():
         assert first.confirm_nonce and first.confirm_expires_at > 0
         assert calls.n == 0
 
-        # 只有 confirmed=True 没有确认码 → 不放行(退回待确认,换发新码)
         no_nonce = adapter.invoke(skill, args, confirmed=True)
         assert no_nonce.status == "needs_confirmation" and calls.n == 0
         assert "missing_nonce" in no_nonce.message
@@ -128,7 +120,6 @@ def test_send_requires_nonce_even_when_confirmed():
                             confirm_nonce=no_nonce.confirm_nonce)
         assert ok.success and calls.n == 1
 
-        # 重放同一个码 → 拒绝,不执行
         replay = adapter.invoke(skill, args, confirmed=True,
                                 confirm_nonce=no_nonce.confirm_nonce)
         assert replay.status == "needs_confirmation" and calls.n == 1
@@ -156,12 +147,10 @@ def test_read_skill_and_no_broker_unaffected():
     adapter, reg, calls = _build(ConfirmationBroker())
     assert adapter.invoke(reg.get("calc"), {}, confirmed=True).success
 
-    plain = SkillAdapter(reg)                      # 未注入 broker → 旧语义
+    plain = SkillAdapter(reg)
     assert plain.invoke(reg.get("mail_send"), {"to": "a@x"}, confirmed=True).success
     assert calls.n >= 1
 
-
-# ── pipeline 兼容 ──────────────────────────────────────────
 
 def test_pipeline_invoke_tolerates_old_adapter():
     """测试/第三方 adapter 只实现 4 参 invoke 时自动降级(签名探测,不吞内部 TypeError)。"""

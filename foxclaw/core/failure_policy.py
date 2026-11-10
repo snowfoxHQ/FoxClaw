@@ -16,29 +16,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# ── 失败类型 ────────────────────────────────────────────────────────────
 OK = "ok"
-TIMEOUT = "timeout"                    # 单工具硬超时(工具轮主动放弃)
-TRANSIENT = "transient"                # 网络抖动/限流/5xx —— 重试有意义
-NOT_CONFIGURED = "not_configured"      # 没配 key/服务 —— 重试一万次也没用
-EMPTY = "empty"                        # 调通了但没内容(搜不到/没召回)
-INVALID_ARGS = "invalid_args"          # 模型给的参数不合法 —— 让模型自己改
-DENIED = "denied"                      # 策略禁用/未知工具 —— 不许绕过
-NEEDS_HUMAN = "needs_human"            # 红线动作需确认 —— 只能人来做
-EXCEPTION = "exception"                # 工具内部抛异常
-UNKNOWN = "unknown"                    # 认不出来:保守(不重试、交人)
+TIMEOUT = "timeout"
+TRANSIENT = "transient"
+NOT_CONFIGURED = "not_configured"
+EMPTY = "empty"
+INVALID_ARGS = "invalid_args"
+DENIED = "denied"
+NEEDS_HUMAN = "needs_human"
+EXCEPTION = "exception"
+UNKNOWN = "unknown"
 
-#: 动作
 NONE = "none"
-RETRY = "retry"                        # 自动再试一次(仅只读)
-REPARAM = "reparam"                    # 让模型换参数/换查询词
-DEGRADE = "degrade"                    # 降级如实告知,不重试
-HAND_TO_HUMAN = "hand_to_human"        # 交人
-STOP = "stop"                          # 终止,不许再试
+RETRY = "retry"
+REPARAM = "reparam"
+DEGRADE = "degrade"
+HAND_TO_HUMAN = "hand_to_human"
+STOP = "stop"
 
-#: 特征表。**顺序敏感**:先命中先返回。顺序上的两个坑都踩过:
-#:   · "未返回结果"(empty)不能先被 "未返回"(timeout) 吃掉;
-#:   · "不合法"(invalid_args)要在 "拒绝"(denied) 之前,否则参数错误被当成越权。
 _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (DENIED, ("已被策略禁用", "被权限策略拒绝", "未知工具")),
     (NEEDS_HUMAN, ("需确认的动作", "需要你确认", "请用户确认", "只能由你亲自确认")),
@@ -50,7 +45,6 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (EXCEPTION, ("执行异常",)),
 )
 
-#: 类型 → (动作, 是否可重试, 给模型的一句硬提示)。提示写进回注文本,模型没法装作没看见。
 _ACTIONS: dict[str, tuple[str, bool, str]] = {
     TIMEOUT: (RETRY, True,
               "这一步超时未完成,已自动重试一次仍有问题。请如实说明这一步没做成,不要编造结果。"),
@@ -94,9 +88,6 @@ class Decision:
                 "retryable": self.retryable, "hint": self.hint}
 
 
-#: 失败回注的形态标记。工具执行侧的失败文本统一以 "(" 开头(见 tool_exec 的兜底),
-#: 另有少数异常文本不带括号。**不能**用"含 未/失败 就算失败"这种宽松判据:
-#: 搜索正文里"未来""失败案例"都会误伤,把成功结果标成失败。
 _FAILURE_MARKERS = ("执行异常", "入参不合法", "被权限策略拒绝", "缺少必填")
 
 
@@ -111,7 +102,7 @@ def classify(text: str) -> str:
     """把回注文本归类:``ok`` / 具体失败类型 / ``unknown``(认不出来,保守交人)。"""
     t = (text or "").strip()
     if not t:
-        return UNKNOWN                      # 空结果:不能当成功,也不确定成因
+        return UNKNOWN
     if not looks_like_failure(t):
         return OK
     low = t.lower()

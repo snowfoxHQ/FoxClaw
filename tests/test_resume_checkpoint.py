@@ -41,8 +41,6 @@ class _Rec:
         self.finished.append((tid, status))
 
 
-# ── ① 日志层 ───────────────────────────────────────────────
-
 def test_record_and_replay_steps(tmp_path) -> None:
     rec = RestartRecovery(str(tmp_path / "recovery.jsonl"), fsync=False)
     rec.record_step("t1", {"kind": "stage", "name": "perceive"})
@@ -59,13 +57,11 @@ def test_compact_log_keeps_steps(tmp_path) -> None:
     rec.task_started("t1", "任务一")
     rec.record_step("t1", {"kind": "tool", "name": "web_search", "key": "k", "result": "r"})
     rec.task_finished("t1", status="done")
-    rec.compact_log(keep_recent_days=7)      # 保留 → 步骤必须还在
+    rec.compact_log(keep_recent_days=7)
     assert len(rec.steps_of("t1")) == 1
-    rec.compact_log(keep_recent_days=0)      # 过期 → 记录与步骤一起丢
+    rec.compact_log(keep_recent_days=0)
     assert rec.steps_of("t1") == []
 
-
-# ── ② 指纹与成败判定 ────────────────────────────────────────
 
 def test_step_key_is_argument_order_insensitive() -> None:
     a = tool_exec._step_key("web_search", {"q": "x", "n": 3})
@@ -86,8 +82,6 @@ def test_step_key_is_argument_order_insensitive() -> None:
 def test_step_ok_rejects_failure_texts(text, ok) -> None:
     assert tool_exec._step_ok(text) is ok
 
-
-# ── ③ 续跑复用 ──────────────────────────────────────────────
 
 def test_run_tool_calls_reuses_completed_steps(monkeypatch) -> None:
     executed: list = []
@@ -124,16 +118,14 @@ def test_run_tool_calls_skips_recording_failures(monkeypatch) -> None:
     assert rec.steps == [], "失败/超时步不能进 checkpoint(否则续跑会把失败当完成)"
 
 
-# ── ④ 装载与生命周期钩子 ────────────────────────────────────
-
 def test_load_resume_cache_filters_bad_steps() -> None:
     rows = [
-        {"kind": "stage", "name": "act"},                                  # 非工具步 → 跳过
+        {"kind": "stage", "name": "act"},
         {"kind": "tool", "name": "web_search", "key": "k1", "result": "ok"},
         {"kind": "tool", "name": "web_search", "key": "k2", "result": "x",
-         "truncated": True},                                               # 截断 → 不复用
-        {"kind": "tool", "name": "web_search", "key": "k3", "result": "  "},  # 空 → 不复用
-        {"kind": "tool", "name": "web_search", "result": "no-key"},         # 无指纹 → 跳过
+         "truncated": True},
+        {"kind": "tool", "name": "web_search", "key": "k3", "result": "  "},
+        {"kind": "tool", "name": "web_search", "result": "no-key"},
     ]
     fake = types.SimpleNamespace(_recovery=_Rec(rows))
     assert CognitiveAgent._load_resume_cache(fake, "t1") == {"k1": {"name": "web_search",
@@ -151,6 +143,6 @@ def test_lifecycle_hooks_record_for_any_agent() -> None:
     assert rec.started[0]["channel"] == "cli"
     assert rec.finished == [("t1", "done")]
 
-    CognitiveAgent._on_session_started(types.SimpleNamespace(), "t1", "x", {})   # 无 recovery
+    CognitiveAgent._on_session_started(types.SimpleNamespace(), "t1", "x", {})
     CognitiveAgent._on_task_settled(types.SimpleNamespace(), "t1", "done")
     CognitiveAgent._record_stage(types.SimpleNamespace(), "t1", "recall")
