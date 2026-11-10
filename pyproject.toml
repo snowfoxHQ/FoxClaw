@@ -139,7 +139,7 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# S2 迁移完成:全部 76 个测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
+# S2 迁移完成:全部测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
 # 注意:网关/内置MCP/流式限流等少数测试依赖模块级单例(FOXCLAW_GATEWAY、FOXCLAW_MCP_SERVER、
 # _STREAM_LIMITER 均在 import 时按 env 固化),单进程 `pytest tests/` 会让这些单例被首个
 # import 定死、相互污染。故全量执行统一走 tests/run_all.py(每个文件独立子进程
