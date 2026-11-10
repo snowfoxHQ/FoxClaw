@@ -87,7 +87,7 @@ foxclaw/
 │   ├── capability/ governance/   embedding 单例 / 治理中间件
 ├── vendor/hmr/ vendor/hkc/       HMR v2.0 记忆运行时 + HKC 知识核心(已内嵌)
 ├── examples/                     样例数据
-├── tests/                        110 个测试文件(全部 pytest)+ run_all.py
+├── tests/                        全部 pytest 组织 + run_all.py 一键跑全量回归
 └── docs/                         RUN / RUN_CN / CHANNELS / GOVERNANCE / RELEASE / 配置指南
 ```
 
@@ -103,7 +103,7 @@ foxclaw/
 python -m venv .venv
 .venv\Scripts\activate            # macOS / Linux: source .venv/bin/activate
 
-# 2. 安装锁定版本的依赖(96 个条目,含 torch / faiss,约 1GB)
+# 2. 安装锁定版本的依赖(含 torch / faiss,约 1GB)
 pip install -r requirements.txt
 pip install -e . --no-deps        # 装 foxclaw 本体,不再重解析依赖
 
