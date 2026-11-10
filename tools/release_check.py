@@ -71,6 +71,10 @@ def _npm_package(root: Path) -> dict:
     return json.loads((root / "npm" / "package.json").read_text(encoding="utf-8"))
 
 
+def _frontend_package(root: Path) -> dict:
+    return json.loads((root / "frontend_src" / "package.json").read_text(encoding="utf-8"))
+
+
 def project_name(root: Path = ROOT) -> str:
     try:
         return _project(root).get("name", "")
@@ -79,7 +83,7 @@ def project_name(root: Path = ROOT) -> str:
 
 
 def collect_versions(root: Path = ROOT) -> dict:
-    """四处版本号;读不到留空串,交给 check_versions 报 unreadable。"""
+    """五处版本号;读不到留空串,交给 check_versions 报 unreadable。"""
     def safe(fn, *a):
         try:
             return fn(*a) or ""
@@ -91,6 +95,7 @@ def collect_versions(root: Path = ROOT) -> dict:
         "foxclaw/__init__.py:__version__": safe(_dunder_version, root),
         "npm/package.json:version": safe(lambda: _npm_package(root)["version"]),
         "npm/index.js:export const version": safe(_npm_index_version, root),
+        "frontend_src/package.json:version": safe(lambda: _frontend_package(root)["version"]),
     }
 
 
