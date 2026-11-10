@@ -1,11 +1,13 @@
 param(
     [switch]$Apply,
-    [string]$PublicRepo = "C:\Users\snow\projects\FoxClaw-public",
-    [string]$Message = ""
+    [string]$Message = "",
+    [string]$Remote = "origin",
+    [string]$Branch = "main"
 )
 
 $ErrorActionPreference = "Stop"
 $src = Split-Path -Parent $PSScriptRoot
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $ExcludeDirs = @(
     ".git/",
@@ -78,78 +80,107 @@ function Test-Excluded {
     return $false
 }
 
-if (-not (Test-Path $PublicRepo)) { throw "public repo not found: $PublicRepo" }
+function Read-TreeEntries {
+    param([string]$Ref)
+    $out = & git -C $src -c core.quotepath=false ls-tree -r $Ref
+    if ($LASTEXITCODE -ne 0) { throw "ls-tree $Ref failed" }
+    $list = @()
+    foreach ($e in $out) {
+        if (-not $e) { continue }
+        $tab = $e.IndexOf("`t")
+        if ($tab -lt 0) { continue }
+        $meta = $e.Substring(0, $tab) -split ' '
+        $list += [pscustomobject]@{ Mode = $meta[0]; Sha = $meta[2]; Path = $e.Substring($tab + 1) }
+    }
+    return $list
+}
 
-$plan = @()
-foreach ($f in Get-ChildItem -Path $src -Recurse -File -Force) {
-    $rel = $f.FullName.Substring($src.Length + 1)
-    if (Test-Excluded $rel) { continue }
-    $dest = Join-Path $PublicRepo $rel
-    if (-not (Test-Path $dest) -or (Get-FileHash $f.FullName -Algorithm MD5).Hash -ne (Get-FileHash $dest -Algorithm MD5).Hash) {
-        $plan += $rel
+function Remove-IndexPaths {
+    param([string[]]$Paths)
+    if (-not $Paths -or $Paths.Count -eq 0) { return }
+    for ($i = 0; $i -lt $Paths.Count; $i += 50) {
+        $chunk = $Paths[$i..([Math]::Min($i + 49, $Paths.Count - 1))]
+        & git -C $src update-index --force-remove -- @chunk
+        if ($LASTEXITCODE -ne 0) { throw "update-index --force-remove failed" }
     }
 }
 
-$srcSet = [System.Collections.Generic.HashSet[string]]::new()
-foreach ($f in Get-ChildItem -Path $src -Recurse -File -Force) {
-    $srcSet.Add($f.FullName.Substring($src.Length + 1).Replace('\', '/')) | Out-Null
+& git -C $src fetch --quiet $Remote $Branch
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[WARN] fetch $Remote/$Branch failed, using last known remote ref" -ForegroundColor Yellow
 }
-$stale = @()
-foreach ($rel in (& git -C $PublicRepo -c core.quotepath=false ls-files)) {
-    if (-not $rel) { continue }
-    $norm = $rel.Replace('\', '/')
-    if ($srcSet.Contains($norm)) { continue }
-    if (Test-Excluded $norm) { continue }
-    $stale += $rel
+$base = (& git -C $src rev-parse "$Remote/$Branch").Trim()
+if (-not $base) { Write-Host "[ABORT] cannot resolve $Remote/$Branch" -ForegroundColor Red; exit 1 }
+$baseTree = (& git -C $src rev-parse "$base^{tree}").Trim()
+
+$head = Read-TreeEntries "HEAD"
+$prev = Read-TreeEntries $baseTree
+$prevMap = @{}
+foreach ($p in $prev) { $prevMap[$p.Path] = $p }
+$headSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($h in $head) { $headSet.Add($h.Path) | Out-Null }
+
+$fresh = @($head | Where-Object { -not (Test-Excluded $_.Path) })
+$headExcluded = @($head | Where-Object { Test-Excluded $_.Path } | ForEach-Object { $_.Path })
+$keepOld = @($prev | Where-Object { (Test-Excluded $_.Path) -and $headSet.Contains($_.Path) })
+$stale = @($prev | Where-Object { -not $headSet.Contains($_.Path) } | ForEach-Object { $_.Path })
+
+$idx = Join-Path ([IO.Path]::GetTempPath()) ("foxclaw-pub-" + [guid]::NewGuid().ToString("N") + ".idx")
+$env:GIT_INDEX_FILE = $idx
+try {
+    & git -C $src read-tree HEAD
+    if ($LASTEXITCODE -ne 0) { throw "read-tree HEAD failed" }
+
+    Remove-IndexPaths $headExcluded
+
+    foreach ($k in $keepOld) {
+        & git -C $src update-index --add --cacheinfo "$($k.Mode),$($k.Sha),$($k.Path)"
+        if ($LASTEXITCODE -ne 0) { throw "restore failed: $($k.Path)" }
+    }
+
+    Remove-IndexPaths $stale
+
+    $tree = (& git -C $src write-tree).Trim()
+    if (-not $tree) { throw "write-tree returned nothing" }
+}
+finally {
+    Remove-Item Env:\GIT_INDEX_FILE -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $idx) { Remove-Item -LiteralPath $idx -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Host ("files to sync: {0}  (target: {1})" -f $plan.Count, $PublicRepo)
-if ($plan.Count -eq 0 -and $stale.Count -eq 0) { Write-Host "no changes."; return }
-$plan | Select-Object -First 40 | ForEach-Object { Write-Host "  + $_" }
-if ($plan.Count -gt 40) { Write-Host ("  ... and {0} more" -f ($plan.Count - 40)) }
-if ($stale.Count -gt 0) {
-    Write-Host ("files to delete: {0}" -f $stale.Count)
-    $stale | Select-Object -First 40 | ForEach-Object { Write-Host "  - $_" }
-    if ($stale.Count -gt 40) { Write-Host ("  ... and {0} more" -f ($stale.Count - 40)) }
+$treeFiles = @(& git -C $src -c core.quotepath=false ls-tree -r --name-only $tree)
+$prevExcluded = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($p in $prev) { if (Test-Excluded $p.Path) { $prevExcluded.Add($p.Path) | Out-Null } }
+$leak = @($treeFiles | Where-Object { (Test-Excluded $_) -and -not $prevExcluded.Contains($_) })
+if ($leak.Count -gt 0) {
+    Write-Host "[ABORT] new internal paths inside candidate tree:" -ForegroundColor Red
+    $leak | Select-Object -First 20 | ForEach-Object { Write-Host "  ! $_" -ForegroundColor Red }
+    exit 1
 }
 
-if (-not $Apply) {
-    Write-Host "`n(dry-run) re-run with -Apply to sync."
+Write-Host ("public tree: {0} files | from HEAD: {1} | kept as-is: {2} | removed: {3}" -f $treeFiles.Count, $fresh.Count, $keepOld.Count, $stale.Count)
+
+if ($tree -eq $baseTree) {
+    Write-Host "no changes."
     return
 }
 
-foreach ($rel in $plan) {
-    $dest = Join-Path $PublicRepo $rel
-    $dir = Split-Path -Parent $dest
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    Copy-Item (Join-Path $src $rel) $dest -Force
-}
-
-foreach ($rel in $stale) {
-    & git -C $PublicRepo rm --quiet -- $rel | Out-Null
-}
-
-& git -C $PublicRepo add -A | Out-Null
-$staged = & git -C $PublicRepo diff --cached --name-only
-$bad = @($staged | Where-Object { Test-Excluded $_ })
-if ($bad.Count -gt 0) {
-    Write-Host "`n[ABORT] internal paths staged, index reset:" -ForegroundColor Red
-    $bad | ForEach-Object { Write-Host "  ! $_" -ForegroundColor Red }
-    & git -C $PublicRepo reset | Out-Null
-    exit 1
-}
-if (-not $staged) { Write-Host "nothing staged."; return }
+Write-Host ("`nchanges vs {0}/{1} ({2}):" -f $Remote, $Branch, $base.Substring(0, 7))
+& git -C $src --no-pager diff --stat $baseTree $tree | Select-Object -First 80
 
 $msg = if ($Message) { $Message } else { "sync: update from development repo" }
-& git -C $PublicRepo commit --quiet -m $msg
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "`n[ABORT] commit failed." -ForegroundColor Red
-    exit 1
+$commit = (& git -C $src commit-tree $tree -p $base -m $msg).Trim()
+if (-not $commit) { Write-Host "[ABORT] commit-tree failed" -ForegroundColor Red; exit 1 }
+Write-Host "`ncandidate commit: $commit (parent $($base.Substring(0,7)))"
+
+if (-not $Apply) {
+    Write-Host "`n(dry-run) re-run with -Apply to push."
+    return
 }
 
-& git -C $PublicRepo push origin main
+& git -C $src push $Remote "${commit}:refs/heads/$Branch"
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "`n[ABORT] push failed; commit is local only. re-run -Apply to retry." -ForegroundColor Red
+    Write-Host "[ABORT] push failed; nothing changed on $Remote." -ForegroundColor Red
     exit 1
 }
-Write-Host "`nsynced and pushed." -ForegroundColor Green
+Write-Host "`npushed $($commit.Substring(0,7)) to $Remote/$Branch." -ForegroundColor Green
