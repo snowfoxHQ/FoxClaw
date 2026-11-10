@@ -42,9 +42,10 @@ python tools/release_check.py --dist dist --npm-tgz dist/*.tgz
 - npm tgz 文件名与 `package/package.json` 的 `name@version` 一致;
 - 缺 `vendor/` 只报 `[WARN]`(见上表),不会拦发布。
 
-版本号的唯一来源是 `pyproject.toml`,另外三处(`foxclaw/__init__.py`、
-`npm/package.json`、`npm/index.js`)由 `tests/test_version_sync.py` 盯着必须相等。
-改版本时**四处一起改**,只改一处会在第一道检查里挂掉。
+版本号的唯一来源是 `pyproject.toml`,另外四处(`foxclaw/__init__.py`、
+`npm/package.json`、`npm/index.js`、`frontend_src/package.json`)由
+`tests/test_version_sync.py` 盯着必须相等。
+改版本时**五处一起改**,只改一处会在第一道检查里挂掉。
 
 ## 2. 打 tag(自动构建 + 挂 Release,不外发)
 
