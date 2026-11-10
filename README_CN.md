@@ -9,14 +9,16 @@ Foxclaw:        记忆 = 持续认知运行时,智能体 = 会推理 · 会学�
 
 ## 一、这是什么
 
-Foxclaw 不是"又一个智能体框架",而是一个真正记得住事的个人智能体；技术上它是一个智能体运行时。它建立在 HMR(Foxclaw 记忆运行时)之上,核心护城河独立于任何大模型:
+主流智能体框架把记忆当存储:开新会话就归零,记忆只是检索。Foxclaw 把记忆做成**持续运行的认知层**——推理、校准、学习都发生在这一层,并且与 LLM 彻底解耦:换模型不影响判断力。
+
+它建立在 HMR(Foxclaw 记忆运行时)之上,四件事构成护城河:
 
 - **推理链(ThoughtChain)** —— 每个智能体的推理轨迹是可审计、可对比的有向图,不是普通日志
-- **线束(Harness)** —— 跨层约束与校准:三维漂移检测(语义/工具/范围)+ 影子模式自校准 + 策略自学习
-- **演化(Evolution)** —— 每次线束截断都让策略学习,系统越用越准
-- **运行时治理** —— 幂等、崩溃恢复、循环检测等,保证系统在真实运行中可靠、可审计、不丢不重
+- **线束(Harness)** —— 跨层约束与校准:三维漂移检测(语义 / 工具 / 范围)+ 影子模式自校准 + 策略自学习
+- **演化(Evolution)** —— 每次线束截断都喂给策略,系统越用越准
+- **运行时治理** —— 幂等、崩溃恢复、循环检测,保证真实运行中可靠、可审计、不丢不重
 
-三个智能体:主管(协调)、财务(理财)、办公学习(学习 + 日程行程)。每个拥有独立记忆与策略演化,通过 Skill 接入层挂载外部生态,通过渠道层接入主流消息平台。原「助手」「行政」已**下放为指令技能**(`skills/general-assistant`、`skills/schedule-itinerary`),按需挂载,不再单列 Agent。
+三个智能体:**主管**(协调)、**财务**(理财)、**办公学习**(学习 + 日程行程)。各自持有隔离记忆与策略演化,通过 Skill 层挂载外部生态,通过渠道层接入四个消息平台。早期的「助手」「行政」已**下放为指令技能**(`skills/general-assistant`、`skills/schedule-itinerary`),按需挂载,不再单列 Agent。
 
 ## 二、三个智能体与领域内核
 
@@ -69,11 +71,12 @@ foxclaw/
 │   ├── core/                     thought_chain / memory_adapter / model_router /
 │   │                             system_bus / truth_pipeline / token_meter /
 │   │                             web_search / compaction / idempotency / recovery
-│   ├── kernel/                   运行时内核:调度 / 事件 / 能力 / 生命周期 / 准入
+│   ├── kernel/                   运行时内核:调度 / 进程 / 能力 / 准入(spine + sentinel)
 │   ├── pipeline/ planning/       任务执行管线 + 规划原语
-│   ├── cognitive/ knowledge/     领域推理 + 知识接入
-│   ├── agents/                   base.py(统一 run_task 模板) + agents.py(五智能体)
-│   ├── harness/                  harness.py(三维漂移) + loop_detection.py
+│   ├── cognitive/ knowledge/     领域推理 + 真相结晶
+│   ├── agents/                   base.py(CognitiveAgent 模板)+ agents.py
+│   │                             + impl/(财务 / 办公 / 主管 —— 三个智能体)
+│   ├── harness/                  harness.py(三维漂移)+ loop_detection.py + 策略自学习
 │   ├── finance/                  财务内核 + 三件套(evidence/graph/reconcile)
 │   ├── learning/                 学习内核(SM-2 + 知识图谱)
 │   ├── itinerary/                行程内核(TSP + 高德)
@@ -81,12 +84,11 @@ foxclaw/
 │   ├── skills/                   Skill 接入层 + 权限(permission)/钩子/断路器/循环防护
 │   ├── search/                   HSR 认知搜索(HMR 记忆 + HKC 知识 + 联网,融入)
 │   ├── browser/                  HIR 浏览器子系统(AI 用的浏览器,融入)
-│   ├── orchestration/            跨 Agent 编排(P3 已去领域硬编码,通用)
 │   ├── capability/ governance/   embedding 单例 / 治理中间件
 ├── vendor/hmr/ vendor/hkc/       HMR v2.0 记忆运行时 + HKC 知识核心(已内嵌)
 ├── examples/                     样例数据
-├── tests/                        76 个测试文件(全部 pytest)+ run_all.py
-└── docs/                         RUN / CHANNELS / GOVERNANCE / 配置指南(公开)
+├── tests/                        全部 pytest 组织 + run_all.py 一键跑全量回归
+└── docs/                         RUN / RUN_CN / CHANNELS / GOVERNANCE / RELEASE / 配置指南
 ```
 
 ## 六、环境要求
@@ -101,7 +103,7 @@ foxclaw/
 python -m venv .venv
 .venv\Scripts\activate            # macOS / Linux: source .venv/bin/activate
 
-# 2. 安装锁定版本的依赖(77 个包,含 torch / faiss,约 1GB)
+# 2. 安装锁定版本的依赖(含 torch / faiss,约 1GB)
 pip install -r requirements.txt
 pip install -e . --no-deps        # 装 foxclaw 本体,不再重解析依赖
 
@@ -177,7 +179,7 @@ docker run -d --name foxclaw \
   -v foxclaw_data:/app/foxclaw_data \
   foxclaw
 
-# 容器内跑全量回归(76 项,验证镜像健康)
+# 容器内跑全量回归(验证镜像健康)
 docker run --rm foxclaw python tests/run_all.py
 ```
 

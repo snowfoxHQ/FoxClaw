@@ -42,7 +42,7 @@ python tests/test_api.py
 这些测试在没有大模型 key、没有真实 HMR 的情况下也能跑 —— 证明认知运行时与大模型解耦。
 
 > **关于 pytest**:76 个测试已**全部迁移为 pytest**(S2 迁移),需 `pip install pytest`
-> (或 `pip install -e ".[dev]"`)才会执行。未安装时运行器会**显式标记全部 76 项为「跳过」**
+> (或 `pip install -e ".[dev]"`)才会执行。未安装时运行器会**显式标记全部测试项为「跳过」**
 > 并从分母扣除 —— 不会静默消失,也不会伪装成通过。
 
 ## 三、启动服务
@@ -92,7 +92,7 @@ HMR v2.0 已内嵌在 `vendor/hmr/`,启动自动接入,记忆落盘到数据目�
 
 | 端点 | 说明 |
 |------|------|
-| `GET  /api/status` | 五个智能体状态 |
+| `GET  /api/status` | 三个智能体状态 |
 | `POST /api/task` | 执行任务 `{task, agent_id}` |
 | `GET  /api/thoughtchain/{agent}/chain` | 推理链 |
 | `GET  /api/thoughtchain/{agent}/summary` | 推理链摘要 |

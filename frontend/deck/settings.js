@@ -88,7 +88,7 @@ async function renderSettingDetail(key){
       <div class="sd-kv"><span>办公 Office</span><b>学习 · 知识图谱</b></div>
       <div class="sd-kv"><span>助手 Assistant</span><b>通用 · Skill 接入</b></div>
       <div class="sd-sec">三大模块</div>
-      <div class="sd-desc">Foxclaw(主系统) · Agents(五智能体) · HMR(记忆系统)</div>
+      <div class="sd-desc">Foxclaw(主系统) · Agents(三智能体) · HMR(记忆系统)</div>
       <div class="sd-note">配置说明见项目 <code>docs/配置指南.md</code></div>`;
   }else if(key && key.startsWith('mem-')){
     const s=await(await fetch(`${API}/memory/stats`)).json().catch(()=>({}));
