@@ -181,3 +181,9 @@ Different jobs, both required:
 - the code layer (this document) owns the deterministic floor: a match is a match, no model judgement involved.
 
 With only the prompt, a successful jailbreak leaves nothing behind it. With only the code, every edge case lives or dies by the lexicon, and answers turn mechanical. Together, the model knows where the line is and there is a backstop when it crosses anyway.
+
+## Scope of responsibility
+
+This repository ships no political, sexual, or violent term list. Whether to mount one, which categories, and which mode are deployment decisions — no policy is assumed here.
+
+The layer is string matching after normalisation: it does not guarantee coverage and is not a content moderation or compliance service. Deployers who expose the service publicly are responsible for their own content compliance. The software is provided "as is", see [LICENSE](../LICENSE).
