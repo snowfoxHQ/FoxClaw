@@ -152,16 +152,23 @@ tag 是不可变快照,`origin/main` 是不断前进的公开状态,两者 SHA �
   `permissions: id-token: write`。
 - npm:npm ≥ 11.5 支持 trusted publishing,同样加 `id-token: write` 并去掉 `NODE_AUTH_TOKEN`。
 
-## 仓库(2026-11-12 订正)
+## 仓库(2026-11-12)
 
-只有一个仓库:`snowfoxHQ/FoxClaw`(public)。`origin` 就指向它,没有第二个开发库。
+对外只有一个仓库:`snowfoxHQ/FoxClaw`(public)。`origin` 指向它。
 
 | 位置 | 用途 |
 |---|---|
 | `origin/main` | 唯一对外分支。由 `tools/sync_public.ps1` 从本地 HEAD 构造后推送,只含导出白名单 |
-| 本地 `personal` | 开发分支。内部文档与中间提交都在这里,不直接 push 到 `origin` |
+| 本地 `personal` | 开发分支。中间提交都在这里,不直接 push 到 `origin` |
+| `dev` | 私有镜像,异地备份。整份开发历史 + 内部文档,不参与发布,不构建产物 |
 
-两者的 SHA 天然不同(同一份树、不同父历史),所以 tag 只认 `origin/main`。
+`origin/main` 由脚本重新构造,和 `personal` 的 SHA 天然不同(同一份树、不同父历史),
+所以 tag 只认 `origin/main`。
+
+内部文档(`docs/internal`、`docs/reports`、`docs/superpowers`、`FIX_EXECUTION_REPORT.md`、
+`REFACTOR_PLAN.md`、`SYSTEM_REVIEW_*.md`)在 `.gitignore` 里,靠 `git add -f` 手动纳入跟踪,
+只随 `dev` 备份;导出脚本另有排除表兜底,二者不同步也不会泄漏——但改 `.gitignore` 或
+排除表时两处都要看。
 
 旧名 `SnowFoxClaw` 已不存在——GitHub 上查无此仓,也没有改名跳转。切 OIDC 时 publisher
 的 repo 必须写 `FoxClaw`:registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配,
