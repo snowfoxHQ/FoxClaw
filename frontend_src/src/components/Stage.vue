@@ -17,6 +17,7 @@ import { profile, loadProfile, saveNickname } from '../stores/profile.js'
 import { openKu } from '../stores/panels.js'
 import { getJSON } from '../api.js'
 import { clip } from '../lib/fmt.js'
+import { t } from '../lib/i18n.js'
 
 const PANELS = {
   activity: ActivityPanel,
@@ -33,11 +34,7 @@ const panel = computed(() => PANELS[state.module] || null)
 
 const hasTabs = computed(() => !!state.doc)
 
-const EXAMPLES = [
-  '现在系统里有哪些技能可以用?',
-  '帮我把今天要做的事排个优先级',
-  '用一句话说清你能帮我做什么',
-]
+const EXAMPLES = computed(() => [t('hero.q1'), t('hero.q2'), t('hero.q3')])
 
 const recent = ref([])
 
@@ -57,9 +54,9 @@ async function saveNick() {
   if (!n) return
   try {
     await saveNickname(n)
-    say(`记住了,以后称呼你为 ${n}`)
+    say(t('hero.saidNick', { name: n }))
   } catch (e) {
-    say(`保存失败:${e.message}`, 4000)
+    say(t('hero.errSave', { msg: e.message }), 4000)
   }
 }
 
@@ -94,7 +91,7 @@ function resume() {
       </button>
       <button v-if="state.doc" class="tab on doc" @click="closeDoc()">
         <span class="t">{{ state.doc.title }}</span>
-        <span class="x" title="关闭">✕</span>
+        <span class="x" :title="t('hero.close')">✕</span>
       </button>
     </div>
 
@@ -107,21 +104,21 @@ function resume() {
         <MessageStream v-if="chat.messages.length" />
         <div v-else class="core-empty">
           <div class="hero">
-            <div class="hero-t">问我任何事</div>
-            <div class="core-cap">主管 Agent 会按需调度子 Agent;想让它读你的知识库,直接问就行</div>
+            <div class="hero-t">{{ t('hero.title') }}</div>
+            <div class="core-cap">{{ t('hero.cap') }}</div>
           </div>
 
           <div v-if="askNick" class="ask-nick">
-            <span class="an-q">我该怎么称呼你?</span>
+            <span class="an-q">{{ t('hero.askName') }}</span>
             <input
               v-model="nick"
               class="an-in"
               maxlength="24"
-              placeholder="例如:snow"
+              :placeholder="t('hero.namePh')"
               @keydown.enter.prevent="saveNick"
             />
-            <button class="an-ok" :disabled="profile.saving || !nick.trim()" @click="saveNick">就这么叫</button>
-            <button class="an-skip" title="以后在设置里也能填" @click="skipNick">跳过</button>
+            <button class="an-ok" :disabled="profile.saving || !nick.trim()" @click="saveNick">{{ t('hero.confirm') }}</button>
+            <button class="an-skip" :title="t('hero.skipTip')" @click="skipNick">{{ t('hero.skip') }}</button>
           </div>
 
           <div class="tries">
@@ -131,13 +128,13 @@ function resume() {
           </div>
 
           <button v-if="lastSession" class="resume" @click="resume">
-            <span class="rl">继续上次</span>
-            <b>{{ clip(lastSession.title || '未命名会话', 28) }}</b>
-            <span class="rm">{{ lastSession.message_count }} 条消息</span>
+            <span class="rl">{{ t('hero.resume') }}</span>
+            <b>{{ clip(lastSession.title || t('hero.untitled'), 28) }}</b>
+            <span class="rm">{{ t('hero.msgs', { n: lastSession.message_count }) }}</span>
           </button>
 
           <div v-if="recent.length" class="recent">
-            <div class="rh">最近知识</div>
+            <div class="rh">{{ t('hero.recentKnowledge') }}</div>
             <div class="rk-list">
               <button v-for="k in recent" :key="k.ku_id" class="rk" :title="k.summary || k.name" @click="openKu(k.ku_id)">
                 {{ clip(k.name || k.ku_id, 30) }}

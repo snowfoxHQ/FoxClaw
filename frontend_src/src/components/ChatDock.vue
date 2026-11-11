@@ -9,6 +9,7 @@ import {
   runSearch, say, send, setMode, stop,
 } from '../stores/chat.js'
 import { setModule } from '../stores/app.js'
+import { t } from '../lib/i18n.js'
 
 const text = ref('')
 const ta = ref(null)
@@ -17,29 +18,31 @@ const mq = ref('')
 const hover = ref(0)
 const skills = ref([])
 
-const CMD = [
-  { key: '/新建', desc: '开一个新会话', run: () => newSession() },
-  { key: '/流式', desc: '切到流式对话', run: () => { setMode('stream'); say('已切到流式对话') } },
-  { key: '/任务', desc: '切到编排任务', run: () => { setMode('orchestrate'); say('已切到编排任务') } },
-  { key: '/搜索', desc: '检索记忆/知识/联网:/搜索 关键词', arg: true },
-  { key: '/摄入', desc: '选文件摄入知识库', run: () => requestIngest() },
-  { key: '/设置', desc: '打开设置面板', run: () => setModule('settings') },
-  { key: '/停止', desc: '停止当前生成', run: () => stop() },
-  { key: '/清屏', desc: '只清空当前显示,不动后端', run: () => { chat.messages = [] } },
+// 命令字面量保持中文(输入语法不变),只有说明文字跟随界面语言
+const CMD = computed(() => [
+  { key: '/新建', desc: t('chat.cmd.new'), run: () => newSession() },
+  { key: '/流式', desc: t('chat.cmd.stream'), run: () => { setMode('stream'); say(t('chat.saidStream')) } },
+  { key: '/任务', desc: t('chat.cmd.orchestrate'), run: () => { setMode('orchestrate'); say(t('chat.saidOrchestrate')) } },
+  { key: '/搜索', desc: t('chat.cmd.search'), arg: true },
+  { key: '/摄入', desc: t('chat.cmd.ingest'), run: () => requestIngest() },
+  { key: '/设置', desc: t('chat.cmd.settings'), run: () => setModule('settings') },
+  { key: '/停止', desc: t('chat.cmd.stop'), run: () => stop() },
+  { key: '/清屏', desc: t('chat.cmd.clear'), run: () => { chat.messages = [] } },
   {
     key: '/帮助',
-    desc: '列出全部命令',
-    run: () => pushLocal(CMD.map((c) => `${c.key.padEnd(6)}  ${c.desc}`).join('\n')),
+    desc: t('chat.cmd.help'),
+    run: () => pushLocal(CMD.value.map((c) => `${c.key.padEnd(6)}  ${c.desc}`).join('\n')),
   },
-]
+])
 
 const busy = () => chat.streamState === 'streaming'
 
 const items = computed(() => {
   const q = mq.value.toLowerCase()
   if (menu.value === 'slash') {
-    return CMD.filter((c) => c.key.slice(1).toLowerCase().includes(q) || c.desc.includes(mq.value))
-      .map((c) => ({ label: c.key, desc: c.desc, tag: c.arg ? '带参数' : '' }))
+    return CMD.value
+      .filter((c) => c.key.slice(1).toLowerCase().includes(q) || c.desc.includes(mq.value))
+      .map((c) => ({ label: c.key, desc: c.desc, tag: c.arg ? t('chat.tagArg') : '' }))
   }
   if (menu.value === 'at') {
     return skills.value
@@ -49,7 +52,7 @@ const items = computed(() => {
   return []
 })
 
-const hint = computed(() => (menu.value === 'slash' ? '命令' : '提及技能'))
+const hint = computed(() => (menu.value === 'slash' ? t('chat.hintSlash') : t('chat.hintAt')))
 
 onMounted(async () => {
   grow()
@@ -130,12 +133,12 @@ function choose(i) {
   nextTick(() => { el && el.focus(); grow() })
 }
 
-function tryCommand(t) {
-  if (!t.startsWith('/')) return false
-  const [head, ...rest] = t.split(/\s+/)
-  const cmd = CMD.find((c) => c.key === head)
+function tryCommand(raw) {
+  if (!raw.startsWith('/')) return false
+  const [head, ...rest] = raw.split(/\s+/)
+  const cmd = CMD.value.find((c) => c.key === head)
   if (!cmd) {
-    say(`未知命令:${head}`)
+    say(t('chat.unknownCmd', { head }))
     return true
   }
   const arg = rest.join(' ').trim()
@@ -232,8 +235,8 @@ function kb(n) {
         <div v-if="chat.ingest" class="chip ing" :class="chat.ingest.status">
           <span class="cn">{{ chat.ingest.name }}</span>
           <span class="cs">
-            {{ chat.ingest.status === 'done' ? `${chat.ingest.ku} 条`
-               : chat.ingest.status === 'error' ? '失败'
+            {{ chat.ingest.status === 'done' ? t('common.count', { n: chat.ingest.ku })
+               : chat.ingest.status === 'error' ? t('chat.ingestFailed')
                : `${chat.ingest.pct}%` }}
           </span>
           <span class="bar"><i :style="{ width: `${chat.ingest.status === 'done' ? 100 : chat.ingest.pct}%` }" /></span>
@@ -257,7 +260,7 @@ function kb(n) {
           ref="ta"
           v-model="text"
           rows="1"
-          placeholder="告诉我你想做什么…  / 命令 · @ 技能 · Enter 发送"
+          :placeholder="t('chat.placeholder')"
           @keydown="onKey"
           @input="grow"
           @focus="onFocus"
@@ -265,7 +268,7 @@ function kb(n) {
           @click="syncMenu"
           @keyup="syncMenu"
         />
-        <button class="send" :class="{ stop: busy() }" :title="busy() ? '停止生成' : '发送'" @click="submit">
+        <button class="send" :class="{ stop: busy() }" :title="busy() ? t('chat.stopGen') : t('chat.send')" @click="submit">
           {{ busy() ? '■' : '➤' }}
         </button>
       </div>
