@@ -6,7 +6,12 @@ Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
 ## Unreleased
 
-A conflict card can now be dismissed instead of decided, and the validator stops reading every Chinese 不 as a negation.
+A conflict card can now be dismissed instead of decided, the validator stops reading every Chinese 不 as a negation, and each agent gets its own rules file.
+
+**Agents**
+
+- An agent now loads `foxclaw/agents/rules/<AGENT_ID>/*.md` into its system prompt when it starts. The files are re-read on every prompt assembly, so editing rules needs no code change; the block is appended after the role prompt and yields to the safety rules above it. Set `FOXCLAW_AGENT_RULES=0` to turn it off.
+- Ships with `foxclaw/agents/rules/finance/RULES.md` — Personal Finance Agent Rules v1.0 (data truthfulness, bookkeeping accuracy, privacy, calculation conventions, advice limits, anomaly handling, memory boundaries, supervisor collaboration). The file is package data, so it travels inside the wheel instead of being silently dropped.
 
 **Knowledge**
 

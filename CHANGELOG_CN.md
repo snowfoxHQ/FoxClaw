@@ -6,7 +6,12 @@
 
 ## 未发布
 
-冲突卡可以「判为误判」，不必二选一；判定逻辑也不再见到「不」就当否定。
+冲突卡可以「判为误判」，不必二选一；判定逻辑也不再见到「不」就当否定；每个 Agent 有了自己的规则文件。
+
+**Agent**
+
+- Agent 启动时会把 `foxclaw/agents/rules/<AGENT_ID>/*.md` 读进系统提示词。每次组装提示词都重新读盘，改规则不必改代码；该段附在角色职责之后，与上游安全规则冲突时以安全规则为准。设 `FOXCLAW_AGENT_RULES=0` 可整体关闭。
+- 随包附带 `foxclaw/agents/rules/finance/RULES.md` —— Personal Finance Agent Rules v1.0（数据真实性、账目准确性、隐私、计算口径、建议边界、异常处理、记忆边界、与主管协作）。该文件属 package data，随 wheel 一起分发，不会像仓库根的 `skills/` 那样漏包。
 
 **知识**
 
