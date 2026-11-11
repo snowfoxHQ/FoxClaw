@@ -15,7 +15,7 @@ export const panels = reactive({
     recent: [], recentTotal: 0,
     ingest: 'idle', ingestMsg: '', ingestErr: '',
   },
-  memory: { state: 'idle', stats: {}, recent: [], prefs: [] },
+  memory: { state: 'idle', stats: {}, recent: [], prefs: [], pending: [] },
   review: {
     state: 'idle',
     stats: { cards: 0, learned: 0, fresh: 0, due: 0, avg_mastery: 0, load7: {}, risk: [] },
@@ -121,15 +121,17 @@ const LOADERS = {
   },
 
   async memory(p) {
-    const [st, rc, pf] = await Promise.all([
+    const [st, rc, pf, pd] = await Promise.all([
       safe(getJSON('/memory/stats')),
       safe(getJSON('/memory/recent?limit=12')),
       safe(getJSON('/preferences')),
+      safe(getJSON('/memory/pending')),
     ])
     p.stats = st || {}
     p.recent = rc?.memories || []
     p.prefs = pf?.preferences || []
-    return !!(st || rc || pf)
+    p.pending = pd?.pending || []
+    return !!(st || rc || pf || pd)
   },
 }
 
@@ -212,6 +214,17 @@ export async function gradeCard(grade) {
 
 export async function dropPreference(id) {
   await delJSON(`/preferences/${encodeURIComponent(id)}`)
+  await refreshPanel('memory')
+}
+
+// 高敏感内容被闸门拦下后停在这里,用户点头才落库(见 foxclaw/core/sensitive_write.py)
+export async function approveSensitiveWrite(id) {
+  await postJSON(`/memory/pending/${encodeURIComponent(id)}/approve`, {})
+  await refreshPanel('memory')
+}
+
+export async function rejectSensitiveWrite(id) {
+  await postJSON(`/memory/pending/${encodeURIComponent(id)}/reject`, {})
   await refreshPanel('memory')
 }
 

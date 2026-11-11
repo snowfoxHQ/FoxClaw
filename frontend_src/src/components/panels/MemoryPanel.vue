@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import PanelBox from './PanelBox.vue'
-import { panels, loadPanel, refreshPanel, dropPreference } from '../../stores/panels.js'
+import { panels, loadPanel, refreshPanel, dropPreference, approveSensitiveWrite, rejectSensitiveWrite } from '../../stores/panels.js'
 import { openDoc } from '../../stores/app.js'
 import { fmtTime, fmtNum, clip } from '../../lib/fmt.js'
 
@@ -31,6 +31,16 @@ async function drop(pref) {
   try { await dropPreference(pref.id) } catch (e) { err.value = String(e.message || e) }
   busy.value = ''
 }
+
+async function decide(item, keep) {
+  busy.value = item.id
+  err.value = ''
+  try {
+    if (keep) await approveSensitiveWrite(item.id)
+    else await rejectSensitiveWrite(item.id)
+  } catch (e) { err.value = String(e.message || e) }
+  busy.value = ''
+}
 </script>
 
 <template>
@@ -47,9 +57,31 @@ async function drop(pref) {
       <div><b>{{ fmtNum(p.stats.shared ?? 0) }}</b><span>共享</span></div>
       <div><b>{{ fmtNum(p.stats.private ?? 0) }}</b><span>私有</span></div>
       <div><b>{{ fmtNum(p.prefs.length) }}</b><span>用户偏好</span></div>
+      <div v-if="p.pending.length"><b>{{ fmtNum(p.pending.length) }}</b><span>待确认</span></div>
     </div>
 
     <div v-if="err" class="pn-st err">{{ err }}</div>
+
+    <div v-if="p.pending.length" class="pn-sec pending">
+      <div class="pn-h">待确认写入 <em>{{ p.pending.length }}</em></div>
+      <div class="pn-empty">
+        这几条含凭据、证件、健康或账户信息,按规矩没有直接写进长期记忆。确认无误再点「记住」。
+      </div>
+      <div v-for="it in p.pending" :key="it.id" class="pn-row">
+        <span class="m">
+          <b>{{ clip(it.content, 60) }}</b>
+          <span class="s">
+            {{ (it.categories || []).join(' · ') }} · {{ it.agent_id || '—' }} · {{ it.id }}
+          </span>
+        </span>
+        <button class="act ok" :disabled="busy === it.id" title="确认写入长期记忆" @click.stop="decide(it, true)">
+          记住
+        </button>
+        <button class="act" :disabled="busy === it.id" title="丢弃,不写入" @click.stop="decide(it, false)">
+          丢弃
+        </button>
+      </div>
+    </div>
 
     <div class="pn-cols">
       <div class="pn-sec">
@@ -100,13 +132,21 @@ async function drop(pref) {
     <div class="pn-note">
       后端 <code>{{ p.stats.backend || '—' }}</code> v{{ p.stats.version || '—' }} ·
       向量 <code>{{ p.stats.embedding || '—' }}</code>。
-      数据来自 <code>/api/memory/stats</code>、<code>/api/memory/recent</code>、<code>/api/preferences</code>。
+      数据来自 <code>/api/memory/stats</code>、<code>/api/memory/recent</code>、<code>/api/preferences</code>、<code>/api/memory/pending</code>。
     </div>
   </PanelBox>
 </template>
 
 <style scoped>
 .sec-gap { margin-top: 14px; }
+.pending .pn-h em { color: var(--amber, #d99a2b); }
+.act {
+  flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 600; color: var(--dim);
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+}
+.act.ok { color: var(--accent, #3b82f6); border-color: currentColor; }
+.act:disabled { opacity: 0.5; }
 .del {
   flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill);
   font-size: 11px; font-weight: 600; color: var(--dim);
