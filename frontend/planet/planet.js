@@ -1053,6 +1053,7 @@ function renderConflicts(){
         <div class="cc-claim-conf">置信度 ${(b.confidence*100).toFixed(0)}%</div></div>
       <div class="cc-resolve">
         <button class="btn btn-sm btn-compile" ${pick?'':'disabled'} onclick="resolveConflict('${c.conflict_id}')">采纳所选观点</button>
+        <button class="btn btn-sm btn-ghost" onclick="dismissConflict('${c.conflict_id}')" title="两者并不互斥：关闭卡片，双方观点都保留">误判</button>
       </div>
     </div>`;
   }).join('');
@@ -1088,6 +1089,23 @@ async function resolveConflict(cid){
     delete state.conflictPick[cid];
     await loadData();
   }catch(e){ toast('裁决失败','err'); }
+}
+
+async function dismissConflict(cid){
+  if(client.demo){
+    const c=state.conflicts.find(x=>x.conflict_id===cid);
+    if(c) c.status='resolved';
+    delete state.conflictPick[cid];
+    toast('已按误判关闭，双方观点都保留','ok');
+    renderConflicts();
+    return;
+  }
+  try{
+    await client._post(`/conflicts/${cid}/dismiss`,{note:'UI 误判关闭',resolved_by:'ui'});
+    toast('已按误判关闭，双方观点都保留','ok');
+    delete state.conflictPick[cid];
+    await loadData();
+  }catch(e){ toast('关闭失败','err'); }
 }
 
 let searchTimer;

@@ -125,6 +125,28 @@ class BaseClient(ABC):
         """人工裁决冲突。"""
         ...
 
+    @abstractmethod
+    def dismiss_conflict(
+        self,
+        conflict_id: str,
+        note: str = "",
+        resolved_by: str = "sdk",
+    ) -> bool:
+        """把误判冲突关闭：不判胜负，双方观点都保留。"""
+        ...
+
+    def dismiss_conflicts(
+        self,
+        conflict_ids: list[str],
+        note: str = "",
+        resolved_by: str = "sdk",
+    ) -> int:
+        """批量关闭误判冲突，返回真正关闭的张数。默认逐条调用。"""
+        return sum(
+            1 for cid in conflict_ids
+            if self.dismiss_conflict(cid, note=note, resolved_by=resolved_by)
+        )
+
     # ── 系统 ─────────────────────────────────────────────────
 
     @abstractmethod

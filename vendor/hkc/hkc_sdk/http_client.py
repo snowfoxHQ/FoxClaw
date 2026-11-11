@@ -152,6 +152,25 @@ class HTTPClient(BaseClient):
         except HKCBadRequest:
             return False
 
+    def dismiss_conflict(self, conflict_id, note="", resolved_by="sdk") -> bool:
+        from .exceptions import HKCBadRequest
+        try:
+            data = self._request("POST", f"/conflicts/{conflict_id}/dismiss", json={
+                "note": note, "resolved_by": resolved_by,
+            })
+            return data.get("dismissed", False)
+        except HKCBadRequest:
+            return False
+
+    def dismiss_conflicts(self, conflict_ids, note="", resolved_by="sdk") -> int:
+        conflict_ids = list(conflict_ids or [])
+        if not conflict_ids:
+            return 0
+        data = self._request("POST", "/conflicts/bulk-dismiss", json={
+            "conflict_ids": conflict_ids, "note": note, "resolved_by": resolved_by,
+        })
+        return int(data.get("dismissed", 0))
+
     # ── 系统 ─────────────────────────────────────────────────
 
     def stats(self) -> dict:

@@ -8,6 +8,7 @@ from ..container import HKCContainer, get_container
 from ..schemas import (
     AbilityResponse, CoverageReportResponse,
     ConflictResponse, ConflictResolveRequest,
+    ConflictDismissRequest, ConflictBulkDismissRequest,
 )
 
 router = APIRouter(tags=["ability"])
@@ -149,3 +150,33 @@ def resolve_conflict(
             detail=f"裁决失败：冲突 {conflict_id} 不存在、已解决，或 winner_id 无效"
         )
     return {"conflict_id": conflict_id, "resolved": True, "winner": req.winner_id}
+
+
+@router.post("/conflicts/bulk-dismiss")
+def bulk_dismiss_conflicts(
+    req: ConflictBulkDismissRequest,
+    c: HKCContainer = Depends(get_container),
+):
+    """批量把误判冲突关闭（不判胜负、不废弃任何一方观点）。"""
+    n = c.kee.dismiss_conflicts(
+        req.conflict_ids, note=req.note, resolved_by=req.resolved_by
+    )
+    return {"requested": len(req.conflict_ids), "dismissed": n}
+
+
+@router.post("/conflicts/{conflict_id}/dismiss")
+def dismiss_conflict(
+    conflict_id: str,
+    req: ConflictDismissRequest,
+    c: HKCContainer = Depends(get_container),
+):
+    """把一张误判冲突标记为已解决（双方观点都保留）。"""
+    ok = c.kee.dismiss_conflict(
+        conflict_id, note=req.note, resolved_by=req.resolved_by
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail=f"关闭失败：冲突 {conflict_id} 不存在或已解决"
+        )
+    return {"conflict_id": conflict_id, "dismissed": True}

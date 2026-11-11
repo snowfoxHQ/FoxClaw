@@ -138,6 +138,17 @@ class ConflictResolveRequest(BaseModel):
     resolved_by: str = "human"
 
 
+class ConflictDismissRequest(BaseModel):
+    note:        str = ""
+    resolved_by: str = "human"
+
+
+class ConflictBulkDismissRequest(BaseModel):
+    conflict_ids: list[str]
+    note:         str = ""
+    resolved_by:  str = "human"
+
+
 # ── Stats ────────────────────────────────────────────────────
 
 class StatsResponse(BaseModel):
