@@ -26,13 +26,16 @@ export const MODULES = [
   { id: 'knowledge', label: '学习库', tag: 'Knowledge', group: '知识', groupKey: 'group.knowledge', icon: 'book', quick: ['review', 'memory'] },
   { id: 'review', label: '复习', tag: 'Review', group: '知识', groupKey: 'group.knowledge', icon: 'review' },
   { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识', groupKey: 'group.knowledge', icon: 'memory' },
-  { id: 'settings', label: '设置', tag: 'Settings', group: '系统', groupKey: 'group.system' },
+  { id: 'settings', label: '设置', tag: 'Settings', group: '系统', groupKey: 'group.system', icon: 'gear' },
 ]
 
 export const RAIL = ['knowledge', 'tasks', 'tools', 'agents']
 
+// 设置是侧栏底部的固定入口,不参与主导航与「更多」弹层
+export const PINNED = ['settings']
+
 export const railItems = () => RAIL.map((id) => MODULES.find((m) => m.id === id)).filter(Boolean)
-export const moreItems = () => MODULES.filter((m) => !RAIL.includes(m.id))
+export const moreItems = () => MODULES.filter((m) => !RAIL.includes(m.id) && !PINNED.includes(m.id))
 
 export const moduleLabel = (id) => (MODULES.some((m) => m.id === id) ? t(`nav.${id}`) : id)
 export const groupLabel = (key) => (key ? t(key) : '')
