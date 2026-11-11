@@ -7,14 +7,15 @@
 > | registry | 已占用版本 | latest |
 > | --- | --- | --- |
 > | PyPI `foxclaw` | 0.1.0 / 0.1.2 | 0.1.2 |
-> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 | 0.1.2 |
+> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 | 0.1.3 |
 >
-> - **0.1.3 只发了 npm**(2026-11-11,`publish=npm`)。CI 侧 `npm publish` 正常返回
->   `+ foxclaw@0.1.3`,但 5 分钟后直查 `registry.npmjs.org/foxclaw/0.1.3` 仍是 404,
->   `dist-tags.latest` 仍是 0.1.2 —— 典型的 registry 处理/安全扫描挂起。
->   **号大概率已被占,不要重试**(重发只会拿到 `cannot publish over previously published version`)。
->   等 15~30 分钟再查;仍无则去 npmjs.com 看包页与账号通知(扫描挂起、邮箱验证)。
-> - PyPI 停在 **0.1.2**,0.1.3 未上传。
+> - **0.1.3 只发了 npm**(2026-11-11,`publish=npm`),PyPI 停在 0.1.2。
+>   `npm publish` 返回 `+ foxclaw@0.1.3` 之后,registry 有**数分钟传播延迟**:
+>   发布后 5 分钟直查 `registry.npmjs.org/foxclaw/0.1.3` 仍是 404、`latest` 仍是 0.1.2,
+>   约 6 分钟后(15:08 UTC)才转 200 并更新 `latest`。
+>   **所以发布后立刻查不到是正常现象,等 10 分钟再看**,不要在这期间重试——
+>   重发只会拿到 `cannot publish over previously published version`。
+>   若 30 分钟后仍 404,才需要去 npmjs.com 查包页与账号通知(扫描挂起、邮箱验证)。
 > - 历史:0.1.0(2026-11-06)两通道首版;0.1.1 只在 npm 手工发过、git 里无对应提交,已删;
 >   0.1.2(2026-11-09)两通道都发。
 >
