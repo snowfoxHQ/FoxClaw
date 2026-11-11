@@ -122,7 +122,7 @@ python -m uvicorn foxclaw.api:app --port 8000
 > 改完 `pyproject.toml` 里的依赖后重跑一次,否则锁定清单会滞后于声明,
 > SCA 扫描和 CI 装的都会是旧版本。
 
-详见 [docs/RUN_CN.md](docs/RUN_CN.md)。
+详见 [docs/RUN_CN.md](docs/RUN_CN.md)。版本变更:[CHANGELOG_CN.md](CHANGELOG_CN.md)。
 
 ### 开发常用命令(Windows / PowerShell 一行重启)
 
