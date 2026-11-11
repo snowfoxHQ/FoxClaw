@@ -70,6 +70,13 @@ foxclaw = "foxclaw.cli:main"
 # 这里把它们真正打进 wheel,并让 package-data 一并带上 LICENSE/JSON 等非 .py 资源。
 include-package-data = true
 
+[tool.setuptools.package-data]
+# frontend/ 在仓库根、不属于任何包,packages.find 收不到;构建前由
+# tools/bundle_web.py 复制成 foxclaw/web/(已 gitignore),这里再把它带进 wheel/sdist。
+# 不复制的话 pip install 之后 foxclaw serve 首页 404(只有 API/CLI)。
+"foxclaw.web" = ["**/*"]
+
+
 [tool.setuptools.packages.find]
 # foxclaw 在仓库根;hmr 在 vendor/ 下;hkc_* 在 vendor/hkc/ 下 —— 三个搜索根都要给。
 where = [".", "vendor", "vendor/hkc"]

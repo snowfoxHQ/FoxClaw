@@ -69,9 +69,27 @@ def _mount_hkc(app):
         print(f"[Foxclaw API] · HKC 星球数据面未挂载(可选): {_e}")
 
 
+def _frontend_dir() -> Path | None:
+    """前端根目录:**源码仓的 `frontend/` 优先**,回退包内 `foxclaw/web`。
+
+    源码仓里 `frontend/` 与 `foxclaw/` 平级,是改前端的地方;`foxclaw/web/` 只是
+    `tools/bundle_web.py` 在构建前复制的副本(已 gitignore)。顺序反过来的话,本地
+    改完前端不重跑脚本,`serve` 会继续显示包内那份过期副本,很难排查。wheel 里没有
+    仓库结构(`frontend/` 不存在),自然落到 `foxclaw/web/`。
+    两个位置都要看 `v3/index.html` / `deck_v2.html` 是否真的在——只有 `__init__.py`
+    的空目录不算,否则 mount 之后 `/` 会指向不存在的文件。
+    """
+    for d in (Path(__file__).resolve().parents[2] / "frontend",
+              Path(__file__).resolve().parent.parent / "web"):
+        if any((d / name).is_file() for name in
+               ("v3/index.html", "deck_v2.html", "deck.html")):
+            return d
+    return None
+
+
 def _mount_frontend(app):
-    frontend_dir = Path(__file__).parent.parent.parent / "frontend"
-    if not frontend_dir.exists():
+    frontend_dir = _frontend_dir()
+    if frontend_dir is None:
         return
 
     v3_index = frontend_dir / "v3" / "index.html"

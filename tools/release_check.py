@@ -10,10 +10,11 @@ PyPI / npm 的版本号不可撤回:上传后只能 yank(仍占号、仍可被 p
 
 两侧产物性质不同(别把"发布成功"当"装完能用")
 ------------------------------------------
-HKC / HMR 内嵌在 vendor/、运行期按 `Path(__file__)/../../vendor` 找;而 setuptools
-只收 `foxclaw*`,故 **wheel/sdist 不含 vendor/**:装上是能 import、但知识/记忆
-子系统降级为 None 的**占位包**(与 npm/index.js 占位同一性质)。本脚本对"缺 vendor"
-只 warn 不 error —— 既定事实不是事故,但发布说明必须写明。
+后端是同一份代码:`hmr` 与 `hkc_*` 经 `packages.find` 的 `where=vendor` 被提升成
+顶层包,已经真的在 wheel 里(0.1.2 起就是),pip 装完知识/记忆子系统完好。
+**真正缺的是前端 UI** —— `frontend/` 在仓库根、不属于任何包,构建前必须先跑
+`tools/bundle_web.py` 把它复制成 `foxclaw/web/`。漏跑则 wheel 里没有任何
+html/js,`foxclaw serve` 首页 404,所以这里对"缺 foxclaw/web"判 **error**。
 
 用法
 ----
@@ -278,10 +279,18 @@ def check_dist(dist: Path, name: str, version: str) -> list:
         issues.append(Issue("error", "missing_entry", f"{sdist.name} 里没有 foxclaw/cli.py"))
 
     issues += _scan_forbidden(whl) + _scan_forbidden(sdist)
-    if not any("/vendor/" in e for e in entries):
-        issues.append(Issue("warn", "no_vendor",
-                            f"{whl.name} 不含 vendor/(hkc/hmr)→ 装上是占位包,"
-                            f"知识/记忆子系统降级;发布说明需写明"))
+    # HMR/HKC 在 wheel 里被"提升"成顶层包(hmr/、hkc_ace/…),没有 vendor/ 目录;
+    # 判据看顶层包,不看 vendor/ 路径,否则会把完好的 wheel 误判成占位包。
+    if not any(e.startswith("hmr/") for e in entries):
+        issues.append(Issue("error", "missing_hmr",
+                            f"{whl.name} 里没有 hmr/ → 记忆子系统会降级;检查 packages.find"))
+    if not any(e.startswith("hkc_") for e in entries):
+        issues.append(Issue("error", "missing_hkc",
+                            f"{whl.name} 里没有 hkc_* → 知识子系统会降级;检查 packages.find"))
+    if "foxclaw/web/v3/index.html" not in entries:
+        issues.append(Issue("error", "missing_web_ui",
+                            f"{whl.name} 缺 foxclaw/web/v3/index.html → pip 装完首页 404;"
+                            f"构建前先跑 python tools/bundle_web.py"))
     return issues
 
 
