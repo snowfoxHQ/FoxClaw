@@ -6,7 +6,15 @@
 
 ## 未发布
 
-冲突卡可以「判为误判」，不必二选一；判定逻辑也不再见到「不」就当否定；每个 Agent 有了自己的规则文件。
+冲突卡可以「判为误判」，不必二选一；判定逻辑也不再见到「不」就当否定；每个 Agent 有了自己的规则文件；硬边界集中到一份可校验的清单，不再散落在各处提示词里。
+
+**行为规范**
+
+- `foxclaw/behavior/behavior.yaml` 是**检查点清单**，不是规范全文：每条声称代码强制的规则都必须指向仓库里已经存在的可调用对象（`foxclaw.kernel.policy_gate:PolicyGate.check_action`、`foxclaw.core.confirm_nonce:ConfirmationBroker.consume`、`foxclaw.core.verify:verify`），加载时解析。解析不到直接启动失败，绝不注册「永远放行」的桩，所以清单不会退化成装饰。
+- 该段注入 system prompt 最前段，排在内核准则、角色职责、规则文件之前。人格仍在原地（偏好合并进最后一条 user 消息），因此用户可改的偏好结构上覆盖不了硬边界。
+- `FOXCLAW_DATA_DIR` 下的 `behavior.local.yaml` 可以新增规则、可以把 `enforce` 收紧；但放宽或省略删除 `prohibitions` / `confirmations` 里的规则会直接报错。本地文件语法写错或版本过期只告警并忽略，不会把应用锁死；内置文件的问题仍然致命。
+- 代码侧尚未实现的规则（`no_privacy_upload`、`no_impersonation`、`confirm_high_sensitivity`、`no_paternalism`）标成 `enforce: prompt` 并附 `note` 说明缺什么，不假装已经强制。
+- 设 `FOXCLAW_BEHAVIOR=0` 可整体关闭。
 
 **Agent**
 

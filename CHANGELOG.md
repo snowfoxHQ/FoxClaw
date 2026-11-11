@@ -6,7 +6,15 @@ Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
 ## Unreleased
 
-A conflict card can now be dismissed instead of decided, the validator stops reading every Chinese 不 as a negation, and each agent gets its own rules file.
+A conflict card can now be dismissed instead of decided, the validator stops reading every Chinese 不 as a negation, each agent gets its own rules file, and the hard boundaries now live in one checkable spec instead of being scattered across prompts.
+
+**Behavior**
+
+- `foxclaw/behavior/behavior.yaml` is a checkpoint list, not a prose spec: every rule that claims code enforcement names a callable that already exists (`foxclaw.kernel.policy_gate:PolicyGate.check_action`, `foxclaw.core.confirm_nonce:ConfirmationBroker.consume`, `foxclaw.core.verify:verify`), and the spec is resolved at load time. A missing target fails startup instead of registering an always-allow stub, so the list cannot drift into decoration.
+- The block is injected first in the system prompt — ahead of the kernel prompt, the role prompt and the per-agent rules. Persona stays where it was (preferences merged into the last user message), so a user-editable preference cannot structurally override a hard boundary.
+- `behavior.local.yaml` in `FOXCLAW_DATA_DIR` can add rules and tighten `enforce`, but weakening or dropping a rule in `prohibitions` / `confirmations` raises. A malformed or stale-version local file is ignored with a warning rather than bricking the app; problems in the built-in file stay fatal.
+- Rules whose code side is not built yet (`no_privacy_upload`, `no_impersonation`, `confirm_high_sensitivity`, `no_paternalism`) are marked `enforce: prompt` with a `note` saying what is missing, rather than pretending to be enforced.
+- Set `FOXCLAW_BEHAVIOR=0` to turn the whole block off.
 
 **Agents**
 
