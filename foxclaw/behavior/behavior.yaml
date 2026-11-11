@@ -30,6 +30,12 @@ prohibitions:
     enforce: prompt
     note: outbound_guard 未实现;channels 只有签名与信任校验(openclaw_bridge / signing),没有身份代理拦截
 
+  - id: no_harmful_content
+    rule: 不得生成、复述或戏仿违法违规与伤害性内容(教唆犯罪、色情与性暗示、暴力与自残方法、歧视仇恨、侵犯隐私);触及边界只回固定话术,不解释、不延伸、不给替代方案
+    enforce: both
+    code_check: "foxclaw.core.content_guard:ContentGuard.check"
+    note: 检查点已接(core/content_guard.py:内置请求型规则 + 可挂外部平台词表,输入/输出两端确定性拦截);默认 enforce,置 FOXCLAW_CONTENT_GUARD_MODE=audit 可降级观察、off 关闭
+
 confirmations:
   - id: confirm_side_effect
     rule: 有副作用的技能调用必须先在当轮取得用户确认;确认是一次性凭据,绑定会话、动作与参数,不可跨轮复用
