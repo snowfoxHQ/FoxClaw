@@ -31,7 +31,7 @@
 | 产物 | 命令 | 里面有什么 |
 | --- | --- | --- |
 | PyPI `foxclaw` | `pip install foxclaw` | 0.1.4 起:后端(`foxclaw` 181 + `hmr` 21 + `hkc_*` 60)+ 前端 `foxclaw/web/` 24 文件(约 1.7 MB 原始 / wheel 内约 1.3 MB);**0.1.3 及之前的 wheel 不含前端 UI** |
-| npm `foxclaw` | `npm i foxclaw` | 514 文件:整棵源码树,`python/foxclaw` + `python/vendor`(hmr/hkc 原布局)+ `python/frontend` 23 个构建产物 + tests/tools/bench/docs |
+| npm `foxclaw` | `npm i foxclaw` | 530 文件(0.1.4 实测):整棵源码树,`python/foxclaw` + `python/vendor`(hmr/hkc 原布局)+ `python/frontend` 23 个构建产物 + tests/tools/bench/docs |
 | GitHub Release | tag 自动 | 上面两份产物 + 自动生成的 release notes |
 
 差异来自打包机制,不是"一个是残包":
@@ -121,7 +121,17 @@ Actions → Release → Run workflow:
 > 这么出去的。想要真正的审门,先去 Settings → Environments 给 `pypi` / `npm` 各加
 > Required reviewers,再触发发布。
 
-## 4. 发错了怎么办
+## 4. 发版后回写现状并同步(每次都做)
+
+发布成功后,把实测结果回写本文开头的现状表(已占版本、latest、产物条目数、传播延迟),
+提交后**立刻**跑 `tools/sync_public.ps1 -Apply` 推到 `origin/main`。不要攒到下次发版——
+攒着只会让公开仓的文档持续失真,而且差异越积越大,下次同步越容易出错。
+
+tag 是不可变快照,`origin/main` 是不断前进的公开状态,两者 SHA 不同是**正常语义**,
+不是"不一致"。唯一的判断标准是「公开仓里的文档与事实是否相符」;为了"让 tag 等于 main"
+而推迟同步是错的方向。
+
+## 5. 发错了怎么办
 
 **PyPI / npm 的版本号不可撤回**。能做的只有:
 
@@ -133,7 +143,7 @@ Actions → Release → Run workflow:
 所以"tag 先构建、上传再单独触发"不是流程洁癖,是这两个 registry 的规则逼出来的:
 把不可逆的那一步单独隔离,前面每一步都能重跑。
 
-## 5. 切到 OIDC(零长期密钥)
+## 6. 切到 OIDC(零长期密钥)
 
 当前用 token。想彻底去掉长期密钥时:
 
