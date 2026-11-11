@@ -120,3 +120,62 @@ def test_event_carries_no_raw_secret(tmp_path):
     assert events and events[0][0] == "memory.sensitive"
     blob = json.dumps(events[0][1], ensure_ascii=False)
     assert "Abc123456" not in blob
+
+
+def _backend(tmp_path, mode="enforce"):
+    from foxclaw.core.memory_adapter import MockHMR
+    b = MockHMR()
+    attach(b, SensitiveWritePolicy(mode, pending_path=tmp_path / "p.json"))
+    return b
+
+
+def test_adapter_ingest_is_blocked_in_enforce_mode(tmp_path):
+    b = _backend(tmp_path)
+    r = b.ingest(POSITIVE["identity"], type="concept", agent_id="finance")
+    assert getattr(r, "pending", False) and r.pending_id
+    assert b.sensitive_write_policy.pending.list()
+
+
+def test_adapter_ingest_passes_clean_content(tmp_path):
+    b = _backend(tmp_path)
+    r = b.ingest("本月餐饮 3200 元", type="concept", agent_id="finance")
+    assert not getattr(r, "pending", False) and r.id
+
+
+def test_consent_flag_bypasses_gate(tmp_path):
+    b = _backend(tmp_path)
+    r = b.ingest(POSITIVE["identity"], type="concept", agent_id="finance", consent=True)
+    assert not getattr(r, "pending", False)
+
+
+def _fake_os(tmp_path, mode="enforce"):
+    from foxclaw import Foxclaw
+    b = _backend(tmp_path, mode)
+    fake = SimpleNamespace(hmr=b, sensitive_write_policy=b.sensitive_write_policy)
+    for name in ("list_sensitive_pending", "approve_sensitive_write", "reject_sensitive_write"):
+        setattr(fake, name, getattr(Foxclaw, name).__get__(fake, type(fake)))
+    return fake
+
+
+def test_approve_writes_through_and_clears_pending(tmp_path):
+    os_ = _fake_os(tmp_path)
+    pid = os_.hmr.ingest(POSITIVE["health"], type="concept", agent_id="finance").pending_id
+    assert [it["id"] for it in os_.list_sensitive_pending()] == [pid]
+    assert os_.approve_sensitive_write(pid) is True
+    assert os_.list_sensitive_pending() == []
+    assert os_.approve_sensitive_write(pid) is False
+
+
+def test_reject_discards_without_writing(tmp_path):
+    os_ = _fake_os(tmp_path)
+    pid = os_.hmr.ingest(POSITIVE["credential"], type="concept", agent_id="office").pending_id
+    assert os_.reject_sensitive_write(pid) is True
+    assert os_.list_sensitive_pending() == []
+    assert os_.reject_sensitive_write("nope") is False
+
+
+def test_audit_mode_keeps_business_running(tmp_path):
+    b = _backend(tmp_path, "audit")
+    r = b.ingest(POSITIVE["health"], type="concept", agent_id="finance")
+    assert not getattr(r, "pending", False) and r.id
+    assert b.sensitive_write_policy.pending.list() == []
