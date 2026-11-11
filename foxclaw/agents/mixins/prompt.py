@@ -7,6 +7,8 @@ import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from ...behavior import prompt_block as behavior_block
+
 # 各 Agent 的专属规则目录:foxclaw/agents/rules/<AGENT_ID>/*.md
 RULES_DIR = Path(__file__).resolve().parent.parent / "rules"
 
@@ -97,12 +99,17 @@ class PromptMixin(ABC):
 
     @property
     def system_prompt(self) -> str:
-        """完整系统提示词 = 内核共享前缀(身份/真相/安全边界)+ 本 Agent 角色职责 + 本 Agent 规则文件。
-        一处叠加、全体生效;各 Agent 只维护自己的 _role_prompt 与 rules/<AGENT_ID>/。
+        """完整系统提示词 = 行为规范 + 内核共享前缀(身份/真相/安全边界)+ 本 Agent 角色职责 + 规则文件。
+
+        行为规范(behavior.yaml)永远在**最前段**:它不可协商,本地覆盖也只能加严;人格(preference)
+        走另一条路注入最后一条 user 消息,结构上无法覆盖本段。
         规则文件每次组装都重新读盘,即"启动即生效",改规则不必改代码。
-        回退开关:FOXCLAW_KERNEL_PROMPT=0 → 省掉内核前缀(留角色职责 + 规则),可逆,默认开。"""
+        回退开关:FOXCLAW_KERNEL_PROMPT=0 → 省掉内核前缀(留行为规范 + 角色职责 + 规则);
+        FOXCLAW_BEHAVIOR=0 → 省掉行为规范。两者可逆,默认开。"""
         rules = agent_rules_block(getattr(self, "AGENT_ID", ""))
+        behavior = behavior_block()
+        head = f"{behavior}\n\n" if behavior else ""
         if os.environ.get("FOXCLAW_KERNEL_PROMPT", "1").strip() in ("0", "false", "off"):
-            return self._role_prompt + rules
-        return (f"{KERNEL_PROMPT}\n\n{'=' * 12} 你的角色职责 {'=' * 12}\n"
+            return head + self._role_prompt + rules
+        return (f"{head}{KERNEL_PROMPT}\n\n{'=' * 12} 你的角色职责 {'=' * 12}\n"
                 f"{self._role_prompt}{rules}")

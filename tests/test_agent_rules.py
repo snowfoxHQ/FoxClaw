@@ -55,14 +55,17 @@ def test_switch_disables_rules(monkeypatch):
 def test_switch_disables_rules_even_without_kernel(monkeypatch):
     monkeypatch.setenv("FOXCLAW_KERNEL_PROMPT", "0")
     monkeypatch.setenv("FOXCLAW_AGENT_RULES", "0")
+    monkeypatch.setenv("FOXCLAW_BEHAVIOR", "0")
     assert PromptMixin.system_prompt.fget(_fake(role="ROLEXYZ")) == "ROLEXYZ"
 
 
 def test_rules_survive_kernel_off(monkeypatch):
     monkeypatch.setenv("FOXCLAW_KERNEL_PROMPT", "0")
     out = PromptMixin.system_prompt.fget(_fake(role="ROLEXYZ"))
-    assert out.startswith("ROLEXYZ")
+    assert KERNEL_PROMPT not in out
     assert "Personal Finance Agent Rules" in out
+    # 行为规范是硬边界,不随内核前缀一起关掉
+    assert out.index("[行为规范") < out.index("ROLEXYZ")
 
 
 def test_agent_without_id_gets_no_rules():
