@@ -26,7 +26,7 @@
 
 | 产物 | 命令 | 里面有什么 |
 | --- | --- | --- |
-| PyPI `foxclaw` | `pip install foxclaw` | 262 文件:后端完整(`foxclaw` 181 + `hmr` 21 + `hkc_*` 60,几乎全是 .py);**不含前端 UI** —— 0 个 html/css/js |
+| PyPI `foxclaw` | `pip install foxclaw` | 0.1.4 起:后端(`foxclaw` 181 + `hmr` 21 + `hkc_*` 60)+ 前端 `foxclaw/web/` 24 文件(约 1.7 MB 原始 / wheel 内约 1.3 MB);**0.1.3 及之前的 wheel 不含前端 UI** |
 | npm `foxclaw` | `npm i foxclaw` | 514 文件:整棵源码树,`python/foxclaw` + `python/vendor`(hmr/hkc 原布局)+ `python/frontend` 23 个构建产物 + tests/tools/bench/docs |
 | GitHub Release | tag 自动 | 上面两份产物 + 自动生成的 release notes |
 
@@ -40,16 +40,22 @@
   `Path(__file__)/../../vendor` 注入 sys.path。多出来的 252 个文件是 tests(113)、frontend_src(43)、
   frontend(23)、tools/bench/evals/examples/skills/docs,运行时不依赖。
 
-**真正的缺口只有前端 UI**:`_mount_frontend` 找仓库根的 `frontend/`,该目录不存在就直接 return,
-所以 `pip install` 之后 `foxclaw serve` 打开首页是 404,只有 REST API 与 CLI 可用。
-PyPI 的发布说明必须写明这一点("无内置 Web UI"),**不要**再说成"知识/记忆子系统降级为 None"
-—— HMR/HKC 已经在 wheel 里了(2026-11-11 实测 0.1.2:hmr 21 + hkc_* 60)。npm 包虽然带前端,
-但不带 Python 第三方依赖(torch/faiss 等),装完同样要自备运行环境。
+**前端 UI 的来路(0.1.4 起已修好)**:`frontend/` 在仓库根、不属于任何包,setuptools 收不到,
+所以构建前必须先跑 `tools/bundle_web.py`,把它复制成 `foxclaw/web/`(已 gitignore),再由
+`[tool.setuptools.package-data]` 带进 wheel。`_mount_frontend` 优先用源码仓的 `frontend/`
+(改前端即时生效),回退包内 `foxclaw/web/`(wheel 安装)。漏跑脚本不会静默出错:下一步的
+`release_check.py --dist` 会以 `missing_web_ui` 报 error,流水线停下,发不出首页 404 的包。
+
+**0.1.3 及之前的 PyPI 包没有前端**:`pip install` 后 `foxclaw serve` 首页 404,只有 API/CLI。
+这类版本不要再说成"知识/记忆子系统降级为 None"—— HMR/HKC 从 0.1.2 起就已完整在 wheel 里
+(实测 hmr 21 + hkc_* 60)。npm 包虽然带前端,但不带 Python 第三方依赖(torch/faiss 等),
+装完同样要自备运行环境。
 
 ## 1. 本地预检(发布前必须绿)
 
 ```bash
 python tools/release_check.py --tag v0.1.4          # 五处版本号一致 + tag 对得上
+python tools/bundle_web.py                           # frontend/ → foxclaw/web/(不跑则 wheel 无 UI)
 python -m build                                      # 出 dist/*.whl + *.tar.gz
 cd npm && node build.cjs && npm pack --pack-destination ../dist && cd ..
 python tools/release_check.py --dist dist --npm-tgz dist/*.tgz

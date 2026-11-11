@@ -34,6 +34,8 @@ const SKIP_DIRS = new Set([
 // 相对仓库根的路径(统一用 / 分隔):绝对不进包的条目。
 const SKIP_PATTERNS = [
   /^npm(\/|$)/,                                  // 包自身,不递归进 python/
+  /^foxclaw\/web(\/|$)/,                         // wheel 专用前端副本,与 frontend/ 重复
+  /^dist[_-]/,                                   // 本地临时产物目录(如 dist_ui_test),别混进包
   /^frontend_src\/node_modules(\/|$)/,
   /^docs\/internal(\/|$)/,                       // 内部文档
   /^docs\/reports(\/|$)/,                        // 审计报告

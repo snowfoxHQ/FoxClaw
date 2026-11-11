@@ -83,6 +83,11 @@ jobs:
             python tools/release_check.py
           fi
 
+      - name: Bundle web UI into package
+        # frontend/ 在仓库根、不属于任何包,不复制就进不了 wheel → pip 装完首页 404。
+        # 漏跑不会构建失败,但下一步的 artifact gate 会拦下来(missing_web_ui)。
+        run: python tools/bundle_web.py
+
       - name: Build wheel + sdist
         run: python -m build --outdir dist
 
