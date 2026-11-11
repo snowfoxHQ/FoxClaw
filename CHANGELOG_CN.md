@@ -13,7 +13,7 @@
 - `foxclaw/behavior/behavior.yaml` 是**检查点清单**，不是规范全文：每条声称代码强制的规则都必须指向仓库里已经存在的可调用对象（`foxclaw.kernel.policy_gate:PolicyGate.check_action`、`foxclaw.core.confirm_nonce:ConfirmationBroker.consume`、`foxclaw.core.verify:verify`），加载时解析。解析不到直接启动失败，绝不注册「永远放行」的桩，所以清单不会退化成装饰。
 - 该段注入 system prompt 最前段，排在内核准则、角色职责、规则文件之前。人格仍在原地（偏好合并进最后一条 user 消息），因此用户可改的偏好结构上覆盖不了硬边界。
 - `FOXCLAW_DATA_DIR` 下的 `behavior.local.yaml` 可以新增规则、可以把 `enforce` 收紧；但放宽或省略删除 `prohibitions` / `confirmations` 里的规则会直接报错。本地文件语法写错或版本过期只告警并忽略，不会把应用锁死；内置文件的问题仍然致命。
-- 代码侧尚未实现的规则（`no_privacy_upload`、`no_impersonation`、`confirm_high_sensitivity`、`no_paternalism`）标成 `enforce: prompt` 并附 `note` 说明缺什么，不假装已经强制。
+- 代码侧尚未实现的规则（`no_privacy_upload`、`no_impersonation`）标成 `enforce: prompt` 并附 `note` 说明缺什么，不假装已经强制。
 - 设 `FOXCLAW_BEHAVIOR=0` 可整体关闭。
 
 **记忆**
@@ -22,6 +22,16 @@
 - 判定刻意宁可多拦：误判的代价是用户多点一次确认，漏判则等于这条规矩不存在。普通金额和订单号被明确排除，否则财务 Agent 直接不可用。
 - 新增 `GET /api/memory/pending`、`POST /api/memory/pending/{id}/approve` 与 `/reject`；记忆中心面板列出排队中的写入，可就地「记住」或「丢弃」。写入被拦时 Agent 会在思考链里说明，不静默丢弃。
 - 行为规范里 `confirm_high_sensitivity` 升为 `enforce: both`，检查点指向真实闸门。
+
+**内容安全**
+
+- 新增内容闸门 `foxclaw/core/content_guard.py`：确定性判定，不调模型。用户请求与模型输出两端各过一道，命中即用固定话术切断（「我们换个话题聊聊吧。」/ "Let's talk about something else."），不解释、不延伸、不反问、不给替代方案 —— 拒绝本身不能变成信息泄漏或继续纠缠的入口。
+- 内置规则只覆盖**请求型教唆**（制毒制爆、诈骗洗钱、入侵他人系统、伪造证件、自杀方法、未成年性内容），措辞窄、误伤低，开箱即用。「提及」不算「索要」：讲炸药发展史的书、洗钱量刑的论文、订单号、`91年出生` 都不拦。
+- 平台审核要求的政治 / 色情 / 暴力大类词表在数万条量级，硬编码进代码既不现实也无法随口径更新。部署方用 `FOXCLAW_CONTENT_LEXICON` 挂载外部词表（逗号分隔多个文件，一行一词，可选 `词<TAB>类别`）。**这一层不挂就不生效**：默认只有内置规则在跑。
+- `FOXCLAW_CONTENT_GUARD_MODE` 三档：`enforce`（默认）、`audit`（只记录）、`off`。默认强制，因为这是给对外产品兜底的机制，默认不生效等于没做；内置规则范围窄，正常对话不会被误伤。
+- 归一化对抗全角、零宽字符、空格插字。拼音、谐音、拆字改写不在确定性层处理 —— 这里明确只做限速带，不做墙。
+- 知识库导入与附件正文**不过滤**：那是用户自己的资料。过滤器只挂在「用户请求」和「模型输出」两端，避免把历史书和法律条文当成违规请求。
+- 行为规范新增 `no_harmful_content`（`enforce: both`），`KERNEL_PROMPT` 增加【八、内容边界】写明拒绝范式，并区分「资料」与「指令」两种角色。
 
 **Agent**
 

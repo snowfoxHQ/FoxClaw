@@ -13,7 +13,7 @@ A conflict card can now be dismissed instead of decided, the validator stops rea
 - `foxclaw/behavior/behavior.yaml` is a checkpoint list, not a prose spec: every rule that claims code enforcement names a callable that already exists (`foxclaw.kernel.policy_gate:PolicyGate.check_action`, `foxclaw.core.confirm_nonce:ConfirmationBroker.consume`, `foxclaw.core.verify:verify`), and the spec is resolved at load time. A missing target fails startup instead of registering an always-allow stub, so the list cannot drift into decoration.
 - The block is injected first in the system prompt — ahead of the kernel prompt, the role prompt and the per-agent rules. Persona stays where it was (preferences merged into the last user message), so a user-editable preference cannot structurally override a hard boundary.
 - `behavior.local.yaml` in `FOXCLAW_DATA_DIR` can add rules and tighten `enforce`, but weakening or dropping a rule in `prohibitions` / `confirmations` raises. A malformed or stale-version local file is ignored with a warning rather than bricking the app; problems in the built-in file stay fatal.
-- Rules whose code side is not built yet (`no_privacy_upload`, `no_impersonation`, `confirm_high_sensitivity`, `no_paternalism`) are marked `enforce: prompt` with a `note` saying what is missing, rather than pretending to be enforced.
+- Rules whose code side is not built yet (`no_privacy_upload`, `no_impersonation`) are marked `enforce: prompt` with a `note` saying what is missing, rather than pretending to be enforced.
 - Set `FOXCLAW_BEHAVIOR=0` to turn the whole block off.
 
 **Memory**
@@ -22,6 +22,16 @@ A conflict card can now be dismissed instead of decided, the validator stops rea
 - The classifier deliberately over-blocks: a false positive costs one confirmation, a false negative means the rule does not exist. Ordinary amounts and order numbers are excluded on purpose — otherwise the finance agent would be unusable.
 - `GET /api/memory/pending`, `POST /api/memory/pending/{id}/approve` and `/reject` expose the queue. The memory panel lists what is waiting, with 记住 / 丢弃 buttons, and when a write is held back the agent says so in the thought chain instead of silently dropping it.
 - `confirm_high_sensitivity` is now `enforce: both` in the behavior spec; the checkpoint resolves to the real gate.
+
+**Content safety**
+
+- New gate at `foxclaw/core/content_guard.py`: deterministic, no model call. Both the user request and the model output are checked, and a hit is cut off with a fixed line ("Let's talk about something else." / 「我们换个话题聊聊吧。」) — no explanation, no elaboration, no counter-question, no alternative offered. A refusal must not become a channel for leaking information or continuing the thread.
+- Built-in rules cover **solicitation only** (making drugs or explosives, fraud and money laundering, breaking into someone's systems, forging documents, suicide methods, sexual content involving minors). Narrow wording, low false-positive rate, works out of the box. Mentioning is not asking: a book about the history of explosives, a paper on money-laundering sentencing, an order number, `born in '91` all pass.
+- The platform-review categories (political, sexual, violent) run to tens of thousands of terms; hard-coding them is neither practical nor maintainable as the rules change. Deployers mount an external lexicon through `FOXCLAW_CONTENT_LEXICON` (comma-separated files, one term per line, optional `term<TAB>category`). **Nothing is checked against it unless it is mounted** — by default only the built-in rules run.
+- `FOXCLAW_CONTENT_GUARD_MODE` has three levels: `enforce` (default), `audit` (records only), `off`. Enforcement is the default because this layer exists to backstop a shipped product; a default that does not fire is not a backstop. The built-in rules are narrow enough not to interrupt ordinary conversation.
+- Normalization defeats full-width characters, zero-width characters and inserted spaces. Pinyin, homophones and character-splitting are explicitly out of scope for a deterministic layer — this is a speed bump, not a wall.
+- Knowledge-base ingestion and attachment bodies are **not** filtered: that is the user's own material. The gate sits on the request and the output only, so a history book or a legal statute is not mistaken for a violation.
+- New `no_harmful_content` rule in the behavior spec (`enforce: both`), and a new §8 "content boundaries" in `KERNEL_PROMPT` spelling out the refusal pattern and the difference between 「material」 and 「instructions」.
 
 **Agents**
 
