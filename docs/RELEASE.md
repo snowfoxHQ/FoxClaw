@@ -21,18 +21,29 @@
 >
 > 下次发版的可用号:PyPI 需 **> 0.1.2**,npm 需 **> 0.1.3**。
 
-两条发布通道、两种产物,**性质不同,别混着写发布说明**:
+两条发布通道、两种产物。**后端运行时是同一份代码**,差别只在打包方式:
 
 | 产物 | 命令 | 里面有什么 |
 | --- | --- | --- |
-| PyPI `foxclaw` | `pip install foxclaw` | **占位包**:能 import,但 `vendor/`(HKC/HMR)不入包 → 知识/记忆子系统降级为 None |
-| npm `foxclaw` | `npm i foxclaw` | **不是占位包**:`build.cjs` 把源码整树(含 `vendor/`)复制进 `python/`;0.1.3 实测 514 文件 / 包 1.7 MB / 解包 4.9 MB |
+| PyPI `foxclaw` | `pip install foxclaw` | 262 文件:后端完整(`foxclaw` 181 + `hmr` 21 + `hkc_*` 60,几乎全是 .py);**不含前端 UI** —— 0 个 html/css/js |
+| npm `foxclaw` | `npm i foxclaw` | 514 文件:整棵源码树,`python/foxclaw` + `python/vendor`(hmr/hkc 原布局)+ `python/frontend` 23 个构建产物 + tests/tools/bench/docs |
 | GitHub Release | tag 自动 | 上面两份产物 + 自动生成的 release notes |
 
-PyPI 侧 `vendor/` 不入包是设计现状(`packages.find` 只收 `foxclaw*`,HMR/HKC 以 sys.path
-内嵌,运行期按 `Path(__file__)/../../vendor` 找)。**PyPI 的发布说明必须写明"这是占位包"**,
-不要让人装完以为拿到了完整运行时。npm 包虽然带 `vendor/`,但不带 Python 运行时的第三方
-依赖(torch/faiss 等),装完同样跑不起来,说明里要写清"需自备 Python 环境与依赖"。
+差异来自打包机制,不是"一个是残包":
+
+- setuptools 只能收 import 单元,于是 `pyproject.toml` 用 `where = [".", "vendor", "vendor/hkc"]` +
+  `include = ["foxclaw*", "hmr*", "hkc_*"]`,把 vendor 内的包**提升为顶层包**(`hmr`、`hkc_ace`…)
+  装到 site-packages 根下;wheel 里因此**没有** `vendor/` 目录,`_ensure_hmr_importable` /
+  `_ensure_hkc_importable` 对 wheel 布局走"顶层包直接可导入"的分支。
+- npm 侧 `build.cjs` 把仓库根 `copyDir` 到 `npm/python/`,保留 `vendor/` 原布局,运行期按
+  `Path(__file__)/../../vendor` 注入 sys.path。多出来的 252 个文件是 tests(113)、frontend_src(43)、
+  frontend(23)、tools/bench/evals/examples/skills/docs,运行时不依赖。
+
+**真正的缺口只有前端 UI**:`_mount_frontend` 找仓库根的 `frontend/`,该目录不存在就直接 return,
+所以 `pip install` 之后 `foxclaw serve` 打开首页是 404,只有 REST API 与 CLI 可用。
+PyPI 的发布说明必须写明这一点("无内置 Web UI"),**不要**再说成"知识/记忆子系统降级为 None"
+—— HMR/HKC 已经在 wheel 里了(2026-11-11 实测 0.1.2:hmr 21 + hkc_* 60)。npm 包虽然带前端,
+但不带 Python 第三方依赖(torch/faiss 等),装完同样要自备运行环境。
 
 ## 1. 本地预检(发布前必须绿)
 
