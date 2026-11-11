@@ -43,6 +43,8 @@ Closed loop (`ChannelDispatcher`): receive → Supervisor → reply to origin, w
 
 Keeps the system reliable under message redelivery, crashes, long tasks, and loops. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md): idempotency guard, crash/restart recovery (boot_id avoids pid reuse), tool-loop detection, context compaction, hook standardization, steering queue.
 
+Content boundaries sit on top of that: requests and model output also pass a deterministic content gate — built-in rules for request-shaped violations (no configuration needed), plus optional external lexicons for platform categories such as political, sexual, and violent. See [docs/CONTENT_GUARD.md](docs/CONTENT_GUARD.md).
+
 ## Quick start
 
 ```bash
