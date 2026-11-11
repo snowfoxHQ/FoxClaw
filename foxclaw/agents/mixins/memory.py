@@ -28,14 +28,28 @@ class MemoryMixin:
         return results
 
     def _store_memory(self, content: str, mem_type: str = "concept", **kwargs):
-        """存储新记忆到 HMR"""
+        """存储新记忆到 HMR。
+
+        高敏感内容(`FOXCLAW_SENSITIVE_WRITE_MODE=enforce`)不会直接落库:记忆层把它转成
+        待确认项并返回 pending_id,这里必须让用户看得见 —— 拦截后静默丢弃等于没说。
+        """
         if _suppress_memory.get():
             return
         from foxclaw.core.tracing import span as _span
         with _span("memory.store", agent=self.AGENT_ID, type=mem_type):
-            self.hmr.ingest(
+            res = self.hmr.ingest(
                 content,
                 type=mem_type,
                 agent_id=self.AGENT_ID,
                 **kwargs,
             )
+        pending_id = getattr(res, "pending_id", "")
+        if pending_id:
+            cats = "、".join(getattr(res, "categories", []) or []) or "高敏感"
+            self._think(
+                content=(f"这段内容涉及{cats},按规矩没有直接写进长期记忆。"
+                         f"待确认项 {pending_id},你确认后我再落库。"),
+                node_type="decision",
+                conf=0.95,
+            )
+        return res

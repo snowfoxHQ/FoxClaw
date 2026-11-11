@@ -143,6 +143,16 @@ class DirectClient(BaseClient):
             note=note, resolved_by=resolved_by,
         )
 
+    def dismiss_conflict(self, conflict_id, note="", resolved_by="sdk") -> bool:
+        return self.c.kee.dismiss_conflict(
+            conflict_id=conflict_id, note=note, resolved_by=resolved_by,
+        )
+
+    def dismiss_conflicts(self, conflict_ids, note="", resolved_by="sdk") -> int:
+        return self.c.kee.dismiss_conflicts(
+            list(conflict_ids or []), note=note, resolved_by=resolved_by,
+        )
+
     # ── 系统 ─────────────────────────────────────────────────
 
     def stats(self) -> dict:

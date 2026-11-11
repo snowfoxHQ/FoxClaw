@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from .content_guard import StreamFilter
+
 
 def normalize_base_url(url: str) -> str:
     """把用户填的 BASE URL 收拾成 SDK 可直接用的形式(带 scheme + 至少一段 path)。
@@ -551,7 +553,7 @@ class ModelRouter:
                 pass
             from .tracing import span as _span
             with _span("llm.complete", provider="stub"):
-                return self._stub(messages)
+                return self._filter_output(self._stub(messages))
         import time as _t
         last_err = None
         _now = _t.monotonic()
@@ -598,7 +600,7 @@ class ModelRouter:
                 return ("【模型返回为空】本次未获得有效回复,任务未完成。"
                         "可能原因:内容被模型安全策略过滤,或 max_tokens 过小被截断。"
                         "建议:调整提问方式或提高 max_tokens 后重试。")
-            return output
+            return self._filter_output(output)
         self._mark_degraded(f"全部 provider 调用失败: {last_err}")
         return (f"【全部模型失败】已尝试 {len(self._fallback_order())} 个 provider 均失败,"
                 f"本次任务未完成。最后错误:"
@@ -613,9 +615,43 @@ class ModelRouter:
         except Exception:
             pass
 
+    def _filter_output(self, text: str) -> str:
+        """输出端内容闸门的统一入口:命中即整段替换为固定话术,不保留原文片段。"""
+        guard = getattr(self, "content_guard", None)
+        if guard is None or not guard.enabled():
+            return text
+        d = guard.sanitize_output(text)
+        return d.text if d.blocked else text
+
     def stream(self, system: str, messages: list, max_tokens: int = 2048,
                agent_id: str = "", stop_event=None, images: list | None = None,
                on_thinking=None):
+        """流式文本补全的对外入口:在 `_stream_raw` 之上做输出端内容过滤。
+
+        过滤放在这里而不是各 provider 分支里,是因为流式出口有四五处,
+        逐处改容易漏(与 _OPENAI_FAMILY 分散同类的坑)。包装器只需一处。
+        """
+        raw = self._stream_raw(system, messages, max_tokens, agent_id,
+                               stop_event, images, on_thinking)
+        cg = getattr(self, "content_guard", None)
+        if cg is None or not cg.enabled():
+            yield from raw
+            return
+        sf = StreamFilter(cg)
+        for piece in raw:
+            out = sf.feed(piece)
+            if sf.tripped:
+                yield sf.finish()
+                return
+            if out:
+                yield out
+        tail = sf.finish()
+        if tail:
+            yield tail
+
+    def _stream_raw(self, system: str, messages: list, max_tokens: int = 2048,
+                    agent_id: str = "", stop_event=None, images: list | None = None,
+                    on_thinking=None):
         """流式文本补全:逐块 yield。各 provider 用其流式 API;stub/异常降级分块。
         与 complete() 同为 LLM 咽喉,收尾做 token 计量。images(可选)= 多模态图片。
         stop_event:threading.Event,置位则提前终止(客户端断连时省 token)。

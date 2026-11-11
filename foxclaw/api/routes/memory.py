@@ -73,6 +73,28 @@ async def get_recent_memories(limit: int = 20):
         return {"memories": []}
 
 
+@app.get("/api/memory/pending")
+async def list_pending_writes():
+    """待用户同意的高敏感记忆写入。内容原样返回 —— 要确认的对象就是内容本身。"""
+    os_ = _api.os_instance()
+    fn = getattr(os_, "list_sensitive_pending", None)
+    return {"pending": fn() if callable(fn) else []}
+
+
+@app.post("/api/memory/pending/{pid}/approve")
+async def approve_pending_write(pid: str):
+    """同意后落库(consent=True 绕过闸门,只此一处)。"""
+    if not _api.os_instance().approve_sensitive_write(pid):
+        raise HTTPException(404, "待确认项不存在")
+    return {"ok": True}
+
+
+@app.post("/api/memory/pending/{pid}/reject")
+async def reject_pending_write(pid: str):
+    """拒绝:丢弃,不写入长期记忆。"""
+    return {"ok": _api.os_instance().reject_sensitive_write(pid)}
+
+
 @app.get("/api/preferences")
 async def list_preferences():
     """列出已记住的用户偏好(供查看/清理误存)。偏好是 shared,任一 Agent 视角一致,

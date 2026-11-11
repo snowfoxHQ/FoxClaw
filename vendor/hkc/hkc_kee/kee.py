@@ -37,6 +37,10 @@ _NEG_CJK_FALSE = (
     "非常", "非凡",
     "不过", "不仅", "不但", "不断", "不只", "不妨", "不禁", "不由", "不时", "不外乎", "不失为",
     "差不多", "差点",
+    # 描述性「不/无」:修饰名词或状态而非否定命题(不变/不可观测/不同/不管…),
+    # 是最主要的假阳性来源——技术文档几乎每句都带,却与立场无关。
+    "不变", "不同", "不论", "不管", "不再", "不需", "无需", "无须",
+    "不可观测", "不可见", "不可控", "不可用", "不可变", "不可能",
 )
 _NEG_ASCII_RE = _re.compile(r"\b(" + "|".join(sorted(_NEG_ASCII, key=len, reverse=True)) + r")\b")
 _NEGATION = _NEG_ASCII | _NEG_CJK   # 供 _score_keyword 的词集匹配(word-set,ASCII 本就安全)
@@ -57,6 +61,31 @@ class _SimpleEmbedder:
     无 ST/加载失败 → 回退 v1 关键词重叠 + 否定词。接口不变。
     """
     _MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"   # 与 HKC LocalSTBackend 默认同名 → 共享一份
+    # 否定翻转的两个门槛,缺一不可:
+    #   NEG_FLIP_MIN_COS     —— 主题相关性(同领域才算得上对立);
+    #   NEG_FLIP_MIN_OVERLAP —— 字面同命题(二元组 Jaccard)。
+    # 只用余弦时,"同领域不同命题"也会被判反向(实测 1063 张伪冲突的主因);而只用字面
+    # 重合又认不出换了说法的对立。两条一起过 = 讲同一件事且一方否定,才是真矛盾。
+    NEG_FLIP_MIN_COS = 0.35
+    NEG_FLIP_MIN_OVERLAP = 0.40
+
+    def __init__(self, neg_flip_min_cos: float | None = None,
+                 neg_flip_min_overlap: float | None = None):
+        if neg_flip_min_cos is not None:
+            self.NEG_FLIP_MIN_COS = float(neg_flip_min_cos)
+        if neg_flip_min_overlap is not None:
+            self.NEG_FLIP_MIN_OVERLAP = float(neg_flip_min_overlap)
+
+    @staticmethod
+    def _bigrams(text: str) -> set:
+        t = "".join(ch for ch in (text or "").lower() if not ch.isspace())
+        return {t[i:i + 2] for i in range(len(t) - 1)}
+
+    def _same_proposition(self, text_a: str, text_b: str) -> bool:
+        ga, gb = self._bigrams(text_a), self._bigrams(text_b)
+        if not ga or not gb:
+            return False
+        return len(ga & gb) / len(ga | gb) >= self.NEG_FLIP_MIN_OVERLAP
 
     @staticmethod
     def _has_neg(text: str) -> bool:
@@ -81,8 +110,10 @@ class _SimpleEmbedder:
                 va = _encode_one(model, self._MODEL_NAME, text_a)   # 缓存,不重复编码
                 vb = _encode_one(model, self._MODEL_NAME, text_b)
                 cos = float(np.dot(va, vb))   # 归一化后点积=余弦 ∈ [-1,1]
-                # 否定方向:主题高度相似但一方否定另一方不否定 → 立场相反 → 反号(矛盾)
-                if self._has_neg(text_a) != self._has_neg(text_b) and cos > 0.35:
+                # 否定方向:同一命题一方否定 → 立场相反 → 反号(矛盾)
+                if (self._has_neg(text_a) != self._has_neg(text_b)
+                        and cos >= self.NEG_FLIP_MIN_COS
+                        and self._same_proposition(text_a, text_b)):
                     return -abs(cos)
                 return max(-1.0, min(1.0, cos))
             except Exception:
@@ -161,16 +192,23 @@ class KnowledgeEvolutionEngine:
         id_gen:      IDGenerator,
         similarity_threshold: float = 0.30,
         auto_resolve_gap:     float = 0.20,
+        neg_flip_min_cos:     float | None = None,
+        neg_flip_min_overlap: float | None = None,
     ):
         self.store   = graph_store
         self.bus     = event_bus
         self.id_gen  = id_gen
-        self.embedder = _SimpleEmbedder()
+        self.embedder = _SimpleEmbedder(
+            neg_flip_min_cos=neg_flip_min_cos,
+            neg_flip_min_overlap=neg_flip_min_overlap,
+        )
         self.state_machine = ClaimStateMachine()
         # 语义方向阈值(score∈[-1,1]):|score|>threshold 判同向(合并)/反向(冲突)。
         # 默认 0.30 与既有硬编码一致(behavior-preserving);可经构造参数调严/调宽。
         self.similarity_threshold = similarity_threshold
         self.auto_resolve_gap     = auto_resolve_gap
+        self.neg_flip_min_cos     = self.embedder.NEG_FLIP_MIN_COS
+        self.neg_flip_min_overlap = self.embedder.NEG_FLIP_MIN_OVERLAP
 
         # open 冲突卡的 (claim_a, claim_b) 对索引:替代 _handle_conflict 里每次
         # list_conflicts 全扫去重(冲突多时 O(冲突²))。并发摄入会跨线程碰它 → 加锁。
@@ -539,3 +577,86 @@ class KnowledgeEvolutionEngine:
             }
         })
         return True
+
+    def dismiss_conflict(
+        self,
+        conflict_id: str,
+        note:        str = "",
+        resolved_by: str = "human",
+    ) -> bool:
+        """按「误判」关闭一张冲突卡:不判胜负,双方 claim_status 保持原样。"""
+        return self.dismiss_conflicts(
+            [conflict_id], note=note, resolved_by=resolved_by
+        ) == 1
+
+    def dismiss_conflicts(
+        self,
+        conflict_ids,
+        note:        str = "",
+        resolved_by: str = "human",
+    ) -> int:
+        """批量关闭误判冲突卡,返回真正关闭的张数。
+
+        与 manual_resolve 的差别:没有 winner,也不把任何一方标成 superseded。
+        唯一例外是因冲突被置为 disputed 的 claim——disputed 会被检索层剔除
+        (_sync_ku 分支 3),若它已不牵涉任何 open 冲突,这里恢复成 active;
+        否则关掉卡片等于让这条知识永久隐身。
+        """
+        cards = []
+        for cid in dict.fromkeys(conflict_ids or []):
+            card = self.store.get_conflict(cid)
+            if card and card.status == ConflictStatus.OPEN:
+                cards.append(card)
+        if not cards:
+            return 0
+
+        note = note or "误判：双方观点并存，不构成对立"
+        ts   = datetime.now(timezone.utc).isoformat()
+        touched = set()
+        for card in cards:
+            card.status          = ConflictStatus.RESOLVED
+            card.resolved_by     = resolved_by
+            card.resolved_at     = ts
+            card.resolution_note = note
+            self.store.save_conflict(card)
+            self._forget_open_pair(card.claim_a_id, card.claim_b_id)
+            touched.update((card.claim_a_id, card.claim_b_id))
+            self.bus.publish({
+                "event":   KEPEvents.CONFLICT_RESOLVED,
+                "source":  "KEE",
+                "payload": {
+                    "conflict_id": card.conflict_id,
+                    "reason":      "dismissed",
+                    "by":          resolved_by,
+                }
+            })
+
+        with self._conflict_lock:
+            self._ensure_open_pairs()
+            still_open = set(self._open_pairs or ())
+
+        restored = []
+        for ku_id in touched:
+            if any(ku_id in pair for pair in still_open):
+                continue
+            ku = self.store.get(ku_id)
+            if ku is None or getattr(ku, "claim_status", None) != ClaimStatus.DISPUTED:
+                continue
+            ku.claim_status = ClaimStatus.ACTIVE
+            if self.store.patch_ku(
+                ku_id, extra={"claim_status": ClaimStatus.ACTIVE.value}
+            ) == 0:
+                self.store.put(ku)
+            restored.append(ku_id)
+
+        if restored:
+            self.bus.publish({
+                "event":   KEPEvents.KNOWLEDGE_UPDATED,
+                "source":  "KEE",
+                "payload": {
+                    "ku_ids": restored,
+                    "reason": "conflict_dismissed_restored",
+                }
+            })
+        return len(cards)
+

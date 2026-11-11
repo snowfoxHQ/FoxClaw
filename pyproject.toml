@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxclaw"
-version = "0.1.3"
+version = "0.1.4"
 description = "Foxclaw - a personal agent with memory, built on the HMR memory runtime"
 requires-python = ">=3.11"
 
@@ -153,6 +153,10 @@ testpaths = ["tests"]
 # `python -m pytest <file> -q` 隔离)。本白名单确保任意单文件可被 pytest 收集/运行。
 python_files = [
     "test_agent_lifecycle.py",
+    "test_sensitive_write.py",
+    "test_content_guard.py",
+    "test_behavior_spec.py",
+    "test_agent_rules.py",
     "test_ahs_p2.py",
     "test_anthropic_tools.py",
     "test_api.py",

@@ -93,6 +93,7 @@ TESTS = [
     ("test_negotiation.py",  "智能体层·跨域协商闭环(被拒→让步→再裁决·有界·拒绝不降级)"),
     ("test_tool_use.py",        "P2·function-calling 工具化(多轮工具循环/注册表/降级)"),
     ("test_injection_guard.py", "提示词注入纵深防御(检出/wrap_untrusted/内核前缀/隔离)"),
+    ("test_agent_rules.py",     "Agent 规则文件启动注入(按 AGENT_ID 读盘/顺序/回退开关/包内路径)"),
     ("test_sessions.py",        "会话存储(增删改查/标题提炼/路径穿越/并发追加)"),
     ("test_stats_and_events.py","记忆统计 + 活动事件(hmr.stats 计数修复/chat.completed)"),
     ("test_llm_planner.py",            "P0-1·LLM 驱动规划器(llm_plan/replan·opt-in+fail-safe+sv_replan)"),

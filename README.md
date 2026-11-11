@@ -43,6 +43,12 @@ Closed loop (`ChannelDispatcher`): receive → Supervisor → reply to origin, w
 
 Keeps the system reliable under message redelivery, crashes, long tasks, and loops. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md): idempotency guard, crash/restart recovery (boot_id avoids pid reuse), tool-loop detection, context compaction, hook standardization, steering queue.
 
+**Content boundaries.** Requests and model output pass a deterministic content gate: narrow built-in rules for request-shaped violations, plus an optional external lexicon for platform categories.
+
+**No political, sexual, or violent term list is bundled, and nothing in that area is enforced unless the deployer mounts one.** Whether to mount a lexicon, which categories to take, and whether to run `enforce` or `audit` is entirely a deployment decision — this repository provides the mechanism, not a policy. The gate is normalised string matching, not semantic understanding: it does not guarantee coverage, and it is not a content moderation or compliance service. Deployers who expose this service publicly are responsible for their own content compliance. The software is provided "as is", as stated in [LICENSE](LICENSE).
+
+See [docs/CONTENT_GUARD.md](docs/CONTENT_GUARD.md) for mounting, conversion, and false-positive tuning.
+
 ## Quick start
 
 ```bash

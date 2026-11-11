@@ -20,7 +20,7 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from .core.thought_chain import ThoughtChain
 
@@ -94,6 +94,10 @@ class Foxclaw:
             log_path=str(self.data_dir / "token_usage.jsonl"))
         self.router.meter = self.token_meter
 
+        from .core.content_guard import ContentGuard
+        self.content_guard = ContentGuard()
+        self.router.content_guard = self.content_guard
+
         from .kernel import EventSpine, CapabilityRegistry, Scheduler
         self.event_spine = EventSpine()
 
@@ -135,6 +139,16 @@ class Foxclaw:
         from .core.audit_sink import attach as _attach_shared_write_audit
         self.shared_write_audit = _attach_shared_write_audit(
             self.event_spine, self.data_dir)
+
+        from .core.sensitive_write import (
+            PENDING_FILE,
+            SensitiveWritePolicy,
+            attach as _attach_sensitive_write,
+        )
+        self.sensitive_write_policy = SensitiveWritePolicy(
+            pending_path=Path(self.data_dir) / PENDING_FILE)
+        _attach_sensitive_write(self.hmr, self.sensitive_write_policy,
+                                spine=self.event_spine)
 
         from .agents.agents import SupervisorAgent, FinanceAgent, OfficeAgent
         agent_kwargs = dict(
@@ -353,6 +367,32 @@ class Foxclaw:
 
     def get_agent(self, agent_id: str):
         return self._agents.get(agent_id)
+
+    def list_sensitive_pending(self) -> list:
+        """待用户同意的高敏感记忆写入。未挂策略时返回空列表。"""
+        policy = getattr(self, "sensitive_write_policy", None)
+        return policy.pending.list() if policy is not None else []
+
+    def approve_sensitive_write(self, pending_id: str) -> bool:
+        """用户同意后落库。这是全仓唯一允许传 consent=True 的地方。"""
+        policy = getattr(self, "sensitive_write_policy", None)
+        if policy is None:
+            return False
+        entry = policy.pending.pop(pending_id)
+        if entry is None:
+            return False
+        self.hmr.ingest(
+            entry.get("content", ""),
+            type=entry.get("type", "concept"),
+            agent_id=entry.get("agent_id") or None,
+            consent=True,
+        )
+        return True
+
+    def reject_sensitive_write(self, pending_id: str) -> bool:
+        """用户拒绝:丢弃待确认项,不落库。"""
+        policy = getattr(self, "sensitive_write_policy", None)
+        return bool(policy is not None and policy.pending.pop(pending_id) is not None)
 
     def get_all_status(self) -> dict:
         return {

@@ -20,6 +20,8 @@ import threading
 from pathlib import Path
 
 from .shared_write import guard_shared_write
+from .sensitive_write import guard_sensitive_write
+from types import SimpleNamespace
 from typing import Any
 
 
@@ -83,9 +85,14 @@ class HMRAdapter:
         return " ".join(s.split())[:24]
 
     def ingest(self, content: str, type: str = "concept", agent_id: str | None = None,
-               title: str | None = None, tags: list | None = None, shared: bool = False, **kwargs):
+               title: str | None = None, tags: list | None = None, shared: bool = False,
+               consent: bool = False, **kwargs):
         """统一摄入接口。agent_id 写入 tags 实现隔离;shared=True 则写入共享层。
-        未给 title 时从内容提炼一个可读标题(否则 HMR 会生成纯时间戳标题)。"""
+        未给 title 时从内容提炼一个可读标题(否则 HMR 会生成纯时间戳标题)。
+
+        consent=True 表示"用户已对该条高敏感内容点头",跳过敏感闸门。唯一允许的调用方是
+        `FoxclawOS.approve_sensitive_write`(与 PolicyGate 的 confirmed=True 同一模式):
+        别处传 True 等于绕过同意流程。"""
         meta_tags = list(tags or [])
         if agent_id:
             meta_tags.append(f"agent:{agent_id}")
@@ -101,6 +108,13 @@ class HMRAdapter:
             title = self._derive_title(content) or None
         if shared:
             guard_shared_write(self, agent_id, content, mtype, meta_tags)
+        if not consent:
+            blocked = guard_sensitive_write(self, agent_id, content, mtype)
+            if blocked is not None and not blocked.allowed:
+                # 高敏感内容不落库:进待确认队列,由用户同意后再写(见 core/sensitive_write.py)
+                return SimpleNamespace(id="", type=mtype, pending=True,
+                                       pending_id=blocked.pending_id, reason=blocked.reason,
+                                       categories=list(blocked.categories))
         with self._lock:
             return self._hmr.ingest(content, memory_type=mtype, title=title, metadata=metadata)
 
@@ -401,10 +415,16 @@ class MockHMR:
     def save_workspace(self, agent_id: str):
         pass
 
-    def ingest(self, content, type="concept", agent_id=None, shared=False, **kwargs):
+    def ingest(self, content, type="concept", agent_id=None, shared=False,
+               consent=False, **kwargs):
         if shared:
             guard_shared_write(self, agent_id, content, type, kwargs.get("tags") or [])
-        from types import SimpleNamespace
+        if not consent:
+            blocked = guard_sensitive_write(self, agent_id, content, type)
+            if blocked is not None and not blocked.allowed:
+                return SimpleNamespace(id="", type=type, pending=True,
+                                       pending_id=blocked.pending_id, reason=blocked.reason,
+                                       categories=list(blocked.categories))
         return SimpleNamespace(id="mock_mem", type=type)
 
     def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5, **kwargs):
