@@ -2,7 +2,8 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import MenuPopover from './MenuPopover.vue'
 import {
-  state, loadSessions, openSession, moduleLabel, setModule, railItems, RAIL,
+  state, loadSessions, openSession, moduleLabel, moduleIcon, setModule,
+  railItems, moreItems, PINNED, RAIL,
 } from '../stores/app.js'
 import { deleteSession, loadSession, newSession, renameSession } from '../stores/chat.js'
 import { numberLocale, t } from '../lib/i18n.js'
@@ -14,7 +15,8 @@ const anchor = ref(null)
 const count = computed(() => state.sessions.length)
 const rail = railItems()
 
-const isMore = computed(() => !RAIL.includes(state.module))
+const pinnedItems = PINNED.map((id) => ({ id, icon: moduleIcon(id) }))
+const isMore = computed(() => moreItems().some((m) => m.id === state.module))
 const moreCur = computed(() => (isMore.value && state.module !== 'overview' ? moduleLabel(state.module) : ''))
 
 const ICONS = {
@@ -40,6 +42,17 @@ const ICONS = {
     'M6.1 21.4v-3.6h3.6',
   ],
   memory: ['M7.2 3.4h9.6v17.2L12 17.2l-4.8 3.4z'],
+  gear: [
+    'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z',
+    'M12 3.1v1.9',
+    'M12 19v1.9',
+    'M3.1 12h1.9',
+    'M19 12h1.9',
+    'M5.7 5.7l1.4 1.4',
+    'M16.9 16.9l1.4 1.4',
+    'M18.3 5.7l-1.4 1.4',
+    'M7.1 16.9l-1.4 1.4',
+  ],
   dot: ['M12 10.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8z'],
 }
 
@@ -221,6 +234,22 @@ function meta(s) {
       </template>
     </div>
 
+    <div class="rail-foot">
+      <div
+        v-for="m in pinnedItems"
+        :key="m.id"
+        class="rail-row"
+        :class="{ on: state.module === m.id }"
+      >
+        <button class="rail-item" :title="moduleLabel(m.id)" @click="pick(m.id)">
+          <span class="ic">
+            <svg viewBox="0 0 24 24"><path v-for="(d, i) in icon(m.icon)" :key="i" :d="d" /></svg>
+          </span>
+          <b>{{ moduleLabel(m.id) }}</b>
+        </button>
+      </div>
+    </div>
+
     <MenuPopover
       v-if="menuOpen"
       :anchor="anchor"
@@ -328,6 +357,13 @@ function meta(s) {
 }
 
 .ns-list { display: flex; flex-direction: column; gap: 3px; flex: 1; margin: 0 -4px; padding: 0 4px; }
+
+.rail-foot {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
 
 .ns-row {
   position: relative; display: flex; align-items: center;
