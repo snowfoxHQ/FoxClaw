@@ -4,7 +4,7 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
-## Unreleased
+## 0.1.4 — 2026-11-12
 
 A conflict card can now be dismissed instead of decided, the validator stops reading every Chinese 不 as a negation, each agent gets its own rules file, and the hard boundaries now live in one checkable spec instead of being scattered across prompts.
 
@@ -32,6 +32,7 @@ A conflict card can now be dismissed instead of decided, the validator stops rea
 - Normalization defeats full-width characters, zero-width characters and inserted spaces. Pinyin, homophones and character-splitting are explicitly out of scope for a deterministic layer — this is a speed bump, not a wall.
 - Knowledge-base ingestion and attachment bodies are **not** filtered: that is the user's own material. The gate sits on the request and the output only, so a history book or a legal statute is not mistaken for a violation.
 - New `no_harmful_content` rule in the behavior spec (`enforce: both`), and a new §8 "content boundaries" in `KERNEL_PROMPT` spelling out the refusal pattern and the difference between 「material」 and 「instructions」.
+- `docs/CONTENT_GUARD.md` / `docs/CONTENT_GUARD_CN.md` document mounting, lexicon format, conversion and false-positive tuning. No political, sexual or violent list is bundled; mounting one, and which mode to run, is the deployer's decision.
 
 **Agents**
 

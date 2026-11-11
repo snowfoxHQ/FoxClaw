@@ -20,7 +20,7 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from .core.thought_chain import ThoughtChain
 
