@@ -43,7 +43,7 @@ $ExcludeFiles = @(
     "tools/sync_public.ps1"
 )
 
-$RootMdAllow = @("README.md", "README_CN.md")
+$RootMdAllow = @("README.md", "README_CN.md", "CHANGELOG.md")
 
 $ExcludeGlobs = @(
     "docs/SYSTEM_REVIEW_*.md",
