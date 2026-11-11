@@ -4,6 +4,18 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
+## Unreleased
+
+A conflict card can now be dismissed instead of decided, and the validator stops reading every Chinese 不 as a negation.
+
+**Knowledge**
+
+- `POST /conflicts/{id}/dismiss` and `POST /conflicts/bulk-dismiss` (SDK: `dismiss_conflict` / `dismiss_conflicts`) close a card without picking a winner: both claims stay `active` and nothing is marked `superseded`. A claim that was `disputed` only because of that card goes back to `active` once no open conflict mentions it.
+- Conflict detection no longer flips polarity on topical similarity alone. The negated side now also has to overlap lexically with the other statement (character-bigram Jaccard ≥ 0.40) and stay close in embedding space (cosine ≥ 0.35); both thresholds are constructor parameters (`neg_flip_min_cos`, `neg_flip_min_overlap`).
+- Descriptive `不` / `无` compounds (`不变`, `不同`, `不管`, `不再`, `无需`, `不可观测`, `不可控` …) no longer count as stance negation.
+- The conflict card gained a secondary "false positive" button beside "accept selected claim".
+- `tools/recheck_conflicts.py` re-scores existing open cards with the current rule and batch-closes those that no longer hold. It dry-runs by default; `--apply` submits through the running service, so the in-process conflict set and the vector index stay in step.
+
 ## 0.1.3 — 2026-11-11
 
 Bilingual interface, and Settings moved where it belongs.

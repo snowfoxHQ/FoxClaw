@@ -4,6 +4,18 @@
 
 英文版:[CHANGELOG.md](CHANGELOG.md)。
 
+## 未发布
+
+冲突卡可以「判为误判」，不必二选一；判定逻辑也不再见到「不」就当否定。
+
+**知识**
+
+- 新增 `POST /conflicts/{id}/dismiss` 与 `POST /conflicts/bulk-dismiss`（SDK：`dismiss_conflict` / `dismiss_conflicts`），关闭卡片但不判胜负：双方 claim 保持 `active`，没有一方被标成 `superseded`。仅因该卡被置为 `disputed` 的观点，在不牵涉任何 open 冲突后恢复为 `active`。
+- 冲突判定不再只凭主题相似就翻转立场：否定侧还须与另一句字面重合（字符二元组 Jaccard ≥ 0.40）且语义相近（余弦 ≥ 0.35），两个阈值均可由构造参数（`neg_flip_min_cos` / `neg_flip_min_overlap`）调整。
+- 「不变」「不同」「不管」「不再」「无需」「不可观测」「不可控」这类描述性「不 / 无」不再算作立场否定。
+- 冲突卡新增次按钮「误判」，与「采纳所选观点」并列。
+- 新增 `tools/recheck_conflicts.py`：用当前规则复算存量 open 卡并批量关闭已不成立的，默认 dry-run，`--apply` 经运行中的服务提交，保证进程内冲突集合与向量索引同步。
+
 ## 0.1.3 — 2026-11-11
 
 界面双语化，并把「设置」放到该在的位置。
