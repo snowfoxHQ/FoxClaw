@@ -91,10 +91,11 @@ git tag -a v0.1.4 "$(git rev-parse origin/main)" -m "v0.1.4"
 git push origin v0.1.4
 ```
 
-> **tag 必须打在公开仓的导出提交上,不是本地 HEAD。** 本地是私有开发库,公开仓的 HEAD
-> 由 `tools/sync_public.ps1` 重新构造(同一份树、不同 SHA)。把 tag 打在本地 HEAD 再 push,
-> 会把私有库的完整历史推到公开仓,导出白名单形同虚设。所以先 `git fetch origin`,
-> 用 `origin/main` 的 SHA 打 tag —— 前提是这次要发的改动已经 `sync_public.ps1 -Apply` 过。
+> **tag 必须打在 `origin/main` 上,不是本地 HEAD。** 本地 `personal` 分支是开发分支,
+> 含未导出的内部文档与中间提交;`origin/main` 由 `tools/sync_public.ps1` 从 HEAD 重新构造
+> (同一份树、不同 SHA)。把 tag 打在本地 HEAD 再 push,会把内部历史一起推到公开仓,
+> 导出白名单形同虚设。所以先 `git fetch origin`,用 `origin/main` 的 SHA 打 tag ——
+> 前提是这次要发的改动已经 `sync_public.ps1 -Apply` 过。
 
 `.github/workflows/release.yml` 的 `build` job 会:校验版本/tag → 构建 → `build.cjs` +
 npm pack → 产物结构校验 → 上传 `python-dist` / `npm-tgz` 两个 artifact;
@@ -141,15 +142,17 @@ Actions → Release → Run workflow:
   `permissions: id-token: write`。
 - npm:npm ≥ 11.5 支持 trusted publishing,同样加 `id-token: write` 并去掉 `NODE_AUTH_TOKEN`。
 
-## 仓库名(2026-11-08 已定)
+## 仓库(2026-11-12 订正)
 
-两个仓库,职责不同,别再混:
+只有一个仓库:`snowfoxHQ/FoxClaw`(public)。`origin` 就指向它,没有第二个开发库。
 
-| 仓库 | 可见性 | 用途 |
-|---|---|---|
-| `snowfoxHQ/FoxClaw` | public | 对外发布。PyPI/npm 的 `homepage`/`repository` 都指它,OIDC publisher 也填它 |
-| 私有开发库(名称不对外) | private | 本地 `git remote origin` 指向的开发备份 |
+| 位置 | 用途 |
+|---|---|
+| `origin/main` | 唯一对外分支。由 `tools/sync_public.ps1` 从本地 HEAD 构造后推送,只含导出白名单 |
+| 本地 `personal` | 开发分支。内部文档与中间提交都在这里,不直接 push 到 `origin` |
 
-公开仓库原名 `SnowFoxClaw`,已于 2026-11-08 改名为 `FoxClaw`(GitHub 对旧名自动 301,
-老链接不会 404)。切 OIDC 时 publisher 的 repo 必须写成 `FoxClaw`——不是私有开发库的名字,
-也不是小写 `foxclaw`(registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配)。
+两者的 SHA 天然不同(同一份树、不同父历史),所以 tag 只认 `origin/main`。
+
+旧名 `SnowFoxClaw` 已不存在——GitHub 上查无此仓,也没有改名跳转。切 OIDC 时 publisher
+的 repo 必须写 `FoxClaw`:registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配,
+`foxclaw` 全小写能打开网页,校验却会失败。
