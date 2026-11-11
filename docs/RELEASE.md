@@ -1,37 +1,49 @@
 # 发布流程
 
-> **当前状态(2026-11-07):发布暂缓。** 开发全部完成后再一次性发,现在只往 GitHub 推代码。
-> 因此**不要**打 `v*` tag(`.github/workflows/release.yml` 由 tag 触发),也**不要**跑
-> `workflow_dispatch` 的 `publish` 选项。流水线已经就位,等要发时按下面走。
+> **当前状态(2026-11-11 核实)。** 已不再整体暂缓,发版按需单通道进行。
 >
-> 另外两个 registry 的现状(查过,别再当"全新包"处理):
+> 两个 registry 的现状(`npm view foxclaw versions` / PyPI JSON API 实测,别再当"全新包"):
 >
-> - PyPI `foxclaw` 已有 **0.1.0**(2026-11-06 上传,不能重发,只能 yank);
-> - npm `foxclaw` 已有 `0.0.0-stage` / `0.1.0` / **0.1.1**(latest),而仓库代码是 0.1.0
->   —— 那个 0.1.1 是手工 `npm publish` 后没提交,git 里找不到对应版本。
+> | registry | 已占用版本 | latest |
+> | --- | --- | --- |
+> | PyPI `foxclaw` | 0.1.0 / 0.1.2 | 0.1.2 |
+> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 | 0.1.2 |
 >
-> 所以下次真正发布时,四处版本号必须先跳到 **≥ 0.1.2**(PyPI 只需 >0.1.0,npm 需 >0.1.1,取大)。
+> - **0.1.3 只发了 npm**(2026-11-11,`publish=npm`)。CI 侧 `npm publish` 正常返回
+>   `+ foxclaw@0.1.3`,但 5 分钟后直查 `registry.npmjs.org/foxclaw/0.1.3` 仍是 404,
+>   `dist-tags.latest` 仍是 0.1.2 —— 典型的 registry 处理/安全扫描挂起。
+>   **号大概率已被占,不要重试**(重发只会拿到 `cannot publish over previously published version`)。
+>   等 15~30 分钟再查;仍无则去 npmjs.com 看包页与账号通知(扫描挂起、邮箱验证)。
+> - PyPI 停在 **0.1.2**,0.1.3 未上传。
+> - 历史:0.1.0(2026-11-06)两通道首版;0.1.1 只在 npm 手工发过、git 里无对应提交,已删;
+>   0.1.2(2026-11-09)两通道都发。
+>
+> 下次发版的可用号:PyPI 需 **> 0.1.2**,npm 需 **> 0.1.3**。
 
-两条发布通道、两种产物,性质完全不同,先说清楚免得误会:
+两条发布通道、两种产物,**性质不同,别混着写发布说明**:
 
 | 产物 | 命令 | 里面有什么 |
 | --- | --- | --- |
 | PyPI `foxclaw` | `pip install foxclaw` | **占位包**:能 import,但 `vendor/`(HKC/HMR)不入包 → 知识/记忆子系统降级为 None |
-| npm `foxclaw` | `npm i foxclaw` | 占位包:`index.js` 只导出 `name` / `version` |
-| GitHub Release | tag 自动 | 上面两个包的文件 + 自动生成的 release notes |
+| npm `foxclaw` | `npm i foxclaw` | **不是占位包**:`build.cjs` 把源码整树(含 `vendor/`)复制进 `python/`;0.1.3 实测 514 文件 / 包 1.7 MB / 解包 4.9 MB |
+| GitHub Release | tag 自动 | 上面两份产物 + 自动生成的 release notes |
 
-`vendor/` 不入包是设计现状(`packages.find` 只收 `foxclaw*`,HMR/HKC 以 sys.path
-内嵌,运行期按 `Path(__file__)/../../vendor` 找)。发布说明里必须写明"这是占位包",
-不要让人装完以为拿到了完整运行时。
+PyPI 侧 `vendor/` 不入包是设计现状(`packages.find` 只收 `foxclaw*`,HMR/HKC 以 sys.path
+内嵌,运行期按 `Path(__file__)/../../vendor` 找)。**PyPI 的发布说明必须写明"这是占位包"**,
+不要让人装完以为拿到了完整运行时。npm 包虽然带 `vendor/`,但不带 Python 运行时的第三方
+依赖(torch/faiss 等),装完同样跑不起来,说明里要写清"需自备 Python 环境与依赖"。
 
 ## 1. 本地预检(发布前必须绿)
 
 ```bash
-python tools/release_check.py --tag v0.1.0          # 四处版本号一致 + tag 对得上
+python tools/release_check.py --tag v0.1.4          # 五处版本号一致 + tag 对得上
 python -m build                                      # 出 dist/*.whl + *.tar.gz
-cd npm && npm pack --pack-destination ../dist && cd ..
+cd npm && node build.cjs && npm pack --pack-destination ../dist && cd ..
 python tools/release_check.py --dist dist --npm-tgz dist/*.tgz
 ```
+
+`npm pack` 前必须先跑 `node build.cjs`:它负责把源码复制进 `npm/python/`,
+漏了这步打出来的是空壳(`npm pack` 不触发 `prepublishOnly`)。CI 里已经内置这一步。
 
 第二道检查会做这些事,任一 `[ERROR]` 都不许发布:
 
@@ -50,46 +62,55 @@ python tools/release_check.py --dist dist --npm-tgz dist/*.tgz
 ## 2. 打 tag(自动构建 + 挂 Release,不外发)
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git fetch origin
+git tag -a v0.1.4 "$(git rev-parse origin/main)" -m "v0.1.4"
+git push origin v0.1.4
 ```
 
-`.github/workflows/release.yml` 的 `build` job 会:校验版本/tag → 构建 → npm pack →
-产物结构校验 → 上传 `python-dist` / `npm-tgz` 两个 artifact;`github-release` job 把它们
-挂成 Release 附件(重跑用 `--clobber` 覆盖附件,不重建 Release)。
+> **tag 必须打在公开仓的导出提交上,不是本地 HEAD。** 本地是私有开发库,公开仓的 HEAD
+> 由 `tools/sync_public.ps1` 重新构造(同一份树、不同 SHA)。把 tag 打在本地 HEAD 再 push,
+> 会把私有库的完整历史推到公开仓,导出白名单形同虚设。所以先 `git fetch origin`,
+> 用 `origin/main` 的 SHA 打 tag —— 前提是这次要发的改动已经 `sync_public.ps1 -Apply` 过。
 
-这一步**不会**上传到 PyPI / npm,打错了删 tag 重来即可。
+`.github/workflows/release.yml` 的 `build` job 会:校验版本/tag → 构建 → `build.cjs` +
+npm pack → 产物结构校验 → 上传 `python-dist` / `npm-tgz` 两个 artifact;
+`github-release` job 把它们挂成 Release 附件(重跑用 `--clobber` 覆盖附件,不重建 Release)。
 
-## 3. 上传到 PyPI / npm(需要人工审批)
+这一步**不会**上传到 PyPI / npm,打错了 `git push --delete origin vX.Y.Z` 再重来即可。
+
+## 3. 上传到 PyPI / npm
 
 Actions → Release → Run workflow:
 
 - `publish`:选 `pypi` / `npm` / `both`
-- `ref`:填**同一个 tag**(如 `v0.1.0`;不填会直接失败——不允许发分支 HEAD)
+- `ref`:填**同一个 tag**(如 `v0.1.4`;不填会直接失败——不允许发分支 HEAD)
 
-然后经由 environment 审批:
-
-| environment | 审批后执行 | 用的 secret |
+| environment | 执行 | 用的 secret |
 | --- | --- | --- |
 | `pypi` | `pypa/gh-action-pypi-publish` | `PYPI_API_TOKEN`(项目级 `pypi-`/`npt_` token) |
 | `npm` | `npm publish` | `NPM_TOKEN`(granular,仅 `foxclaw` 的 publish 权限) |
 
-需要在仓库 Settings → Environments 里先建 `pypi`、`npm` 两个环境并配 Required reviewers,
-否则"审批门"不存在,勾了就直接发。
+> **审批门当前不存在(2026-11-11 核实)。** `gh api repos/snowfoxHQ/FoxClaw/environments/npm`
+> 返回的 `protection_rules` 是 `[]`,`pypi` 同理:两个环境只建了、没配 Required reviewers。
+> 也就是说 `publish` 一旦触发就**直接外发**,中间没有任何人工停顿 —— 0.1.3 的 npm 就是
+> 这么出去的。想要真正的审门,先去 Settings → Environments 给 `pypi` / `npm` 各加
+> Required reviewers,再触发发布。
 
 ## 4. 发错了怎么办
 
 **PyPI / npm 的版本号不可撤回**。能做的只有:
 
 - PyPI:`yank`(`twine`/网页)→ 该版本不再被新装选中,但**仍然占着号**,不能重发同号;
-  修好后必须 `0.1.1`。
-- npm:`npm unpublish foxclaw@0.1.0` 只在发布后 72 小时内、且无其他包依赖时可用;
+  修好后必须发一个更高的版本号。
+- npm:`npm unpublish foxclaw@x.y.z` 只在发布后 72 小时内、且无其他包依赖时可用;
   过了就只能 `npm deprecate` + 发新号。
 
-所以"先构建、再审批上传"不是流程洁癖,是这两个 registry 的规则逼出来的。
+所以"tag 先构建、上传再单独触发"不是流程洁癖,是这两个 registry 的规则逼出来的:
+把不可逆的那一步单独隔离,前面每一步都能重跑。
 
 ## 5. 切到 OIDC(零长期密钥)
 
-当前用 token,因为上传已有人工审批兜底。想彻底去掉长期密钥时:
+当前用 token。想彻底去掉长期密钥时:
 
 - PyPI:项目页 → Publishing → 加 GitHub publisher(owner/repo/workflow/environment
   必须与实际一致),首次发布用 "pending publisher";然后删掉 secret,给 job 加
