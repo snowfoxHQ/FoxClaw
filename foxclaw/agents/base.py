@@ -368,6 +368,14 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         from ..core import injection_guard as _ig
         from ..core.model_router import _chunk_text
         task = str(task or "")
+        # 输入侧内容闸门:只扫用户键入的请求,不扫附件正文(那是用户自己的资料)。
+        # 命中直接回固定话术,不把请求送进模型 —— 提示词只能降低概率,这里要确定性。
+        _cg = getattr(self.router, "content_guard", None)
+        if _cg is not None and _cg.enabled():
+            _blocked = _cg.guard_input(task)
+            if _blocked.blocked:
+                yield _blocked.text
+                return
         _evidence_reset(self)
         if attachments:
             ctx = self._attachments_context(attachments)
@@ -695,6 +703,15 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         本 generator 主体 drain 该队列并 yield。`_act_stream` contextvar 在 worker 内设置,随
         asyncio Task / to_thread 的上下文复制传播到 `_call_llm` → 触发 act 流式。"""
         import queue as _queue, threading as _threading, asyncio as _asyncio
+        # 与 stream_reply 同一道输入闸门:任务路径不能被当作绕过口。
+        _cg = getattr(self.router, "content_guard", None)
+        if _cg is not None and _cg.enabled():
+            _blocked = _cg.guard_input(str(task or ""))
+            if _blocked.blocked:
+                yield {"delta": _blocked.text}
+                yield {"result": {"status": "blocked", "reply": _blocked.text,
+                                  "reason": "content_guard"}}
+                return
         bridge: "_queue.Queue" = _queue.Queue()
         _SENTINEL = object()
 

@@ -154,6 +154,7 @@ testpaths = ["tests"]
 python_files = [
     "test_agent_lifecycle.py",
     "test_sensitive_write.py",
+    "test_content_guard.py",
     "test_behavior_spec.py",
     "test_agent_rules.py",
     "test_ahs_p2.py",

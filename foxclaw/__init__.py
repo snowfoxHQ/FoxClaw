@@ -94,6 +94,10 @@ class Foxclaw:
             log_path=str(self.data_dir / "token_usage.jsonl"))
         self.router.meter = self.token_meter
 
+        from .core.content_guard import ContentGuard
+        self.content_guard = ContentGuard()
+        self.router.content_guard = self.content_guard
+
         from .kernel import EventSpine, CapabilityRegistry, Scheduler
         self.event_spine = EventSpine()
 
