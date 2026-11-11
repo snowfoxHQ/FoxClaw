@@ -3,22 +3,29 @@ import { computed, onMounted, ref } from 'vue'
 import { getJSON } from '../api.js'
 import { state, setModule } from '../stores/app.js'
 import { system, loadSystemInfo } from '../stores/system.js'
+import { t } from '../lib/i18n.js'
 
-const uplink = ref('···')
+const uplink = ref('···') // '···' | 'online' | 'offline'
 const tone = ref('dim')
 
 const ver = computed(() => system.version)
 
 const upd = computed(() => (system.update?.update_available ? system.update : null))
 
+const uplinkText = computed(() => {
+  if (uplink.value === 'online') return t('common.online')
+  if (uplink.value === 'offline') return t('common.offlineShort')
+  return '···'
+})
+
 onMounted(async () => {
   loadSystemInfo()
   try {
     await getJSON('/status')
-    uplink.value = '在线'
+    uplink.value = 'online'
     tone.value = 'ok'
   } catch {
-    uplink.value = '离线'
+    uplink.value = 'offline'
     tone.value = 'bad'
   }
 })
@@ -41,20 +48,20 @@ function openSettings() {
       <button
         v-if="upd"
         class="upd"
-        :title="`有新版本 ${upd.latest}(当前 ${upd.current}),点这里看设置`"
+        :title="t('topbar.newVersion', { latest: upd.latest, current: upd.current })"
         @click="openSettings"
       >↑</button>
     </div>
     <div class="spacer" />
     <div class="stat">
-      <span class="lbl">系统状态</span>
-      <span class="val" :class="tone">{{ uplink }}</span>
+      <span class="lbl">{{ t('topbar.systemStatus') }}</span>
+      <span class="val" :class="tone">{{ uplinkText }}</span>
     </div>
-    <button class="tbtn" title="打开 HKC 知识星球" @click="openPlanet">🌐 知识星球</button>
+    <button class="tbtn" :title="t('topbar.planet')" @click="openPlanet">{{ t('topbar.planetBtn') }}</button>
     <button
       class="tbtn"
       :class="{ on: state.module === 'settings' }"
-      title="设置 (Ctrl+,)"
+      :title="t('topbar.settings')"
       @click="openSettings"
     >⚙</button>
   </header>

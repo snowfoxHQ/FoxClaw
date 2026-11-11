@@ -7,6 +7,7 @@ import Inspector from './components/Inspector.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { state, setModule } from './stores/app.js'
 import { bootChat } from './stores/chat.js'
+import { t } from './lib/i18n.js'
 
 const NARROW = 1180
 const narrow = ref(false)
@@ -50,8 +51,8 @@ function onKey(e) {
       <Inspector />
     </div>
     <div v-if="narrow && state.railOpen" class="rail-scrim" @click="state.railOpen = false" />
-    <button v-if="!state.railOpen" class="rail-handle" title="展开检视栏" @click="state.railOpen = true">
-      检视
+    <button v-if="!state.railOpen" class="rail-handle" :title="t('app.expandInspector')" @click="state.railOpen = true">
+      {{ t('app.inspector') }}
     </button>
   </div>
 </template>

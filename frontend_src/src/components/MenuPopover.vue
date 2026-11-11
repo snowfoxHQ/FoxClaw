@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { moreItems } from '../stores/app.js'
+import { groupLabel, moduleLabel, moreItems } from '../stores/app.js'
+import { t } from '../lib/i18n.js'
 
 const props = defineProps({
   anchor: { type: Object, default: null },
@@ -12,12 +13,12 @@ const groups = computed(() => {
   const out = []
   let cur = null
   for (const m of moreItems()) {
-    if (!m.group) {
-      out.push({ title: '', items: [m] })
+    if (!m.groupKey) {
+      out.push({ titleKey: '', items: [m] })
       continue
     }
-    if (!cur || cur.title !== m.group) {
-      cur = { title: m.group, items: [] }
+    if (!cur || cur.titleKey !== m.groupKey) {
+      cur = { titleKey: m.groupKey, items: [] }
       out.push(cur)
     }
     cur.items.push(m)
@@ -58,10 +59,10 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div class="nav-pop" :style="style">
-      <div class="pop-head">更多功能 <span class="x" title="关闭 (Esc)" @click="$emit('close')">✕</span></div>
+      <div class="pop-head">{{ t('menu.title') }} <span class="x" :title="t('menu.close')" @click="$emit('close')">✕</span></div>
       <div class="pop-body">
         <template v-for="(g, gi) in groups" :key="gi">
-          <div v-if="g.title" class="pop-sec">{{ g.title }}</div>
+          <div v-if="g.titleKey" class="pop-sec">{{ groupLabel(g.titleKey) }}</div>
           <button
             v-for="m in g.items"
             :key="m.id"
@@ -69,7 +70,7 @@ onBeforeUnmount(() => {
             :class="{ on: m.id === active }"
             @click="$emit('pick', m.id)"
           >
-            <span class="lbl">{{ m.label }}</span>
+            <span class="lbl">{{ moduleLabel(m.id) }}</span>
             <span class="tag">{{ m.tag }}</span>
           </button>
         </template>

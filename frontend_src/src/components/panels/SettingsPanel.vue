@@ -7,15 +7,16 @@ import { setModule } from '../../stores/app.js'
 import { setMode, chat, say } from '../../stores/chat.js'
 import { profile, loadProfile, saveNickname } from '../../stores/profile.js'
 import { loadSystemInfo, system } from '../../stores/system.js'
+import { i18n, LOCALES, setLocale, t } from '../../lib/i18n.js'
 
 const info = typeof __APP_INFO__ === 'undefined' ? null : __APP_INFO__
 const sha = info?.git?.sha || 'dev'
-const age = (() => {
+const age = computed(() => {
   const ts = info?.git?.ts || 0
-  if (!ts) return '本地构建'
+  if (!ts) return t('settings.buildLocal')
   const d = Math.floor((Date.now() - ts) / 86400000)
-  return d <= 0 ? '今天' : `${d} 天前`
-})()
+  return d <= 0 ? t('settings.buildToday') : t('settings.buildDays', { n: d })
+})
 
 const open = ref('') // '' | 'model' | 'keys' —— 一次只展开一组,行数不会失控
 const up = ref(null) // null=探测中 | true | false
@@ -24,15 +25,15 @@ const err = ref('')
 const cur = computed(() => currentLabel())
 const options = computed(() => modelOptions())
 
-const KEYS = [
-  ['Enter', '发送'],
-  ['Shift + Enter', '换行'],
-  ['/', '命令补全(如 /搜索)'],
-  ['@', '技能补全'],
-  ['↑ ↓', '在补全列表里选'],
-  ['Esc', '关闭补全 / 浮层'],
-  ['Ctrl + ,', '打开设置'],
-]
+const KEYS = computed(() => [
+  ['Enter', t('key.enter')],
+  ['Shift + Enter', t('key.shiftEnter')],
+  ['/', t('key.slash')],
+  ['@', t('key.at')],
+  ['↑ ↓', t('key.arrows')],
+  ['Esc', t('key.esc')],
+  ['Ctrl + ,', t('key.ctrlComma')],
+])
 
 const nickDraft = ref('')
 
@@ -46,29 +47,35 @@ onMounted(() => {
 async function saveNick() {
   try {
     await saveNickname(nickDraft.value)
-    say(profile.nickname ? `以后称呼你为 ${profile.nickname}` : '已清除称呼')
+    say(profile.nickname ? t('settings.saidNick', { name: profile.nickname }) : t('settings.saidNickCleared'))
     open.value = ''
   } catch (e) {
-    say(`保存失败:${e.message}`, 4000)
+    say(t('settings.errSaveNick', { msg: e.message }), 4000)
   }
+}
+
+function pickLang(id) {
+  setLocale(id)
+  const name = LOCALES.find((l) => l.id === id)?.label || id
+  say(t('settings.saidLang', { name }))
 }
 
 const upd = computed(() => system.update || null)
 const updLabel = computed(() => {
   const u = upd.value
   if (!u) return '…'
-  if (!u.enabled) return '未开启'
-  if (u.update_available) return `新版本 ${u.latest}`
-  if (u.latest) return '已是最新'
-  return u.error ? '检查失败' : '待检查'
+  if (!u.enabled) return t('settings.updNotEnabled')
+  if (u.update_available) return t('settings.updAvailable', { v: u.latest })
+  if (u.latest) return t('settings.updLatest')
+  return u.error ? t('settings.updFailed') : t('settings.updPending')
 })
 const updHint = computed(() => {
   const u = upd.value
-  if (!u) return '读取中…'
-  if (!u.enabled) return '默认关闭 · 设 FOXCLAW_UPDATE_CHECK=1 开启'
-  if (u.error) return `检查失败(不影响使用):${u.error}`
-  if (u.update_available) return `当前 v${u.current} · 最新 v${u.latest}`
-  return `当前 v${u.current} · 24 小时查一次`
+  if (!u) return t('common.loading')
+  if (!u.enabled) return t('settings.updHintOff')
+  if (u.error) return t('settings.updHintError', { msg: u.error })
+  if (u.update_available) return t('settings.updHintNew', { cur: u.current, latest: u.latest })
+  return t('settings.updHintOk', { cur: u.current })
 })
 
 async function probe() {
@@ -95,16 +102,16 @@ async function pick(o) {
       name: o.source === 'custom' ? o.key : null,
     })
     open.value = ''
-    say(`模型已切到 ${o.label}`)
+    say(t('settings.saidSwitched', { label: o.label }))
   } catch (e) {
     err.value = e.message
-    say(`切换失败:${e.message}`, 4000)
+    say(t('settings.errSwitch', { msg: e.message }), 4000)
   }
 }
 
 function mode(m) {
   setMode(m)
-  say(m === 'stream' ? '流式:逐字输出' : '编排:先出计划再逐步执行')
+  say(m === 'stream' ? t('settings.saidStream') : t('settings.saidOrchestrate'))
 }
 
 const ICONS = {
@@ -113,19 +120,20 @@ const ICONS = {
   chat: ['M19.6 14.8a1.8 1.8 0 0 1-1.8 1.8H8.6L5 20v-3.4H6.2A1.8 1.8 0 0 1 4.4 14.8V6.4A1.8 1.8 0 0 1 6.2 4.6h11.6a1.8 1.8 0 0 1 1.8 1.8z'],
   keys: ['M3.8 8.2h16.4v7.6H3.8z', 'M7 11h.01', 'M11 11h.01', 'M15 11h.01', 'M9 13.8h6'],
   server: ['M4.4 5.4h15.2v4.8H4.4z', 'M4.4 13.8h15.2v4.8H4.4z', 'M7.4 7.8h.01', 'M7.4 16.2h.01'],
+  globe: ['M12 3.4a8.6 8.6 0 1 0 0 17.2 8.6 8.6 0 0 0 0-17.2z', 'M3.6 12h16.8', 'M12 3.4c2.2 2.4 3.4 5.4 3.4 8.6s-1.2 6.2-3.4 8.6c-2.2-2.4-3.4-5.4-3.4-8.6s1.2-6.2 3.4-8.6z'],
 }
 
 const icon = (n) => ICONS[n] || ICONS.gear
 </script>
 
 <template>
-  <PanelBox title="设置" tag="Settings" state="idle" :ready="true" @refresh="refresh">
+  <PanelBox :title="t('settings.title')" tag="Settings" state="idle" :ready="true" @refresh="refresh">
     <div class="card">
-      <div class="grp">模型</div>
+      <div class="grp">{{ t('settings.groupModel') }}</div>
 
       <button class="row" :aria-expanded="open === 'model'" @click="open = open === 'model' ? '' : 'model'">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('gear')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>模型与供应商</b><span>切换后服务端立即生效,不用重启</span></span>
+        <span class="m"><b>{{ t('settings.modelProvider') }}</b><span>{{ t('settings.modelProviderSub') }}</span></span>
         <span class="hint"><i class="dot" :style="{ background: cur.color }" />{{ cur.name }}</span>
         <span class="chev" :class="{ open: open === 'model' }">›</span>
       </button>
@@ -140,38 +148,38 @@ const icon = (n) => ICONS[n] || ICONS.gear
         >
           <span class="dot" :style="{ background: o.color }" />
           <span class="m"><b>{{ o.label }}</b><span>{{ o.sub }}</span></span>
-          <span v-if="o.active" class="pn-tag green">当前</span>
-          <span v-else-if="o.configured === false" class="pn-tag amber">未配置</span>
+          <span v-if="o.active" class="pn-tag green">{{ t('settings.current') }}</span>
+          <span v-else-if="o.configured === false" class="pn-tag amber">{{ t('settings.unconfigured') }}</span>
         </button>
         <p class="tip">
-          「未配置」= 后端缺该厂商的 Key。自定义模型的 Key / Base URL 在输入框左侧的模型胶囊里加。
+          {{ t('settings.providerNote') }}
         </p>
         <p v-if="err" class="tip err">{{ err }}</p>
       </div>
 
       <button class="row" @click="setModule('usage')">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('gauge')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>使用情况</b><span>token、调用次数、余额</span></span>
+        <span class="m"><b>{{ t('settings.usage') }}</b><span>{{ t('settings.usageSub') }}</span></span>
         <span class="chev">›</span>
       </button>
     </div>
 
     <div class="card">
-      <div class="grp">对话</div>
+      <div class="grp">{{ t('settings.groupChat') }}</div>
 
       <div class="row static">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('chat')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>模式</b><span>逐字流式 / 先出计划再逐步执行</span></span>
+        <span class="m"><b>{{ t('settings.mode') }}</b><span>{{ t('settings.modeSub') }}</span></span>
         <span class="seg">
-          <button :class="{ on: chat.mode === 'stream' }" @click="mode('stream')">流式</button>
-          <button :class="{ on: chat.mode === 'orchestrate' }" @click="mode('orchestrate')">编排</button>
+          <button :class="{ on: chat.mode === 'stream' }" @click="mode('stream')">{{ t('settings.stream') }}</button>
+          <button :class="{ on: chat.mode === 'orchestrate' }" @click="mode('orchestrate')">{{ t('settings.orchestrate') }}</button>
         </span>
       </div>
 
       <button class="row" :aria-expanded="open === 'nick'" @click="open = open === 'nick' ? '' : 'nick'">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('chat')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>称呼</b><span>模型会这么叫你</span></span>
-        <span class="hint">{{ profile.nickname || '未设置' }}</span>
+        <span class="m"><b>{{ t('settings.nickname') }}</b><span>{{ t('settings.nicknameSub') }}</span></span>
+        <span class="hint">{{ profile.nickname || t('common.notSet') }}</span>
         <span class="chev" :class="{ open: open === 'nick' }">›</span>
       </button>
 
@@ -181,18 +189,18 @@ const icon = (n) => ICONS[n] || ICONS.gear
             v-model="nickDraft"
             class="nick-in"
             maxlength="24"
-            placeholder="例如:snow"
+            :placeholder="t('settings.nicknamePh')"
             @keydown.enter.prevent="saveNick"
           />
-          <button class="nick-save" :disabled="profile.saving" @click="saveNick">保存</button>
+          <button class="nick-save" :disabled="profile.saving" @click="saveNick">{{ t('common.save') }}</button>
         </div>
-        <p class="tip">存成一条偏好,每轮对话都会带上;留空保存 = 清除。</p>
+        <p class="tip">{{ t('settings.nicknameNote') }}</p>
       </div>
 
       <button class="row" :aria-expanded="open === 'keys'" @click="open = open === 'keys' ? '' : 'keys'">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('keys')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>快捷键</b><span>输入框里的键位</span></span>
-        <span class="hint">{{ KEYS.length }} 条</span>
+        <span class="m"><b>{{ t('settings.shortcuts') }}</b><span>{{ t('settings.shortcutsSub') }}</span></span>
+        <span class="hint">{{ t('common.count', { n: KEYS.length }) }}</span>
         <span class="chev" :class="{ open: open === 'keys' }">›</span>
       </button>
 
@@ -205,26 +213,48 @@ const icon = (n) => ICONS[n] || ICONS.gear
     </div>
 
     <div class="card">
-      <div class="grp">系统</div>
+      <div class="grp">{{ t('settings.groupUi') }}</div>
 
-      <button class="row" :title="up ? '再探一次' : '重试'" @click="probe">
+      <div class="row static">
+        <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('globe')" :key="i" :d="d" /></svg></span>
+        <span class="m"><b>{{ t('settings.language') }}</b><span>{{ t('settings.languageSub') }}</span></span>
+        <span class="seg">
+          <button
+            v-for="l in LOCALES"
+            :key="l.id"
+            :class="{ on: i18n.locale === l.id }"
+            @click="pickLang(l.id)"
+          >{{ l.label }}</button>
+        </span>
+      </div>
+
+      <p class="tip">{{ t('settings.languageNote') }}</p>
+    </div>
+
+    <div class="card">
+      <div class="grp">{{ t('settings.groupSystem') }}</div>
+
+      <button class="row" :title="up ? t('settings.reprobe') : t('settings.retry')" @click="probe">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('server')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>后端连接</b><span>/api · {{ up === null ? '探测中…' : up ? '在线' : '离线' }}</span></span>
+        <span class="m">
+          <b>{{ t('settings.backend') }}</b>
+          <span>/api · {{ up === null ? t('settings.probing') : up ? t('common.online') : t('common.offlineShort') }}</span>
+        </span>
         <span class="pn-tag" :class="up ? 'green' : up === false ? 'amber' : ''">
-          {{ up === null ? '…' : up ? '正常' : '重试' }}
+          {{ up === null ? '…' : up ? t('settings.ok') : t('settings.retry') }}
         </span>
       </button>
 
       <div class="row static">
         <span class="ic"><svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('gauge')" :key="i" :d="d" /></svg></span>
-        <span class="m"><b>新版本</b><span>{{ updHint }}</span></span>
+        <span class="m"><b>{{ t('settings.updates') }}</b><span>{{ updHint }}</span></span>
         <span class="pn-tag" :class="upd?.update_available ? 'amber' : ''">{{ updLabel }}</span>
       </div>
     </div>
 
     <div class="foot">
       <span class="mono">git@{{ sha }} · {{ age }}</span>
-      <span class="dev" title="本地构建">▭</span>
+      <span class="dev" :title="t('settings.buildLocal')">▭</span>
     </div>
   </PanelBox>
 </template>

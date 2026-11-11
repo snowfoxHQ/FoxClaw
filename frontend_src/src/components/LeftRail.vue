@@ -5,6 +5,7 @@ import {
   state, loadSessions, openSession, moduleLabel, setModule, railItems, RAIL,
 } from '../stores/app.js'
 import { deleteSession, loadSession, newSession, renameSession } from '../stores/chat.js'
+import { numberLocale, t } from '../lib/i18n.js'
 
 const btnRef = ref(null)
 const menuOpen = ref(false)
@@ -90,14 +91,14 @@ function cancelRename() {
 async function commitRename(s) {
   if (editingId.value !== s.id) return
   editingId.value = ''
-  const t = draft.value.trim()
-  if (!t || t === (s.title || '')) return
-  await renameSession(s.id, t)
+  const next = draft.value.trim()
+  if (!next || next === (s.title || '')) return
+  await renameSession(s.id, next)
 }
 
 async function removeSession(s) {
-  const name = s.title || '新会话'
-  if (!confirm(`删除会话「${name}」?\n对话历史会一起删掉,不可恢复。`)) return
+  const name = s.title || t('rail.untitled')
+  if (!confirm(t('rail.deleteConfirm', { name }))) return
   await deleteSession(s.id)
 }
 
@@ -108,19 +109,19 @@ async function startNew() {
 
 function fmt(ts) {
   if (!ts) return ''
-  return new Date(ts * 1000).toLocaleString('zh-CN', {
+  return new Date(ts * 1000).toLocaleString(numberLocale(), {
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   })
 }
 
 function meta(s) {
-  return [fmt(s.updated_at), s.message_count ? `${s.message_count} 条` : ''].filter(Boolean).join(' · ')
+  return [fmt(s.updated_at), s.message_count ? t('common.count', { n: s.message_count }) : ''].filter(Boolean).join(' · ')
 }
 </script>
 
 <template>
   <aside class="col col--left rail-left">
-    <button class="new-sess" title="开一个新会话" @click="startNew">＋ 新会话</button>
+    <button class="new-sess" :title="t('rail.newSession')" @click="startNew">{{ t('rail.newSessionBtn') }}</button>
 
     <nav class="rail-nav">
       <div
@@ -133,7 +134,7 @@ function meta(s) {
           <span class="ic">
             <svg viewBox="0 0 24 24"><path v-for="(d, i) in icon(m.icon)" :key="i" :d="d" /></svg>
           </span>
-          <b>{{ m.label }}</b>
+          <b>{{ moduleLabel(m.id) }}</b>
           <span v-if="m.beta" class="beta">BETA</span>
         </button>
 
@@ -142,7 +143,7 @@ function meta(s) {
             v-for="q in quickOf(m)"
             :key="q.id"
             class="act"
-            :title="`打开${q.label}`"
+            :title="t('rail.open', { label: q.label })"
             :aria-label="q.label"
             @click.stop="pick(q.id)"
           >
@@ -156,13 +157,13 @@ function meta(s) {
           ref="btnRef"
           class="rail-item rail-anchor"
           :aria-expanded="menuOpen"
-          title="其它功能"
+          :title="t('rail.otherFeatures')"
           @click="toggleMenu"
         >
           <span class="ic">
             <svg viewBox="0 0 24 24"><path v-for="(d, i) in icon('more')" :key="i" :d="d" /></svg>
           </span>
-          <b>更多</b>
+          <b>{{ t('rail.more') }}</b>
           <span v-if="moreCur" class="cur">{{ moreCur }}</span>
           <span class="caret" :class="{ open: menuOpen }">▾</span>
         </button>
@@ -170,13 +171,13 @@ function meta(s) {
     </nav>
 
     <div class="sec-head">
-      会话历史 <em>{{ count }}</em>
+      {{ t('rail.history') }} <em>{{ count }}</em>
     </div>
 
     <div class="ns-list scroll">
-      <div v-if="state.sessionsState === 'loading'" class="empty">加载中…</div>
-      <div v-else-if="state.sessionsState === 'error'" class="empty">后端未连接</div>
-      <div v-else-if="!count" class="empty">还没有会话 · 发一条消息即开始</div>
+      <div v-if="state.sessionsState === 'loading'" class="empty">{{ t('common.loading') }}</div>
+      <div v-else-if="state.sessionsState === 'error'" class="empty">{{ t('common.offline') }}</div>
+      <div v-else-if="!count" class="empty">{{ t('rail.empty') }}</div>
       <template v-else>
         <div
           v-for="s in state.sessions"
@@ -190,24 +191,24 @@ function meta(s) {
             v-model="draft"
             class="ns-edit"
             maxlength="60"
-            aria-label="会话标题"
+            :aria-label="t('rail.sessionTitle')"
             @keydown.enter.prevent="commitRename(s)"
             @keydown.esc.prevent="cancelRename"
             @blur="commitRename(s)"
           />
           <template v-else>
-            <button class="ns-item" :title="s.title || '新会话'" @click="pickSession(s)">
-              <b>{{ s.title || '新会话' }}</b>
+            <button class="ns-item" :title="s.title || t('rail.untitled')" @click="pickSession(s)">
+              <b>{{ s.title || t('rail.untitled') }}</b>
               <span>{{ meta(s) }}</span>
             </button>
             <span class="ns-acts">
-              <button class="act" title="重命名会话" @click.stop="beginRename(s)">
+              <button class="act" :title="t('rail.rename')" @click.stop="beginRename(s)">
                 <svg viewBox="0 0 24 24">
                   <path d="M4.4 19.6h4l10.8-10.8-4-4L4.4 15.6z" />
                   <path d="M14.4 5.6l3.8 3.8" />
                 </svg>
               </button>
-              <button class="act del" title="删除会话" @click.stop="removeSession(s)">
+              <button class="act del" :title="t('rail.delete')" @click.stop="removeSession(s)">
                 <svg viewBox="0 0 24 24">
                   <path d="M5 7h14" />
                   <path d="M9.6 7V4.6h4.8V7" />

@@ -1,4 +1,6 @@
 <script setup>
+import { t } from '../../lib/i18n.js'
+
 const props = defineProps({
   title: { type: String, default: '' },
   tag: { type: String, default: '' },
@@ -15,13 +17,13 @@ defineEmits(['refresh'])
         <h2>{{ props.title }}</h2>
         <span v-if="props.tag" class="pn-tag">{{ props.tag }}</span>
       </div>
-      <button class="rf" :class="{ spin: props.state === 'loading' }" title="重新拉取" @click="$emit('refresh')">
-        刷新
+      <button class="rf" :class="{ spin: props.state === 'loading' }" :title="t('common.refresh')" @click="$emit('refresh')">
+        {{ t('common.refresh') }}
       </button>
     </header>
     <div class="pb scroll">
-      <div v-if="props.state === 'loading' && !props.ready" class="pn-st">加载中…</div>
-      <div v-else-if="props.state === 'error'" class="pn-st err">后端未连接,这个面板暂时拉不到数据</div>
+      <div v-if="props.state === 'loading' && !props.ready" class="pn-st">{{ t('common.loading') }}</div>
+      <div v-else-if="props.state === 'error'" class="pn-st err">{{ t('common.offlinePanel') }}</div>
       <slot v-else />
     </div>
   </section>

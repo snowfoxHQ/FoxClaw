@@ -2,6 +2,7 @@
 import { nextTick, ref, watch } from 'vue'
 import { chat, retry } from '../stores/chat.js'
 import { mdToHTML } from '../lib/md.js'
+import { t } from '../lib/i18n.js'
 
 const box = ref(null)
 let stick = true
@@ -39,9 +40,14 @@ function stepText(s) {
   return s.desc || s.task || s.label || JSON.stringify(s)
 }
 
-const SRC_CN = { memory: '记忆', knowledge: '知识', web: '联网', agent: '态势' }
+const SRC_KEY = {
+  memory: 'msg.srcMemory',
+  knowledge: 'msg.srcKnowledge',
+  web: 'msg.srcWeb',
+  agent: 'msg.srcAgent',
+}
 function srcLabel(s) {
-  return SRC_CN[s] || s || '证据'
+  return (s && SRC_KEY[s] ? t(SRC_KEY[s]) : s) || t('msg.srcEvidence')
 }
 
 const copiedKey = ref(-1)
@@ -89,20 +95,20 @@ function canRetry(i) {
         <div v-else class="a-body">
           <div class="a-head">
             <span class="avatar" :class="{ live: m.streaming }" />
-            <span class="who">主管 Agent</span>
+            <span class="who">{{ t('msg.supervisor') }}</span>
             <span v-if="m.stage" class="stage">◌ {{ m.stage }}</span>
-            <span v-if="m.streaming" class="live-tag">生成中</span>
+            <span v-if="m.streaming" class="live-tag">{{ t('msg.generating') }}</span>
             <span class="a-time">{{ fmtTime(m.ts) }}</span>
           </div>
 
           <details v-if="m.thinking" class="fold think">
-            <summary>推理过程 <em>{{ m.thinking.length }} 字</em></summary>
+            <summary>{{ t('msg.reasoning') }} <em>{{ t('msg.chars', { n: m.thinking.length }) }}</em></summary>
             <pre class="fold-body">{{ m.thinking }}</pre>
           </details>
 
           <details v-if="m.plan && (m.plan.steps || []).length" class="fold plan" open>
             <summary>
-              执行计划 <em>{{ m.plan.steps.length }} 步 · {{ m.plan.flow || 'single' }}</em>
+              {{ t('msg.plan') }} <em>{{ t('msg.steps', { n: m.plan.steps.length }) }} · {{ m.plan.flow || 'single' }}</em>
             </summary>
             <ol class="fold-body">
               <li v-for="(s, k) in m.plan.steps" :key="k">{{ stepText(s) }}</li>
@@ -112,8 +118,8 @@ function canRetry(i) {
           <div v-if="m.search" class="sres">
             <div class="sres-h">
               <span class="sroute">{{ m.search.route }}</span>
-              <span>置信度 {{ Math.round((m.search.confidence || 0) * 100) }}%</span>
-              <span>{{ m.search.iterations }} 轮迭代</span>
+              <span>{{ t('msg.confidence', { n: Math.round((m.search.confidence || 0) * 100) }) }}</span>
+              <span>{{ t('msg.iterations', { n: m.search.iterations }) }}</span>
             </div>
             <div v-for="(n, k) in m.search.nodes" :key="k" class="srow">
               <span class="ssrc" :class="n.source">{{ srcLabel(n.source) }}</span>
@@ -134,11 +140,11 @@ function canRetry(i) {
           <div v-if="m.error" class="err">✕ {{ m.error }}</div>
 
           <details v-if="m.evidence && m.evidence.length" class="fold ev">
-            <summary>执行证据 <em>{{ m.evidence.length }} 项</em></summary>
+            <summary>{{ t('msg.evidence') }} <em>{{ t('msg.items', { n: m.evidence.length }) }}</em></summary>
             <div class="fold-body">
               <div v-for="(e, k) in m.evidence" :key="k" class="ev-row">
                 <span class="ev-dot" :class="e.status || 'unverified'" />
-                <b>{{ e.tool || e.kind || '工具' }}</b>
+                <b>{{ e.tool || e.kind || t('msg.tool') }}</b>
                 <span class="ev-st">{{ e.status || e.reason || '' }}</span>
                 <template v-for="(x, y) in e.evidence || []" :key="y">
                   <a v-if="isUrl(x)" class="ev-link" :href="x.ref" target="_blank" rel="noreferrer">
@@ -152,9 +158,9 @@ function canRetry(i) {
 
           <div v-if="!m.streaming && (m.content || m.error)" class="a-acts">
             <button v-if="m.content" class="mini" @click="copy(m, i)">
-              {{ copiedKey === i ? '已复制' : '复制' }}
+              {{ copiedKey === i ? t('msg.copied') : t('msg.copy') }}
             </button>
-            <button v-if="canRetry(i)" class="mini" @click="retry(m)">重试</button>
+            <button v-if="canRetry(i)" class="mini" @click="retry(m)">{{ t('msg.retry') }}</button>
           </div>
         </div>
       </article>

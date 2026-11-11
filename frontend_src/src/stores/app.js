@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { getJSON } from '../api.js'
+import { t } from '../lib/i18n.js'
 
 export const state = reactive({
   sessions: [],
@@ -16,16 +17,16 @@ export const state = reactive({
 })
 
 export const MODULES = [
-  { id: 'overview', label: '概览', tag: 'Overview', group: '' },
-  { id: 'activity', label: '活动', tag: 'Activity', group: '工作台' },
-  { id: 'tasks', label: '定时任务', tag: 'Tasks', group: '工作台', icon: 'clock' },
-  { id: 'agents', label: '代理', tag: 'Agents', group: '工作台', icon: 'bot', beta: true },
-  { id: 'tools', label: '技能·连接器', tag: 'Tools', group: '能力', icon: 'plug' },
-  { id: 'usage', label: '使用情况', tag: 'Usage', group: '能力' },
-  { id: 'knowledge', label: '学习库', tag: 'Knowledge', group: '知识', icon: 'book', quick: ['review', 'memory'] },
-  { id: 'review', label: '复习', tag: 'Review', group: '知识', icon: 'review' },
-  { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识', icon: 'memory' },
-  { id: 'settings', label: '设置', tag: 'Settings', group: '系统' },
+  { id: 'overview', label: '概览', tag: 'Overview', group: '', groupKey: '' },
+  { id: 'activity', label: '活动', tag: 'Activity', group: '工作台', groupKey: 'group.workspace' },
+  { id: 'tasks', label: '定时任务', tag: 'Tasks', group: '工作台', groupKey: 'group.workspace', icon: 'clock' },
+  { id: 'agents', label: '代理', tag: 'Agents', group: '工作台', groupKey: 'group.workspace', icon: 'bot', beta: true },
+  { id: 'tools', label: '技能·连接器', tag: 'Tools', group: '能力', groupKey: 'group.capability', icon: 'plug' },
+  { id: 'usage', label: '使用情况', tag: 'Usage', group: '能力', groupKey: 'group.capability' },
+  { id: 'knowledge', label: '学习库', tag: 'Knowledge', group: '知识', groupKey: 'group.knowledge', icon: 'book', quick: ['review', 'memory'] },
+  { id: 'review', label: '复习', tag: 'Review', group: '知识', groupKey: 'group.knowledge', icon: 'review' },
+  { id: 'memory', label: '记忆中心', tag: 'Memory', group: '知识', groupKey: 'group.knowledge', icon: 'memory' },
+  { id: 'settings', label: '设置', tag: 'Settings', group: '系统', groupKey: 'group.system' },
 ]
 
 export const RAIL = ['knowledge', 'tasks', 'tools', 'agents']
@@ -33,7 +34,8 @@ export const RAIL = ['knowledge', 'tasks', 'tools', 'agents']
 export const railItems = () => RAIL.map((id) => MODULES.find((m) => m.id === id)).filter(Boolean)
 export const moreItems = () => MODULES.filter((m) => !RAIL.includes(m.id))
 
-export const moduleLabel = (id) => MODULES.find((m) => m.id === id)?.label ?? id
+export const moduleLabel = (id) => (MODULES.some((m) => m.id === id) ? t(`nav.${id}`) : id)
+export const groupLabel = (key) => (key ? t(key) : '')
 export const moduleIcon = (id) => MODULES.find((m) => m.id === id)?.icon ?? 'dot'
 
 export async function loadSessions() {
