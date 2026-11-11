@@ -153,6 +153,7 @@ testpaths = ["tests"]
 # `python -m pytest <file> -q` 隔离)。本白名单确保任意单文件可被 pytest 收集/运行。
 python_files = [
     "test_agent_lifecycle.py",
+    "test_agent_rules.py",
     "test_ahs_p2.py",
     "test_anthropic_tools.py",
     "test_api.py",

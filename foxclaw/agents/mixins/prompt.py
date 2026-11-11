@@ -5,6 +5,10 @@
 """
 import os
 from abc import ABC, abstractmethod
+from pathlib import Path
+
+# 各 Agent 的专属规则目录:foxclaw/agents/rules/<AGENT_ID>/*.md
+RULES_DIR = Path(__file__).resolve().parent.parent / "rules"
 
 
 KERNEL_PROMPT = """你是 Foxclaw —— 一个面向 Agent 时代的认知操作系统,不是一次性问答机器人。
@@ -53,6 +57,36 @@ KERNEL_PROMPT = """你是 Foxclaw —— 一个面向 Agent 时代的认知操�
 - 语言:始终跟随用户当前使用/要求的语言作答(用户用中文就用中文、用英文就用英文、要求某语言就用某语言);默认中文,但不锁死一种。"""
 
 
+def load_agent_rules(agent_id: str) -> str:
+    """读取 `agents/rules/<agent_id>/*.md`(按文件名排序)并拼成一段文本;目录不存在或无内容返回空串。"""
+    if not agent_id:
+        return ""
+    base = RULES_DIR / agent_id
+    if not base.is_dir():
+        return ""
+    parts = []
+    for p in sorted(base.glob("*.md")):
+        try:
+            text = p.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
+def agent_rules_block(agent_id: str) -> str:
+    """把本 Agent 的规则文件包成一段带标题的提示词块;无规则或开关关闭时返回空串。
+    回退开关:FOXCLAW_AGENT_RULES=0 → 不注入(调试 / A-B 对比)。"""
+    if os.environ.get("FOXCLAW_AGENT_RULES", "1").strip() in ("0", "false", "off"):
+        return ""
+    rules = load_agent_rules(agent_id)
+    if not rules:
+        return ""
+    return (f"\n\n{'=' * 12} 本 Agent 专业规则(必须遵守) {'=' * 12}\n"
+            f"以下规则与上文同等生效;与安全边界冲突时,以安全边界为准。\n\n{rules}")
+
+
 class PromptMixin(ABC):
 
     @property
@@ -63,9 +97,12 @@ class PromptMixin(ABC):
 
     @property
     def system_prompt(self) -> str:
-        """完整系统提示词 = 内核共享前缀(身份/真相/安全边界)+ 本 Agent 角色职责。
-        一处叠加、全体生效;各 Agent 只维护自己的 _role_prompt。
-        回退开关:FOXCLAW_KERNEL_PROMPT=0 → 只用角色职责(省 token / A-B 对比,可逆,默认开)。"""
+        """完整系统提示词 = 内核共享前缀(身份/真相/安全边界)+ 本 Agent 角色职责 + 本 Agent 规则文件。
+        一处叠加、全体生效;各 Agent 只维护自己的 _role_prompt 与 rules/<AGENT_ID>/。
+        规则文件每次组装都重新读盘,即"启动即生效",改规则不必改代码。
+        回退开关:FOXCLAW_KERNEL_PROMPT=0 → 省掉内核前缀(留角色职责 + 规则),可逆,默认开。"""
+        rules = agent_rules_block(getattr(self, "AGENT_ID", ""))
         if os.environ.get("FOXCLAW_KERNEL_PROMPT", "1").strip() in ("0", "false", "off"):
-            return self._role_prompt
-        return f"{KERNEL_PROMPT}\n\n{'=' * 12} 你的角色职责 {'=' * 12}\n{self._role_prompt}"
+            return self._role_prompt + rules
+        return (f"{KERNEL_PROMPT}\n\n{'=' * 12} 你的角色职责 {'=' * 12}\n"
+                f"{self._role_prompt}{rules}")
