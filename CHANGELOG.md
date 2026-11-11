@@ -1,55 +1,57 @@
-# 更新日志
+# Changelog
 
-从 0.1.0 首次公开到当前版本的变更记录，最新的排在最前面。
+Changes from the first public release 0.1.0 to the current version, newest first.
+
+Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
 ## 0.1.3 — 2026-11-11
 
-界面双语化，并把「设置」放到该在的位置。
+Bilingual interface, and Settings moved where it belongs.
 
-**界面**
+**Interface**
 
-- 新增 i18n 基建（`lib/i18n.js` + 中英字典），侧栏、菜单、对话、舞台、设置、提示文案统一走字典；缺词回退 key，不会渲染成空白。
-- 设置面板新增「界面 → 语言」，中文 / English 即时切换，写入 `localStorage`（`foxclawLang`），刷新后保持。
-- 日期与数字格式随语言切换（`zh-CN` / `en-US`），`<html lang>` 同步。
-- 「设置」从「更多」弹层移到左栏底部常驻入口，带分隔线，不随会话列表滚动。
-- 顶栏版本号改为读后端 `/api/system/info`，取不到时不再显示硬编码的 `v3.0`。
+- New i18n layer (`lib/i18n.js` plus en/zh dictionaries): sidebar, menus, chat, stage, settings and toast strings all resolve through the dictionaries; a missing key falls back to the key, so nothing renders blank.
+- Settings gains "Interface → Language" with instant Chinese / English switching, persisted in `localStorage` (`foxclawLang`) and kept across reloads.
+- Date and number formatting follow the language (`zh-CN` / `en-US`), and `<html lang>` stays in sync.
+- Settings moved out of the "More" popover into a pinned entry at the bottom of the left rail, separated by a rule and left unaffected by session-list scrolling.
+- The version badge in the top bar reads `/api/system/info`; it no longer falls back to a hard-coded `v3.0`.
 
-**文档**
+**Docs**
 
-- README 按仓库实际校准：智能体数量、渠道、摄取上限、分块几何、支持格式、内部链接全部逐条核对，并加测试防止再次漂移。
+- README reconciled with the repository as it actually is: agent count, channels, ingest caps, chunk geometry, supported formats and internal links all verified one by one, with a test to keep them from drifting again.
 
 ## 0.1.2 — 2026-11-10
 
-版本号收口、技能安装成型。
+Version consolidation and skill installation.
 
-- 版本号五处统一（`pyproject.toml` / `foxclaw/__init__.py` / `npm/package.json` / `npm/index.js` / `frontend_src/package.json`），并由 `tests/test_version_sync.py` 盯住，防 npm 与 PyPI 漂移。
-- `foxclaw skills install` 支持 ClawHub / GitHub / URL / 本地包；工具面板可直接上传 `SKILL.md` 或 OpenClaw 包安装指令技能。
-- 首次启动引导询问称呼，可在设置中修改；新增可选的新版本检查提示。
-- `tools/sync_public.ps1` 改为直接构造公开树推远端，不再依赖本地克隆。
-- 类型标注收口：mypy 从 645 降到 0，CI 改为棘轮门（只降不升）。
-- 全仓剥离解释性注释，公开树下不再混入内部说明。
+- Version number unified across five places (`pyproject.toml` / `foxclaw/__init__.py` / `npm/package.json` / `npm/index.js` / `frontend_src/package.json`), guarded by `tests/test_version_sync.py` so npm and PyPI cannot drift apart.
+- `foxclaw skills install` accepts ClawHub / GitHub / URL / local archives; the tools panel can install an instruction skill straight from an uploaded `SKILL.md` or OpenClaw package.
+- First run asks how to address you (editable in settings); an optional new-version check was added.
+- `tools/sync_public.ps1` now builds the public tree directly instead of relying on a local clone.
+- Type annotations closed out: mypy went from 645 to 0, and CI turned into a ratchet that may only go down.
+- Explanatory comments stripped repo-wide, so the public tree no longer carries internal notes.
 
 ## 0.1.1 — 2026-11-09
 
-只在 npm 通道补发，仓库内没有对应版本号的提交记录。
+npm-only republish; there is no matching version bump in the repository.
 
-- npm 包排除 `docs/reports` 等内部文档与调试残留，自检命中即中止打包（0.1.1 曾把内部文档打进公开包）。
-- `npm pack` 前先跑 `build.cjs`，修 GitHub Release 附件只有 2KB 空壳。
-- 修 `pyproject` 缺 `readme`，PyPI 项目页不再没有项目描述。
-- `requirements.txt` 改用 `uv pip compile --universal`，平台相关依赖带上 marker；CI 增加依赖审计门。
-- 补 MIT 许可证与 metadata。
+- The npm package excludes internal docs (`docs/reports` and friends) and debug leftovers, aborting the pack when any are detected — 0.1.1 had shipped internal documents in the public package.
+- `build.cjs` now runs before `npm pack`, fixing GitHub Release assets that were 2 KB empty shells.
+- `pyproject` gained a readme, so the PyPI page is no longer description-less.
+- `requirements.txt` is compiled with `uv pip compile --universal` so platform-specific dependencies carry markers; CI gained a dependency audit gate.
+- MIT license and metadata added.
 
 ## 0.1.0 — 2026-11-06
 
-首个公开版本，PyPI `foxclaw` 与 npm `foxclaw` 双通道。
+First public release, on both channels: PyPI `foxclaw` and npm `foxclaw`.
 
-- 运行时：FastAPI 服务 + `foxclaw` 命令行入口。
-- 智能体：多智能体收敛为三（助手 / 办公 / 知识），其余能力下放为指令技能。
-- 知识库（HKC）与记忆（HMR）以内嵌 `vendor/` 形式接入：知识可抽取、可检索，复习走 SM-2 排程。
-- 治理层：策略门、审计哈希链、影子学习与断路器；导入路径白名单，技能副作用默认 fail-closed。
-- 配置：从 `.env` 改为类型化读取，`foxclaw config check` 把「配置写错」从崩溃变成提示。
-- 安全：堵 DNS rebinding、浏览器 SSRF、渠道陌生指令三个可利用面；渠道路径签名 + 动作一次性 nonce 确认。
-- 链路：计划可见化、推理过程独立 SSE 事件、步骤级 checkpoint 断点续跑。
-- 前端：Vue3 三栏渲染层，左栏功能入口常驻，右栏双态检视。
+- Runtime: FastAPI service plus the `foxclaw` command-line entry point.
+- Agents: multiple agents collapsed into three (assistant / office / knowledge); the rest were demoted to instruction skills.
+- Knowledge (HKC) and memory (HMR) embedded via `vendor/`: knowledge is extractable and searchable, and review scheduling runs on SM-2.
+- Governance: policy gate, audit hash chain, shadow learning and circuit breaker; import paths are allow-listed and skill side effects default to fail-closed.
+- Config: typed reads instead of raw `.env`, and `foxclaw config check` turns a misconfiguration from a crash into a message.
+- Security: DNS rebinding, browser SSRF and untrusted channel instructions closed off; channel path signatures plus one-shot nonces for sensitive actions.
+- Pipeline: visible plans, reasoning emitted as its own SSE event, step-level checkpoints for resume-after-interrupt.
+- Frontend: Vue3 three-column renderer, persistent feature entries in the left rail, dual-state inspector on the right.
 
-> 两个包都是**占位包**：`vendor/`（HKC / HMR）不入包，装完只能 import 骨架，完整运行时从仓库获取。详见 [docs/RELEASE.md](docs/RELEASE.md)。
+> Both packages are **placeholders**: `vendor/` (HKC / HMR) is not shipped, so a fresh install only gets the importable skeleton. See [docs/RELEASE.md](docs/RELEASE.md).
