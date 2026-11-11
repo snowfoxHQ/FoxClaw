@@ -1,14 +1,18 @@
 # 发布流程
 
-> **当前状态(2026-11-11 核实)。** 已不再整体暂缓,发版按需单通道进行。
+> **当前状态(2026-11-12 核实)。** 已不再整体暂缓,发版按需单通道进行。
 >
 > 两个 registry 的现状(`npm view foxclaw versions` / PyPI JSON API 实测,别再当"全新包"):
 >
 > | registry | 已占用版本 | latest |
 > | --- | --- | --- |
-> | PyPI `foxclaw` | 0.1.0 / 0.1.2 / 0.1.3 | 0.1.3 |
-> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 | 0.1.3 |
+> | PyPI `foxclaw` | 0.1.0 / 0.1.2 / 0.1.3 / 0.1.4 | 0.1.4 |
+> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 / 0.1.4 | 0.1.4 |
 >
+> - **0.1.4 两通道都已发**(2026-11-12 05:42 CST = 2026-11-11T21:42Z,PyPI 与 npm 同一次
+>   `workflow_dispatch` 的 `publish=both` 发出):tag 打在 `d61a8f2`,Release 带 3 个附件;
+>   PyPI wheel 1.33 MB / 298 条目,`foxclaw/web/` 24 个文件 —— **前端首次进 wheel**,
+>   `pip install foxclaw` 后 `foxclaw serve` 首页可用。npm 侧 530 文件 / 4.85 MB。
 > - **0.1.3 两通道都已发**(2026-11-11:npm 15:08 UTC、PyPI 15:28 UTC),用的是同一个
 >   `v0.1.3` tag:先 tag run 构建 + GitHub Release,再两次 `workflow_dispatch`
 >   (`publish=npm` / `publish=pypi`)。PyPI 上传即时可见;npm 有**数分钟传播延迟**:
@@ -20,7 +24,7 @@
 > - 历史:0.1.0(2026-11-06)两通道首版;0.1.1 只在 npm 手工发过、git 里无对应提交,已删;
 >   0.1.2(2026-11-09)、0.1.3(2026-11-11)两通道都发。
 >
-> 下次发版的可用号:两个 registry 都需 **> 0.1.3**。
+> 下次发版的可用号:两个 registry 都需 **> 0.1.4**。
 
 两条发布通道、两种产物。**后端运行时是同一份代码**,差别只在打包方式:
 
@@ -47,6 +51,7 @@
 `release_check.py --dist` 会以 `missing_web_ui` 报 error,流水线停下,发不出首页 404 的包。
 
 **0.1.3 及之前的 PyPI 包没有前端**:`pip install` 后 `foxclaw serve` 首页 404,只有 API/CLI。
+0.1.4 起已修并实测:wheel 内含 `foxclaw/web/` 24 个文件。
 这类版本不要再说成"知识/记忆子系统降级为 None"—— HMR/HKC 从 0.1.2 起就已完整在 wheel 里
 (实测 hmr 21 + hkc_* 60)。npm 包虽然带前端,但不带 Python 第三方依赖(torch/faiss 等),
 装完同样要自备运行环境。
