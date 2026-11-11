@@ -61,7 +61,7 @@ python -m uvicorn foxclaw.api:app --port 8000
 > `; sys_platform == ...` markers and pip skips what doesn't apply.
 > Re-run after changing dependencies in `pyproject.toml`, otherwise the lock lags behind the declaration.
 
-See [docs/RUN.md](docs/RUN.md). Chinese docs: [README_CN.md](README_CN.md).
+See [docs/RUN.md](docs/RUN.md). Chinese docs: [README_CN.md](README_CN.md). Release history: [CHANGELOG.md](CHANGELOG.md).
 
 > **Windows**: don't place the project under OneDrive-managed folders (Documents/Desktop/Pictures); Python can't create dirs inside redirect placeholders. Use a path like `C:\foxclaw`.
 
