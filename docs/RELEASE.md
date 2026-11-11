@@ -1,14 +1,18 @@
 # 发布流程
 
-> **当前状态(2026-11-11 核实)。** 已不再整体暂缓,发版按需单通道进行。
+> **当前状态(2026-11-12 核实)。** 已不再整体暂缓,发版按需单通道进行。
 >
 > 两个 registry 的现状(`npm view foxclaw versions` / PyPI JSON API 实测,别再当"全新包"):
 >
 > | registry | 已占用版本 | latest |
 > | --- | --- | --- |
-> | PyPI `foxclaw` | 0.1.0 / 0.1.2 / 0.1.3 | 0.1.3 |
-> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 | 0.1.3 |
+> | PyPI `foxclaw` | 0.1.0 / 0.1.2 / 0.1.3 / 0.1.4 | 0.1.4 |
+> | npm `foxclaw` | 0.0.0-stage / 0.1.0 / 0.1.2 / 0.1.3 / 0.1.4 | 0.1.4 |
 >
+> - **0.1.4 两通道都已发**(2026-11-12 05:42 CST = 2026-11-11T21:42Z,PyPI 与 npm 同一次
+>   `workflow_dispatch` 的 `publish=both` 发出):tag 打在 `d61a8f2`,Release 带 3 个附件;
+>   PyPI wheel 1.33 MB / 298 条目,`foxclaw/web/` 24 个文件 —— **前端首次进 wheel**,
+>   `pip install foxclaw` 后 `foxclaw serve` 首页可用。npm 侧 530 文件 / 4.85 MB。
 > - **0.1.3 两通道都已发**(2026-11-11:npm 15:08 UTC、PyPI 15:28 UTC),用的是同一个
 >   `v0.1.3` tag:先 tag run 构建 + GitHub Release,再两次 `workflow_dispatch`
 >   (`publish=npm` / `publish=pypi`)。PyPI 上传即时可见;npm 有**数分钟传播延迟**:
@@ -20,14 +24,14 @@
 > - 历史:0.1.0(2026-11-06)两通道首版;0.1.1 只在 npm 手工发过、git 里无对应提交,已删;
 >   0.1.2(2026-11-09)、0.1.3(2026-11-11)两通道都发。
 >
-> 下次发版的可用号:两个 registry 都需 **> 0.1.3**。
+> 下次发版的可用号:两个 registry 都需 **> 0.1.4**。
 
 两条发布通道、两种产物。**后端运行时是同一份代码**,差别只在打包方式:
 
 | 产物 | 命令 | 里面有什么 |
 | --- | --- | --- |
 | PyPI `foxclaw` | `pip install foxclaw` | 0.1.4 起:后端(`foxclaw` 181 + `hmr` 21 + `hkc_*` 60)+ 前端 `foxclaw/web/` 24 文件(约 1.7 MB 原始 / wheel 内约 1.3 MB);**0.1.3 及之前的 wheel 不含前端 UI** |
-| npm `foxclaw` | `npm i foxclaw` | 514 文件:整棵源码树,`python/foxclaw` + `python/vendor`(hmr/hkc 原布局)+ `python/frontend` 23 个构建产物 + tests/tools/bench/docs |
+| npm `foxclaw` | `npm i foxclaw` | 530 文件(0.1.4 实测):整棵源码树,`python/foxclaw` + `python/vendor`(hmr/hkc 原布局)+ `python/frontend` 23 个构建产物 + tests/tools/bench/docs |
 | GitHub Release | tag 自动 | 上面两份产物 + 自动生成的 release notes |
 
 差异来自打包机制,不是"一个是残包":
@@ -47,6 +51,7 @@
 `release_check.py --dist` 会以 `missing_web_ui` 报 error,流水线停下,发不出首页 404 的包。
 
 **0.1.3 及之前的 PyPI 包没有前端**:`pip install` 后 `foxclaw serve` 首页 404,只有 API/CLI。
+0.1.4 起已修并实测:wheel 内含 `foxclaw/web/` 24 个文件。
 这类版本不要再说成"知识/记忆子系统降级为 None"—— HMR/HKC 从 0.1.2 起就已完整在 wheel 里
 (实测 hmr 21 + hkc_* 60)。npm 包虽然带前端,但不带 Python 第三方依赖(torch/faiss 等),
 装完同样要自备运行环境。
@@ -86,10 +91,11 @@ git tag -a v0.1.4 "$(git rev-parse origin/main)" -m "v0.1.4"
 git push origin v0.1.4
 ```
 
-> **tag 必须打在公开仓的导出提交上,不是本地 HEAD。** 本地是私有开发库,公开仓的 HEAD
-> 由 `tools/sync_public.ps1` 重新构造(同一份树、不同 SHA)。把 tag 打在本地 HEAD 再 push,
-> 会把私有库的完整历史推到公开仓,导出白名单形同虚设。所以先 `git fetch origin`,
-> 用 `origin/main` 的 SHA 打 tag —— 前提是这次要发的改动已经 `sync_public.ps1 -Apply` 过。
+> **tag 必须打在 `origin/main` 上,不是本地 HEAD。** 本地 `personal` 分支是开发分支,
+> 含未导出的内部文档与中间提交;`origin/main` 由 `tools/sync_public.ps1` 从 HEAD 重新构造
+> (同一份树、不同 SHA)。把 tag 打在本地 HEAD 再 push,会把内部历史一起推到公开仓,
+> 导出白名单形同虚设。所以先 `git fetch origin`,用 `origin/main` 的 SHA 打 tag ——
+> 前提是这次要发的改动已经 `sync_public.ps1 -Apply` 过。
 
 `.github/workflows/release.yml` 的 `build` job 会:校验版本/tag → 构建 → `build.cjs` +
 npm pack → 产物结构校验 → 上传 `python-dist` / `npm-tgz` 两个 artifact;
@@ -115,7 +121,17 @@ Actions → Release → Run workflow:
 > 这么出去的。想要真正的审门,先去 Settings → Environments 给 `pypi` / `npm` 各加
 > Required reviewers,再触发发布。
 
-## 4. 发错了怎么办
+## 4. 发版后回写现状并同步(每次都做)
+
+发布成功后,把实测结果回写本文开头的现状表(已占版本、latest、产物条目数、传播延迟),
+提交后**立刻**跑 `tools/sync_public.ps1 -Apply` 推到 `origin/main`。不要攒到下次发版——
+攒着只会让公开仓的文档持续失真,而且差异越积越大,下次同步越容易出错。
+
+tag 是不可变快照,`origin/main` 是不断前进的公开状态,两者 SHA 不同是**正常语义**,
+不是"不一致"。唯一的判断标准是「公开仓里的文档与事实是否相符」;为了"让 tag 等于 main"
+而推迟同步是错的方向。
+
+## 5. 发错了怎么办
 
 **PyPI / npm 的版本号不可撤回**。能做的只有:
 
@@ -127,7 +143,7 @@ Actions → Release → Run workflow:
 所以"tag 先构建、上传再单独触发"不是流程洁癖,是这两个 registry 的规则逼出来的:
 把不可逆的那一步单独隔离,前面每一步都能重跑。
 
-## 5. 切到 OIDC(零长期密钥)
+## 6. 切到 OIDC(零长期密钥)
 
 当前用 token。想彻底去掉长期密钥时:
 
@@ -136,15 +152,17 @@ Actions → Release → Run workflow:
   `permissions: id-token: write`。
 - npm:npm ≥ 11.5 支持 trusted publishing,同样加 `id-token: write` 并去掉 `NODE_AUTH_TOKEN`。
 
-## 仓库名(2026-11-08 已定)
+## 仓库(2026-11-12 订正)
 
-两个仓库,职责不同,别再混:
+只有一个仓库:`snowfoxHQ/FoxClaw`(public)。`origin` 就指向它,没有第二个开发库。
 
-| 仓库 | 可见性 | 用途 |
-|---|---|---|
-| `snowfoxHQ/FoxClaw` | public | 对外发布。PyPI/npm 的 `homepage`/`repository` 都指它,OIDC publisher 也填它 |
-| 私有开发库(名称不对外) | private | 本地 `git remote origin` 指向的开发备份 |
+| 位置 | 用途 |
+|---|---|
+| `origin/main` | 唯一对外分支。由 `tools/sync_public.ps1` 从本地 HEAD 构造后推送,只含导出白名单 |
+| 本地 `personal` | 开发分支。内部文档与中间提交都在这里,不直接 push 到 `origin` |
 
-公开仓库原名 `SnowFoxClaw`,已于 2026-11-08 改名为 `FoxClaw`(GitHub 对旧名自动 301,
-老链接不会 404)。切 OIDC 时 publisher 的 repo 必须写成 `FoxClaw`——不是私有开发库的名字,
-也不是小写 `foxclaw`(registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配)。
+两者的 SHA 天然不同(同一份树、不同父历史),所以 tag 只认 `origin/main`。
+
+旧名 `SnowFoxClaw` 已不存在——GitHub 上查无此仓,也没有改名跳转。切 OIDC 时 publisher
+的 repo 必须写 `FoxClaw`:registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配,
+`foxclaw` 全小写能打开网页,校验却会失败。
