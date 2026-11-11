@@ -20,7 +20,7 @@ A conflict card can now be dismissed instead of decided, the validator stops rea
 
 - High-sensitivity writes to long-term memory now pass through a deterministic gate: credential / ID-number / health / card-number patterns plus a Luhn check, no model call. `FOXCLAW_SENSITIVE_WRITE_MODE` has three levels — `audit` (default, records only), `warn`, and `enforce`. In `enforce` the content is not stored; it becomes a pending item the user must approve, and `approve_sensitive_write` is the only caller allowed to pass `consent=True`.
 - The classifier deliberately over-blocks: a false positive costs one confirmation, a false negative means the rule does not exist. Ordinary amounts and order numbers are excluded on purpose — otherwise the finance agent would be unusable.
-- `GET /api/memory/pending`, `POST /api/memory/pending/{id}/approve` and `/reject` expose the queue. When a write is held back the agent says so in the thought chain instead of silently dropping it.
+- `GET /api/memory/pending`, `POST /api/memory/pending/{id}/approve` and `/reject` expose the queue. The memory panel lists what is waiting, with 记住 / 丢弃 buttons, and when a write is held back the agent says so in the thought chain instead of silently dropping it.
 - `confirm_high_sensitivity` is now `enforce: both` in the behavior spec; the checkpoint resolves to the real gate.
 
 **Agents**
