@@ -40,8 +40,9 @@ confirmations:
 
   - id: confirm_high_sensitivity
     rule: 身份、健康、财务明细、凭据等高敏感内容写入长期记忆前必须显式确认并留痕
-    enforce: prompt
-    note: 记忆层没有 sensitivity/consent 概念(memory_adapter 只有 confidence 元数据),需要新增写入前置同意
+    enforce: both
+    code_check: "foxclaw.core.sensitive_write:SensitiveWritePolicy.evaluate"
+    note: 检查点已接(core/sensitive_write.py,确定性正则 + Luhn,不调模型);默认 audit 灰度不拦截,置 FOXCLAW_SENSITIVE_WRITE_MODE=enforce 才真正拦,被拦内容转待确认队列
 
 uncertainty:
   - id: no_silent_failure

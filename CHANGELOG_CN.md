@@ -16,6 +16,13 @@
 - 代码侧尚未实现的规则（`no_privacy_upload`、`no_impersonation`、`confirm_high_sensitivity`、`no_paternalism`）标成 `enforce: prompt` 并附 `note` 说明缺什么，不假装已经强制。
 - 设 `FOXCLAW_BEHAVIOR=0` 可整体关闭。
 
+**记忆**
+
+- 高敏感内容写入长期记忆前先过一道确定性闸门：凭据 / 证件号 / 健康 / 卡号模式加 Luhn 校验，不调模型。`FOXCLAW_SENSITIVE_WRITE_MODE` 三档：`audit`（默认，只记录）、`warn`、`enforce`。`enforce` 下内容**不落库**，转成待确认项由用户点头；`approve_sensitive_write` 是全仓唯一允许传 `consent=True` 的地方。
+- 判定刻意宁可多拦：误判的代价是用户多点一次确认，漏判则等于这条规矩不存在。普通金额和订单号被明确排除，否则财务 Agent 直接不可用。
+- 新增 `GET /api/memory/pending`、`POST /api/memory/pending/{id}/approve` 与 `/reject`。写入被拦时 Agent 会在思考链里说明，不静默丢弃。
+- 行为规范里 `confirm_high_sensitivity` 升为 `enforce: both`，检查点指向真实闸门。
+
 **Agent**
 
 - Agent 启动时会把 `foxclaw/agents/rules/<AGENT_ID>/*.md` 读进系统提示词。每次组装提示词都重新读盘，改规则不必改代码；该段附在角色职责之后，与上游安全规则冲突时以安全规则为准。设 `FOXCLAW_AGENT_RULES=0` 可整体关闭。

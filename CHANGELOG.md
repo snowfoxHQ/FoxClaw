@@ -16,6 +16,13 @@ A conflict card can now be dismissed instead of decided, the validator stops rea
 - Rules whose code side is not built yet (`no_privacy_upload`, `no_impersonation`, `confirm_high_sensitivity`, `no_paternalism`) are marked `enforce: prompt` with a `note` saying what is missing, rather than pretending to be enforced.
 - Set `FOXCLAW_BEHAVIOR=0` to turn the whole block off.
 
+**Memory**
+
+- High-sensitivity writes to long-term memory now pass through a deterministic gate: credential / ID-number / health / card-number patterns plus a Luhn check, no model call. `FOXCLAW_SENSITIVE_WRITE_MODE` has three levels — `audit` (default, records only), `warn`, and `enforce`. In `enforce` the content is not stored; it becomes a pending item the user must approve, and `approve_sensitive_write` is the only caller allowed to pass `consent=True`.
+- The classifier deliberately over-blocks: a false positive costs one confirmation, a false negative means the rule does not exist. Ordinary amounts and order numbers are excluded on purpose — otherwise the finance agent would be unusable.
+- `GET /api/memory/pending`, `POST /api/memory/pending/{id}/approve` and `/reject` expose the queue. When a write is held back the agent says so in the thought chain instead of silently dropping it.
+- `confirm_high_sensitivity` is now `enforce: both` in the behavior spec; the checkpoint resolves to the real gate.
+
 **Agents**
 
 - An agent now loads `foxclaw/agents/rules/<AGENT_ID>/*.md` into its system prompt when it starts. The files are re-read on every prompt assembly, so editing rules needs no code change; the block is appended after the role prompt and yields to the safety rules above it. Set `FOXCLAW_AGENT_RULES=0` to turn it off.
