@@ -74,6 +74,7 @@ See [docs/RUN.md](docs/RUN.md). Chinese docs: [README_CN.md](README_CN.md). Rele
 > **Windows**: don't place the project under OneDrive-managed folders (Documents/Desktop/Pictures); Python can't create dirs inside redirect placeholders. Use a path like `C:\foxclaw`.
 
 ## Knowledge base (HKC) model config
+<img width="2499" height="1347" alt="foxclaw3 (2)" src="https://github.com/user-attachments/assets/833618cd-bac8-4e2c-b215-0a961ae3b4ed" />
 
 HKC's knowledge base uses **two different types of models**, each for one job, both configured in `.env` — no code changes:
 
