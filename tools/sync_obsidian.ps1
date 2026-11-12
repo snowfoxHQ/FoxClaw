@@ -100,14 +100,14 @@ $stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
 $index = @"
 # FoxClaw 镜像索引
 
-由 ``tools/sync_obsidian.ps1`` 单向镜生成,只镜像 ``.md``,不动代码与前端产物。
+由 ``tools/sync_obsidian.ps1`` 单向镜像生成,只取 ``.md``,不动代码与前端产物。
 
 | 项 | 值 |
 |---|---|
 | 来源 | 本地 ``personal`` 分支工作区 |
 | 备份远端 | 私有仓 ``foxclaw-dev``(remote ``dev``) |
 | 生成时间 | $stamp |
-| md 文件数 | $mdCount |
+| 源 md 文件数 | $mdCount |
 
 ## 说明
 
