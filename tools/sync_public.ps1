@@ -40,7 +40,8 @@ $ExcludeFiles = @(
     ".tmp_srv.err",
     "docs/FIX_EXECUTION_REPORT.md",
     "docs/REFACTOR_PLAN.md",
-    "tools/sync_public.ps1"
+    "tools/sync_public.ps1",
+    "tools/sync_obsidian.ps1"
 )
 
 $RootMdAllow = @("README.md", "README_CN.md", "CHANGELOG.md", "CHANGELOG_CN.md")
