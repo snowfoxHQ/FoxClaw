@@ -1,3 +1,5 @@
+<img width="1269" height="1027" alt="屏幕截图 2026-11-09 130258" src="https://github.com/user-attachments/assets/327a976f-9815-41bb-82a3-a7f09ee20318" />
+
 # Foxclaw · A Personal Agent with Memory
 
 A **personal agent with memory** — to a user, an agent that remembers; to a developer, an agent runtime built on the HMR memory runtime: three collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
