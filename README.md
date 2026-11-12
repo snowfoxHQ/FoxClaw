@@ -104,6 +104,7 @@ HKC_EXTRACT_CONCURRENCY=2                    # 1–2 for local, up to 5 for clou
 HKC_EXTRACT_BATCH=8                          # optional: extract N chunks per call, saves tokens & time; default 1 = per-chunk
 HKC_MAX_CHUNKS_PER_DOC=800                   # optional: per-doc chunk cap; default 800 (~1.25M chars); 0 = no cap, see below
 ```
+<img width="1783" height="1350" alt="foxclaw4" src="https://github.com/user-attachments/assets/d098746d-1422-4469-badf-00b53ba8501e" />
 
 ### Case B · public cloud model (no local model)
 
