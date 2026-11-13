@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import { API, delJSON, getJSON, getRaw, postForm, postFormRaw, postJSON } from '../api.js'
 import { loadSessions, state as app } from './app.js'
+import { t } from '../lib/i18n.js'
 
 const MODE_KEY = 'sfx.chat.mode'
 const SID_KEY = 'sfx.sessionId'
@@ -341,11 +342,17 @@ export async function send(rawText) {
   chat.streamState = 'streaming'
 
   const orchestrate = chat.mode === 'orchestrate'
+  // 会话钉住:critical 操作的确认码绑定会话,确认重跑必须同会话(后端 run_task 读 _session_id)
+  const context = orchestrate ? { _session_id: sid } : undefined
   const url = orchestrate ? '/task/stream' : '/chat/stream'
   const body = orchestrate
-    ? { task: text, agent_id: 'supervisor', session_id: sid, context: {} }
+    ? { task: text, agent_id: 'supervisor', session_id: sid, context }
     : { task: text, agent_id: 'supervisor', history, session_id: sid, images, attachments }
 
+  await streamTask(url, body, reply)
+}
+
+async function streamTask(url, body, reply) {
   const my = ++gen
   ctrl = new AbortController()
   try {
@@ -414,10 +421,57 @@ function finalize(msg, res) {
   if (!res || typeof res !== 'object') return
   if (res.interrupted) return void (msg.error = '管线已中断')
   if (res.error === 'harness_blocked') return void (msg.error = '被 harness 策略拦截')
-  if (res.status === 'needs_confirmation') msg.notice = '需要确认后才继续'
+  if (res.status === 'needs_confirmation') {
+    const pa = res.pending_action
+    // 交互式审批卡只给最危险的操作(critical = send/pay/destructive);
+    // 普通待确认仍是文本提示。
+    if (pa && pa.critical && pa.confirm_nonce) {
+      msg.pending = {
+        skill_id: pa.skill_id || '',
+        task: pa.task || '',
+        confirm_nonce: pa.confirm_nonce,
+        expires_at: pa.confirm_expires_at || 0,
+        message: pa.message || '',
+      }
+      msg.notice = ''
+    } else {
+      msg.notice = '需要确认后才继续'
+    }
+  }
   const out = res.res ?? res.result ?? res.answer
   if (out && !msg.content) {
     msg.content = typeof out === 'string' ? out : JSON.stringify(out, null, 2)
+  }
+}
+
+/** 确认执行高危操作:带绑定 skill_id 的一次性确认码重跑任务(同会话)。 */
+export async function confirmAction(msg) {
+  const p = msg && msg.pending
+  if (!p) return
+  if (chat.streamState === 'streaming') return say('正在生成,先点停止')
+  const sid = await ensureSession()
+  if (!sid) return
+  msg.pending = null
+  msg.notice = t('msg.confirmed')
+  chat.messages.push({
+    role: 'assistant', content: '', thinking: '', evidence: [], error: '', notice: '',
+    ts: Date.now(), streaming: true, stage: '', plan: null,
+  })
+  const reply = chat.messages[chat.messages.length - 1]
+  chat.streamState = 'streaming'
+  await streamTask('/task/stream', {
+    task: p.task,
+    agent_id: 'supervisor',
+    session_id: sid,
+    context: { _session_id: sid, _confirmed: p.skill_id, _confirm_nonce: p.confirm_nonce },
+  }, reply)
+}
+
+/** 拒绝高危操作:只清除审批卡,不发起任何执行。 */
+export function rejectAction(msg) {
+  if (msg && msg.pending) {
+    msg.pending = null
+    msg.notice = t('msg.rejected')
   }
 }
 
