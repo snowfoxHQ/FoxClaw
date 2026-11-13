@@ -648,13 +648,17 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             if skill_incomplete:
                 resp["status"] = skill_status
                 if skill_status == "needs_confirmation":
+                    _r = ctx.result if isinstance(ctx.result, dict) else {}
                     resp["pending_action"] = {
                         "skill_id": (ctx.extra or {}).get("skill_id"),
                         "task": task,
-                        "message": (ctx.result or {}).get("message", "")
-                                   if isinstance(ctx.result, dict) else "",
-                        "hint": "确认后带 context={'_confirmed': <skill_id>, ...} 重跑本任务以执行"
-                                "(绑定到 skill_id 更安全;_confirmed=True 为概括确认)",
+                        "message": _r.get("message", ""),
+                        # 【确认闭环修复】把 nonce 带给调用方:critical 操作确认时必须原样回传
+                        # (context['_confirm_nonce']),否则 confirmed=True 过不了 broker 校验。
+                        "confirm_nonce": _r.get("confirm_nonce", ""),
+                        "confirm_expires_at": _r.get("confirm_expires_at", 0.0),
+                        "hint": "确认后带 context={'_confirmed': <skill_id>, '_confirm_nonce': '<确认码>'} "
+                                "重跑本任务以执行(绑定到 skill_id 更安全;_confirmed=True 为概括确认)",
                     }
             blocked = skill_incomplete or ctx.interrupted
             self._emit_execution(task, ctx.result, blocked=blocked, context=context)

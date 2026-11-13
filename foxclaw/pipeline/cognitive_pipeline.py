@@ -315,9 +315,14 @@ async def _act_via_skill(ctx: "PipelineContext"):
     from ..skills import set_loop_session, reset_loop_session
     args = _build_args(skill, ctx.task, {})
     confirmed = _confirmed_for(ctx.context, sid)
+    # 【确认闭环修复】critical(send/pay/destructive)的 confirmed=True 必须配有效 nonce,
+    # 否则 adapter 会退回 needs_confirmation——此前这里没有传 nonce 的通道,确认后重跑
+    # 永远出不去(功能死锁)。nonce 由 pending_action 带给用户,确认时经 context 回传。
+    _nonce = str((ctx.context or {}).get("_confirm_nonce") or "")
     token = set_loop_session(getattr(ctx, "session_id", None))
     try:
-        res = await asyncio.to_thread(adp.invoke, skill, args, confirmed)
+        res = await asyncio.to_thread(adp.invoke, skill, args, confirmed,
+                                      confirm_nonce=_nonce)
     except Exception as e:
         return ({"skill": sid, "status": "error", "message": f"skill dispatch 异常: {e}",
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})
@@ -327,7 +332,9 @@ async def _act_via_skill(ctx: "PipelineContext"):
     if res.success:
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)
     return ({"skill": sid, "status": res.status, "message": res.message,
-             "pending": res.status == "needs_confirmation"}, extra)
+             "pending": res.status == "needs_confirmation",
+             "confirm_nonce": getattr(res, "confirm_nonce", "") or "",
+             "confirm_expires_at": getattr(res, "confirm_expires_at", 0.0) or 0.0}, extra)
 
 
 @named_stage("act")

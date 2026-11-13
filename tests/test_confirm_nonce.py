@@ -184,3 +184,101 @@ def test_empty_nonce_never_authorizes_broker(bad):
     b = ConfirmationBroker(clock=lambda: 1000.0)
     b.issue(SESSION, "skill:pay", {"amount": 1})
     assert b.consume(SESSION, bad, "skill:pay", {"amount": 1}, now=1000.0)[0] is False
+
+
+# ── 确认闭环接线回归:nonce 必须能从「签发 → 用户 → 重跑」走通 ──────────────
+
+def test_skillbox_use_skill_passes_nonce():
+    """【接线回归】use_skill(confirmed=True, confirm_nonce=...) → critical skill 真正执行。
+    此前 use_skill 没有传 nonce 的通道,Agent 路径上确认后重跑永远 needs_confirmation。"""
+    from foxclaw.agents.mixins.skillbox import SkillBoxMixin
+
+    broker = ConfirmationBroker()
+    adapter, reg, calls = _build(broker)
+
+    class _Agent(SkillBoxMixin):
+        skill_registry = reg
+        skill_adapter = adapter
+        _session_id = SESSION
+        _taint = 0
+        _untrusted_source = False
+
+        def _think(self, **kw):
+            return None
+
+    tok = set_loop_session(SESSION)
+    try:
+        skill = reg.get("mail_send")
+        first = adapter.invoke(skill, {"to": "a@x"}, confirmed=False)
+        assert first.status == "needs_confirmation"
+
+        out = _Agent().use_skill("发邮件", {"to": "a@x"},
+                                 confirmed=True, confirm_nonce=first.confirm_nonce)
+        assert out["result"]["status"] == "done", out
+        assert calls.n == 1
+    finally:
+        reset_loop_session(tok)
+
+
+def test_skillbox_use_skill_without_nonce_stays_pending():
+    """【安全回归】use_skill 只有 confirmed=True 而无有效 nonce → 仍 needs_confirmation,
+    不执行(新签名不会把空 nonce 变成放行)。"""
+    from foxclaw.agents.mixins.skillbox import SkillBoxMixin
+
+    broker = ConfirmationBroker()
+    adapter, reg, calls = _build(broker)
+
+    class _Agent(SkillBoxMixin):
+        skill_registry = reg
+        skill_adapter = adapter
+        _session_id = SESSION
+        _taint = 0
+        _untrusted_source = False
+
+        def _think(self, **kw):
+            return None
+
+    tok = set_loop_session(SESSION)
+    try:
+        out = _Agent().use_skill("发邮件", {"to": "a@x"}, confirmed=True)
+        assert out["result"]["status"] == "needs_confirmation", out
+        assert calls.n == 0
+    finally:
+        reset_loop_session(tok)
+
+
+def test_cognitive_pipeline_dispatch_passes_context_nonce():
+    """【接线回归】_act_via_skill 把 context['_confirm_nonce'] 透传给 adapter;
+    待确认结果把 confirm_nonce 带回给调用方(pending_action 消费)。"""
+    import asyncio
+    import types
+
+    from foxclaw.pipeline.cognitive_pipeline import _act_via_skill
+
+    broker = ConfirmationBroker()
+    adapter, reg, calls = _build(broker)
+    skill = reg.get("mail_send")
+
+    tok = set_loop_session("sess-pipe")
+    try:
+        # dispatch 走 _build_args(skill, task, {}) → mail_send 未声明 params,实参为 {};
+        # nonce 必须与 dispatch 时的同一参数指纹绑定,故用 {} 签发。
+        first = adapter.invoke(skill, {}, confirmed=False)
+        assert first.status == "needs_confirmation"
+
+        ctx = types.SimpleNamespace(
+            agent=types.SimpleNamespace(skill_registry=reg, skill_adapter=adapter),
+            route={"target": "skill", "skill_id": "mail_send"},
+            task="发邮件", context={"_confirmed": "mail_send",
+                                    "_confirm_nonce": first.confirm_nonce},
+            session_id="sess-pipe")
+        result, extra = asyncio.run(_act_via_skill(ctx))
+        assert result["status"] == "done" and calls.n == 1, (result, extra)
+
+        # 第二次:未确认 → needs_confirmation,结果必须带出新 nonce(供 pending_action 回传)
+        ctx.context = {}
+        result, extra = asyncio.run(_act_via_skill(ctx))
+        assert result["status"] == "needs_confirmation"
+        assert result["confirm_nonce"] and calls.n == 1
+    finally:
+        reset_loop_session(tok)

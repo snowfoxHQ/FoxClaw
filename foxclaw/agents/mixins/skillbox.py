@@ -20,8 +20,12 @@ class SkillBoxMixin:
         reg = getattr(self, "skill_registry", None)
         return reg.catalog() if reg else []
 
-    def use_skill(self, task: str, args: dict | None = None, confirmed: bool = False) -> dict:
-        """按任务匹配 skill 并调用,结果回填 ThoughtChain,过守门人。"""
+    def use_skill(self, task: str, args: dict | None = None, confirmed: bool = False,
+                  confirm_nonce: str = "") -> dict:
+        """按任务匹配 skill 并调用,结果回填 ThoughtChain,过守门人。
+
+        `confirm_nonce`:critical(send/pay/destructive)操作确认时回传的一次性确认码
+        (来自上次 needs_confirmation 结果),与 confirmed=True 配套使用。"""
         reg = getattr(self, "skill_registry", None)
         adp = getattr(self, "skill_adapter", None)
         if not (reg and adp):
@@ -47,6 +51,7 @@ class SkillBoxMixin:
             if _untrusted_get(self):
                 _taint = max(_taint, _ig.TAINT_PERSONAL)
             result = adp.invoke(skill, args or {}, confirmed=confirmed,
+                                confirm_nonce=confirm_nonce,
                                 taint_level=_taint,
                                 taint_threshold=_ig.TAINT_PERSONAL)
         finally:
