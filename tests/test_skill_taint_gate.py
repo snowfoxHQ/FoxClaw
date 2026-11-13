@@ -5,10 +5,15 @@
   于是只有工具路径能触发,技能路径永远不触发;
 - 记忆/知识库/网页都走 `wrap_untrusted`,唯独附件正文用手写中文定界符(可被正文伪造)。
 """
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# 本文件多处用 mode="trusted" 做对照(验证污点门槛优先于 trusted);
+# trusted 现需宿主显式授权,测试里统一开闸,降级行为单独测。
+os.environ.setdefault("FOXCLAW_TRUSTED_MODE", "1")
 
 
 def _registry():
@@ -106,6 +111,17 @@ def test_taint_gate_does_not_deadlock_after_confirmation():
         reg.get("write_note"), {"text": "hi"}, confirmed=True, mode="trusted",
         taint_level=IG.TAINT_PERSONAL, taint_threshold=IG.TAINT_PERSONAL)
     assert res.success and res.status == "done", res
+
+
+def test_trusted_mode_requires_explicit_opt_in(monkeypatch):
+    """【安全整改回归】未显式开 FOXCLAW_TRUSTED_MODE 时,mode="trusted" 降级 strict:
+    write 副作用技能必须回到 needs_confirmation,不能被单方面跳过确认。"""
+    from foxclaw.skills import SkillAdapter
+
+    monkeypatch.delenv("FOXCLAW_TRUSTED_MODE", raising=False)
+    reg = _registry()
+    res = SkillAdapter(reg).invoke(reg.get("write_note"), {"text": "hi"}, mode="trusted")
+    assert res.status == "needs_confirmation", res
 
 
 def test_untrusted_channel_source_requires_confirmation():

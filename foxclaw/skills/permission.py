@@ -10,11 +10,24 @@
 对应 docs/internal/HARNESS_STANDARD.md 的 A 类工具权限护栏。
 """
 from __future__ import annotations
+import os
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 
 Decision = Literal["allow", "ask", "deny"]
+
+TRUSTED_ENV = "FOXCLAW_TRUSTED_MODE"
+
+
+def trusted_mode_enabled() -> bool:
+    """trusted 模式是否被显式授权(env FOXCLAW_TRUSTED_MODE=1)。
+
+    【安全整改】trusted 会跳过 Stage 4 的 ask 规则/external/副作用确认,
+    不能由调用方单方面声明——必须宿主显式开闸(与 FOXCLAW_MCP_AGENTS 同款设计),
+    否则一律降级为 strict。
+    """
+    return os.environ.get(TRUSTED_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
 
 MISSING_PARAMS = "MISSING_PARAMS"
 DESTRUCTIVE_CONFIRM = "DESTRUCTIVE_CONFIRM"
@@ -78,6 +91,11 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     """
     rules = rules or PermissionRules()
     sid = skill.id
+
+    # 【安全整改】trusted 需宿主显式授权(FOXCLAW_TRUSTED_MODE=1),否则降级 strict——
+    # 防止任意调用方传 mode="trusted" 就跳过 Stage 4 确认。
+    if mode == "trusted" and not trusted_mode_enabled():
+        mode = "strict"
 
     params = getattr(skill, "params", {}) or {}
     missing = []
