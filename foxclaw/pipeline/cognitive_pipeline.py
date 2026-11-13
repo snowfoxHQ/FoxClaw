@@ -315,6 +315,14 @@ async def _act_via_skill(ctx: "PipelineContext"):
     from ..skills import set_loop_session, reset_loop_session
     args = _build_args(skill, ctx.task, {})
     confirmed = _confirmed_for(ctx.context, sid)
+    # 【接线·污点透传】此前 dispatch 不带 taint,Stage 3.5(会话碰过敏感数据 →
+    # 外发/副作用须确认)在 skill dispatch 路径形同虚设。与 skillbox/tool_exec 同口径:
+    # untrusted 来源至少抬到 TAINT_PERSONAL。懒导入避免 agents⇄pipeline 模块环。
+    from ..core import injection_guard as _ig
+    from ..agents.mixins._context import _taint_get, _untrusted_get
+    _taint = _taint_get(agent)
+    if _untrusted_get(agent):
+        _taint = max(_taint, _ig.TAINT_PERSONAL)
     # 【确认闭环修复】critical(send/pay/destructive)的 confirmed=True 必须配有效 nonce,
     # 否则 adapter 会退回 needs_confirmation——此前这里没有传 nonce 的通道,确认后重跑
     # 永远出不去(功能死锁)。nonce 由 pending_action 带给用户,确认时经 context 回传。
@@ -322,7 +330,8 @@ async def _act_via_skill(ctx: "PipelineContext"):
     token = set_loop_session(getattr(ctx, "session_id", None))
     try:
         res = await asyncio.to_thread(adp.invoke, skill, args, confirmed,
-                                      confirm_nonce=_nonce)
+                                      confirm_nonce=_nonce, taint_level=_taint,
+                                      taint_threshold=_ig.TAINT_PERSONAL)
     except Exception as e:
         return ({"skill": sid, "status": "error", "message": f"skill dispatch 异常: {e}",
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})

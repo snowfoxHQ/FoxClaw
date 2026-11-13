@@ -282,3 +282,39 @@ def test_cognitive_pipeline_dispatch_passes_context_nonce():
         assert result["confirm_nonce"] and calls.n == 1
     finally:
         reset_loop_session(tok)
+
+
+def test_cognitive_pipeline_dispatch_raises_taint(monkeypatch):
+    """【接线回归】dispatch 透传会话污点:污点达标时 Stage 3.5 先于 Stage 4 命中,
+    理由为「污点防护」;无污点时是普通「write 副作用」需确认。
+    这证明 taint 真的从 agent 流到了权限管线,而不是 dispatch 路径永远 0。"""
+    import asyncio
+    import types
+
+    from foxclaw.core import injection_guard as IG
+    from foxclaw.pipeline.cognitive_pipeline import _act_via_skill
+
+    reg = SkillRegistry()
+    reg.register(SkillSpec(id="write_note", name="写笔记", description="写笔记",
+                           triggers=["写"], side_effect="write",
+                           handler=lambda **kw: {"written": True},
+                           params={"text": "str"}))
+    adapter = SkillAdapter(reg, confirms=ConfirmationBroker())
+
+    def _ctx(taint: int):
+        return types.SimpleNamespace(
+            agent=types.SimpleNamespace(skill_registry=reg, skill_adapter=adapter,
+                                        _taint_level=taint),
+            route={"target": "skill", "skill_id": "write_note"},
+            task="写笔记 hello", context={}, session_id="sess-taint")
+
+    tok = set_loop_session("sess-taint")
+    try:
+        tainted, _ = asyncio.run(_act_via_skill(_ctx(IG.TAINT_PERSONAL)))
+        assert tainted["status"] == "needs_confirmation" and "污点" in tainted["message"], tainted
+
+        clean, _ = asyncio.run(_act_via_skill(_ctx(0)))
+        assert clean["status"] == "needs_confirmation"
+        assert "污点" not in clean["message"] and "write 副作用" in clean["message"], clean
+    finally:
+        reset_loop_session(tok)
