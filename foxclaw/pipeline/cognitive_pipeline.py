@@ -323,6 +323,11 @@ async def _act_via_skill(ctx: "PipelineContext"):
     _taint = _taint_get(agent)
     if _untrusted_get(agent):
         _taint = max(_taint, _ig.TAINT_PERSONAL)
+    # critical 标志(send/pay/destructive):前端据此决定是否弹交互式审批卡
+    # (只有最危险的交互才出审批 UI,普通 needs_confirmation 仍是文本提示)。
+    from ..core.confirm_nonce import is_critical as _is_critical
+    _critical = _is_critical(getattr(skill, "side_effect", "write"),
+                             bool(getattr(skill, "destructive", False)))
     # 【确认闭环修复】critical(send/pay/destructive)的 confirmed=True 必须配有效 nonce,
     # 否则 adapter 会退回 needs_confirmation——此前这里没有传 nonce 的通道,确认后重跑
     # 永远出不去(功能死锁)。nonce 由 pending_action 带给用户,确认时经 context 回传。
@@ -342,6 +347,7 @@ async def _act_via_skill(ctx: "PipelineContext"):
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)
     return ({"skill": sid, "status": res.status, "message": res.message,
              "pending": res.status == "needs_confirmation",
+             "critical": _critical,
              "confirm_nonce": getattr(res, "confirm_nonce", "") or "",
              "confirm_expires_at": getattr(res, "confirm_expires_at", 0.0) or 0.0}, extra)
 

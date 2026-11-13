@@ -280,8 +280,21 @@ def test_cognitive_pipeline_dispatch_passes_context_nonce():
         result, extra = asyncio.run(_act_via_skill(ctx))
         assert result["status"] == "needs_confirmation"
         assert result["confirm_nonce"] and calls.n == 1
+        # send 是 critical:前端据此弹交互式审批卡
+        assert result["critical"] is True
     finally:
         reset_loop_session(tok)
+
+
+def test_pinned_session_helper():
+    """【跨请求确认】context['_session_id'] 钉住会话(nonce 绑定会话,聊天确认是
+    另一个 HTTP 请求重跑);不给/空白则维持每请求新会话。"""
+    from foxclaw.agents.base import CognitiveAgent
+
+    assert CognitiveAgent._pinned_session("sess_a", {}) == "sess_a"
+    assert CognitiveAgent._pinned_session("sess_a", {"_session_id": "chat-1"}) == "chat-1"
+    assert CognitiveAgent._pinned_session("sess_a", {"_session_id": "   "}) == "sess_a"
+    assert CognitiveAgent._pinned_session("sess_a", None) == "sess_a"
 
 
 def test_cognitive_pipeline_dispatch_raises_taint(monkeypatch):
