@@ -51,7 +51,13 @@ def is_critical(side_effect: str, destructive: bool = False) -> bool:
 
 @dataclass
 class PendingConfirm:
-    """一条待确认记录。"""
+    """一条待确认记录。
+
+    scope(A3):批准的效力范围。
+      · "single"  —— 默认,只覆盖本动作+本参数,消费即作废(既有语义);
+      · "session" —— 用户在批准时明确扩大范围(「以后同类都放行」),TTL 内
+                     同会话同动作类可复用,不校验参数指纹;过期即废。
+    """
     nonce: str
     action: str
     fingerprint: str
@@ -59,11 +65,13 @@ class PendingConfirm:
     issued: float = field(default_factory=time.time)
     expires: float = 0.0
     used: bool = False
+    scope: str = "single"
 
     def to_dict(self) -> dict:
         return {"nonce": self.nonce, "action": self.action,
                 "session": self.session, "issued": self.issued,
-                "expires_at": self.expires, "used": self.used}
+                "expires_at": self.expires, "used": self.used,
+                "scope": self.scope}
 
 
 class ConfirmationBroker:
@@ -78,8 +86,8 @@ class ConfirmationBroker:
         self._lock = threading.Lock()
 
     def issue(self, session: str, action: str, args: dict,
-              ttl: float | None = None) -> dict:
-        """签发一个绑定到 (会话, 动作, 参数) 的一次性确认码。"""
+              ttl: float | None = None, scope: str = "single") -> dict:
+        """签发一个绑定到 (会话, 动作, 参数) 的确认码;scope 默认 single(一次性)。"""
         now = self._clock()
         ttl = self.ttl if ttl is None else float(ttl)
         item = PendingConfirm(
@@ -87,7 +95,8 @@ class ConfirmationBroker:
             action=action or "",
             fingerprint=action_fingerprint(action or "", args or {}),
             session=session or "",
-            issued=now, expires=now + ttl)
+            issued=now, expires=now + ttl,
+            scope=scope if scope in ("single", "session") else "single")
         with self._lock:
             self._purge_locked(now)
             if len(self._items) >= self.max_pending:
@@ -95,15 +104,23 @@ class ConfirmationBroker:
                 self._items.pop(oldest.nonce, None)
             self._items[item.nonce] = item
         return {"nonce": item.nonce, "action": item.action,
-                "expires_at": item.expires, "ttl": ttl}
+                "expires_at": item.expires, "ttl": ttl, "scope": item.scope}
 
     def consume(self, session: str, nonce: str, action: str = "",
-                args: dict | None = None, now: float | None = None) -> Tuple[bool, str]:
-        """校验确认码并**立即作废**。返回 (是否通过, 原因码)。
+                args: dict | None = None, now: float | None = None,
+                as_scope: str = "") -> Tuple[bool, str]:
+        """校验确认码。返回 (是否通过, 原因码)。
 
         原因码:``ok`` / ``missing_nonce`` / ``unknown_nonce`` / ``already_used`` /
         ``expired`` / ``session_mismatch`` / ``action_mismatch`` / ``args_mismatch``。
         会话为空(任一侧)时不校验会话——便于进程内调用;HTTP 入口务必带 session。
+
+        A3 作用域语义:
+          · as_scope="session"(用户批准时明确勾选「以后同类都放行」)→ 记录转为
+            session 作用域,本次放行且**不作废**;
+          · item.scope 已是 "session" → 同会话同动作类放行、不校验参数指纹、不作废
+            (TTL 到期自动失效);
+          · 其余(single 默认)→ 一次性作废 + 参数指纹校验(既有语义)。
         """
         if not nonce:
             return False, "missing_nonce"
@@ -122,6 +139,11 @@ class ConfirmationBroker:
                 return False, "session_mismatch"
             if action and item.action and item.action != action:
                 return False, "action_mismatch"
+            if item.scope == "session" or as_scope == "session":
+                # 类作用域:动作类已匹配(上面 action 校验),不校验参数指纹,不作废
+                if as_scope == "session" and item.scope != "session":
+                    item.scope = "session"
+                return True, "ok"
             if args is not None and item.fingerprint != action_fingerprint(item.action, args):
                 return False, "args_mismatch"
             item.used = True

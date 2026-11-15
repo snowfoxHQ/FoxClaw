@@ -36,6 +36,8 @@ def _repo_root() -> Path:
 def _cmd_serve(args: argparse.Namespace) -> int:
     from foxclaw.core import settings
 
+    # 启动前先查配置:类型写错的值今天会崩在很远的地方(uvicorn 40 行 traceback 中间的
+    # `int()`),用户看不出是自己 .env 写错了。这里提前拦下并说清怎么改。
     issues = settings.check()
     fatal = settings.fatal_issues(issues)
     if fatal:
@@ -43,17 +45,22 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print("\n以上配置会让启动直接失败,已中止。改好后重试。", file=sys.stderr)
         return 2
     if issues:
+        # 不影响启动的问题(可疑但能跑)只提醒一次,不拦
         print(settings.format_issues(issues, limit=8), file=sys.stderr)
         print("(以上不阻断启动;`foxclaw config check` 看完整诊断)", file=sys.stderr)
 
     import uvicorn
 
+    # 显式传参,不用 **dict 展开:uvicorn.run() 的每个参数都是单独的重载位置,
+    # 用 dict[str, object] 展开会让每个参数各报一条 arg-type,而且 uvicorn 每加一个
+    # 字面量成员就多一条(实测 4 条 → 5 条,直接把 mypy 棘轮顶红)。
     uvicorn.run(
         APP_TARGET,
         host=args.host,
         port=args.port,
         log_level=args.log_level,
         reload=bool(args.reload),
+        # 只监听源码目录,避免 vendor/ 与测试临时文件触发重启
         reload_dirs=[str(_repo_root() / "foxclaw")] if args.reload else None,
     )
     return 0

@@ -289,6 +289,37 @@ def _confirmed_for(context: dict, sid: str) -> bool:
     return False
 
 
+def _origin_explicitly_requested(ctx, skill) -> bool:
+    """A3:原始请求即批准——确定性判定,任一条件不成立即 False(fail-closed)。
+
+    条件(全 AND):
+      · 用户发起:context 无 _no_emit(主管派发的子任务带该标记,不算用户请求);
+      · 发送者可信:sender_trusted 为真;
+      · 任务文本点名该动作:skill id(去前缀)或 skill 名逐字出现在任务文本;
+      · 非 pay、非 destructive——资金与不可逆动作一律仍走确认。
+    成立时 Stage 4 常规确认免除(不重复问一遍用户已经说过的事),
+    审计 reason_code=ORIGIN_APPROVED 可追溯。
+    """
+    context = ctx.context or {}
+    if "_no_emit" in context:
+        return False
+    if not context.get("sender_trusted"):
+        return False
+    if getattr(skill, "destructive", False):
+        return False
+    if getattr(skill, "side_effect", "write") == "pay":
+        return False
+    task_text = str(getattr(ctx, "task", "") or "")
+    if not task_text:
+        return False
+    sid = str(getattr(skill, "id", "") or "")
+    name = str(getattr(skill, "name", "") or "")
+    for token in (sid.split(":", 1)[-1], name):
+        if token and token in task_text:
+            return True
+    return False
+
+
 async def _act_via_skill(ctx: "PipelineContext"):
     """按 ctx.route 选中的 skill,经 **SkillAdapter(→PolicyGate 四阶段权限)** dispatch。
     返回 (result, extra),或 None 表示"无法走 skill,回落 _execute"。
@@ -313,21 +344,63 @@ async def _act_via_skill(ctx: "PipelineContext"):
         return None
     from ..skills.pipeline import _build_args
     from ..skills import set_loop_session, reset_loop_session
+    from ..skills.permission import set_eval_context, clear_eval_context
     args = _build_args(skill, ctx.task, {})
     confirmed = _confirmed_for(ctx.context, sid)
+    # 【接线·污点透传】此前 dispatch 不带 taint,Stage 3.5(会话碰过敏感数据 →
+    # 外发/副作用须确认)在 skill dispatch 路径形同虚设。与 skillbox/tool_exec 同口径:
+    # untrusted 来源至少抬到 TAINT_PERSONAL。懒导入避免 agents⇄pipeline 模块环。
+    from ..core import injection_guard as _ig
+    from ..agents.mixins._context import _taint_get, _untrusted_get
+    _taint = _taint_get(agent)
+    if _untrusted_get(agent):
+        _taint = max(_taint, _ig.TAINT_PERSONAL)
+    # critical 标志(send/pay/destructive):前端据此决定是否弹交互式审批卡
+    # (只有最危险的交互才出审批 UI,普通 needs_confirmation 仍是文本提示)。
+    from ..core.confirm_nonce import is_critical as _is_critical
+    _critical = _is_critical(getattr(skill, "side_effect", "write"),
+                             bool(getattr(skill, "destructive", False)))
+    # 【确认闭环修复】critical(send/pay/destructive)的 confirmed=True 必须配有效 nonce,
+    # 否则 adapter 会退回 needs_confirmation——此前这里没有传 nonce 的通道,确认后重跑
+    # 永远出不去(功能死锁)。nonce 由 pending_action 带给用户,确认时经 context 回传。
+    _nonce = str((ctx.context or {}).get("_confirm_nonce") or "")
     token = set_loop_session(getattr(ctx, "session_id", None))
+    # A2:评估上下文——请求来源信号,例外引擎(trusted 例外)从这里读。
+    # 无上下文 = 例外条件不成立(fail-closed)。
+    _ectx = set_eval_context({
+        "source": "user_chat",
+        "untrusted": not (ctx.context or {}).get("sender_trusted", False),
+    })
+    # A3:原始请求即批准——用户发起且请求文本点名该动作,免重复确认。
+    _pre = _origin_explicitly_requested(ctx, skill)
     try:
-        res = await asyncio.to_thread(adp.invoke, skill, args, confirmed)
+        res = await asyncio.to_thread(adp.invoke, skill, args, confirmed,
+                                      confirm_nonce=_nonce, taint_level=_taint,
+                                      taint_threshold=_ig.TAINT_PERSONAL,
+                                      pre_approved=_pre)
     except Exception as e:
         return ({"skill": sid, "status": "error", "message": f"skill dispatch 异常: {e}",
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})
     finally:
         reset_loop_session(token)
+        clear_eval_context(_ectx)
     extra = {"via": "skill", "skill_id": sid, "skill_status": res.status}
     if res.success:
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)
+    # C1:pending 时判定「有没有人在看」——无人值守下显式批准档动作转为
+    # 摆出决策 + 停(parked),前端/回复措辞据此调整;信号 fail-closed(无记录=无人)。
+    from ..core import presence as _presence
+    _att = _presence.attended(getattr(ctx, "session_id", ""))
     return ({"skill": sid, "status": res.status, "message": res.message,
-             "pending": res.status == "needs_confirmation"}, extra)
+             "pending": res.status == "needs_confirmation",
+             "critical": _critical,
+             "attended": _att,
+             "parked": bool(res.status == "needs_confirmation" and not _att),
+             # A6:权限拒绝显式标记——此前 deny 只变普通文本上浮,主管识别不到
+             "policy_denied": res.status == "blocked",
+             "deny_message": res.message if res.status == "blocked" else "",
+             "confirm_nonce": getattr(res, "confirm_nonce", "") or "",
+             "confirm_expires_at": getattr(res, "confirm_expires_at", 0.0) or 0.0}, extra)
 
 
 @named_stage("act")

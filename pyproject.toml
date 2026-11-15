@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxclaw"
-version = "0.1.4"
+version = "0.1.5"
 description = "Foxclaw - a personal agent with memory, built on the HMR memory runtime"
 requires-python = ">=3.11"
 
@@ -69,13 +69,6 @@ foxclaw = "foxclaw.cli:main"
 # foxclaw*,装完 import 得到的是「记忆/知识子系统全部降级为 None」的占位包。
 # 这里把它们真正打进 wheel,并让 package-data 一并带上 LICENSE/JSON 等非 .py 资源。
 include-package-data = true
-
-[tool.setuptools.package-data]
-# frontend/ 在仓库根、不属于任何包,packages.find 收不到;构建前由
-# tools/bundle_web.py 复制成 foxclaw/web/(已 gitignore),这里再把它带进 wheel/sdist。
-# 不复制的话 pip install 之后 foxclaw serve 首页 404(只有 API/CLI)。
-"foxclaw.web" = ["**/*"]
-
 
 [tool.setuptools.packages.find]
 # foxclaw 在仓库根;hmr 在 vendor/ 下;hkc_* 在 vendor/hkc/ 下 —— 三个搜索根都要给。
@@ -146,17 +139,13 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# S2 迁移完成:全部测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
+# S2 迁移完成:全部 76 个测试文件均已迁移为 pytest(无顶层 import 副作用,可安全收集)。
 # 注意:网关/内置MCP/流式限流等少数测试依赖模块级单例(FOXCLAW_GATEWAY、FOXCLAW_MCP_SERVER、
 # _STREAM_LIMITER 均在 import 时按 env 固化),单进程 `pytest tests/` 会让这些单例被首个
 # import 定死、相互污染。故全量执行统一走 tests/run_all.py(每个文件独立子进程
 # `python -m pytest <file> -q` 隔离)。本白名单确保任意单文件可被 pytest 收集/运行。
 python_files = [
     "test_agent_lifecycle.py",
-    "test_sensitive_write.py",
-    "test_content_guard.py",
-    "test_behavior_spec.py",
-    "test_agent_rules.py",
     "test_ahs_p2.py",
     "test_anthropic_tools.py",
     "test_api.py",
@@ -225,7 +214,6 @@ python_files = [
     "test_plan_visible.py",
     "test_planner.py",
     "test_policy_gate.py",
-    "test_profile.py",
     "test_reasoner.py",
     "test_release_check.py",
     "test_resume_checkpoint.py",
@@ -241,7 +229,6 @@ python_files = [
     "test_secrets.py",
     "test_skill_taint_gate.py",
     "test_skills.py",
-    "test_skills_fetch.py",
     "test_stats_and_events.py",
     "test_streaming.py",
     "test_supervisor_pipeline.py",
@@ -259,7 +246,6 @@ python_files = [
     "test_tracing.py",
     "test_truth_crystallizer.py",
     "test_truth_flow.py",
-    "test_update_check.py",
     "test_url_policy.py",
     "test_version_sync.py",
     "test_web_trigger.py",
