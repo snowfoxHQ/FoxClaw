@@ -390,6 +390,9 @@ async def _act_via_skill(ctx: "PipelineContext"):
     return ({"skill": sid, "status": res.status, "message": res.message,
              "pending": res.status == "needs_confirmation",
              "critical": _critical,
+             # A6:权限拒绝显式标记——此前 deny 只变普通文本上浮,主管识别不到
+             "policy_denied": res.status == "blocked",
+             "deny_message": res.message if res.status == "blocked" else "",
              "confirm_nonce": getattr(res, "confirm_nonce", "") or "",
              "confirm_expires_at": getattr(res, "confirm_expires_at", 0.0) or 0.0}, extra)
 
