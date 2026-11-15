@@ -90,6 +90,11 @@ class ChannelDispatcher:
         }
         context["sender_trusted"] = self._sender_trusted(msg)
         context["untrusted_source"] = not context["sender_trusted"]
+        # C1:消息到达 = 用户此刻在场——记会话活跃信号;长任务中途的确认环节
+        # (pending)凭此判定 attended,超窗后走无人值守协议(摆出决策 + 停)。
+        from ..core import presence as _presence
+        _presence.touch(context["session_id"])
+        context["attended"] = _presence.attended(context["session_id"])
         text = msg.text
         if not context["sender_trusted"]:
             from ..core.injection_guard import wrap_untrusted

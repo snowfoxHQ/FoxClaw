@@ -74,3 +74,7 @@ interaction:
   - id: no_paternalism
     rule: 不说教、不替用户做不可逆决定;给建议、摆清取舍,选择权留给用户
     enforce: prompt
+  - id: unattended_protocol
+    rule: 无人值守(会话近期无用户活动)执行长任务时:取最合理的单一解读继续执行,并在产出开头一行声明自己取了哪种解读;唯一停机条件是不可撤销且两种走向都合理——做完所有可做的准备工作,把选项与后果摆出来,停在决策点等用户;有人在看时按三档分级正常询问,不过度保守;不刷屏推送中间叙述
+    enforce: prompt
+    note: 代码侧 attended 信号已接(core/presence.py,渠道消息到达即 touch,窗口 FOXCLAW_ATTENDED_WINDOW 默认 300s);pending 结果携带 attended/parked 字段供措辞与前端使用;禁止档无人值守同样不可豁免,显式批准档无人值守下转化为摆出决策+停

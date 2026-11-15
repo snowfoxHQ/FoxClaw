@@ -387,9 +387,15 @@ async def _act_via_skill(ctx: "PipelineContext"):
     extra = {"via": "skill", "skill_id": sid, "skill_status": res.status}
     if res.success:
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)
+    # C1:pending 时判定「有没有人在看」——无人值守下显式批准档动作转为
+    # 摆出决策 + 停(parked),前端/回复措辞据此调整;信号 fail-closed(无记录=无人)。
+    from ..core import presence as _presence
+    _att = _presence.attended(getattr(ctx, "session_id", ""))
     return ({"skill": sid, "status": res.status, "message": res.message,
              "pending": res.status == "needs_confirmation",
              "critical": _critical,
+             "attended": _att,
+             "parked": bool(res.status == "needs_confirmation" and not _att),
              # A6:权限拒绝显式标记——此前 deny 只变普通文本上浮,主管识别不到
              "policy_denied": res.status == "blocked",
              "deny_message": res.message if res.status == "blocked" else "",
