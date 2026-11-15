@@ -32,6 +32,9 @@ class Verdict:
     source: str = ""
     raw: Any = None
     decision_id: str = field(default="")
+    # A1 动作三分类:prohibited(禁止) / explicit(显式批准) / regular(常规)。
+    # 标注命中规则所属的档,与 allowed 无关——explicit 确认后放行仍是 explicit。
+    tier: str = field(default="")
 
 
 class PolicyGate:
@@ -90,11 +93,13 @@ class PolicyGate:
         level = {"allow": "allow", "ask": "confirm", "deny": "deny"}.get(d.decision, "deny")
         v = Verdict(allowed=(d.decision == "allow"), level=level,
                     reason=(d.reason or ""), source="permission", raw=d,
-                    decision_id=new_decision_id())
+                    decision_id=new_decision_id(),
+                    tier=getattr(d, "tier", ""))
         if level != "allow":
             self._emit(v, getattr(skill, "id", ""))
             self._audit(v, actor="", action=f"action:{getattr(skill, 'id', '')}",
                         detail={"stage": getattr(d, "stage", 0),
+                                "tier": v.tier,
                                 "trust_downgrade": getattr(d, "trust_downgrade", False)})
         return v
 

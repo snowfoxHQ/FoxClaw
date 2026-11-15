@@ -17,6 +17,12 @@ from typing import Literal, Optional
 
 Decision = Literal["allow", "ask", "deny"]
 
+# 动作三分类(A1):tier 标注的是「命中规则所属的档」,不是本次裁决结果——
+# explicit 档动作确认后放行,tier 仍是 explicit(审计可查「这是需要批准的那类动作」)。
+TIER_PROHIBITED = "prohibited"
+TIER_EXPLICIT = "explicit"
+TIER_REGULAR = "regular"
+
 TRUSTED_ENV = "FOXCLAW_TRUSTED_MODE"
 
 
@@ -67,6 +73,7 @@ class PermissionDecision:
     trust_downgrade: bool = False
     requires_confirmation: bool = False
     reason_code: str = ""
+    tier: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -74,6 +81,7 @@ class PermissionDecision:
             "trust_downgrade": self.trust_downgrade,
             "requires_confirmation": self.requires_confirmation,
             "reason_code": self.reason_code,
+            "tier": self.tier,
         }
 
 
@@ -109,7 +117,8 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
             requires_confirmation=True, reason_code=MISSING_PARAMS)
 
     if rules.hits_deny(sid):
-        return PermissionDecision("deny", 2, reason=f"命中 deny 规则(不可覆盖): {sid}")
+        return PermissionDecision("deny", 2, reason=f"命中 deny 规则(不可覆盖): {sid}",
+                                  tier=TIER_PROHIBITED)
     ask_by_rule = rules.hits_ask(sid)
     allow_by_rule = rules.hits_allow(sid)
 
@@ -127,24 +136,25 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
 
     if mode == "readonly" and not read_only:
         return PermissionDecision("deny", 3,
-            reason="readonly 模式下禁止非只读操作", trust_downgrade=downgrade)
+            reason="readonly 模式下禁止非只读操作", trust_downgrade=downgrade,
+            tier=TIER_PROHIBITED)
 
     if destructive and not confirmed:
         return PermissionDecision("ask", 3,
             reason="不可逆(destructive)操作,必须用户确认",
             trust_downgrade=downgrade, requires_confirmation=True,
-            reason_code=DESTRUCTIVE_CONFIRM)
+            reason_code=DESTRUCTIVE_CONFIRM, tier=TIER_EXPLICIT)
 
     if taint_threshold and taint_level >= taint_threshold and not confirmed:
         if side_effect in ("write", "send", "pay") or external:
             return PermissionDecision("ask", 3,
                 reason="会话已取回用户敏感数据,外发/副作用动作需二次确认(污点防护)",
                 trust_downgrade=downgrade, requires_confirmation=True,
-                reason_code=TAINT_CONFIRM)
+                reason_code=TAINT_CONFIRM, tier=TIER_EXPLICIT)
 
     if mode == "trusted":
         return PermissionDecision("allow", 3,
-            reason="trusted 模式放行", trust_downgrade=downgrade)
+            reason="trusted 模式放行", trust_downgrade=downgrade, tier=TIER_REGULAR)
 
     needs_confirm = (
         ask_by_rule or external or side_effect in ("write", "send", "pay")
@@ -156,8 +166,13 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
                 EXTERNAL_CONFIRM if external else SIDE_EFFECT_CONFIRM)
         return PermissionDecision("ask", 4,
             reason=f"需确认: {why}", trust_downgrade=downgrade,
-            requires_confirmation=True, reason_code=code)
+            requires_confirmation=True, reason_code=code, tier=TIER_EXPLICIT)
 
     reason = ("命中 allow 规则" if allow_by_rule else
               "只读无副作用" if read_only else "已确认")
-    return PermissionDecision("allow", 4, reason=reason, trust_downgrade=downgrade)
+    # 显式批准档动作确认后放行,tier 仍标 explicit(档随规则走,不随结果走)
+    explicit_hit = (destructive or ask_by_rule or external
+                    or side_effect in ("write", "send", "pay"))
+    tier = TIER_EXPLICIT if explicit_hit else TIER_REGULAR
+    return PermissionDecision("allow", 4, reason=reason, trust_downgrade=downgrade,
+                              tier=tier)
