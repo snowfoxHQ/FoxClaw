@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue'
-import { chat, retry } from '../stores/chat.js'
+import { chat, confirmAction, rejectAction, retry } from '../stores/chat.js'
 import { mdToHTML } from '../lib/md.js'
 import { t } from '../lib/i18n.js'
 
@@ -137,6 +137,19 @@ function canRetry(i) {
           <p v-else-if="m.streaming" class="a-text waiting"><span class="dots">···</span></p>
 
           <div v-if="m.notice" class="notice">{{ m.notice }}</div>
+
+          <div v-if="m.pending" class="confirm-card" role="alertdialog" aria-live="assertive">
+            <div class="c-head">
+              <span class="c-badge">⚠</span>
+              <b class="c-title">{{ t('msg.confirmTitle') }}</b>
+            </div>
+            <p class="c-msg">{{ m.pending.message }}</p>
+            <div class="c-acts">
+              <button class="c-ok" @click="confirmAction(m)">{{ t('msg.confirmOk') }}</button>
+              <button class="c-no" @click="rejectAction(m)">{{ t('msg.confirmNo') }}</button>
+            </div>
+          </div>
+
           <div v-if="m.error" class="err">✕ {{ m.error }}</div>
 
           <details v-if="m.evidence && m.evidence.length" class="fold ev">
@@ -360,6 +373,39 @@ function canRetry(i) {
   font-size: 11.5px; color: var(--amber);
   background: rgba(200, 140, 40, 0.09);
 }
+
+/* 高危操作审批卡:只有 critical(send/pay/destructive)待确认才出现 */
+.confirm-card {
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(200, 140, 40, 0.35);
+  background: rgba(255, 251, 243, 0.95);
+  padding: 11px 13px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.c-head { display: flex; align-items: center; gap: 7px; }
+.c-badge {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #fff; background: var(--amber);
+}
+.c-title { font-size: 12.5px; color: var(--ink); }
+.c-msg {
+  margin: 0; font-size: 12px; line-height: 1.65; color: var(--dim);
+  word-break: break-word; white-space: pre-wrap;
+}
+.c-acts { display: flex; gap: 8px; }
+.c-ok, .c-no {
+  font-size: 12px; font-weight: 650; padding: 6px 16px;
+  border-radius: var(--r-pill); cursor: pointer;
+  transition: filter 0.13s, background 0.13s;
+}
+.c-ok { color: #fff; background: var(--amber); border: 1px solid var(--amber); }
+.c-ok:hover { filter: brightness(1.08); }
+.c-no {
+  color: var(--dim); background: transparent;
+  border: 1px solid var(--line);
+}
+.c-no:hover { color: var(--red); border-color: rgba(229, 72, 77, 0.4); }
 
 .a-acts { display: flex; gap: 6px; opacity: 0; transition: opacity 0.13s; }
 .msg:hover .a-acts,

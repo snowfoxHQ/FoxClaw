@@ -108,7 +108,7 @@ def test_mode_env(monkeypatch, tmp_path):
     monkeypatch.setenv(MODE_ENV, "enforce")
     assert SensitiveWritePolicy(pending_path=tmp_path / "p.json").mode == "enforce"
     monkeypatch.setenv(MODE_ENV, "乱写的")
-    assert SensitiveWritePolicy(pending_path=tmp_path / "p.json").mode == "audit"
+    assert SensitiveWritePolicy(pending_path=tmp_path / "p.json").mode == "warn"
 
 
 def test_event_carries_no_raw_secret(tmp_path):

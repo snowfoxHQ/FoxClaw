@@ -594,6 +594,17 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         说明续了哪一次、复用了多少步。"""
         return await self._run_task_core(task, context, stop_event=stop_event, on_stage=None)
 
+    @staticmethod
+    def _pinned_session(session_id: str, context: dict | None) -> str:
+        """【跨请求确认】critical(send/pay/destructive)的一次性确认码绑定会话;
+        聊天前端的「确认」是另一个 HTTP 请求重跑本任务——不钉住会话,重跑必
+        session_mismatch,确认闭环永远走不通。调用方把稳定 id 放 context['_session_id']
+        (聊天前端传聊天会话 id);不给则维持每请求新会话的原行为。
+        安全性:钉住会话只是让**已持有的 nonce** 可被消费,nonce 本身绑定动作+参数指纹
+        且一次性,拿到 nonce 的前提是收到过待确认响应。"""
+        pinned = str((context or {}).get("_session_id") or "").strip()
+        return pinned or session_id
+
     async def _run_task_core(self, task: str, context: dict | None = None,
                              stop_event=None, on_stage=None) -> dict:
         """run_task 的执行核心 —— 供同步 `run_task` 与流式 `run_task_stream` **共用**,避免两份
@@ -601,7 +612,10 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         与改前 run_task 行为逐字一致。"""
         from ..pipeline import PipelineContext
         context = context or {}
-        session_id = self.start_session(goal=task, entities=self._task_entities(task))
+        session_id = self._pinned_session(
+            self.start_session(goal=task, entities=self._task_entities(task)), context)
+        if str((context or {}).get("_session_id") or "").strip():
+            self._session_id = session_id  # 槽位同步,use_skill 等读 self._session_id 的路径同会话
         _untrusted_set(self, bool(context.get("untrusted_source")))
         self._on_session_started(session_id, task, context)
         _hooks = getattr(self, "hooks", None)
@@ -648,13 +662,19 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             if skill_incomplete:
                 resp["status"] = skill_status
                 if skill_status == "needs_confirmation":
+                    _r = ctx.result if isinstance(ctx.result, dict) else {}
                     resp["pending_action"] = {
                         "skill_id": (ctx.extra or {}).get("skill_id"),
                         "task": task,
-                        "message": (ctx.result or {}).get("message", "")
-                                   if isinstance(ctx.result, dict) else "",
-                        "hint": "确认后带 context={'_confirmed': <skill_id>, ...} 重跑本任务以执行"
-                                "(绑定到 skill_id 更安全;_confirmed=True 为概括确认)",
+                        "message": _r.get("message", ""),
+                        # 【确认闭环修复】把 nonce 带给调用方:critical 操作确认时必须原样回传
+                        # (context['_confirm_nonce']),否则 confirmed=True 过不了 broker 校验。
+                        "confirm_nonce": _r.get("confirm_nonce", ""),
+                        "confirm_expires_at": _r.get("confirm_expires_at", 0.0),
+                        # 前端只对 critical(send/pay/destructive)弹交互式审批卡
+                        "critical": bool(_r.get("critical")),
+                        "hint": "确认后带 context={'_confirmed': <skill_id>, '_confirm_nonce': '<确认码>'} "
+                                "重跑本任务以执行(绑定到 skill_id 更安全;_confirmed=True 为概括确认)",
                     }
             blocked = skill_incomplete or ctx.interrupted
             self._emit_execution(task, ctx.result, blocked=blocked, context=context)

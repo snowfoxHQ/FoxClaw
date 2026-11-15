@@ -198,7 +198,7 @@ class SkillAdapter:
     def invoke(self, skill: SkillSpec, args: dict,
                confirmed: bool = False, mode: str = "strict",
                confirm_nonce: str = "", taint_level: int = 0,
-               taint_threshold: int = 0) -> SkillResult:
+               taint_threshold: int = 0, pre_approved: bool = False) -> SkillResult:
         """调用 skill:pre钩子 → 权限管线 → 断路器 → 执行 → 记账 → post/error钩子。
 
         `confirm_nonce`:关键操作(send/pay/destructive)的二次确认码。注入了
@@ -208,6 +208,9 @@ class SkillAdapter:
         `taint_level`/`taint_threshold`:会话污点与触发阈值(默认 0 = 关闭)。此前技能路径
         不带污点,permission.evaluate 的 Stage 3.5 形同虚设 → 「知识库/记忆被取回后经技能
         外发」少一道闸。调用方(agents/mixins/skillbox.py)按 `_taint_get(agent)` 传入。
+
+        `pre_approved`(A3):原始请求已明确包含该动作(调用方确定性判定),
+        Stage 4 常规确认免除——不重复问一遍用户已经说过的事;pay/destructive 不适用。
         """
         from .permission import evaluate
         from foxclaw.core.tracing import span as _span
@@ -216,7 +219,8 @@ class SkillAdapter:
             return self._invoke_inner(skill, args, confirmed, mode, evaluate,
                                       confirm_nonce=confirm_nonce,
                                       taint_level=taint_level,
-                                      taint_threshold=taint_threshold)
+                                      taint_threshold=taint_threshold,
+                                      pre_approved=pre_approved)
 
     def _audit_terminal(self, skill: SkillSpec, verdict, outcome: str,
                         reason: str, detail: dict | None = None) -> None:
@@ -238,7 +242,7 @@ class SkillAdapter:
     def _invoke_inner(self, skill: SkillSpec, args: dict,
                       confirmed: bool, mode: str, evaluate,
                       confirm_nonce: str = "", taint_level: int = 0,
-                      taint_threshold: int = 0) -> SkillResult:
+                      taint_threshold: int = 0, pre_approved: bool = False) -> SkillResult:
 
         pol = self.skill_policy
         if pol is not None and pol.is_blocked(skill.id):
@@ -271,12 +275,14 @@ class SkillAdapter:
         if self.policy_gate is not None:
             verdict = self.policy_gate.check_action(
                 skill, args, rules=self.rules, confirmed=confirmed, mode=mode,
-                taint_level=taint_level, taint_threshold=taint_threshold)
+                taint_level=taint_level, taint_threshold=taint_threshold,
+                pre_approved=pre_approved)
             decision = verdict.raw
         else:
             decision = evaluate(skill, args, rules=self.rules,
                                 confirmed=confirmed, mode=mode,
-                                taint_level=taint_level, taint_threshold=taint_threshold)
+                                taint_level=taint_level, taint_threshold=taint_threshold,
+                                pre_approved=pre_approved)
         if decision.decision == "deny":
             return SkillResult(skill.id, False, status="blocked",
                 message=f"权限拒绝(阶段{decision.stage}): {decision.reason}")

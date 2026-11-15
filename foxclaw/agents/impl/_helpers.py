@@ -68,3 +68,36 @@ def _extract_step_results(dr) -> list:
         })
     return out
 
+
+# ---- A6 跨会话权限走私禁令 ----
+
+def _norm_subtask(text: str) -> str:
+    """子任务文本归一化(压缩空白)——同一件事换手派发时识别用。"""
+    return " ".join(str(text or "").split())
+
+
+def _policy_denied(sub_result) -> bool:
+    """子 Agent 结果是否为权限拒绝(A6)。
+
+    skill 权限 deny 经认知管线以上层 status="blocked" 上浮(此前只变成普通文本,
+    主管识别不到——走私口子);harness 侧拒绝走 error="harness_blocked",另行判定。
+    """
+    if not isinstance(sub_result, dict):
+        return False
+    return (sub_result.get("status") == "blocked"
+            or sub_result.get("error") == "policy_denied")
+
+
+def register_denial(context: dict, subtask: str) -> None:
+    """登记被权限拒绝的子任务(本会话内);拒绝结论跟随任务走,不因换手重置。"""
+    denied = context.setdefault("_denied_subtasks", [])
+    norm = _norm_subtask(subtask)
+    if norm and norm not in denied:
+        denied.append(norm)
+
+
+def is_denied(context: dict, subtask: str) -> bool:
+    """该子任务在本会话内是否已被权限拒绝。"""
+    denied = context.get("_denied_subtasks") or []
+    return _norm_subtask(subtask) in denied
+

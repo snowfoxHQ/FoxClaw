@@ -19,14 +19,16 @@
 
 三档模式 (FOXCLAW_SENSITIVE_WRITE_MODE)
 ──────────────────────────────────────
-  audit  (默认)  只记录不拦截。落库照常,事件里标 allowed。
-  warn           记录 + 进程内告警,仍不落 pending。
+  audit          只记录不拦截。落库照常,事件里标 allowed。
+  warn  (默认)   记录 + 进程内告警,仍不落 pending。
   enforce        真正拦截:高敏感内容不进长期记忆,转成待确认项,用户同意后才落库。
 
-为什么默认 audit
+为什么默认 warn
 ────────────────
-分类规则在真实流量上跑通之前只是**待验证的假设**。先在 audit 下看清命中长什么样、
-误判率多少,再切 enforce —— 与 shared_write 的灰度立场一致。
+分类规则在真实流量上跑通之前是待验证的假设,直接 enforce 会把「我最近焦虑」这类
+误判都变成确认弹窗。但默认 audit 意味着凭据/证件落库完全无提示 —— 折中为 warn:
+行为与 audit 一致(不拦、不落 pending),但每次命中都有进程内告警,宿主能立刻
+看到命中长什么样、误判率多少,验证后切 enforce。
 """
 from __future__ import annotations
 
@@ -213,8 +215,9 @@ class SensitiveWritePolicy:
 
     @staticmethod
     def _resolve_mode(mode: str | None = None) -> str:
-        m = (mode or os.environ.get(MODE_ENV, "") or "audit").strip().lower()
-        return m if m in VALID_MODES else "audit"
+        """显式入参 > 环境变量 > 默认 warn。非法值一律回落到 warn(保守:告警可见)。"""
+        m = (mode or os.environ.get(MODE_ENV, "") or "warn").strip().lower()
+        return m if m in VALID_MODES else "warn"
 
     def evaluate(self, content: str, **entry: Any) -> Decision:
         hits = self.classifier.classify(content)

@@ -11,7 +11,12 @@ PolicyGate 把它们统一到**一套 Verdict 词汇(allow/warn/deny/confirm)+ �
 
 不 import Harness/skills(避免 kernel→上层环):harness 作参数传入(鸭子类型);
 动作评估器 evaluate 由 Foxclaw **注入**。
-"""
+
+【安全整改】评估器未注入时**必须 fail-closed**:返回 deny 并发 policy.decision.deny
+事件 + 治理审计。此前的「降级放行」是 fail-open——评估器装配一旦出问题,
+整条动作权限管线会静默失效。Composition Root(Foxclaw.__init__)恒注入
+permission.evaluate / sentinel.evaluate,正常路径不受影响。"""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -27,6 +32,9 @@ class Verdict:
     source: str = ""
     raw: Any = None
     decision_id: str = field(default="")
+    # A1 动作三分类:prohibited(禁止) / explicit(显式批准) / regular(常规)。
+    # 标注命中规则所属的档,与 allowed 无关——explicit 确认后放行仍是 explicit。
+    tier: str = field(default="")
 
 
 class PolicyGate:
@@ -61,7 +69,8 @@ class PolicyGate:
 
     def check_action(self, skill, args: dict, rules=None,
                      confirmed: bool = False, mode: str = "strict",
-                     taint_level: int = 0, taint_threshold: int = 0) -> Verdict:
+                     taint_level: int = 0, taint_threshold: int = 0,
+                     pre_approved: bool = False) -> Verdict:
         """经统一门做动作权限准入。底层仍是 permission.evaluate(同一 PermissionDecision);
         归一化为 Verdict,并对**非 allow**发统一 policy.decision.* 审计事件(动作路径原本无统一事件)。
 
@@ -73,18 +82,26 @@ class PolicyGate:
         技能路径永不触发。注入的评估器(permission.evaluate / sentinel.evaluate)签名都带这两个
         kwarg;默认 0 = 关闭,既有调用方行为不变。"""
         if self._eval is None:
-            return Verdict(True, "allow", "无动作评估器(降级放行)", "permission", None,
-                           decision_id=new_decision_id())
+            # 【安全整改】fail-closed:评估器缺失 = 权限管线不可用,拒绝而非放行。
+            v = Verdict(False, "deny", "无动作评估器,fail-closed 拒绝", "permission",
+                        None, decision_id=new_decision_id())
+            self._emit(v, getattr(skill, "id", ""))
+            self._audit(v, actor="", action=f"action:{getattr(skill, 'id', '')}",
+                        detail={"fail_closed": True})
+            return v
         d = self._eval(skill, args, rules=rules, confirmed=confirmed, mode=mode,
-                       taint_level=taint_level, taint_threshold=taint_threshold)
+                       taint_level=taint_level, taint_threshold=taint_threshold,
+                       pre_approved=pre_approved)
         level = {"allow": "allow", "ask": "confirm", "deny": "deny"}.get(d.decision, "deny")
         v = Verdict(allowed=(d.decision == "allow"), level=level,
                     reason=(d.reason or ""), source="permission", raw=d,
-                    decision_id=new_decision_id())
+                    decision_id=new_decision_id(),
+                    tier=getattr(d, "tier", ""))
         if level != "allow":
             self._emit(v, getattr(skill, "id", ""))
             self._audit(v, actor="", action=f"action:{getattr(skill, 'id', '')}",
                         detail={"stage": getattr(d, "stage", 0),
+                                "tier": v.tier,
                                 "trust_downgrade": getattr(d, "trust_downgrade", False)})
         return v
 

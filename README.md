@@ -6,7 +6,6 @@ A **personal agent with memory** — to a user, an agent that remembers; to a de
 Traditional frameworks:  memory = storage,           agents = stateless execution
 Foxclaw:               memory = living cognitive runtime, agents = reason · learn · evolve
 ```
-<img width="1269" height="1027" alt="foxclaw" src="https://github.com/user-attachments/assets/37eff4a8-59e2-4a04-95ba-922884eb0bb3" />
 
 ## What it is
 
@@ -26,7 +25,6 @@ Finance / Office each mount an isomorphic kernel (pure-algorithm layer + externa
 - **Finance** — budget reasoning, MAD anomaly detection, cash-flow forecast; gatekeeper with four permissions, emits approval requests rather than moving money. **Advanced trio**: structured evidence chains (explainable risk), financial data graph (trace who caused an overspend), reconciliation (3-tier matching + suspicious-charge detection).
 - **Office** — SM-2 spaced repetition (mastery + forgetting risk) + knowledge graph (cluster discovery).
 - **Office · itinerary** — TSP routing, reachability ("won't make it") detection, time conflicts, geo-clustering; integrates Amap.
-<img width="1270" height="1026" alt="foxclaw2" src="https://github.com/user-attachments/assets/6192f480-cf43-470a-b9b0-75d05284f5bb" />
 
 ## Messaging platforms
 
@@ -44,12 +42,6 @@ Closed loop (`ChannelDispatcher`): receive → Supervisor → reply to origin, w
 ## Runtime governance
 
 Keeps the system reliable under message redelivery, crashes, long tasks, and loops. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md): idempotency guard, crash/restart recovery (boot_id avoids pid reuse), tool-loop detection, context compaction, hook standardization, steering queue.
-
-**Content boundaries.** Requests and model output pass a deterministic content gate: narrow built-in rules for request-shaped violations, plus an optional external lexicon for platform categories.
-
-**No political, sexual, or violent term list is bundled, and nothing in that area is enforced unless the deployer mounts one.** Whether to mount a lexicon, which categories to take, and whether to run `enforce` or `audit` is entirely a deployment decision — this repository provides the mechanism, not a policy. The gate is normalised string matching, not semantic understanding: it does not guarantee coverage, and it is not a content moderation or compliance service. Deployers who expose this service publicly are responsible for their own content compliance. The software is provided "as is", as stated in [LICENSE](LICENSE).
-
-See [docs/CONTENT_GUARD.md](docs/CONTENT_GUARD.md) for mounting, conversion, and false-positive tuning.
 
 ## Quick start
 
@@ -74,7 +66,6 @@ See [docs/RUN.md](docs/RUN.md). Chinese docs: [README_CN.md](README_CN.md). Rele
 > **Windows**: don't place the project under OneDrive-managed folders (Documents/Desktop/Pictures); Python can't create dirs inside redirect placeholders. Use a path like `C:\foxclaw`.
 
 ## Knowledge base (HKC) model config
-<img width="2499" height="1347" alt="foxclaw3 (2)" src="https://github.com/user-attachments/assets/833618cd-bac8-4e2c-b215-0a961ae3b4ed" />
 
 HKC's knowledge base uses **two different types of models**, each for one job, both configured in `.env` — no code changes:
 
@@ -104,7 +95,6 @@ HKC_EXTRACT_CONCURRENCY=2                    # 1–2 for local, up to 5 for clou
 HKC_EXTRACT_BATCH=8                          # optional: extract N chunks per call, saves tokens & time; default 1 = per-chunk
 HKC_MAX_CHUNKS_PER_DOC=800                   # optional: per-doc chunk cap; default 800 (~1.25M chars); 0 = no cap, see below
 ```
-<img width="2481" height="1347" alt="foxclaw5" src="https://github.com/user-attachments/assets/83c5e67c-5f4c-47f9-9586-231454ca5814" />
 
 ### Case B · public cloud model (no local model)
 

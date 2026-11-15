@@ -92,12 +92,25 @@ def test_integration_skill_path():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_no_evaluator_fails_closed():
+    """【安全整改回归】未注入动作评估器 → fail-closed deny + policy.decision.deny 事件,
+    不再降级放行(fail-open)。"""
+    print("\n【2.5】评估器缺失 fail-closed")
+    spine = _CapSpine()
+    gate = PolicyGate(spine=spine)  # 无 action_evaluator
+    v = gate.check_action(_Skill(), {})
+    assert not v.allowed and v.level == "deny" and v.decision_id, v
+    assert spine.events == ["policy.decision.deny"], spine.events
+    print("  ✓ 无评估器 → deny(fail-closed),发 policy.decision.deny")
+
+
 def main():
     print("=" * 60)
     print("统一准入门 · PolicyGate(v2 ① Step4)")
     print("=" * 60)
     test_reasoning_normalization()
     test_action_normalization_and_event()
+    test_no_evaluator_fails_closed()
     test_integration_skill_path()
     print("\n" + "=" * 60)
     print("✓ Step4 验证完成:两个门统一到 Verdict 词汇 + 一个接口 + 统一审计")

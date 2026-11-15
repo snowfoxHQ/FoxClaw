@@ -7,7 +7,9 @@ from datetime import datetime
 
 from ..base import CognitiveAgent
 from ...planning import planner as P
-from ._helpers import _with_prior, _dispatch_failed, _extract_step_results, PRIOR_MAX_CHARS
+from ._helpers import (_with_prior, _dispatch_failed, _extract_step_results,
+                       PRIOR_MAX_CHARS, _norm_subtask, _policy_denied,
+                       register_denial, is_denied)
 from typing import Any, cast
 
 class SupervisorAgent(CognitiveAgent):
@@ -262,6 +264,21 @@ class SupervisorAgent(CognitiveAgent):
                 )
                 break
             new_routes = [(s["name"], s["agent"]) for s in replan["steps"]]
+            # A6:修正计划里已被权限拒绝的步骤不再重试转派——被拒结论跟随任务走
+            _pre = len(new_routes)
+            new_routes = [(n, a) for n, a in new_routes if not is_denied(context, n)]
+            _dropped = _pre - len(new_routes)
+            if _dropped:
+                self._think(
+                    content=f"修正计划剔除 {_dropped} 个已被权限拒绝的步骤(不换手重试)",
+                    node_type="decision", conf=0.9,
+                )
+            if not new_routes:
+                self._think(
+                    content="修正计划的全部步骤均已被权限拒绝,终止重规划,结论回报用户",
+                    node_type="reflection", conf=0.9,
+                )
+                break
             self._think(
                 content=f"修正计划({len(new_routes)}步):"
                        + " → ".join(n for n, _ in new_routes),
@@ -305,6 +322,17 @@ class SupervisorAgent(CognitiveAgent):
         for idx, (subtask, ag) in enumerate(step_routes, 1):
             if ag not in subagents:
                 ag = self._coerce_agent(ag, subtask, subagents)
+            # A6:被权限拒绝的子任务不再转派任何 Agent——拒绝结论跟随任务走
+            if is_denied(context, subtask):
+                self._think(
+                    content=f"第{idx}步「{subtask}」已被权限拒绝,不转派执行",
+                    node_type="decision", conf=0.9,
+                )
+                any_blocked = True
+                steps_out.append({"step": idx, "subtask": subtask, "agent": ag,
+                                  "output": f"该子任务已被权限拒绝,不再转派执行:{subtask}",
+                                  "blocked": True})
+                continue
             proc = pm.create(subtask, agent_id=ag, schedule=sched.to_dict()) if pm else None
             self._think(
                 content=f"多步执行 第{idx}步:「{subtask}」→ {ag}",
@@ -327,7 +355,10 @@ class SupervisorAgent(CognitiveAgent):
             sub_output = sub_result.get("result", "")
             if isinstance(sub_output, dict):
                 sub_output = json.dumps(sub_output, ensure_ascii=False)
-            blocked = sub_result.get("error") in ("harness_blocked", "subagent_timeout")
+            blocked = (sub_result.get("error") in ("harness_blocked", "subagent_timeout")
+                       or _policy_denied(sub_result))
+            if _policy_denied(sub_result):
+                register_denial(context, subtask)
             any_blocked = any_blocked or blocked
             if proc:
                 (pm.mark_failed(proc.process_id, reason=sub_result.get("error") or "")
@@ -398,6 +429,12 @@ class SupervisorAgent(CognitiveAgent):
 
         async def run_group(ag, items):
             for idx, subtask in items:
+                # A6:被权限拒绝的子任务不再转派任何 Agent
+                if is_denied(context, subtask):
+                    q.publish(batch, ag, {"idx": idx, "subtask": subtask, "agent": ag,
+                                          "output": f"该子任务已被权限拒绝,不再转派执行:{subtask}",
+                                          "blocked": True, "failed": False})
+                    continue
                 proc = pm.create(subtask, agent_id=ag,
                                  schedule=sched.to_dict()) if pm else None
                 if proc:
@@ -409,7 +446,10 @@ class SupervisorAgent(CognitiveAgent):
                     out = sub.get("result", "")
                     if isinstance(out, dict):
                         out = json.dumps(out, ensure_ascii=False)
-                    blocked = sub.get("error") == "harness_blocked"
+                    blocked = (sub.get("error") == "harness_blocked"
+                               or _policy_denied(sub))
+                    if _policy_denied(sub):
+                        register_denial(context, subtask)
                     if proc:
                         (pm.mark_failed(proc.process_id, reason="harness_blocked")
                          if blocked else pm.mark_completed(proc.process_id))
@@ -520,7 +560,10 @@ class SupervisorAgent(CognitiveAgent):
         sub_output = sub_result.get("result", "")
         if isinstance(sub_output, dict):
             sub_output = json.dumps(sub_output, ensure_ascii=False)
-        blocked = sub_result.get("error") == "harness_blocked"
+        blocked = (sub_result.get("error") == "harness_blocked"
+                   or _policy_denied(sub_result))
+        if _policy_denied(sub_result):
+            register_denial(context, task)
 
         if proc:
             if blocked:
