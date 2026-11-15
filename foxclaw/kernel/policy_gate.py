@@ -69,7 +69,8 @@ class PolicyGate:
 
     def check_action(self, skill, args: dict, rules=None,
                      confirmed: bool = False, mode: str = "strict",
-                     taint_level: int = 0, taint_threshold: int = 0) -> Verdict:
+                     taint_level: int = 0, taint_threshold: int = 0,
+                     pre_approved: bool = False) -> Verdict:
         """经统一门做动作权限准入。底层仍是 permission.evaluate(同一 PermissionDecision);
         归一化为 Verdict,并对**非 allow**发统一 policy.decision.* 审计事件(动作路径原本无统一事件)。
 
@@ -89,7 +90,8 @@ class PolicyGate:
                         detail={"fail_closed": True})
             return v
         d = self._eval(skill, args, rules=rules, confirmed=confirmed, mode=mode,
-                       taint_level=taint_level, taint_threshold=taint_threshold)
+                       taint_level=taint_level, taint_threshold=taint_threshold,
+                       pre_approved=pre_approved)
         level = {"allow": "allow", "ask": "confirm", "deny": "deny"}.get(d.decision, "deny")
         v = Verdict(allowed=(d.decision == "allow"), level=level,
                     reason=(d.reason or ""), source="permission", raw=d,

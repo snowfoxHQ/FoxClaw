@@ -289,6 +289,37 @@ def _confirmed_for(context: dict, sid: str) -> bool:
     return False
 
 
+def _origin_explicitly_requested(ctx, skill) -> bool:
+    """A3:原始请求即批准——确定性判定,任一条件不成立即 False(fail-closed)。
+
+    条件(全 AND):
+      · 用户发起:context 无 _no_emit(主管派发的子任务带该标记,不算用户请求);
+      · 发送者可信:sender_trusted 为真;
+      · 任务文本点名该动作:skill id(去前缀)或 skill 名逐字出现在任务文本;
+      · 非 pay、非 destructive——资金与不可逆动作一律仍走确认。
+    成立时 Stage 4 常规确认免除(不重复问一遍用户已经说过的事),
+    审计 reason_code=ORIGIN_APPROVED 可追溯。
+    """
+    context = ctx.context or {}
+    if "_no_emit" in context:
+        return False
+    if not context.get("sender_trusted"):
+        return False
+    if getattr(skill, "destructive", False):
+        return False
+    if getattr(skill, "side_effect", "write") == "pay":
+        return False
+    task_text = str(getattr(ctx, "task", "") or "")
+    if not task_text:
+        return False
+    sid = str(getattr(skill, "id", "") or "")
+    name = str(getattr(skill, "name", "") or "")
+    for token in (sid.split(":", 1)[-1], name):
+        if token and token in task_text:
+            return True
+    return False
+
+
 async def _act_via_skill(ctx: "PipelineContext"):
     """按 ctx.route 选中的 skill,经 **SkillAdapter(→PolicyGate 四阶段权限)** dispatch。
     返回 (result, extra),或 None 表示"无法走 skill,回落 _execute"。
@@ -340,10 +371,13 @@ async def _act_via_skill(ctx: "PipelineContext"):
         "source": "user_chat",
         "untrusted": not (ctx.context or {}).get("sender_trusted", False),
     })
+    # A3:原始请求即批准——用户发起且请求文本点名该动作,免重复确认。
+    _pre = _origin_explicitly_requested(ctx, skill)
     try:
         res = await asyncio.to_thread(adp.invoke, skill, args, confirmed,
                                       confirm_nonce=_nonce, taint_level=_taint,
-                                      taint_threshold=_ig.TAINT_PERSONAL)
+                                      taint_threshold=_ig.TAINT_PERSONAL,
+                                      pre_approved=_pre)
     except Exception as e:
         return ({"skill": sid, "status": "error", "message": f"skill dispatch 异常: {e}",
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})

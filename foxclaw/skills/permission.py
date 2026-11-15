@@ -64,6 +64,7 @@ SIDE_EFFECT_CONFIRM = "SIDE_EFFECT_CONFIRM"
 ASK_RULE = "ASK_RULE"
 EXTERNAL_CONFIRM = "EXTERNAL_CONFIRM"
 TAINT_CONFIRM = "TAINT_CONFIRM"
+ORIGIN_APPROVED = "ORIGIN_APPROVED"
 
 
 @dataclass
@@ -110,7 +111,8 @@ class PermissionDecision:
 
 def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
              confirmed: bool = False, mode: str = "strict",
-             taint_level: int = 0, taint_threshold: int = 0) -> PermissionDecision:
+             taint_level: int = 0, taint_threshold: int = 0,
+             pre_approved: bool = False) -> PermissionDecision:
     """四阶段权限管线。返回 allow / ask / deny。
 
     skill: SkillSpec(需有 id / side_effect / kind,及可选 destructive/external/read_only)
@@ -119,6 +121,11 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     core.injection_guard.taint_level);taint_threshold = 触发二次确认的阈值。
     两者默认 0 = 关闭,既有调用方行为逐字不变。仅当「污点达标 且 动作为外发/副作用」时,
     在 Stage 3 强制升级为 ask(TAINT_CONFIRM)——对齐 Muse「碰过敏感数据 → 动态提门槛」。
+
+    【A3·原始请求即批准】pre_approved=True 表示该动作已被用户原始请求明确包含
+    (由调用方确定性判定:用户发起 + 请求文本点名该动作 + 非 pay/destructive),
+    Stage 4 的常规确认免除,不重复问一遍已经说过的事。仅作用于 Stage 4;
+    deny / destructive / 污点门槛在更早阶段,不受影响。pay 一律仍需确认。
     """
     rules = rules or PermissionRules()
     sid = skill.id
@@ -189,6 +196,12 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     needs_confirm = (
         ask_by_rule or external or side_effect in ("write", "send", "pay")
     )
+    # A3:原始请求已明确包含 → Stage 4 常规确认免除;pay 除外(资金动作一律问)
+    if needs_confirm and not confirmed and pre_approved and side_effect != "pay":
+        return PermissionDecision("allow", 4,
+            reason="原始请求已明确包含该动作(用户发起),免重复确认",
+            trust_downgrade=downgrade, reason_code=ORIGIN_APPROVED,
+            tier=TIER_EXPLICIT)
     if needs_confirm and not confirmed:
         why = ("命中 ask 规则" if ask_by_rule else
                "外部调用" if external else f"{side_effect} 副作用")
