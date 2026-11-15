@@ -313,6 +313,7 @@ async def _act_via_skill(ctx: "PipelineContext"):
         return None
     from ..skills.pipeline import _build_args
     from ..skills import set_loop_session, reset_loop_session
+    from ..skills.permission import set_eval_context, clear_eval_context
     args = _build_args(skill, ctx.task, {})
     confirmed = _confirmed_for(ctx.context, sid)
     # 【接线·污点透传】此前 dispatch 不带 taint,Stage 3.5(会话碰过敏感数据 →
@@ -333,6 +334,12 @@ async def _act_via_skill(ctx: "PipelineContext"):
     # 永远出不去(功能死锁)。nonce 由 pending_action 带给用户,确认时经 context 回传。
     _nonce = str((ctx.context or {}).get("_confirm_nonce") or "")
     token = set_loop_session(getattr(ctx, "session_id", None))
+    # A2:评估上下文——请求来源信号,例外引擎(trusted 例外)从这里读。
+    # 无上下文 = 例外条件不成立(fail-closed)。
+    _ectx = set_eval_context({
+        "source": "user_chat",
+        "untrusted": not (ctx.context or {}).get("sender_trusted", False),
+    })
     try:
         res = await asyncio.to_thread(adp.invoke, skill, args, confirmed,
                                       confirm_nonce=_nonce, taint_level=_taint,
@@ -342,6 +349,7 @@ async def _act_via_skill(ctx: "PipelineContext"):
                  "pending": False}, {"via": "skill", "skill_id": sid, "skill_status": "error"})
     finally:
         reset_loop_session(token)
+        clear_eval_context(_ectx)
     extra = {"via": "skill", "skill_id": sid, "skill_status": res.status}
     if res.success:
         return ({"skill": sid, "output": res.output, "status": res.status}, extra)

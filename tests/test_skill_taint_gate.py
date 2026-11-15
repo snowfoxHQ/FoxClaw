@@ -62,19 +62,38 @@ def test_tainted_session_requires_confirmation():
 
 
 def test_untainted_session_unaffected():
-    """默认 taint=0(或未达标)→ trusted 模式照旧放行,行为逐字不变。"""
+    """【A2 语义变更】trusted 不再布尔放行:
+    无例外命中 → 落回 Stage 4(write 副作用 → needs_confirmation);
+    例外全条件满足(测试域 host + 无 live 标记 + 用户聊天上下文)→ 豁免放行。"""
     from foxclaw.core import injection_guard as IG
-    from foxclaw.skills import SkillAdapter
+    from foxclaw.skills import SkillAdapter, SkillRegistry, SkillSpec
+    from foxclaw.skills.permission import set_eval_context, clear_eval_context
 
     reg = _registry()
     adp = SkillAdapter(reg)
-    ok = adp.invoke(reg.get("write_note"), {"text": "hi"}, mode="trusted")
-    assert ok.success and ok.status == "done", ok
+    # 无例外命中(args 无测试域 host)→ trusted 下仍需确认
+    res = adp.invoke(reg.get("write_note"), {"text": "hi"}, mode="trusted")
+    assert res.status == "needs_confirmation", res
 
     low = adp.invoke(reg.get("write_note"), {"text": "hi"}, mode="trusted",
                      taint_level=IG.TAINT_EXTERNAL,
                      taint_threshold=IG.TAINT_PERSONAL)
-    assert low.success, low
+    assert low.status == "needs_confirmation", low
+
+    # 例外命中 → 豁免
+    reg2 = SkillRegistry()
+    reg2.register(SkillSpec(
+        id="api_call", name="调接口", description="调接口",
+        kind="local", side_effect="write", external=True,
+        handler=lambda **kw: {"ok": True}, params={"url": "str", "key": "str"}))
+    tok = set_eval_context({"source": "user_chat", "untrusted": False})
+    try:
+        ok = SkillAdapter(reg2).invoke(
+            reg2.get("api_call"),
+            {"url": "http://localhost:8000", "key": "test-key-123"}, mode="trusted")
+        assert ok.success and ok.status == "done", ok
+    finally:
+        clear_eval_context(tok)
 
 
 def test_attachment_body_wrapped_as_untrusted():

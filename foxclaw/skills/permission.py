@@ -10,6 +10,7 @@
 对应 docs/internal/HARNESS_STANDARD.md 的 A 类工具权限护栏。
 """
 from __future__ import annotations
+import contextvars
 import os
 from dataclasses import dataclass, field
 from typing import Literal, Optional
@@ -32,8 +33,30 @@ def trusted_mode_enabled() -> bool:
     【安全整改】trusted 会跳过 Stage 4 的 ask 规则/external/副作用确认,
     不能由调用方单方面声明——必须宿主显式开闸(与 FOXCLAW_MCP_AGENTS 同款设计),
     否则一律降级为 strict。
+
+    【A2 重构】trusted 不再是布尔全放行:仅当例外规则(foxclaw.skills.exceptions)
+    的全部 AND 条件满足才豁免 Stage 4;无例外命中 → 落回常规评估。deny 与
+    destructive 确认在例外判定之前,不可被任何例外豁免。
     """
     return os.environ.get(TRUSTED_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+# A2:评估上下文(请求来源信号),由调用方(认知管线)在评估前设置。
+# 例外条件(如「请求来自用户聊天」)从这读;无上下文 = 条件不成立(fail-closed)。
+_EVAL_CONTEXT: contextvars.ContextVar[dict] = contextvars.ContextVar("foxclaw_eval_context", default=None)
+
+
+def set_eval_context(ctx: dict):
+    """设置当前评估上下文(请求来源等),返回 token 供 reset。"""
+    return _EVAL_CONTEXT.set(dict(ctx or {}))
+
+
+def clear_eval_context(token):
+    _EVAL_CONTEXT.reset(token)
+
+
+def eval_context() -> dict:
+    return _EVAL_CONTEXT.get() or {}
 
 MISSING_PARAMS = "MISSING_PARAMS"
 DESTRUCTIVE_CONFIRM = "DESTRUCTIVE_CONFIRM"
@@ -153,8 +176,15 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
                 reason_code=TAINT_CONFIRM, tier=TIER_EXPLICIT)
 
     if mode == "trusted":
-        return PermissionDecision("allow", 3,
-            reason="trusted 模式放行", trust_downgrade=downgrade, tier=TIER_REGULAR)
+        # A2:trusted 不再布尔放行——例外规则全部条件满足才豁免 Stage 4;
+        # 无例外命中 → 落回常规评估(该 ask 还 ask),与主规则同一管线,无旁路。
+        from .exceptions import evaluate_trusted_exception
+        ok, why = evaluate_trusted_exception(args, eval_context())
+        if ok:
+            return PermissionDecision("allow", 3,
+                reason=f"trusted 例外豁免({why})",
+                trust_downgrade=downgrade, tier=TIER_REGULAR)
+        # 未豁免:继续走 Stage 4 常规评估
 
     needs_confirm = (
         ask_by_rule or external or side_effect in ("write", "send", "pay")
