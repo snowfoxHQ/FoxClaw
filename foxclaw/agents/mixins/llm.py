@@ -42,6 +42,26 @@ class LlmMixin:
                 merged = [{"role": "user", "content": str(inj)}] + merged
             messages = merged
         sc = _act_stream.get()
+        # act 路径 LLM 自主工具循环(2026-11-16 接线修复):此前只有 stream_reply
+        # 路径挂了 _reply_with_tools,run_task→CognitivePipeline act→_call_llm 走
+        # 裸 complete,派发子 Agent(finance/office)拿不到任何工具(T6 真实冒烟
+        # 实证:agent 明确报告"会话里没有 web_search")。现与 stream_reply 同一
+        # 判定源(FOXCLAW_TOOL_USE=1 且 provider 支持 tools):先走工具循环,
+        # 模型自主决策调用/回答;工具步骤经 _record_step 落 task_log.jsonl
+        # (evidence 不缺位)。返回 None(provider 不支持/无 schema/stop 置位)→
+        # 回落下方 complete,原行为逐字不变。流式路径(_act_stream 置位)不在此
+        # 接,保持 stream_reply 既有工具循环。
+        if sc is None:
+            from ...core.tools import tool_use_enabled as _tool_use_enabled
+            if _tool_use_enabled() and self.router.supports_tools():
+                _task = next((str(m.get("content") or "") for m in reversed(messages)
+                              if m.get("role") == "user"), "")
+                try:
+                    _final = self._reply_with_tools(_task, messages)
+                except Exception:
+                    _final = None  # 工具循环任何异常 → 回落普通调用,不阻断任务
+                if _final is not None:
+                    return _final
         if sc is not None:
             on_token = sc.get("on_token")
             stop_event = sc.get("stop_event")

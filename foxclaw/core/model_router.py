@@ -830,10 +830,10 @@ class ModelRouter:
             from .tracing import span as _span
             with _span("llm.tools", provider=self.provider, model=model):
                 if self.provider == "anthropic":
-                    text, calls, assistant_msg = self._call_anthropic_tools(
+                    text, calls, assistant_msg, usage = self._call_anthropic_tools(
                         model, system, messages, tools, tool_choice, max_tokens)
                 else:
-                    text, calls, assistant_msg = self._call_openai_tools(
+                    text, calls, assistant_msg, usage = self._call_openai_tools(
                         model, system, messages, tools, tool_choice, max_tokens)
         except Exception as e:
             self._rec_llm(self.provider, False, (_t.perf_counter() - _t0) * 1000.0)
@@ -842,9 +842,12 @@ class ModelRouter:
         self._rec_llm(self.provider, True, (_t.perf_counter() - _t0) * 1000.0)
         if getattr(self, "meter", None) is not None:
             try:
+                # 计量优先用 API 返回的真实 usage(2026-11-16 修正:此前固定
+                # usage=None → 工具轮调用全部落 estimated 记录,虚增估算占比;
+                # estimated 标记必须反映真实来源,不得把有 usage 的调用记成估算)。
                 self.meter.measure_call(system=system, messages=messages,
                                         output=text, provider=self.provider,
-                                        model=model, agent_id=agent_id, usage=None)
+                                        model=model, agent_id=agent_id, usage=usage)
             except Exception:
                 pass
         return {"supported": True, "text": text,
@@ -886,7 +889,10 @@ class ModelRouter:
         assistant_msg = {"role": "assistant", "content": m.content or ""}
         if raw_tcs:
             assistant_msg["tool_calls"] = raw_tcs
-        return (m.content or ""), calls, assistant_msg
+        u = getattr(resp, "usage", None)
+        usage = ({"input_tokens": getattr(u, "prompt_tokens", None),
+                  "output_tokens": getattr(u, "completion_tokens", None)} if u else None)
+        return (m.content or ""), calls, assistant_msg, usage
 
     def _call_anthropic_tools(self, model, system, messages, tools, tool_choice, max_tokens):
         """anthropic 原生 tool_use:openai tools 格式 → anthropic 格式,调 messages.create,
@@ -919,7 +925,10 @@ class ModelRouter:
                                "name": getattr(b, "name", ""), "input": args})
         text = "".join(text_parts)
         assistant_msg = {"role": "assistant", "content": blocks}
-        return text, calls, assistant_msg
+        u = getattr(resp, "usage", None)
+        usage = ({"input_tokens": getattr(u, "input_tokens", None),
+                  "output_tokens": getattr(u, "output_tokens", None)} if u else None)
+        return text, calls, assistant_msg, usage
 
     def format_tool_result(self, tool_call: dict, result: str) -> dict:
         """把一次工具执行结果封装成 provider 原生消息,供追加进 messages 再喂回模型。
