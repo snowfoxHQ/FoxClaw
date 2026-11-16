@@ -57,7 +57,12 @@ class LlmMixin:
                 _task = next((str(m.get("content") or "") for m in reversed(messages)
                               if m.get("role") == "user"), "")
                 try:
-                    _final = self._reply_with_tools(_task, messages)
+                    # 复核者裁定 2026-11-16:工具循环是同步阻塞 I/O(模型工具轮 +
+                    # web_search 网络请求),必须与下方 complete/stream 同一执行
+                    # 语义——移入工作线程,不得阻塞事件循环(否则同循环上的其他
+                    # Agent 任务/请求/异步调度全被拖住)。
+                    _final = await asyncio.to_thread(
+                        self._reply_with_tools, _task, messages)
                 except Exception:
                     _final = None  # 工具循环任何异常 → 回落普通调用,不阻断任务
                 if _final is not None:
