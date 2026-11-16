@@ -14,11 +14,31 @@ hooks / 流式(run_task_stream)/ stop_event 中断 / 统一 `_emit_execution` / 
   · 内部短路标记放 ctx.extra 的 `_meta_answered`/`_self_answer`,aggregate 负责清除,不外泄到返回体。
 """
 import asyncio
+import hashlib
 from datetime import datetime
 
 from ..core.dispatch import dispatch_failed
 from .cognitive_pipeline import PipelineContext, stage_recall  # noqa: F401  (recall 复用默认 stage)
 from .stage_meta import named_stage
+
+# G1 白名单(2026-11-17 最终裁定):7 项固定 + T3-007 条件纳入;T3-003/009 不覆盖。
+_G1_WHITELIST = frozenset({"T3-001", "T3-002", "T3-004", "T3-005",
+                           "T3-006", "T3-008", "T3-010", "T3-007"})
+
+
+def _g1_whitelist_match(ctx: PipelineContext) -> dict | None:
+    """sv_plan/sv_dispatch 共用授权判定;None=未授权(走原路径)。"""
+    g = (ctx.context or {}).get("_g1") or {}
+    tid = g.get("task_id")
+    if (not g.get("enabled") or tid not in _G1_WHITELIST
+            or (tid == "T3-007" and not g.get("include_t3_007"))):
+        return None
+    if g.get("taskset_version") != "g0d-taskset-0.1.2":
+        return {"matched": False, "reason": "TASKSET_MISMATCH"}
+    if g.get("fingerprint") != hashlib.sha256(
+            "\x1f".join((g["taskset_version"], tid, str(ctx.task))).encode()).hexdigest():
+        return {"matched": False, "reason": "INPUT_INVALID"}
+    return {"matched": True, "reason": "WHITELIST_HIT", "task_id": tid}
 
 
 @named_stage("meta_check")
@@ -99,6 +119,8 @@ async def sv_route(ctx: PipelineContext) -> None:
 async def sv_plan(ctx: PipelineContext) -> None:
     if ctx.extra.get("_meta_answered") or ctx.extra.get("_self_answer"):
         return
+    if _g1_whitelist_match(ctx) is not None:  # G1 前置保护:禁止规划阶段先调模型
+        return
     agent = ctx.agent
     plan_obj, step_routes = await asyncio.to_thread(agent._plan_task, ctx.task, ctx.sched)
     if plan_obj is not None:
@@ -119,6 +141,27 @@ async def sv_plan(ctx: PipelineContext) -> None:
 async def sv_dispatch(ctx: PipelineContext) -> None:
     agent = ctx.agent
     if ctx.extra.get("_meta_answered"):
+        return
+
+    g1 = _g1_whitelist_match(ctx)
+    if g1 is not None:
+        g = ctx.context["_g1"]
+        reply = ""
+        if not g1["matched"]:
+            g["execution_status"] = g1["reason"]
+        else:
+            try:
+                reply = str(g["executor"](g1["task_id"], ctx.task))
+                g["execution_status"] = "SUCCESS"
+            except Exception:
+                g["execution_status"] = "FAILED"
+        g["web_augment"] = "skipped"
+        if reply:
+            agent._store_memory(content=f"主管自答正面对话「{ctx.task}」",
+                                mem_type="decision", shared=True,
+                                title=f"主管自答_{datetime.now().strftime('%Y%m%d_%H%M')}")
+        ctx.dispatch_result = {"result": {"dispatched_to": "supervisor",
+                                          "sub_result": reply, "self_answered": True}}
         return
 
     if ctx.extra.get("_self_answer"):
