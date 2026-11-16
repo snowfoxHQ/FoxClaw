@@ -132,6 +132,14 @@ _CHECKERS: dict[str, Callable[..., tuple[bool, str]]] = {
 def verify(name: str, args: dict | None, text: str,
            capability: dict | None = None) -> Verification:
     """给一次工具调用的结果下结论(不抛异常:核验本身失败时不拖垮工具轮)。"""
+    # EMPTY 标记(复核者裁定 2026-11-16):只读工具成功执行但结果为空是合法
+    # 执行结果 → VERIFIED(执行状态=成功,业务结果=空);非只读工具出现该标记
+    # 属违规,一律 FAILED,绝不放行。按常量等值判定,非任意字符串匹配。
+    from .tools import EMPTY_RESULT_MARKER
+    if (text or "").strip() == EMPTY_RESULT_MARKER:
+        if (capability or {}).get("read_only"):
+            return Verification(VERIFIED, reason="执行成功,结果为空(EMPTY)")
+        return Verification(FAILED, reason="非只读工具不允许空结果标记(EMPTY)")
     kind = _policy.classify(text)
     if kind not in (_policy.OK, _policy.UNKNOWN):
         return Verification(FAILED, reason=f"失败类型:{kind}")

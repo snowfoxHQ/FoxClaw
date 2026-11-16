@@ -151,6 +151,13 @@ TOOL_CAPABILITIES: dict[str, dict] = {
 }
 _DEFAULT_CAP = {"side_effect": "write", "read_only": False, "external": True, "destructive": False}
 
+# 复核者裁定 2026-11-16:分离「执行状态」与「业务结果」两个维度——只读工具
+# 成功执行但查询无命中,是合法执行结果(执行=SUCCESS,业务=EMPTY),必须落盘
+# 可追溯证据,不得与失败(异常/超时/权限拒绝/参数错)混同。标记为模块常量,
+# 生产方(_invoke_tool,仅 read_only 工具)与消费方(verify/_settle)按常量等值
+# 判定,不靠任意字符串匹配;非只读工具绝不允许产生或套用该标记。
+EMPTY_RESULT_MARKER = "(EMPTY_RESULT:工具执行成功,结果为空)"
+
 
 def tool_capability(name: str) -> dict:
     """取工具能力分级;未声明 → fail-closed 兜底(有副作用,须 HITL)。"""

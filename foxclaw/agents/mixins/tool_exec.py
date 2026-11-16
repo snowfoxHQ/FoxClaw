@@ -150,7 +150,10 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
                 top_k = 5
             res = agent._recall_memory(q, top_k=top_k) if q else []
             if not res:
-                return "(未召回到相关记忆)"
+                # 只读工具成功执行但无命中 → 显式 EMPTY 标记(与失败文本区分,
+                # _settle/verify 按常量识别,步骤照常落盘,业务结果如实为空)
+                from ...core.tools import EMPTY_RESULT_MARKER
+                return EMPTY_RESULT_MARKER
             lines = "\n".join(f"- {r.get('content', '')}" for r in res[:top_k])
             _raise(_ig.taint_level("memory"))
             return "【召回的相关记忆】\n" + _ig.wrap_untrusted(lines, source="memory")
@@ -257,9 +260,13 @@ def _step_ok(result: str) -> bool:
     return bool(r) and not r.startswith("(")
 
 
-def _record_step(agent, call: dict, result: str) -> None:
+def _record_step(agent, call: dict, result: str,
+                 result_status: str = "NON_EMPTY") -> None:
     """把一个已完成的工具步骤写进 recovery 日志(fail-safe:异常一律吞掉)。
 
+    result_status(复核者裁定 2026-11-16):NON_EMPTY=正常命中;EMPTY=只读工具
+    成功执行但结果为空——执行状态与业务结果分离,空召回是有效信息,必须与
+    工具失败在证据层面区分开。
     落盘前对 args/result 过 `redact_secrets`:recovery 日志会被回放读回,长期留在
     `{data_dir}/recovery/` 下,而工具参数里经常出现 token/密钥(如鉴权类 CLI、带 key 的
     HTTP 请求)。`_step_key` 仍用**未脱敏**的 args 计算,否则同一步骤的 key 前后不一致,
@@ -274,6 +281,7 @@ def _record_step(agent, call: dict, result: str) -> None:
         rec.record_step(tid, {
             "kind": "tool",
             "name": call.get("name", ""),
+            "result_status": result_status,
             "key": _step_key(call.get("name", ""), call.get("args") or {}),
             "args": redact_obj(call.get("args") or {}),
             "result": text[:_STEP_RESULT_MAX],
@@ -310,6 +318,10 @@ def _apply_failure_policy(agent, call: dict, result: str) -> tuple[str, str]:
 def _settle(agent, call: dict, result: str) -> str:
     """一个工具步的收尾:核验 → 记账证据 → 只把「真的可用」的步写进 checkpoint。
 
+    EMPTY 分支(复核者裁定 2026-11-16):只读工具返回 EMPTY_RESULT_MARKER =
+    执行成功但结果为空——不走失败策略(重试/注记都会把它当失败处理),核验按
+    VERIFIED 通过,步骤带 result_status="EMPTY" 照常落盘(空召回是有效信息);
+    非只读工具出现该标记按失败处理(防御:标记只应由只读工具产生)。
     返回回注给模型的最终文本(失败时附动作提示,成功时原样返回)。
     """
     from ...core import tools as _tools
@@ -317,19 +329,29 @@ def _settle(agent, call: dict, result: str) -> str:
     from ._context import _evidence_add
     name = call.get("name", "")
     args = call.get("args") or {}
-    text, kind = _apply_failure_policy(agent, call, result)
+    cap = _tools.tool_capability(name)
+    is_empty = (result or "").strip() == _tools.EMPTY_RESULT_MARKER
+    if is_empty and not cap.get("read_only"):
+        result = f"(工具 {name} 返回空结果标记但非只读,按失败处理)"
+        is_empty = False
+    if is_empty:
+        text = result  # 标记文本本身自描述,原样回注模型
+        kind = None
+    else:
+        text, kind = _apply_failure_policy(agent, call, result)
     try:
-        cap = _tools.tool_capability(name)
         v = _verify.verify(name, args, result, cap)
         note = _verify.note_for_model(v, read_only=bool(cap.get("read_only")))
         if note:
             text = f"{text}\n{note}"
         _evidence_add(agent, {
             "tool": name, "kind": kind, "status": v.status,
+            "result_status": "EMPTY" if is_empty else "NON_EMPTY",
             "reason": v.reason, "evidence": [e.to_dict() for e in v.evidence],
         })
-        if v.status != _verify.FAILED and _step_ok(result):
-            _record_step(agent, call, result)
+        if v.status != _verify.FAILED and (_step_ok(result) or is_empty):
+            _record_step(agent, call, result,
+                         result_status="EMPTY" if is_empty else "NON_EMPTY")
     except Exception:
         pass
     return text
