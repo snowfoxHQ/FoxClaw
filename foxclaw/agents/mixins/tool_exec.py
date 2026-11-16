@@ -136,9 +136,25 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
             if _ws.is_personal_query(q):
                 return "(该问题属于用户本地数据,已跳过联网;请依据本地领域信息回答)"
             payload = _ws.search_answer(q)
-            if not payload or (not payload.get("answer") and not payload.get("references")):
-                return ("联网搜索未返回结果(可能未配置搜索服务或网络不可用);"
-                        "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。")
+            status = payload.get("status")
+            if status is None:
+                # 旧格式兼容({answer, references} 无 status):只有确有内容才算成功;
+                # 旧空格式一律 FAILED,绝不据「空载荷」推断 EMPTY(裁定边界)。
+                status = (_ws.SEARCH_SUCCESS if (payload.get("answer") or
+                                                 payload.get("references"))
+                          else _ws.SEARCH_FAILED)
+            if status == _ws.SEARCH_EMPTY:
+                # 复核者裁定 2026-11-16:搜索服务成功完成查询并明确零命中 →
+                # 与 recall_memory 同语义的 EMPTY 标记(_settle 落 result_status=EMPTY),
+                # 不得与端点失败混同;Agent 回复不参与成功判定。
+                from ...core.tools import EMPTY_RESULT_MARKER
+                return EMPTY_RESULT_MARKER
+            if status != _ws.SEARCH_SUCCESS or (
+                    not payload.get("answer") and not payload.get("references")):
+                # 必须以 "(" 开头:失败文本约定(_step_ok/failure_policy 据此识别),
+                # 否则失败会被当成功步骤落盘(复核者裁定 2026-11-16 边界要求)。
+                return ("(联网搜索失败或未返回结果:搜索服务出错/未配置/网络不可用;"
+                        "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。)")
             agent._think(content=f"工具 web_search「{q}」命中", node_type="tool_use", conf=0.9)
             _raise(_ig.taint_level("web_search"))
             return _ws.format_for_prompt(q, payload)
