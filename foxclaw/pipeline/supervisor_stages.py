@@ -18,12 +18,13 @@ import hashlib
 from datetime import datetime
 
 from ..core.dispatch import dispatch_failed
+from ..g1.python_numeric import compute as _g1_compute
 from .cognitive_pipeline import PipelineContext, stage_recall  # noqa: F401  (recall 复用默认 stage)
 from .stage_meta import named_stage
 
-# G1 白名单(2026-11-17 最终裁定):7 项固定 + T3-007 条件纳入;T3-003/009 不覆盖。
-_G1_WHITELIST = frozenset({"T3-001", "T3-002", "T3-004", "T3-005",
-                           "T3-006", "T3-008", "T3-010", "T3-007"})
+# G1 白名单(2026-11-17 最终裁定):固定 9 项 + T3-007 条件纳入;
+# T3-003/009 已恢复——入口检查早于 finance 派发生效,可覆盖。
+_G1_WHITELIST = frozenset({f"T3-{i:03d}" for i in range(1, 11)})
 
 
 def _g1_whitelist_match(ctx: PipelineContext) -> dict | None:
@@ -151,15 +152,11 @@ async def sv_dispatch(ctx: PipelineContext) -> None:
             g["execution_status"] = g1["reason"]
         else:
             try:
-                reply = str(g["executor"](g1["task_id"], ctx.task))
+                reply = _g1_compute(g1["task_id"], ctx.task)
                 g["execution_status"] = "SUCCESS"
             except Exception:
                 g["execution_status"] = "FAILED"
-        g["web_augment"] = "skipped"
-        if reply:
-            agent._store_memory(content=f"主管自答正面对话「{ctx.task}」",
-                                mem_type="decision", shared=True,
-                                title=f"主管自答_{datetime.now().strftime('%Y%m%d_%H%M')}")
+        g.update(web_augment="skipped", shared_memory="skipped")
         ctx.dispatch_result = {"result": {"dispatched_to": "supervisor",
                                           "sub_result": reply, "self_answered": True}}
         return

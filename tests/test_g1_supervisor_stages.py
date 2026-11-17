@@ -17,7 +17,7 @@ def _ctx(g1=None, task=TASK, self_answer=True):
 
 def _g1(**kw):
     base = {"enabled": True, "task_id": "T3-001", "taskset_version": TASKSET,
-            "include_t3_007": False, "executor": lambda tid, prompt: "8192"}
+            "include_t3_007": False}
     base.update(kw)
     if "fingerprint" not in base:
         raw = "\x1f".join((base["taskset_version"], base["task_id"], TASK))
@@ -70,6 +70,7 @@ def test_whitelist_hit_executes_python_without_llm_or_web():
     assert isinstance(ctx.dispatch_result["result"]["sub_result"], str)
     assert (agent.llm_calls, agent.web_calls) == (0, 0)
     assert g["execution_status"] == "SUCCESS" and g["web_augment"] == "skipped"
+    assert g["shared_memory"] == "skipped" and agent.memories == []
 
 
 def test_no_whitelist_uses_original_self_answer_path():
@@ -83,14 +84,12 @@ def test_no_whitelist_uses_original_self_answer_path():
 
 def test_fingerprint_mismatch_is_input_invalid_no_fallback():
     agent = _Agent()
-    calls = []
-    g = _g1(executor=lambda tid, prompt: calls.append(1) or "8192",
-            fingerprint="bad-fingerprint")
+    g = _g1(fingerprint="bad-fingerprint")
     ctx = _ctx(g)
     ctx.agent = agent
     _run(sv_dispatch(ctx))
     assert g["execution_status"] == "INPUT_INVALID"
-    assert not calls and agent.llm_calls == 0
+    assert agent.llm_calls == 0 and agent.memories == []
     assert ctx.dispatch_result["result"]["sub_result"] == ""
 
 
@@ -99,11 +98,12 @@ def test_taskset_version_mismatch_rejected():
     assert _g1_whitelist_match(_ctx(g))["reason"] == "TASKSET_MISMATCH"
 
 
-def test_t3_007_conditional_and_finance_task_not_covered():
+def test_t3_007_conditional_and_finance_routes_covered():
     assert _g1_whitelist_match(_ctx(_g1(task_id="T3-007"))) is None
     assert _g1_whitelist_match(_ctx(_g1(task_id="T3-007", include_t3_007=True)))["matched"]
-    assert _g1_whitelist_match(_ctx(_g1(task_id="T3-003"))) is None
-    assert _g1_whitelist_match(_ctx(_g1(task_id="T3-009"))) is None
+    # T3-003/009 在 G0 经 finance 派发；G1 入口检查覆盖它们
+    assert _g1_whitelist_match(_ctx(_g1(task_id="T3-003")))["matched"]
+    assert _g1_whitelist_match(_ctx(_g1(task_id="T3-009")))["matched"]
 
 
 def test_sv_plan_protection_and_no_regression():
