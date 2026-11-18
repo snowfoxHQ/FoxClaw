@@ -115,12 +115,16 @@ class FinanceAgent(CognitiveAgent):
         self._think(content=f"记账 {len(rec['recorded'])} 笔：{ack[:120]}",
                     node_type="decision", conf=0.95)
         try:
-            self._store_memory(
-                content=f"用户报备开销：{task[:80]}\n记账结果：{ack[:200]}",
-                mem_type="execution",
-                title=f"记账_{datetime.now().strftime('%Y%m%d')}",
-                tags=["finance", "ledger"],
-            )
+            from ...core.call_status import admit_memory
+            if admit_memory(fact_evidence={
+                    "executed": bool(rec.get("recorded")),
+                    "verified": bool(ack) and not rec.get("dry_run")}):
+                self._store_memory(
+                    content=f"用户报备开销：{task[:80]}\n记账结果：{ack[:200]}",
+                    mem_type="execution",
+                    title=f"记账_{datetime.now().strftime('%Y%m%d')}",
+                    tags=["finance", "ledger"],
+                )
         except Exception:
             pass
         return ack
@@ -221,11 +225,13 @@ class FinanceAgent(CognitiveAgent):
                 conf=0.90,
             )
 
-            self._store_memory(
-                content=f"财务分析：{task[:80]}\n结论：{response[:200]}",
-                mem_type="decision",
-                title=f"财务_{datetime.now().strftime('%Y%m%d')}",
-                tags=["finance", "analysis"],
-            )
+            from ...core.call_status import admit_memory
+            if admit_memory():   # derived:降级/Stub 的模型结论不准入
+                self._store_memory(
+                    content=f"财务分析：{task[:80]}\n结论：{response[:200]}",
+                    mem_type="decision",
+                    title=f"财务_{datetime.now().strftime('%Y%m%d')}",
+                    tags=["finance", "analysis"],
+                )
             return response, {}
 

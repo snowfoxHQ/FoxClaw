@@ -607,12 +607,14 @@ class SupervisorAgent(CognitiveAgent):
             "content": f"任务:{task}\n请直接给出处理方案。"
         }])
         self._think(content=f"主管自处理:{plan_response[:150]}", node_type="decision", conf=0.85)
-        self._store_memory(
-            content=f"任务:{task}\n方案:{plan_response[:300]}",
-            mem_type="decision",
-            title=f"主管处理_{datetime.now().strftime('%Y%m%d_%H%M')}",
-            shared=True,
-        )
+        from ...core.call_status import admit_memory
+        if admit_memory():   # derived:降级/Stub 的自答方案不准入
+            self._store_memory(
+                content=f"任务:{task}\n方案:{plan_response[:300]}",
+                mem_type="decision",
+                title=f"主管处理_{datetime.now().strftime('%Y%m%d_%H%M')}",
+                shared=True,
+            )
         return {
             "result": {"dispatched_to": "supervisor", "sub_result": plan_response},
         }
