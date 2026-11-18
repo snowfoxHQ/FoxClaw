@@ -240,10 +240,18 @@ async def health():
 @app.get("/health/ready")
 async def health_ready():
     """就绪探针(readiness):逐子系统深度检查。**开放**(探针无需鉴权),
-    组件只回 ok/stub/down,不泄露 provider 名等细节。不触发 HKC 惰性初始化。"""
+    组件只回 ok/stub/down,不泄露 provider 名等细节。不触发 HKC 惰性初始化。
+
+    顶层 status 语义冻结:**ok = 服务可接收请求**,不代表所有子系统均处于真实
+    模式 —— stub 组件(如 MockHMR)存在时顶层仍可能 ok;只有 down 触发 degraded。
+    探针回答的是"服务在不在",不是"所有能力都真实可用"。"""
     o = _api.current_os()
     comps = {}
-    comps["hmr"] = "ok" if getattr(o, "hmr", None) is not None else "down"
+    # hmr 三态:按后端自报的 backend 标识判定(memory_adapter 的 MockHMR.backend="Mock",
+    # 真实 HMR.backend="HMR")—— 不看类名,后端自己声明自己是什么。
+    _hmr = getattr(o, "hmr", None)
+    comps["hmr"] = ("down" if _hmr is None
+                    else ("stub" if getattr(_hmr, "backend", "") == "Mock" else "ok"))
     _router = getattr(o, "router", None)
     if _router is None:
         comps["router"] = "down"
@@ -251,6 +259,8 @@ async def health_ready():
         comps["router"] = "stub"
     else:
         comps["router"] = "ok"
+    # scheduler 无独立运行态可查:core/scheduler.CognitiveScheduler 是无状态意图解析器
+    # (无后端连接、无队列),对象存在即就绪 —— 不是漏检,是组件本性如此。
     comps["scheduler"] = "ok" if getattr(o, "scheduler", None) is not None else "down"
     hkc_svc = getattr(o, "_hkc_service", None)
     comps["hkc"] = ("ok" if (hkc_svc is not None and getattr(hkc_svc, "available", False))
