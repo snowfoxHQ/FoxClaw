@@ -198,6 +198,8 @@ TESTS = [
      "P0-03.4·记忆准入守卫(derived 受守卫 / fact 需 executed+verified)"),
     ("test_concurrent_call_isolation.py",
      "M11·并发交错调用归属(共享 Router + 同 Agent 双任务)"),
+    ("test_p003_acceptance.py",
+     "P0-03 验收 M08/M09/M10/M12 + M11 对话流式准入"),
 ]
 
 

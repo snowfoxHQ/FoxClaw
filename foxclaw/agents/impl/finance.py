@@ -115,10 +115,16 @@ class FinanceAgent(CognitiveAgent):
         self._think(content=f"记账 {len(rec['recorded'])} 笔：{ack[:120]}",
                     node_type="decision", conf=0.95)
         try:
-            from ...core.call_status import admit_memory
+            from ...core.call_status import admit_memory, current_collector
             if admit_memory(fact_evidence={
                     "executed": bool(rec.get("recorded")),
                     "verified": bool(ack) and not rec.get("dry_run")}):
+                col = current_collector()
+                if col is not None:
+                    # 账本落账是确定性外部效果:登记为工具事实,任务结算才能判 PARTIAL(M09)
+                    col.add_trace([{"stage": "executed", "round": "ledger",
+                                    "steps": [{"tool": "ledger", "stage": "succeeded",
+                                               "verified": "verified"}]}])
                 self._store_memory(
                     content=f"用户报备开销：{task[:80]}\n记账结果：{ack[:200]}",
                     mem_type="execution",
