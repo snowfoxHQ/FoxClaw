@@ -421,6 +421,10 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             except Exception:
                 final = None
             if final is not None:
+                if isinstance(final, str):
+                    # 旧契约(字符串=成功文本)兼容:插件/外部 monkeypatch 不会因此崩
+                    from .mixins.tool_exec import ToolReply
+                    final = ToolReply(text=final, state="REAL")
                 from ..core.call_status import CallStatus, REAL
                 _call_st = CallStatus(state=final.state or REAL)
                 final, _oiss = _ig.guard_output(final.text, kernel=KERNEL_PROMPT)
