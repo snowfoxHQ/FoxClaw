@@ -146,8 +146,10 @@ def test_retries_read_only_once_then_gives_up(monkeypatch) -> None:
     agent = _agent()
     batches: list = []
 
-    def fake_batch(a, calls):
+    def fake_batch(a, calls, states=None):
         batches.append([c["name"] for c in calls])
+        if states is not None:
+            states.extend({"tool": c["name"]} for c in calls)
         return [TIMEOUT_TEXT] * len(calls)
 
     monkeypatch.setattr(tool_exec, "_run_tools_batch", fake_batch)
@@ -164,8 +166,13 @@ def test_retries_read_only_once_then_gives_up(monkeypatch) -> None:
 def test_side_effect_failure_is_not_retried(monkeypatch) -> None:
     agent = _agent()
     batches: list = []
-    monkeypatch.setattr(tool_exec, "_run_tools_batch",
-                        lambda a, calls: (batches.append(len(calls)), [TIMEOUT_TEXT] * len(calls))[1])
+    def fake_batch(a, calls, states=None):
+        batches.append(len(calls))
+        if states is not None:
+            states.extend({"tool": c["name"]} for c in calls)
+        return [TIMEOUT_TEXT] * len(calls)
+
+    monkeypatch.setattr(tool_exec, "_run_tools_batch", fake_batch)
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": False})
     out = tool_exec._run_tool_calls(agent, [{"name": "send_mail", "args": {}}])
     assert batches == [1]
@@ -174,8 +181,12 @@ def test_side_effect_failure_is_not_retried(monkeypatch) -> None:
 
 def test_success_text_untouched_and_evidence_recorded(monkeypatch) -> None:
     agent = _agent()
-    monkeypatch.setattr(tool_exec, "_run_tools_batch",
-                        lambda a, calls: ["【联网搜索结果】结论 https://example.com/a"] * len(calls))
+    def fake_batch(a, calls, states=None):
+        if states is not None:
+            states.extend({"tool": c["name"]} for c in calls)
+        return ["【联网搜索结果】结论 https://example.com/a"] * len(calls)
+
+    monkeypatch.setattr(tool_exec, "_run_tools_batch", fake_batch)
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": True})
     out = tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {"q": "x"}}])
 
@@ -188,7 +199,12 @@ def test_success_text_untouched_and_evidence_recorded(monkeypatch) -> None:
 
 def test_unverified_side_effect_tells_model_not_to_claim_done(monkeypatch) -> None:
     agent = _agent()
-    monkeypatch.setattr(tool_exec, "_run_tools_batch", lambda a, calls: ["已发送"] * len(calls))
+    def fake_batch(a, calls, states=None):
+        if states is not None:
+            states.extend({"tool": c["name"]} for c in calls)
+        return ["已发送"] * len(calls)
+
+    monkeypatch.setattr(tool_exec, "_run_tools_batch", fake_batch)
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": False})
     out = tool_exec._run_tool_calls(agent, [{"name": "send_mail", "args": {}}])
     assert out[0].startswith("已发送")

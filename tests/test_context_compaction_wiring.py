@@ -89,7 +89,8 @@ class _NoToolRouter:
     def supports_tools(self) -> bool:
         return True
 
-    def call_tools(self, system, messages, schemas, tool_choice=None, agent_id=None) -> dict:
+    def call_tools(self, system, messages, schemas, tool_choice=None, agent_id=None,
+                   status=None, **kw) -> dict:
         return {"supported": True, "tool_calls": [], "text": "好的"}
 
 
@@ -112,7 +113,7 @@ class _RecordingAgent(ToolExecMixin):
 def test_reply_with_tools_compacts_each_round() -> None:
     agent = _RecordingAgent()
     out = agent._reply_with_tools("任务", [{"role": "user", "content": "hi"}])
-    assert out == "好的"
+    assert out.text == "好的"
     assert agent.stages == ["tool_loop"], "工具轮每轮都应过上下文压缩闸"
 
 

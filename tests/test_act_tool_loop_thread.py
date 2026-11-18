@@ -10,6 +10,7 @@ import threading
 from types import SimpleNamespace
 
 from foxclaw.agents.mixins.llm import LlmMixin
+from foxclaw.agents.mixins.tool_exec import ToolReply
 
 
 class _LoopAgent(LlmMixin):
@@ -28,7 +29,7 @@ class _LoopAgent(LlmMixin):
         self.entered.set()
         # 模拟真实阻塞(web_search 网络等待):直到主协程放行
         self._release.wait(5)
-        return "tool-final"
+        return ToolReply(text="tool-final", state="REAL", tool_trace=[])
 
 
 def test_tool_loop_runs_off_event_loop(monkeypatch):

@@ -92,7 +92,12 @@ def test_supports_tools_anthropic():
     assert r.supports_tools() is True
     r2 = ModelRouter.__new__(ModelRouter)
     r2.provider = "anthropic"; r2._client = None
-    assert r2.supports_tools() is False
+    # P0-03 契约:INIT_FAILED(显式指定但初始化失败)≠ 能力不支持 ——
+    # supports_tools 仍为 True,调用侧会以 supported=True+DEGRADED 如实失败,
+    # 不得伪装成 Stub/UNSUPPORTED 静默回退。
+    assert r2.provider_state == "INIT_FAILED"
+    assert r2.is_stub is False
+    assert r2.supports_tools() is True
 
 
 def test_call_tools_anthropic_tool_use():
@@ -145,17 +150,24 @@ def test_format_tool_result_anthropic():
 
 
 def test_call_tools_anthropic_failsafe():
+    from foxclaw.core.call_status import CallStatus, DEGRADED
     def create(**kw):
         raise RuntimeError("boom")
     client = types.SimpleNamespace()
     client.messages = types.SimpleNamespace(create=create)
     r = _router(client)
-    res = r.call_tools("sys", [{"role": "user", "content": "t"}], [])
-    assert res["supported"] is False and res.get("error")
+    st = CallStatus()
+    res = r.call_tools("sys", [{"role": "user", "content": "t"}], [], status=st)
+    # P0-03.2b 契约:调用异常 ≠ 能力不支持 —— supported=True + DEGRADED,
+    # 上层不得把异常静默降级成关键词回退。
+    assert res["supported"] is True and res.get("error")
+    assert st.state == DEGRADED
 
-    r2 = _router(None)
-    res2 = r2.call_tools("sys", [{"role": "user", "content": "t"}], [])
-    assert res2["supported"] is False
+    r2 = _router(None)   # INIT_FAILED:同样按「支持但故障」处理
+    st2 = CallStatus()
+    res2 = r2.call_tools("sys", [{"role": "user", "content": "t"}], [], status=st2)
+    assert res2["supported"] is True and res2.get("error")
+    assert st2.state == DEGRADED
 
 
 def test_reply_with_tools_anthropic_loop():
@@ -173,7 +185,7 @@ def test_reply_with_tools_anthropic_loop():
 
     out = CognitiveAgent._reply_with_tools(
         agent, "我喜欢什么颜色", [{"role": "user", "content": "我喜欢什么颜色"}])
-    assert out == "根据记忆,你喜欢灰色。"
+    assert out.text == "根据记忆,你喜欢灰色。" and out.state
     kw2 = client.calls[1]
     has_tool_result = any(
         isinstance(m.get("content"), list)

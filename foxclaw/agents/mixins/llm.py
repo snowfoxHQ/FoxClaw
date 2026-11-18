@@ -6,6 +6,21 @@ from ._context import _reasoning_inject, _act_stream
 from typing import Any
 
 
+def _new_call_status():
+    """为本次 LLM 调用创建独立 CallStatus 并登记到本任务收集器(P0-03.1)。
+
+    归属是「任务」而非 Router 全局 / Agent 实例:contextvar 在 run_task 边界
+    绑定,asyncio.to_thread 复制传播,并发任务互不串扰。无收集器时仍返回
+    独立对象(不注册),调用路径照常填终态。
+    """
+    from ...core.call_status import CallStatus, current_collector
+    st = CallStatus()
+    col = current_collector()
+    if col is not None:
+        col.add(st)
+    return st
+
+
 class LlmMixin:
     AGENT_ID: str
     router: Any
@@ -66,7 +81,7 @@ class LlmMixin:
                 except Exception:
                     _final = None  # 工具循环任何异常 → 回落普通调用,不阻断任务
                 if _final is not None:
-                    return _final
+                    return _final.text
         if sc is not None:
             on_token = sc.get("on_token")
             stop_event = sc.get("stop_event")
@@ -74,7 +89,8 @@ class LlmMixin:
             def _stream_collect():
                 parts = []
                 for chunk in self.router.stream(self.system_prompt, messages, max_tokens,
-                                                self.AGENT_ID, stop_event=stop_event):
+                                                self.AGENT_ID, stop_event=stop_event,
+                                                status=_new_call_status()):
                     parts.append(chunk)
                     if on_token is not None:
                         try:
@@ -89,4 +105,5 @@ class LlmMixin:
                 pass
         return await asyncio.to_thread(
             self.router.complete,
-            self.system_prompt, messages, max_tokens, self.AGENT_ID)
+            self.system_prompt, messages, max_tokens, self.AGENT_ID,
+            status=_new_call_status())
