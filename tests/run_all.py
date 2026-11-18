@@ -189,6 +189,15 @@ TESTS = [
      "版本号五处同步"),
     ("test_web_search_empty_result.py",
      "网搜空结果处理"),
+    # --- P0-03 主线(2026-11-19,修复方案批次二)---
+    ("test_call_status.py",
+     "P0-03.1·调用状态四态契约(REAL/FALLBACK/STUB/DEGRADED/UNSUPPORTED)"),
+    ("test_task_settlement.py",
+     "P0-03.3·任务结算绑定(COMPLETED/PARTIAL/FAILED/INTERRUPTED/BLOCKED)"),
+    ("test_memory_admission.py",
+     "P0-03.4·记忆准入守卫(derived 受守卫 / fact 需 executed+verified)"),
+    ("test_concurrent_call_isolation.py",
+     "M11·并发交错调用归属(共享 Router + 同 Agent 双任务)"),
 ]
 
 
