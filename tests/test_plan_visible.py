@@ -76,6 +76,9 @@ def test_stream_emits_plan_event_after_plan_stage() -> None:
         return {"result": "done"}
 
     fake = types.SimpleNamespace(_run_task_core=_core)
+    # run_task_stream 会读 self.router.content_guard(v0.1.5 来源边界新增)——
+    # 桩必须带 router,否则 AttributeError(该测试曾漏注册,漂移无人发现:T1 教训)
+    fake.router = types.SimpleNamespace(content_guard=None)
     events = list(CognitiveAgent.run_task_stream(fake, "任务"))
     assert {"stage": "recall"} in events
     assert {"stage": "plan"} in events

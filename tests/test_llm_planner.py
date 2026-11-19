@@ -41,7 +41,7 @@ class _FakeRouter:
         return self._supports and not self.is_stub
 
     def call_tools(self, system, messages, tools, tool_choice="auto",
-                   max_tokens=1024, agent_id=""):
+                   max_tokens=1024, agent_id="", status=None, **kw):
         self.last_call = {"system": system, "messages": messages,
                           "tools": tools, "tool_choice": tool_choice}
         return self._result

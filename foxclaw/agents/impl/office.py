@@ -319,15 +319,18 @@ Hermes 自学原则（像赫尔墨斯那样）：
                                     end = i + 1; break
                     if end > start:
                         knowledge_data = json.loads(response[start:end])
+                        from ...core.call_status import admit_memory
+                        _admit = admit_memory()   # derived:降级/Stub 产出的「知识」不准入
                         for k in knowledge_data.get("new_knowledge", []):
                             if not isinstance(k, dict) or not k.get("content"):
                                 continue
-                            self._store_memory(
-                                content=k["content"],
-                                mem_type="concept",
-                                title=k.get("title", "未命名知识"),
-                                tags=k.get("tags", ["office", "learning"]),
-                            )
+                            if _admit:
+                                self._store_memory(
+                                    content=k["content"],
+                                    mem_type="concept",
+                                    title=k.get("title", "未命名知识"),
+                                    tags=k.get("tags", ["office", "learning"]),
+                                )
                             new_knowledge_count += 1
             except Exception:
                 pass

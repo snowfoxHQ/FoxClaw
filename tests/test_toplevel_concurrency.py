@@ -33,7 +33,7 @@ def check(cond, msg):
     print(f"  ✓ {msg}")
 
 
-def _slow(system, messages, max_tokens=2048, agent_id=""):
+def _slow(system, messages, max_tokens=2048, agent_id="", status=None, **kw):
     time.sleep(0.1)
     return "ok"
 

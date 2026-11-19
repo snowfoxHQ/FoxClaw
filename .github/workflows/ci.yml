@@ -23,7 +23,7 @@ jobs:
     #   不阻塞的检查等于没有检查。
     # 体积门(tools/size_check.py):单文件 <=15KB;现有 25 个超限文件冻结在白名单,
     #   新增超限直接失败,拆小了会提示移出白名单。
-    # pytest 只做快速收集检查(S2 已把全部 76 个测试迁为 pytest,无顶层副作用),
+    # pytest 只做快速收集检查(S2 已把全部测试迁为 pytest,无顶层副作用),
     # 真正的断言执行统一走下方 regression job 的 run_all.py(每文件独立子进程隔离单例)。
     strategy:
       fail-fast: false
@@ -75,6 +75,12 @@ jobs:
 
       - name: Pytest collect check (all tests migrated)
         run: python -m pytest --collect-only -q
+
+      - name: Test registration guard (T1)
+        # 防回潮:v0.1.5 治理批次 6 个新测试文件全部漏注册(两条回归路径都跑不到)。
+        # 当前为告警模式(不 fail);一个周期稳定后加 --strict 转硬门。
+        if: matrix.python-version == '3.12'
+        run: python tools/check_test_registration.py
 
       - name: Release preflight (version sources)
         # 版本号漏改一处会让发布物自相对不上,而发出去不能覆盖。这里只查"四处是否一致",

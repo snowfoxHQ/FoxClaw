@@ -34,7 +34,9 @@ def test_check_action_forwards_taint():
     seen = {}
 
     def fake_eval(skill, args, rules=None, confirmed=False, mode="strict",
-                  taint_level=0, taint_threshold=0):
+                  taint_level=0, taint_threshold=0, pre_approved=False):
+        # pre_approved 是 v0.1.5「原始请求即批准」新增 kwarg —— 生产签名带它,
+        # 桩必须同步(该测试曾漏注册,签名漂移无人发现:T1 教训)
         seen["taint"] = (taint_level, taint_threshold)
         return PermissionDecision("allow", 4, reason="ok")
 

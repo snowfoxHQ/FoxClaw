@@ -42,7 +42,7 @@ from .mixins._context import (
     HarnessBlockedError,
 )
 from .mixins.augment import AugmentMixin
-from .mixins.llm import LlmMixin
+from .mixins.llm import LlmMixin, _new_call_status
 from .mixins.memory import MemoryMixin
 from .mixins.skillbox import SkillBoxMixin
 from .mixins.preference import PreferenceMixin
@@ -386,6 +386,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         parts = []
         used_tools = False
         guarded_out = False
+        # 本次直答的调用级状态:工具路径取 ToolReply.state,流式路径由 Router 填充。
+        # 记忆准入只看这个对象,不再读 Router 的全局降级标记(并发任务会串扰)。
+        _call_st = None
 
         def _emit_thinking(delta: str) -> None:
             """推理内容的最后一道关:思考也不许带密钥/系统提示原文(与正文同等级净化)。"""
@@ -418,7 +421,13 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             except Exception:
                 final = None
             if final is not None:
-                final, _oiss = _ig.guard_output(final, kernel=KERNEL_PROMPT)
+                if isinstance(final, str):
+                    # 旧契约(字符串=成功文本)兼容:插件/外部 monkeypatch 不会因此崩
+                    from .mixins.tool_exec import ToolReply
+                    final = ToolReply(text=final, state="REAL")
+                from ..core.call_status import CallStatus, REAL
+                _call_st = CallStatus(state=final.state or REAL)
+                final, _oiss = _ig.guard_output(final.text, kernel=KERNEL_PROMPT)
                 guarded_out = bool(_oiss)
                 used_tools = True
                 for chunk in _chunk_text(final):
@@ -439,10 +448,12 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 messages = _compact(messages, "chat")
             _tail = ""
             _WIN = 256
+            _call_st = _new_call_status()
             for chunk in self.router.stream(self.system_prompt, messages,
                                             agent_id=self.AGENT_ID, stop_event=stop_event,
                                             images=images,
-                                            on_thinking=_emit_thinking if on_thinking else None):
+                                            on_thinking=_emit_thinking if on_thinking else None,
+                                            status=_call_st):
                 _probe = _tail + chunk
                 if _ig.scan_output(_probe):
                     guarded_out = True
@@ -481,12 +492,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 }, source=self.AGENT_ID)
         except Exception:
             pass
-        _degraded = False
-        try:
-            _degraded = bool(self.router.take_call_degraded())
-        except Exception:
-            _degraded = False
-        if reply and not stopped and not guarded_out and not _degraded:
+        from ..core.call_status import DEGRADED, admit_memory
+        _degraded = _call_st is not None and _call_st.state == DEGRADED
+        if reply and not stopped and not guarded_out and admit_memory(call_status=_call_st):
             try:
                 safe_reply = _ig.redact_secrets(reply)
                 self._store_memory(f"对话:{task} → {safe_reply}"[:800], mem_type="conversation")
@@ -529,7 +537,13 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             pass
 
     def _on_task_settled(self, session_id: str, status: str) -> None:
-        """任务终结(done/failed):落 task_finished,把该 task 从"进行中"摘掉。"""
+        """任务终结:落 task_finished,把该 task 从"进行中"摘掉。
+
+        status(P0-03.3)= COMPLETED / PARTIAL / FAILED / INTERRUPTED / BLOCKED。
+        消费点已核对:RestartRecovery 只把 `in_progress` 当未完成(任何终态值都能摘掉
+        "进行中"),`/api/recovery/status` 只读 interrupted 快照,`plan_recovery`
+        不看 status —— 无强耦合,故直接承载统一状态,不再折叠成 done/failed。
+        """
         rec = getattr(self, "_recovery", None)
         if rec is None:
             return
@@ -633,6 +647,10 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         _resume_tok = _resume_steps.set(_resume_cache) if _resume_cache else None
         ctx = PipelineContext(agent=self, task=task, context=context,
                               session_id=session_id, stop_event=stop_event)
+        # P0-03.3:本任务的调用状态收集器——contextvar 绑定,asyncio.to_thread 复制传播;
+        # 归属是任务而非 Agent 实例,同一实例并发跑多任务时互不串扰。
+        from ..core.call_status import bind_collector, reset_collector, settle_task_status
+        _col, _col_tok = bind_collector()
 
         def _stage_hook(name, _ctx):
             """stage 边界:记一条 checkpoint(跑到哪一步),再转发给调用方的流式回调。"""
@@ -642,6 +660,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
 
         try:
             await self._cognitive_pipeline().run(ctx, on_stage=_stage_hook)
+            _tool_trace = _col.tool_trace()
+            if _tool_trace:
+                ctx.extra["tool_trace"] = _tool_trace
             resp = {
                 "result": ctx.result,
                 "session_id": session_id,
@@ -683,7 +704,12 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 _hooks.fire("agent_end", "", {"task": task, "agent_id": self.AGENT_ID,
                                               "result": resp.get("result"),
                                               "interrupted": bool(ctx.interrupted)})
-            self._on_task_settled(session_id, "done")
+            task_status = settle_task_status(
+                _col, ctx.result,
+                interrupted=bool(ctx.interrupted),
+                blocked=bool(skill_incomplete))
+            resp["task_status"] = task_status
+            self._on_task_settled(session_id, task_status)
             return resp
         except HarnessBlockedError as e:
             self._emit_execution(
@@ -692,13 +718,14 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             if _hooks is not None:
                 _hooks.fire("agent_end", "", {"task": task, "agent_id": self.AGENT_ID,
                                               "error": "harness_blocked"})
-            self._on_task_settled(session_id, "done")
+            self._on_task_settled(session_id, "BLOCKED")
             return {"error": "harness_blocked", "reason": e.result.reason,
-                    "session_id": session_id}
+                    "session_id": session_id, "task_status": "BLOCKED"}
         except Exception:
-            self._on_task_settled(session_id, "failed")
+            self._on_task_settled(session_id, "FAILED")
             raise
         finally:
+            reset_collector(_col_tok)
             if _inject_tok is not None:
                 _reasoning_inject.reset(_inject_tok)
             if _resume_tok is not None:

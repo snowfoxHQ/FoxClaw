@@ -69,7 +69,8 @@ class _FakeRouter:
     def supports_tools(self):
         return True
 
-    def call_tools(self, system, messages, schemas, tool_choice="auto", agent_id=""):
+    def call_tools(self, system, messages, schemas, tool_choice="auto", agent_id="",
+                   status=None):
         self.seen.append((tool_choice, list(messages)))
         return self.script.pop(0)
 
@@ -97,7 +98,7 @@ def test_reply_with_tools_multi_round():
     agent = _fake_agent(router)
     out = CognitiveAgent._reply_with_tools(agent, "有哪些新模型",
                                            [{"role": "user", "content": "有哪些新模型"}])
-    assert out == "根据搜索,最新是 X。"
+    assert out.text == "根据搜索,最新是 X。" and out.state
     _, round2_msgs = router.seen[1]
     roles = [m["role"] for m in round2_msgs]
     assert "assistant" in roles and "tool" in roles
@@ -111,7 +112,7 @@ def test_reply_with_tools_direct_answer_no_tool():
     ])
     agent = _fake_agent(router)
     out = CognitiveAgent._reply_with_tools(agent, "你好", [{"role": "user", "content": "你好"}])
-    assert out == "你好呀!" and len(router.seen) == 1
+    assert out.text == "你好呀!" and len(router.seen) == 1
 
 
 def test_reply_with_tools_unsupported_returns_none():
@@ -129,6 +130,35 @@ def test_reply_with_tools_empty_answer_returns_none():
     agent = _fake_agent(router)
     out = CognitiveAgent._reply_with_tools(agent, "你好", [{"role": "user", "content": "你好"}])
     assert out is None, "空答必须返回 None 让上层 fallback"
+
+
+def test_reply_with_tools_call_error_is_degraded_not_fallback():
+    """调用异常 ≠ 能力不支持:必须返回 DEGRADED 失败话术,不得 None 触发关键词回退。"""
+    router = _FakeRouter([
+        {"supported": True, "text": "", "tool_calls": [], "error": "APIError: api down"},
+    ])
+    agent = _fake_agent(router)
+    out = CognitiveAgent._reply_with_tools(agent, "t", [{"role": "user", "content": "t"}])
+    assert out is not None and out.state == "DEGRADED", "异常不得伪装成不支持"
+    assert "工具调用失败" in out.text and "APIError" in out.text
+
+
+def test_reply_with_tools_trace_has_six_stage_shape():
+    """六阶段履历:requested + executed(steps 每步带 stage/verified)。"""
+    router = _FakeRouter([
+        {"supported": True, "text": "", "assistant_msg": {"role": "assistant", "content": ""},
+         "tool_calls": [{"id": "c1", "name": "recall_memory", "args": {"query": "偏好"}}]},
+        {"supported": True, "text": "好了", "tool_calls": [],
+         "assistant_msg": {"role": "assistant", "content": "好了"}},
+    ])
+    agent = _fake_agent(router)
+    out = CognitiveAgent._reply_with_tools(agent, "t", [{"role": "user", "content": "t"}])
+    stages = [t["stage"] for t in out.tool_trace]
+    assert "requested" in stages and "executed" in stages
+    step = out.tool_trace[stages.index("executed")]["steps"][0]
+    assert step["tool"] == "recall_memory"
+    assert step["stage"] in ("succeeded", "failed", "rejected")
+    assert "verified" in step
 
 
 def test_dispatch_web_search_ok(monkeypatch):
@@ -212,7 +242,8 @@ def test_tool_path_injects_preferences(monkeypatch):
 
     def _rwt(task, messages, stop_event=None):
         captured["msgs"] = messages
-        return "好的,已处理。"
+        from foxclaw.agents.mixins.tool_exec import ToolReply
+        return ToolReply(text="好的,已处理。", state="REAL")
     fake._reply_with_tools = _rwt
     fake._think = lambda **k: None
     fake._store_memory = lambda *a, **k: None

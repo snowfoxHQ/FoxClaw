@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import foxclaw.core.web_search as ws  # noqa: E402
 ws.needs_search = lambda q: False
 
+from foxclaw.core.call_status import CallStatus  # noqa: E402
 from foxclaw.core.model_router import ModelRouter  # noqa: E402
 
 _SYS = "你是 Foxclaw 助手。"
@@ -38,14 +39,15 @@ def _smoke(provider: str) -> dict:
         return {"provider": provider, "ok": False, "lat_ms": 0,
                 "output": "", "reason": "client 未就绪(SDK 缺失或无 Key): " +
                                          (info.get("fallback_reason") or "未知")}
+    st = CallStatus()
     try:
-        out = r.complete(_SYS, _MSG, max_tokens=_MAX_TOKENS, agent_id="bench")
+        out = r.complete(_SYS, _MSG, max_tokens=_MAX_TOKENS, agent_id="bench", status=st)
         lat = (time.perf_counter() - t0) * 1000
     except Exception as e:
         return {"provider": provider, "ok": False, "lat_ms": (time.perf_counter() - t0) * 1000,
                 "output": "", "reason": f"调用异常: {type(e).__name__}: {e}"}
 
-    degraded = r.take_call_degraded()
+    degraded = st.state in ("DEGRADED", "STUB", "PENDING")
     bad = any(m in out for m in _BAD_MARKERS)
     ok = bool(out) and not degraded and not bad
     reason = ""

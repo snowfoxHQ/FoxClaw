@@ -10,10 +10,11 @@ PyPI / npm 的版本号不可撤回:上传后只能 yank(仍占号、仍可被 p
 
 两侧产物性质不同(别把"发布成功"当"装完能用")
 ------------------------------------------
-HKC / HMR 内嵌在 vendor/、运行期按 `Path(__file__)/../../vendor` 找;而 setuptools
-只收 `foxclaw*`,故 **wheel/sdist 不含 vendor/**:装上是能 import、但知识/记忆
-子系统降级为 None 的**占位包**(与 npm/index.js 占位同一性质)。本脚本对"缺 vendor"
-只 warn 不 error —— 既定事实不是事故,但发布说明必须写明。
+HKC / HMR 以 vendor/ 内嵌随包分发(pyproject packages.find 三搜索根,无 package-dir
+映射):在 wheel/sdist 里以 **hmr/、hkc_* 顶层包名**出现,不含 "/vendor/" 路径段。
+故运行时检查按实际包路径做,且 wheel 与 sdist **分别**检查,任一缺失即 error ——
+缺 hmr/ 装上后记忆子系统降级为 None,缺 hkc_* 则知识索引/搜索降级,占位包不能外发。
+(0.1.4 前的"缺 vendor 只 warn"口径已作废:那时确实不打进包,现在必须打进包。)
 
 用法
 ----
@@ -204,6 +205,19 @@ def _scan_forbidden(path: Path) -> list:
     return out[:10]
 
 
+def _pkg_roots(entries: list) -> set:
+    """归档内出现的顶层包名集合。兼容两种条目形态:
+    wheel "hmr/__init__.py" → 第一段即包名;sdist "foxclaw-x.y.z/hmr/..." →
+    第一段是发行目录,第二段才是包名。两段都收进集合,成员判定即可通吃。"""
+    roots: set = set()
+    for e in entries:
+        parts = [p for p in e.split("/") if p]
+        if len(parts) >= 2:
+            roots.add(parts[0])
+            roots.add(parts[1])
+    return roots
+
+
 def _wheel_metadata(path: Path) -> dict:
     try:
         with zipfile.ZipFile(path) as z:
@@ -273,10 +287,20 @@ def check_dist(dist: Path, name: str, version: str) -> list:
         issues.append(Issue("error", "missing_entry", f"{sdist.name} 里没有 foxclaw/cli.py"))
 
     issues += _scan_forbidden(whl) + _scan_forbidden(sdist)
-    if not any("/vendor/" in e for e in entries):
-        issues.append(Issue("warn", "no_vendor",
-                            f"{whl.name} 不含 vendor/(hkc/hmr)→ 装上是占位包,"
-                            f"知识/记忆子系统降级;发布说明需写明"))
+    # vendor 运行时以顶层包名进发行包(pyproject 三搜索根、无 package-dir 映射):
+    # wheel 条目形如 "hmr/...",sdist 条目形如 "foxclaw-x.y.z/hmr/..."。
+    # 故按"归档内出现的顶层包名"判定,wheel 与 sdist 分别检查,缺失即 error。
+    for label, path, ents in (("wheel", whl, entries),
+                              ("sdist", sdist, archive_entries(sdist))):
+        roots = _pkg_roots(ents)
+        if "hmr" not in roots:
+            issues.append(Issue("error", "no_hmr_runtime",
+                                f"{path.name}({label}) 不含 hmr/ 运行时包 → "
+                                f"装上后记忆子系统降级为 None,占位包不能外发"))
+        if not any(r.startswith("hkc") for r in roots):
+            issues.append(Issue("error", "no_hkc_runtime",
+                                f"{path.name}({label}) 不含 hkc_* 运行时包 → "
+                                f"知识索引/搜索(/api/knowledge/*)降级,不能外发"))
     return issues
 
 

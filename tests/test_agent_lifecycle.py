@@ -200,7 +200,7 @@ def test_reasoning_lifecycle_hooks():
         ag = os_.office
         ag.router.provider = "stub"
         seen = {}
-        def _cap_complete(system, messages, max_tokens, agent_id):
+        def _cap_complete(system, messages, max_tokens, agent_id, *a, **k):
             seen["messages"] = messages
             return "（stub 回答）"
         ag.router.complete = _cap_complete
@@ -250,7 +250,7 @@ def test_preference_priority_recall():
         ag = os_.office
         ag.router.provider = "stub"
         seen = {}
-        def _cap(system, messages, max_tokens, agent_id):
+        def _cap(system, messages, max_tokens, agent_id, *a, **k):
             seen["messages"] = messages; return "（stub）"
         ag.router.complete = _cap
 

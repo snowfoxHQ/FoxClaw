@@ -24,6 +24,9 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .content_guard import StreamFilter
+from .call_status import (
+    CallStatus, DEGRADED, FALLBACK, REAL, STUB, UNSUPPORTED,
+)
 
 
 def normalize_base_url(url: str) -> str:
@@ -190,6 +193,20 @@ from . import settings
 _COOLDOWN_BASE = float(settings.get_float("FOXCLAW_LLM_COOLDOWN"))
 
 
+def _fill_status(status: "CallStatus | None", state: str, provider: str = "",
+                 error: str = "", partial: bool = False) -> None:
+    """填充调用状态(status=None 时是 no-op,旧调用方零影响)。"""
+    if status is None:
+        return
+    status.state = state
+    if provider:
+        status.provider = provider
+    if error:
+        status.error = error
+    if partial:
+        status.partial = True
+
+
 def _backoff_delay(attempt: int, base: float = 0.5, cap: float = 8.0) -> float:
     """第 attempt 次失败后、换下一个 provider 前的等待秒数:指数退避 + 全抖动。
 
@@ -214,7 +231,6 @@ class ModelRouter:
         self.meter: Any = None
         self.degraded: bool = False
         self.degraded_reason: str = ""
-        self._call_degraded: bool = False
         self._selection_mtime: float = 0.0
         self._init_client()
 
@@ -235,8 +251,20 @@ class ModelRouter:
         return self.provider
 
     @property
+    def provider_state(self) -> str:
+        """三态:READY / UNCONFIGURED / INIT_FAILED。
+
+        区分「从未配置」(UNCONFIGURED,Stub 合理)与「显式指定但初始化失败」
+        (INIT_FAILED,必须走 fallback 链,全败 → DEGRADED,不得伪装成 Stub)。
+        """
+        if self.provider == "stub":
+            return "UNCONFIGURED"
+        return "READY" if self._client is not None else "INIT_FAILED"
+
+    @property
     def is_stub(self) -> bool:
-        return self.provider == "stub" or self._client is None
+        """仅 UNCONFIGURED 为真。INIT_FAILED 不再算 stub —— 它会进 fallback 链。"""
+        return self.provider_state == "UNCONFIGURED"
 
     def _build_client(self, p: str, model: str | None = None):
         """构造某 provider 的客户端(供 active 初始化 + fallback 懒建复用)。
@@ -537,11 +565,13 @@ class ModelRouter:
         return self._runtime_context() + s
 
     def complete(self, system: str, messages: list, max_tokens: int = 2048,
-                 agent_id: str = "", images: list | None = None) -> str:
+                 agent_id: str = "", images: list | None = None,
+                 status: "CallStatus | None" = None) -> str:
         """统一文本补全。messages 为 [{role, content}]。images(可选)= [{media_type,data}] 多模态图片。
 
         所有 LLM 调用的唯一咽喉——token 计量在此进行(若挂了 meter)。
         优先用 API 返回的真实 usage,拿不到则由 meter 离线估算。
+        status(可选)= 调用方传入的 CallStatus,本方法负责填终态(PENDING 残留即 bug)。
         """
         self._maybe_reload_selection()
         system = self._inject_runtime(system)
@@ -551,6 +581,7 @@ class ModelRouter:
                 METRICS.record_llm("stub", True, 0.0)
             except Exception:
                 pass
+            _fill_status(status, STUB, provider="stub")
             from .tracing import span as _span
             with _span("llm.complete", provider="stub"):
                 return self._filter_output(self._stub(messages))
@@ -563,6 +594,8 @@ class ModelRouter:
             client = self._get_client(provider)
             if client is None:
                 continue
+            if status is not None:
+                status.attempted.append(provider)
             model = self._model_for(provider, agent_id, messages)
             _t0 = _t.perf_counter()
             try:
@@ -597,11 +630,16 @@ class ModelRouter:
                 self._mark_degraded(
                     f"provider={provider} model={model} 返回空响应"
                     f"(疑似内容过滤或 max_tokens 截断)")
+                _fill_status(status, DEGRADED, provider=provider,
+                             error=f"空响应(provider={provider})")
                 return ("【模型返回为空】本次未获得有效回复,任务未完成。"
                         "可能原因:内容被模型安全策略过滤,或 max_tokens 过小被截断。"
                         "建议:调整提问方式或提高 max_tokens 后重试。")
+            _fill_status(status, FALLBACK if i > 0 else REAL, provider=provider)
             return self._filter_output(output)
         self._mark_degraded(f"全部 provider 调用失败: {last_err}")
+        _fill_status(status, DEGRADED,
+                     error=f"{type(last_err).__name__}: {last_err}" if last_err else "无可用 provider")
         return (f"【全部模型失败】已尝试 {len(self._fallback_order())} 个 provider 均失败,"
                 f"本次任务未完成。最后错误:"
                 f"{type(last_err).__name__ if last_err else '未知'}。"
@@ -625,14 +663,14 @@ class ModelRouter:
 
     def stream(self, system: str, messages: list, max_tokens: int = 2048,
                agent_id: str = "", stop_event=None, images: list | None = None,
-               on_thinking=None):
+               on_thinking=None, status: "CallStatus | None" = None):
         """流式文本补全的对外入口:在 `_stream_raw` 之上做输出端内容过滤。
 
         过滤放在这里而不是各 provider 分支里,是因为流式出口有四五处,
         逐处改容易漏(与 _OPENAI_FAMILY 分散同类的坑)。包装器只需一处。
         """
         raw = self._stream_raw(system, messages, max_tokens, agent_id,
-                               stop_event, images, on_thinking)
+                               stop_event, images, on_thinking, status=status)
         cg = getattr(self, "content_guard", None)
         if cg is None or not cg.enabled():
             yield from raw
@@ -651,12 +689,16 @@ class ModelRouter:
 
     def _stream_raw(self, system: str, messages: list, max_tokens: int = 2048,
                     agent_id: str = "", stop_event=None, images: list | None = None,
-                    on_thinking=None):
+                    on_thinking=None, status: "CallStatus | None" = None):
         """流式文本补全:逐块 yield。各 provider 用其流式 API;stub/异常降级分块。
         与 complete() 同为 LLM 咽喉,收尾做 token 计量。images(可选)= 多模态图片。
         stop_event:threading.Event,置位则提前终止(客户端断连时省 token)。
         on_thinking(可选)= 推理增量回调:provider 原生 reasoning(reasoning_content)
-        与正文内嵌 <think> 块都从这里出去,作为独立 SSE thinking 事件;正文不受影响。"""
+        与正文内嵌 <think> 块都从这里出去,作为独立 SSE thinking 事件;正文不受影响。
+
+        故障切换:首个 chunk 前失败 → 按 _fallback_order() 切下一 provider;
+        已产出部分内容后失败 → 不切换(前缀已外发无法撤回),标 DEGRADED+partial
+        并终止;**不补 Stub 占位文本**——那会把故障伪装成正常回复。"""
         def _stopped():
             return stop_event is not None and stop_event.is_set()
         self._maybe_reload_selection()
@@ -675,93 +717,141 @@ class ModelRouter:
                                  "meta": {"provider": "stub"}})
             except Exception:
                 pass
+            _fill_status(status, STUB, provider="stub")
             for w in _chunk_text(self._stub(messages)):
                 if _stopped():
+                    if status is not None:
+                        status.partial = True
                     return
                 yield w
             return
-        parts = []
         import time as _t
-        _t0 = _t.perf_counter()
-        model = self._model_for(self.provider, agent_id, messages)
+        last_err = None
+        _now = _t.monotonic()
+        for i, provider in enumerate(self._fallback_order()):
+            if self._cooldown.get(provider, 0) > _now:
+                continue
+            client = self._get_client(provider)
+            if client is None:
+                continue
+            if status is not None:
+                status.attempted.append(provider)
+            model = self._model_for(provider, agent_id, messages)
+            parts = []
+            _t0 = _t.perf_counter()
 
-        def _rec(ok):
-            ms = (_t.perf_counter() - _t0) * 1000.0
+            def _rec(ok, _provider=provider, _model=model, _start=_t0):
+                ms = (_t.perf_counter() - _start) * 1000.0
+                try:
+                    from .metrics import METRICS
+                    METRICS.record_llm(_provider, ok, ms)
+                except Exception:
+                    pass
+                try:
+                    from .tracing import current_trace
+                    tr = current_trace()
+                    if tr is not None:
+                        tr.add_span({"name": "llm.stream", "ok": ok, "ms": round(ms, 2),
+                                     "meta": {"provider": _provider, "model": _model}})
+                except Exception:
+                    pass
+
+            mm = self._attach_images(provider, messages, images) if images else messages
             try:
-                from .metrics import METRICS
-                METRICS.record_llm(self.provider, ok, ms)
-            except Exception:
-                pass
-            try:
-                from .tracing import current_trace
-                tr = current_trace()
-                if tr is not None:
-                    tr.add_span({"name": "llm.stream", "ok": ok, "ms": round(ms, 2),
-                                 "meta": {"provider": self.provider, "model": model}})
-            except Exception:
-                pass
-        mm = self._attach_images(self.provider, messages, images) if images else messages
-        try:
-            if self.provider == "anthropic":
-                with self._client.messages.stream(
-                        model=model, max_tokens=max_tokens,
-                        system=system, messages=mm) as s:
-                    for t in s.text_stream:
-                        if _stopped():
-                            return
-                        if t:
-                            parts.append(t); yield t
-            elif self.provider in self._OPENAI_FAMILY:
-                msgs = [{"role": "system", "content": system}] + mm
-                st = self._client.chat.completions.create(
-                    model=model, max_tokens=max_tokens, messages=msgs, stream=True)
-                stripper = _ThinkStripper()
-                for c in st:
-                    if _stopped():
-                        st.close() if hasattr(st, "close") else None
-                        return
-                    d = c.choices[0].delta.content if c.choices else None
-                    if c.choices and on_thinking is not None:
-                        _delta = c.choices[0].delta
-                        _rt = (getattr(_delta, "reasoning_content", None)
-                               or getattr(_delta, "reasoning", None))
-                        if _rt:
-                            on_thinking(_rt)
-                    if not d:
-                        continue
-                    parts.append(d)
-                    cleaned, _think_txt = stripper.feed_events(d)
-                    if _think_txt and on_thinking is not None:
-                        on_thinking(_think_txt)
-                    if cleaned:
-                        yield cleaned
-            elif self.provider == "google":
-                prompt = system + "\n\n" + "\n".join(m["content"] for m in messages)
-                for c in self._client.generate_content(prompt, stream=True):
-                    if _stopped():
-                        return
-                    if getattr(c, "text", ""):
-                        parts.append(c.text); yield c.text
-            else:
-                out = self.complete(system, messages, max_tokens, agent_id)
-                parts.append(out); yield out
-        except Exception as e:
-            _rec(False)
-            self._mark_degraded(f"stream 失败: {type(e).__name__}")
-            yield f"【模型流式中断】{type(e).__name__},本次未获得完整回复。\n"
-            for w in _chunk_text(self._stub(messages)):
-                yield w
+                yield from self._stream_provider(
+                    provider, client, model, system, mm, messages,
+                    max_tokens, agent_id, parts, _stopped, on_thinking)
+            except Exception as e:
+                _rec(False)
+                self._cooldown[provider] = _t.monotonic() + (
+                    _COOLDOWN_BASE * (0.75 + 0.5 * _rnd.random()))
+                last_err = e
+                if parts:
+                    # 部分内容已外发,无法静默切换;如实报中断,不伪造完整回复
+                    self._mark_degraded(
+                        f"stream 中断(已输出 {len(parts)} 块): {type(e).__name__}")
+                    _fill_status(status, DEGRADED, provider=provider,
+                                 error=f"{type(e).__name__}: {e}", partial=True)
+                    yield f"【模型流式中断】{type(e).__name__},本次未获得完整回复。\n"
+                    return
+                if i > 0:
+                    _t.sleep(_backoff_delay(i))
+                continue
+            if _stopped():
+                # 用户主动中断:不属于 provider 故障,但内容不完整不得按真实结果结算
+                _fill_status(status, DEGRADED, provider=provider,
+                             error="用户中断", partial=bool(parts))
+                return
+            self._cooldown.pop(provider, None)
+            _rec(True)
+            _fill_status(status, FALLBACK if i > 0 else REAL, provider=provider)
+            if i > 0:
+                self.fallback_reason = f"主 provider 失败,已回退到 {provider}"
+            output = "".join(parts)
+            if output and getattr(self, "meter", None) is not None:
+                try:
+                    self.meter.measure_call(
+                        system=system, messages=messages, output=output,
+                        provider=provider, model=model,
+                        agent_id=agent_id, usage=None)
+                except Exception:
+                    pass
             return
-        _rec(True)
-        output = "".join(parts)
-        if output and getattr(self, "meter", None) is not None:
-            try:
-                self.meter.measure_call(
-                    system=system, messages=messages, output=output,
-                    provider=self.provider, model=self.model,
-                    agent_id=agent_id, usage=None)
-            except Exception:
-                pass
+        self._mark_degraded(f"stream 全部 provider 失败: {last_err}")
+        _fill_status(status, DEGRADED,
+                     error=f"{type(last_err).__name__}: {last_err}" if last_err else "无可用 provider")
+        yield (f"【模型流式失败】已尝试全部 provider 均失败,本次未获得回复。"
+               f"最后错误:{type(last_err).__name__ if last_err else '未知'}。\n")
+
+    def _stream_provider(self, provider, client, model, system, mm, messages,
+                         max_tokens, agent_id, parts, _stopped, on_thinking):
+        """单 provider 流式分支。parts 就地累积原文(用于计量与幂等判断)。"""
+        if provider == "anthropic":
+            with client.messages.stream(
+                    model=model, max_tokens=max_tokens,
+                    system=system, messages=mm) as s:
+                for t in s.text_stream:
+                    if _stopped():
+                        return
+                    if t:
+                        parts.append(t)
+                        yield t
+        elif provider in self._OPENAI_FAMILY:
+            msgs = [{"role": "system", "content": system}] + mm
+            st = client.chat.completions.create(
+                model=model, max_tokens=max_tokens, messages=msgs, stream=True)
+            stripper = _ThinkStripper()
+            for c in st:
+                if _stopped():
+                    st.close() if hasattr(st, "close") else None
+                    return
+                d = c.choices[0].delta.content if c.choices else None
+                if c.choices and on_thinking is not None:
+                    _delta = c.choices[0].delta
+                    _rt = (getattr(_delta, "reasoning_content", None)
+                           or getattr(_delta, "reasoning", None))
+                    if _rt:
+                        on_thinking(_rt)
+                if not d:
+                    continue
+                parts.append(d)
+                cleaned, _think_txt = stripper.feed_events(d)
+                if _think_txt and on_thinking is not None:
+                    on_thinking(_think_txt)
+                if cleaned:
+                    yield cleaned
+        elif provider == "google":
+            prompt = system + "\n\n" + "\n".join(m["content"] for m in messages)
+            for c in client.generate_content(prompt, stream=True):
+                if _stopped():
+                    return
+                if getattr(c, "text", ""):
+                    parts.append(c.text)
+                    yield c.text
+        else:
+            out = self.complete(system, messages, max_tokens, agent_id)
+            parts.append(out)
+            yield out
 
     _OPENAI_FAMILY = ("openai", "deepseek", "qwen", "local", "generic", "minimax", "custom")
     _TOOL_PROVIDERS = _OPENAI_FAMILY + ("anthropic",)
@@ -813,15 +903,19 @@ class ModelRouter:
 
     def call_tools(self, system: str, messages: list, tools: list,
                    tool_choice: str = "auto", max_tokens: int = 1024,
-                   agent_id: str = "") -> dict:
+                   agent_id: str = "", status: "CallStatus | None" = None) -> dict:
         """带工具的一次(非流式)LLM 调用。返回归一化结果:
           {supported: bool, text: str,
            tool_calls: [{id, name, args(dict)}],
            assistant_msg: dict}   # provider 原生的 assistant 消息,供多轮回灌时追加
-        不支持 tools 的 provider → {supported: False,...},上层走 fallback。
+        三态契约:
+          supported=False            → UNSUPPORTED(Provider 不支持该能力,不是失败,可回退)
+          supported=True + 正常       → REAL
+          supported=True + error      → DEGRADED(调用异常;保留失败语义,不回退关键词)
         与 complete/stream 同一咽喉:注入运行时事实基准(否则模型会把日期猜成训练年份)。"""
         system = self._inject_runtime(system)
         if not self.supports_tools():
+            _fill_status(status, UNSUPPORTED, provider=self.provider)
             return {"supported": False, "text": "", "tool_calls": [], "assistant_msg": None}
         model = self._model_for(self.provider, agent_id, messages)
         import time as _t
@@ -830,21 +924,27 @@ class ModelRouter:
             from .tracing import span as _span
             with _span("llm.tools", provider=self.provider, model=model):
                 if self.provider == "anthropic":
-                    text, calls, assistant_msg = self._call_anthropic_tools(
+                    text, calls, assistant_msg, usage = self._call_anthropic_tools(
                         model, system, messages, tools, tool_choice, max_tokens)
                 else:
-                    text, calls, assistant_msg = self._call_openai_tools(
+                    text, calls, assistant_msg, usage = self._call_openai_tools(
                         model, system, messages, tools, tool_choice, max_tokens)
         except Exception as e:
             self._rec_llm(self.provider, False, (_t.perf_counter() - _t0) * 1000.0)
-            return {"supported": False, "text": "", "tool_calls": [],
+            _fill_status(status, DEGRADED, provider=self.provider,
+                         error=f"{type(e).__name__}: {e}")
+            return {"supported": True, "text": "", "tool_calls": [],
                     "assistant_msg": None, "error": str(e)}
+        _fill_status(status, REAL, provider=self.provider)
         self._rec_llm(self.provider, True, (_t.perf_counter() - _t0) * 1000.0)
         if getattr(self, "meter", None) is not None:
             try:
+                # 计量优先用 API 返回的真实 usage(2026-11-16 修正:此前固定
+                # usage=None → 工具轮调用全部落 estimated 记录,虚增估算占比;
+                # estimated 标记必须反映真实来源,不得把有 usage 的调用记成估算)。
                 self.meter.measure_call(system=system, messages=messages,
                                         output=text, provider=self.provider,
-                                        model=model, agent_id=agent_id, usage=None)
+                                        model=model, agent_id=agent_id, usage=usage)
             except Exception:
                 pass
         return {"supported": True, "text": text,
@@ -886,7 +986,10 @@ class ModelRouter:
         assistant_msg = {"role": "assistant", "content": m.content or ""}
         if raw_tcs:
             assistant_msg["tool_calls"] = raw_tcs
-        return (m.content or ""), calls, assistant_msg
+        u = getattr(resp, "usage", None)
+        usage = ({"input_tokens": getattr(u, "prompt_tokens", None),
+                  "output_tokens": getattr(u, "completion_tokens", None)} if u else None)
+        return (m.content or ""), calls, assistant_msg, usage
 
     def _call_anthropic_tools(self, model, system, messages, tools, tool_choice, max_tokens):
         """anthropic 原生 tool_use:openai tools 格式 → anthropic 格式,调 messages.create,
@@ -919,7 +1022,10 @@ class ModelRouter:
                                "name": getattr(b, "name", ""), "input": args})
         text = "".join(text_parts)
         assistant_msg = {"role": "assistant", "content": blocks}
-        return text, calls, assistant_msg
+        u = getattr(resp, "usage", None)
+        usage = ({"input_tokens": getattr(u, "input_tokens", None),
+                  "output_tokens": getattr(u, "output_tokens", None)} if u else None)
+        return text, calls, assistant_msg, usage
 
     def format_tool_result(self, tool_call: dict, result: str) -> dict:
         """把一次工具执行结果封装成 provider 原生消息,供追加进 messages 再喂回模型。
@@ -960,13 +1066,12 @@ class ModelRouter:
     def _mark_degraded(self, reason: str) -> None:
         """标记本次调用为「故障降级」(区别于 is_stub 的「从未配置」)。
 
-        上游读 is_degraded() / take_call_degraded() 决定:
-          · 是否禁止把本次回复写入长期记忆(故障文本会污染召回);
-          · 是否回传告警(便于前端/监控识别「这次不是真实结果」)。
+        调用级状态归属由 `CallStatus` 承担(core/call_status.py):同实例并发多个
+        任务时,per-call 布尔会被串扰,故不再提供 `take_call_degraded()`。
+        这里只保留 Router 级的降级文案与告警,供监控/bench 观测。
         观测手段(tracing)包在 try 里 —— 可观测性是增强项,不能因它失败影响主流程。
         """
         self.degraded = True
-        self._call_degraded = True
         self.degraded_reason = ((self.degraded_reason + " | ")
                                 if self.degraded_reason else "") + str(reason)
         try:
@@ -979,16 +1084,6 @@ class ModelRouter:
     def is_degraded(self) -> bool:
         """本次(或最近一次)调用是否因**故障**降级。区别于 is_stub(从未配置)。"""
         return bool(self.degraded)
-
-    def take_call_degraded(self) -> bool:
-        """取出并清零 per-call 降级标记(供单次请求生命周期内消费)。
-
-        per-call 而非全局:并发多请求时,只有**本次**真正故障的那个请求才该
-        禁写记忆,不能因另一请求的故障误伤。
-        """
-        v = self._call_degraded
-        self._call_degraded = False
-        return v
 
     def switch(self, provider: str, model: str | None = None):
         """运行时切换 provider(多模型路由的核心能力)。

@@ -38,6 +38,20 @@ PERSONAL_MARKERS = [
     "行程", "日程", "出行", "复习", "知识点", "学习计划", "记忆",
 ]
 
+# 搜索结果三态(复核者裁定 2026-11-16):执行状态与业务结果分离,且 EMPTY
+# 必须是「搜索服务成功完成查询并明确返回零结果」,空载荷/错误响应/结构损坏
+# 一律 FAILED。工具层据此决定落 SUCCESS(EMPTY) 还是失败,不靠 Agent 回复推断。
+SEARCH_SUCCESS = "SUCCESS"   # 服务成功,有有效结果(NON_EMPTY)
+SEARCH_EMPTY = "EMPTY"       # 服务成功,明确零命中
+SEARCH_FAILED = "FAILED"     # 网络/HTTP/权限/解析/结构错误——不得生成成功步骤
+
+
+def _failed(reason: str = "") -> dict:
+    if reason:
+        print(f"[联网搜索] {reason}")
+    return {"status": SEARCH_FAILED, "answer": "", "references": []}
+
+
 SEARCH_TRIGGERS = TOPIC_TRIGGERS
 
 _CJK_TRIGGERS = [k for k in SEARCH_TRIGGERS if not k.isascii()]
@@ -101,11 +115,12 @@ def _deep() -> bool:
 
 
 def search_answer(query: str) -> dict:
-    """调用百度 AI 搜索,返回 {answer, references}。
-    answer=联网生成的实时答案文本;references=参考资料列表。失败返回空 dict。"""
+    """调用百度 AI 搜索,返回 {status, answer, references}。
+    status ∈ SUCCESS(有结果)/EMPTY(成功零命中)/FAILED(端点失败,不得记成功步骤)。
+    仅当搜索服务返回合法响应结构时,零结果才判 EMPTY。"""
     key = _key()
     if not key:
-        return {}
+        return _failed("未配置搜索密钥")
     from .tracing import span as _span
     with _span("web.search"):
         return _search_answer_inner(query, key)
@@ -131,23 +146,69 @@ def _search_answer_inner(query: str, key: str) -> dict:
         )
         with urllib.request.urlopen(req, timeout=_timeout()) as resp:
             data = json.loads(resp.read().decode("utf-8", "ignore"))
-        choices = data.get("choices", [])
-        if not choices:
-            print(f"[联网搜索] 百度返回无 choices;响应键={list(data.keys())} 片段={str(data)[:220]}")
-            return {}
-        answer = choices[0].get("message", {}).get("content", "")
-        refs = data.get("references", []) or []
-        return {"answer": answer, "references": refs}
+        if not isinstance(data, dict):
+            return _failed(f"LLM 端点响应非对象:{type(data).__name__}")
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            refs = data.get("references") or []
+            if not isinstance(refs, list):
+                return _failed("LLM 端点 references 结构损坏")
+            answer = (choices[0].get("message") or {}).get("content", "")
+            if answer or refs:
+                return {"status": SEARCH_SUCCESS, "answer": answer, "references": refs}
+            # 结构合法但无答案无引用 = 服务完成查询、零命中(不做失败处理)
+            return {"status": SEARCH_EMPTY, "answer": "", "references": []}
+        print(f"[联网搜索] 百度返回无 choices;响应键={list(data.keys())} 片段={str(data)[:220]}")
+        return _search_refs_only(query, key)
     except urllib.error.HTTPError as e:
         try:
             body = e.read().decode("utf-8", "ignore")[:300]
         except Exception:
             body = ""
         print(f"[联网搜索] 百度接口 HTTP {e.code} 错误:{body}")
-        return {}
+        return _search_refs_only(query, key)
     except Exception as e:
         print(f"[联网搜索] 百度接口调用失败:{type(e).__name__}: {e}")
-        return {}
+        return _search_refs_only(query, key)
+
+
+def _search_refs_only(query: str, key: str) -> dict:
+    """纯检索端点回退(2026-11-16 修复):千帆 ai_search 有「LLM 版」
+    (/chat/completions,搜索+生成一体)与「纯检索版」(POST {_base()},只返回
+    references)两个端点;两者权限相互独立。此前 LLM 版无权限/失败时直接返回
+    空 —— 工具执行了却拿不到任何结果(web_search 探针实证:invalid_model)。
+    现回退纯检索端点:无 answer,references 原样返回,搜索能力不再因 LLM 版
+    未开通而整体不可用。仍失败 → 返回空,上层如实告知"未查到",不编造。"""
+    try:
+        payload = json.dumps({
+            "messages": [{"role": "user", "content": query}],
+            "search_source": "baidu",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            _base(),
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=_timeout()) as resp:
+            data = json.loads(resp.read().decode("utf-8", "ignore"))
+        if not isinstance(data, dict):
+            return _failed(f"纯检索端点响应非对象:{type(data).__name__}")
+        # 只有响应结构明确带 references 列表,才知道「服务成功完成查询」;
+        # 空载荷/错误 JSON(无该键)/HTTP 异常一律 FAILED,不能当零命中。
+        refs = data.get("references")
+        if not isinstance(refs, list):
+            return _failed(f"纯检索端点响应无 references 结构;响应键={list(data.keys())}")
+        if refs:
+            return {"status": SEARCH_SUCCESS, "answer": "", "references": refs}
+        return {"status": SEARCH_EMPTY, "answer": "", "references": []}
+    except urllib.error.HTTPError as e:
+        return _failed(f"纯检索端点 HTTP {e.code}")
+    except Exception as e:
+        return _failed(f"纯检索端点调用失败:{type(e).__name__}: {e}")
 
 
 def search(query: str, max_results: int = 8) -> list[dict]:

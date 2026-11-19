@@ -86,8 +86,10 @@ def test_step_ok_rejects_failure_texts(text, ok) -> None:
 def test_run_tool_calls_reuses_completed_steps(monkeypatch) -> None:
     executed: list = []
 
-    def _fake_batch(agent, calls):
+    def _fake_batch(agent, calls, states=None):
         executed.extend(calls)
+        if states is not None:
+            states.extend({"tool": c["name"], "stage": "succeeded"} for c in calls)
         return [f"新结果:{c['name']}" for c in calls]
 
     monkeypatch.setattr(tool_exec, "_run_tools_batch", _fake_batch)
@@ -110,8 +112,12 @@ def test_run_tool_calls_reuses_completed_steps(monkeypatch) -> None:
 
 
 def test_run_tool_calls_skips_recording_failures(monkeypatch) -> None:
-    monkeypatch.setattr(tool_exec, "_run_tools_batch",
-                        lambda agent, calls: ["(工具 web_search 未返回:45s 超时)"])
+    def _timeout_batch(agent, calls, states=None):
+        if states is not None:
+            states.extend({"tool": c["name"], "stage": "failed"} for c in calls)
+        return ["(工具 web_search 未返回:45s 超时)"]
+
+    monkeypatch.setattr(tool_exec, "_run_tools_batch", _timeout_batch)
     rec = _Rec()
     agent = types.SimpleNamespace(_recovery=rec, _session_id="t1")
     tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {}}])

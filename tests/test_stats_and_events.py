@@ -122,7 +122,9 @@ def test_chat_publishes_activity_event(monkeypatch):
     fake._ability_augment = lambda t, m: m
     fake._skill_augment = lambda t, m: m
     fake._pref_augment = lambda m: m
-    fake._reply_with_tools = lambda task, messages, stop_event=None: "这是回复内容。"
+    from foxclaw.agents.mixins.tool_exec import ToolReply
+    fake._reply_with_tools = lambda task, messages, stop_event=None: ToolReply(
+        text="这是回复内容。", state="REAL")
     fake._think = lambda **k: None
     fake._store_memory = lambda *a, **k: None
     fake._maybe_store_preference = lambda t: None
