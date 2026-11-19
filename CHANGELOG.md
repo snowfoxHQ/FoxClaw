@@ -4,6 +4,41 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
+## 0.1.6 — 2026-11-19
+
+A failed model call can no longer be recorded as a successful answer. Every call carries its own state instead of a router-wide flag, every task settles from evidence instead of from an error string, and memory refuses output that was never verified. Bundled runtime detection, health reporting and test registration are tightened alongside it.
+
+**Call state**
+
+- New `foxclaw/core/call_status.py`: one `CallStatus` per model call, held by a task-level `TaskCallCollector` registered through a contextvar. The collector travels with the task (including across `asyncio.to_thread`), so two concurrent tasks on one Router instance no longer read each other's verdict — the root cause of "task A degraded, task B reported success". The old `Router._call_degraded` field and the deprecated `take_call_degraded()` are removed.
+- Six states, and `PENDING` is the initial one: `REAL` (first provider succeeded), `FALLBACK` (primary failed, fallback succeeded), `STUB` (no provider configured), `DEGRADED` (all providers failed / stream cut / empty response), `UNSUPPORTED` (provider lacks the capability — not a failure). A call path that returns without setting a terminal state is a bug by definition.
+- Streaming paths fall back to a non-streaming call when the stream breaks, carrying a `partial` mark for the content that already went out. `UNSUPPORTED` and `DEGRADED` are now distinct: "this provider cannot do tools" no longer looks like "the model broke".
+- The tool loop records a six-stage history (`requested` / `executed` / `succeeded` / `rejected` / `failed` / `verified`) into the same collector, including the old string-returning path — a direct answer from the tool loop is treated as "no state object" instead of crashing on `.state`.
+
+**Task settlement and memory admission**
+
+- `settle_task_status` in `call_status.py` is the single settlement entry: `COMPLETED` (required result present and postconditions met), `PARTIAL` (some real result), `FAILED` (no valid result), `INTERRUPTED`, `BLOCKED` (harness stop / awaiting confirmation). Settlement reads the collected states and tool history — never an error-message string.
+- Degraded is not success: `STUB` / `DEGRADED` / `PENDING` become `PARTIAL` only when a verified tool fact also exists, otherwise `FAILED`. A task waiting for confirmation settles `BLOCKED` with its own `task_status` field instead of being written into memory as a finished task.
+- `admit_memory` is the only admission gate for model-produced content: the fact channel requires both `executed` and `verified` evidence (a rejected, timed-out or unverified tool output cannot be labelled a fact — "it came from a tool" is not enough), and the derived channel refuses anything produced under `STUB` / `DEGRADED` / `PENDING`.
+- The accounting ledger registers its own real write as a verified tool fact, so "ledger succeeded, analysis degraded" settles `PARTIAL` rather than `FAILED`; a dry run registers nothing, with a regression test guarding against the upgrade.
+
+**Health, search and tool results**
+
+- `GET /health/ready` judges the memory runtime by the backend it reports: a stub backend is no longer reported as `ok`. The endpoint distinguishes ready / degraded / not-ready with the reason attached.
+- `web_search` classifies results into three states and marks an empty result explicitly (`EMPTY` with evidence) instead of returning an empty string that downstream reads as success; tool outputs get the same treatment, so an empty result is no longer indistinguishable from a successful one.
+- Tool evidence goes through `verify` before it can support a claim, so an unverifiable "done" does not count as done.
+
+**G1 supervisor**
+
+- The supervisor's own-answer path runs Python numeric computation in-process via `foxclaw/g1/python_numeric.py`: a fixed whitelist is checked at the function entry (`_g1_whitelist_match`, shared with `sv_plan`), a hit executes the injected executor and keeps the original dispatch result structure, and a fingerprint/version mismatch returns `INPUT_INVALID` without falling back to the model. G1 hits skip shared-memory writes and record `shared_memory=skipped`; `sv_plan` hits skip `_llm_plan()` so the planning stage makes no model call.
+- The executor moved out of the runner: no callable is injected into it any more, and Foxclaw no longer depends on an external ACM runtime.
+
+**Release and test governance**
+
+- `tools/release_check.py` detects the bundled runtime by top-level package name (`hmr*` / `hkc_*`): a placeholder package is now an `error` instead of a `warn`, because since 0.1.5 the runtime ships inside the wheel and a package without it is broken on arrival.
+- New `tools/check_test_registration.py`, wired into CI: every `tests/test_*.py` on disk must appear in both the `python_files` whitelist and the `run_all` registry. 47 unregistered files were found and added — the suite is now 133 files with no gaps. The CI step runs in warn-only mode for one cycle before it becomes a hard gate.
+- Fixed: `python_files` had drifted from the actual test files (a test could pass when run directly but never run in CI). This release makes the two paths cover the same set.
+
 ## 0.1.5 — 2026-11-16
 
 The governance bar is raised across the board: actions are tiered by harm instead of one-size-fits-all, exceptions became condition lists instead of a switch, the guardrails now state where valid instructions can come from, and long channel tasks gained an unattended protocol.
