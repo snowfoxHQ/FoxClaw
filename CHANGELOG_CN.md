@@ -4,6 +4,41 @@
 
 英文版:[CHANGELOG.md](CHANGELOG.md)。
 
+## 0.1.6 — 2026-11-19
+
+失败的模型调用不能再被记成一次成功的回答。每次调用带自己的状态而不是一个 Router 级开关，每个任务凭证据结算而不是凭错误字符串，记忆层拒绝从未被核验的产出。随包运行时的检测、健康上报与测试注册一并收紧。
+
+**调用状态**
+
+- 新增 `foxclaw/core/call_status.py`：每次模型调用一个 `CallStatus`，由任务级 `TaskCallCollector` 持有（contextvar 注册）。收集器跟着任务走（含跨 `asyncio.to_thread`），同一 Router 实例上并发跑的两个任务不会互相读到对方的结论——这正是「任务 A 降级、任务 B 报成功」的根因。Router 级 `_call_degraded` 字段与已废弃的 `take_call_degraded()` 一并移除。
+- 六个状态，初始态为 `PENDING`：`REAL`（首个 provider 即成功）、`FALLBACK`（主 provider 失败、回退成功）、`STUB`（未配置任何模型）、`DEGRADED`（全部 provider 失败 / 流式中断 / 空响应）、`UNSUPPORTED`（provider 不支持该能力，不算失败）。调用路径返回时未置终态，按实现 bug 处理。
+- 流式路径中断时回退到非流式调用，并携带 `partial` 标记已经输出的部分。`UNSUPPORTED` 与 `DEGRADED` 彻底分开：「这个 provider 不会用工具」不再长得像「模型坏了」。
+- 工具循环把六阶段履历（`requested` / `executed` / `succeeded` / `rejected` / `failed` / `verified`）记进同一个收集器，包括旧的纯字符串返回路径——工具路径直答视为「无状态对象」，不再崩在 `.state`。
+
+**任务结算与记忆准入**
+
+- `call_status.py` 的 `settle_task_status` 是唯一结算入口：`COMPLETED`（必需业务结果 + 后置条件全满足）、`PARTIAL`（部分真实结果）、`FAILED`（无有效结果）、`INTERRUPTED`（主动中断）、`BLOCKED`（Harness 停止 / 待确认）。结算只读收集到的状态与工具履历，绝不靠错误字符串判成败。
+- 降级不等于成功：`STUB` / `DEGRADED` / `PENDING` 只有在同时存在**已核验的工具事实**时才降为 `PARTIAL`，否则 `FAILED`。等待确认的任务结算为 `BLOCKED` 并带独立的 `task_status` 字段，不再被当成已完成任务写进记忆。
+- `admit_memory` 是模型产出的唯一准入闸门：事实通道要求 `executed` 与 `verified` 双证据（被拒、超时、未核验的工具输出不能标 fact，「内容来自工具」本身不构成事实资格）；derived 通道一律拒绝 `STUB` / `DEGRADED` / `PENDING` 下的产物。
+- 财务账本的真落账会登记为一条已核验工具事实，因此「账本成功、分析降级」结算为 `PARTIAL` 而不是 `FAILED`；dry_run 不登记，有对照测试防止误升。
+
+**健康、检索与工具结果**
+
+- `GET /health/ready` 按记忆运行时自报的 backend 判定：stub 后端不再报成 `ok`。接口区分就绪 / 降级 / 未就绪三态，并带上原因。
+- `web_search` 结果分三态并对空结果显式标记（`EMPTY` 附证据），不再返回一个被下游读成成功的空字符串；工具输出同样处理，空结果与成功结果不再无法区分。
+- 工具证据先过 `verify` 才能支撑结论，无法核验的「已完成」不算完成。
+
+**G1 主管**
+
+- 主管自答路径通过 `foxclaw/g1/python_numeric.py` 在进程内执行 Python 数值计算：固定白名单在函数入口判定（`_g1_whitelist_match`，与 `sv_plan` 共用），命中则执行注入的执行器并保留原 dispatch 结果结构，指纹/版本不匹配返回 `INPUT_INVALID`，不回退到模型。G1 命中不写共享记忆并记 `shared_memory=skipped`；`sv_plan` 命中时跳过 `_llm_plan()`，规划阶段不再先行调模型。
+- 执行器移出 runner：不再向 runner 注入 callable，Foxclaw 不再依赖外部 ACM 运行时。
+
+**发布与测试治理**
+
+- `tools/release_check.py` 改按顶层包名（`hmr*` / `hkc_*`）检测随包运行时：占位包从 `warn` 升为 `error`，因为 0.1.5 起运行时随 wheel 分发，缺了就是发出去即坏。
+- 新增 `tools/check_test_registration.py` 并接入 CI：磁盘上每个 `tests/test_*.py` 必须同时出现在 `python_files` 白名单与 `run_all` 注册表中。查出 47 个漏注册文件并补齐，现为 133 个文件零缺口；CI 步先以告警模式跑一个周期，之后转硬门。
+- 修复：`python_files` 曾与实际测试文件漂移（单文件直跑能过、CI 里却从不执行）。本版让两条路径覆盖同一集合。
+
 ## 0.1.5 — 2026-11-16
 
 治理口径整体收紧：动作按危害分三档而不是一刀切，例外从开关变成条件清单，护栏明确了「从哪里来的话才算数」，渠道长任务有了无人值守协议。
