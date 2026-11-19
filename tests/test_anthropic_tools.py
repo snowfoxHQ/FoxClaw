@@ -52,7 +52,6 @@ def _router(client):
     r.fallback_reason = ""
     r.degraded = False
     r.degraded_reason = ""
-    r._call_degraded = False
     return r
 
 

@@ -231,7 +231,6 @@ class ModelRouter:
         self.meter: Any = None
         self.degraded: bool = False
         self.degraded_reason: str = ""
-        self._call_degraded: bool = False
         self._selection_mtime: float = 0.0
         self._init_client()
 
@@ -1067,13 +1066,12 @@ class ModelRouter:
     def _mark_degraded(self, reason: str) -> None:
         """标记本次调用为「故障降级」(区别于 is_stub 的「从未配置」)。
 
-        上游读 is_degraded() / take_call_degraded() 决定:
-          · 是否禁止把本次回复写入长期记忆(故障文本会污染召回);
-          · 是否回传告警(便于前端/监控识别「这次不是真实结果」)。
+        调用级状态归属由 `CallStatus` 承担(core/call_status.py):同实例并发多个
+        任务时,per-call 布尔会被串扰,故不再提供 `take_call_degraded()`。
+        这里只保留 Router 级的降级文案与告警,供监控/bench 观测。
         观测手段(tracing)包在 try 里 —— 可观测性是增强项,不能因它失败影响主流程。
         """
         self.degraded = True
-        self._call_degraded = True
         self.degraded_reason = ((self.degraded_reason + " | ")
                                 if self.degraded_reason else "") + str(reason)
         try:
@@ -1086,16 +1084,6 @@ class ModelRouter:
     def is_degraded(self) -> bool:
         """本次(或最近一次)调用是否因**故障**降级。区别于 is_stub(从未配置)。"""
         return bool(self.degraded)
-
-    def take_call_degraded(self) -> bool:
-        """取出并清零 per-call 降级标记(供单次请求生命周期内消费)。
-
-        per-call 而非全局:并发多请求时,只有**本次**真正故障的那个请求才该
-        禁写记忆,不能因另一请求的故障误伤。
-        """
-        v = self._call_degraded
-        self._call_degraded = False
-        return v
 
     def switch(self, provider: str, model: str | None = None):
         """运行时切换 provider(多模型路由的核心能力)。
