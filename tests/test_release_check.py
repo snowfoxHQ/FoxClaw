@@ -58,7 +58,9 @@ def _sdist(dist: Path, version="0.1.0", name="foxclaw", extra=(),
            runtime=("hmr", "hkc_search")) -> Path:
     p = dist / f"{name}-{version}.tar.gz"
     entries = [f"{name}-{version}/foxclaw/cli.py", f"{name}-{version}/PKG-INFO"]
-    entries += [f"{name}-{version}/{pkg}/__init__.py" for pkg in runtime]
+    # sdist 保留源码树路径:vendor/hmr/、vendor/hkc/hkc_*(与真实产物一致)
+    entries += [f"{name}-{version}/vendor/hkc/{pkg}/__init__.py" if pkg.startswith("hkc")
+                else f"{name}-{version}/vendor/{pkg}/__init__.py" for pkg in runtime]
     with tarfile.open(p, "w:gz") as t:
         for arc in [*entries, *extra]:
             data = b"x"
@@ -177,6 +179,18 @@ def test_forbidden_entries_detected(entry):
 ])
 def test_allowed_entries_pass(entry):
     assert rc.forbidden_entry(entry) is None
+
+
+def test_pkg_roots_normalizes_sdist_paths():
+    """sdist 保留 vendor/ 路径时也要认出包名 —— 0.1.6 首发曾因此误报缺运行时。"""
+    roots = rc._pkg_roots([
+        "foxclaw-0.1.6/PKG-INFO",
+        "foxclaw-0.1.6/foxclaw/cli.py",
+        "foxclaw-0.1.6/vendor/hmr/__init__.py",
+        "foxclaw-0.1.6/vendor/hkc/hkc_search/__init__.py",
+    ])
+    assert "hmr" in roots, roots
+    assert "hkc_search" in roots, roots
 
 
 def test_check_dist_passes_with_runtime_packages(tmp_path):
