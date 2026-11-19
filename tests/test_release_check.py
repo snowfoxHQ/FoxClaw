@@ -3,7 +3,8 @@
 锁住三件事:
 1. 四处版本号必须一致 —— 只改一处的发布物会让用户装到对不上的版本;
 2. tag 必须指向本次版本 —— 发布不可撤回,yank 也仍占号;
-3. 产物里不能有 .env / docs/internal / 运行期数据,缺 vendor 只算提示(占位包现状)。
+3. 产物里不能有 .env / docs/internal / 运行期数据;缺 hmr//hkc_* 运行时是 error
+   (0.1.5 起 vendor 内嵌随包分发,占位包不能外发)。
 
 脚本放在 tools/ 不在包里,故按文件路径加载;测试只构造最小归档,不跑真构建(秒级)。
 """
@@ -37,7 +38,7 @@ rc = _load()
 
 
 def _wheel(dist: Path, version="0.1.0", name="foxclaw", extra=(),
-           description=True) -> Path:
+           description=True, runtime=("hmr", "hkc_search")) -> Path:
     p = dist / f"{name}-{version}-py3-none-any.whl"
     body = ("\n\n" + "long description body. " * 12) if description else ""
     with zipfile.ZipFile(p, "w") as z:
@@ -45,16 +46,21 @@ def _wheel(dist: Path, version="0.1.0", name="foxclaw", extra=(),
         z.writestr(f"{name}/cli.py", "def main(): pass\n")
         z.writestr(f"{name}-{version}.dist-info/METADATA",
                    f"Name: {name}\nVersion: {version}{body}\n")
+        # vendor 运行时以顶层包名进 wheel(hmr/、hkc_*,无 /vendor/ 路径段)
+        for pkg in runtime:
+            z.writestr(f"{pkg}/__init__.py", "")
         for e in extra:
             z.writestr(e, "x")
     return p
 
 
-def _sdist(dist: Path, version="0.1.0", name="foxclaw", extra=()) -> Path:
+def _sdist(dist: Path, version="0.1.0", name="foxclaw", extra=(),
+           runtime=("hmr", "hkc_search")) -> Path:
     p = dist / f"{name}-{version}.tar.gz"
+    entries = [f"{name}-{version}/foxclaw/cli.py", f"{name}-{version}/PKG-INFO"]
+    entries += [f"{name}-{version}/{pkg}/__init__.py" for pkg in runtime]
     with tarfile.open(p, "w:gz") as t:
-        for arc in (f"{name}-{version}/foxclaw/cli.py",
-                    f"{name}-{version}/PKG-INFO", *extra):
+        for arc in [*entries, *extra]:
             data = b"x"
             info = tarfile.TarInfo(arc)
             info.size = len(data)
@@ -173,14 +179,34 @@ def test_allowed_entries_pass(entry):
     assert rc.forbidden_entry(entry) is None
 
 
-def test_check_dist_passes_with_vendor_warning_only(tmp_path):
+def test_check_dist_passes_with_runtime_packages(tmp_path):
+    """含 hmr//hkc_* 运行时的完整产物:无 error(0.1.5 起占位包是 error 不是 warn)。"""
     dist = tmp_path / "dist"
     dist.mkdir()
     _wheel(dist)
     _sdist(dist)
     issues = rc.check_dist(dist, "foxclaw", "0.1.0")
     assert [i for i in issues if i.level == "error"] == []
-    assert any(i.code == "no_vendor" for i in issues), "缺 vendor 应显式提示"
+    assert not any(i.code.startswith("no_") for i in issues), issues
+
+
+@pytest.mark.parametrize("missing", ["wheel", "sdist"])
+@pytest.mark.parametrize("strip", ["hmr", "hkc"])
+def test_check_dist_missing_runtime_is_error(tmp_path, missing, strip):
+    """缺 hmr/ 或 hkc_* 运行时 → error(占位包不能外发);wheel 与 sdist 分别检查。"""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    keep = ["hkc_search"] if strip == "hmr" else ["hmr"]   # 缺 hmr 时保留 hkc(反之亦然)
+    if missing == "wheel":
+        _wheel(dist, runtime=tuple(keep))
+        _sdist(dist)
+    else:
+        _wheel(dist)
+        _sdist(dist, runtime=tuple(keep))
+    issues = rc.check_dist(dist, "foxclaw", "0.1.0")
+    codes = {i.code: i.level for i in issues}
+    expect = "no_hmr_runtime" if strip == "hmr" else "no_hkc_runtime"
+    assert expect in codes and codes[expect] == "error", codes
 
 
 def test_check_dist_flags_missing_wheel(tmp_path):

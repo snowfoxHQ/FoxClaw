@@ -136,9 +136,25 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
             if _ws.is_personal_query(q):
                 return "(该问题属于用户本地数据,已跳过联网;请依据本地领域信息回答)"
             payload = _ws.search_answer(q)
-            if not payload or (not payload.get("answer") and not payload.get("references")):
-                return ("联网搜索未返回结果(可能未配置搜索服务或网络不可用);"
-                        "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。")
+            status = payload.get("status")
+            if status is None:
+                # 旧格式兼容({answer, references} 无 status):只有确有内容才算成功;
+                # 旧空格式一律 FAILED,绝不据「空载荷」推断 EMPTY(裁定边界)。
+                status = (_ws.SEARCH_SUCCESS if (payload.get("answer") or
+                                                 payload.get("references"))
+                          else _ws.SEARCH_FAILED)
+            if status == _ws.SEARCH_EMPTY:
+                # 复核者裁定 2026-11-16:搜索服务成功完成查询并明确零命中 →
+                # 与 recall_memory 同语义的 EMPTY 标记(_settle 落 result_status=EMPTY),
+                # 不得与端点失败混同;Agent 回复不参与成功判定。
+                from ...core.tools import EMPTY_RESULT_MARKER
+                return EMPTY_RESULT_MARKER
+            if status != _ws.SEARCH_SUCCESS or (
+                    not payload.get("answer") and not payload.get("references")):
+                # 必须以 "(" 开头:失败文本约定(_step_ok/failure_policy 据此识别),
+                # 否则失败会被当成功步骤落盘(复核者裁定 2026-11-16 边界要求)。
+                return ("(联网搜索失败或未返回结果:搜索服务出错/未配置/网络不可用;"
+                        "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。)")
             agent._think(content=f"工具 web_search「{q}」命中", node_type="tool_use", conf=0.9)
             _raise(_ig.taint_level("web_search"))
             return _ws.format_for_prompt(q, payload)
@@ -150,7 +166,10 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
                 top_k = 5
             res = agent._recall_memory(q, top_k=top_k) if q else []
             if not res:
-                return "(未召回到相关记忆)"
+                # 只读工具成功执行但无命中 → 显式 EMPTY 标记(与失败文本区分,
+                # _settle/verify 按常量识别,步骤照常落盘,业务结果如实为空)
+                from ...core.tools import EMPTY_RESULT_MARKER
+                return EMPTY_RESULT_MARKER
             lines = "\n".join(f"- {r.get('content', '')}" for r in res[:top_k])
             _raise(_ig.taint_level("memory"))
             return "【召回的相关记忆】\n" + _ig.wrap_untrusted(lines, source="memory")
@@ -186,13 +205,22 @@ def _exec_guarded(agent, name: str, args: dict) -> str:
     return out
 
 
-def _run_tools_batch(agent, calls: list) -> list:
+def _run_tools_batch(agent, calls: list, states: list | None = None) -> list:
     """按能力调度一批 tool_calls,返回与 calls **同序**的结果文本。
 
     只读 + 显式声明 parallel_safe + 全部过闸 → 并发(典型:web_search + recall_memory
     同轮发出,不再一个等一个);其余(写/发送/需确认/未声明)一律串行,避免同一批里
     副作用动作互相覆盖 HITL 裁决。
+
+    states(可选出参)= 与 calls 同序的阶段履历:[{tool, stage}],
+    阶段取 rejected(闸门未放行)/failed(异常/超时)/succeeded(已执行)。
     """
+    def _note(i: int, stage: str) -> None:
+        if states is not None:
+            while len(states) <= i:
+                states.append({})
+            states[i] = {"tool": calls[i].get("name", ""), "stage": stage}
+
     plans = []
     for c in calls:
         n = c.get("name", "")
@@ -203,13 +231,15 @@ def _run_tools_batch(agent, calls: list) -> list:
                 and all(p[2] is None and p[3].get("parallel_safe") for p in plans))
     if not parallel:
         out = []
-        for p in plans:
+        for i, p in enumerate(plans):
             if p[2] is not None:
                 out.append(p[2])
+                _note(i, "rejected")
                 continue
             _disp = getattr(agent, "_dispatch_tool", None)
-            out.append(_disp(p[0], p[1]) if callable(_disp)
-                       else _exec_guarded(agent, p[0], p[1]))
+            r = _disp(p[0], p[1]) if callable(_disp) else _exec_guarded(agent, p[0], p[1])
+            out.append(r)
+            _note(i, "failed" if str(r).startswith("(") else "succeeded")
         return out
     spawns = []
     for n, a, _early, _cap in plans:
@@ -218,18 +248,21 @@ def _run_tools_batch(agent, calls: list) -> list:
     started = time.monotonic()
     timeout = _tool_timeout()
     out = []
-    for n, sp, sink in spawns:
+    for i, (n, sp, sink) in enumerate(spawns):
         left = max(0.0, timeout - (time.monotonic() - started))
         try:
             ok, val = sp.wait(left)
         except Exception as e:
             out.append(f"(工具 {n} 执行异常:{type(e).__name__})")
+            _note(i, "failed")
             continue
         if not ok:
             out.append(_timeout_text(n))
+            _note(i, "failed")
             continue
         _merge_taint(agent, sink)
         out.append(val)
+        _note(i, "succeeded")
     return out
 
 
@@ -257,9 +290,13 @@ def _step_ok(result: str) -> bool:
     return bool(r) and not r.startswith("(")
 
 
-def _record_step(agent, call: dict, result: str) -> None:
+def _record_step(agent, call: dict, result: str,
+                 result_status: str = "NON_EMPTY") -> None:
     """把一个已完成的工具步骤写进 recovery 日志(fail-safe:异常一律吞掉)。
 
+    result_status(复核者裁定 2026-11-16):NON_EMPTY=正常命中;EMPTY=只读工具
+    成功执行但结果为空——执行状态与业务结果分离,空召回是有效信息,必须与
+    工具失败在证据层面区分开。
     落盘前对 args/result 过 `redact_secrets`:recovery 日志会被回放读回,长期留在
     `{data_dir}/recovery/` 下,而工具参数里经常出现 token/密钥(如鉴权类 CLI、带 key 的
     HTTP 请求)。`_step_key` 仍用**未脱敏**的 args 计算,否则同一步骤的 key 前后不一致,
@@ -274,6 +311,7 @@ def _record_step(agent, call: dict, result: str) -> None:
         rec.record_step(tid, {
             "kind": "tool",
             "name": call.get("name", ""),
+            "result_status": result_status,
             "key": _step_key(call.get("name", ""), call.get("args") or {}),
             "args": redact_obj(call.get("args") or {}),
             "result": text[:_STEP_RESULT_MAX],
@@ -307,9 +345,13 @@ def _apply_failure_policy(agent, call: dict, result: str) -> tuple[str, str]:
     return _policy.annotate(result, d), d.kind
 
 
-def _settle(agent, call: dict, result: str) -> str:
+def _settle(agent, call: dict, result: str, report: dict | None = None) -> str:
     """一个工具步的收尾:核验 → 记账证据 → 只把「真的可用」的步写进 checkpoint。
 
+    EMPTY 分支(复核者裁定 2026-11-16):只读工具返回 EMPTY_RESULT_MARKER =
+    执行成功但结果为空——不走失败策略(重试/注记都会把它当失败处理),核验按
+    VERIFIED 通过,步骤带 result_status="EMPTY" 照常落盘(空召回是有效信息);
+    非只读工具出现该标记按失败处理(防御:标记只应由只读工具产生)。
     返回回注给模型的最终文本(失败时附动作提示,成功时原样返回)。
     """
     from ...core import tools as _tools
@@ -317,29 +359,44 @@ def _settle(agent, call: dict, result: str) -> str:
     from ._context import _evidence_add
     name = call.get("name", "")
     args = call.get("args") or {}
-    text, kind = _apply_failure_policy(agent, call, result)
+    cap = _tools.tool_capability(name)
+    is_empty = (result or "").strip() == _tools.EMPTY_RESULT_MARKER
+    if is_empty and not cap.get("read_only"):
+        result = f"(工具 {name} 返回空结果标记但非只读,按失败处理)"
+        is_empty = False
+    if is_empty:
+        text = result  # 标记文本本身自描述,原样回注模型
+        kind = None
+    else:
+        text, kind = _apply_failure_policy(agent, call, result)
     try:
-        cap = _tools.tool_capability(name)
         v = _verify.verify(name, args, result, cap)
         note = _verify.note_for_model(v, read_only=bool(cap.get("read_only")))
         if note:
             text = f"{text}\n{note}"
         _evidence_add(agent, {
             "tool": name, "kind": kind, "status": v.status,
+            "result_status": "EMPTY" if is_empty else "NON_EMPTY",
             "reason": v.reason, "evidence": [e.to_dict() for e in v.evidence],
         })
-        if v.status != _verify.FAILED and _step_ok(result):
-            _record_step(agent, call, result)
+        if v.status != _verify.FAILED and (_step_ok(result) or is_empty):
+            _record_step(agent, call, result,
+                         result_status="EMPTY" if is_empty else "NON_EMPTY")
+        if report is not None:
+            report["verified"] = v.status
+            report["kind"] = kind
     except Exception:
         pass
     return text
 
 
-def _run_tool_calls(agent, calls: list) -> list:
+def _run_tool_calls(agent, calls: list, states: list | None = None) -> list:
     """执行一批 tool_calls,并按断点续跑语义处理(返回与 calls 同序的结果文本):
       · 命中 `_resume_steps` 里的同指纹步骤 → 复用上次结果,不再执行(断连/崩溃后重跑不重复);
       · 其余照常执行(只读并发 / 写串行,单工具带超时);
       · 每个结果过一遍失败策略表(只读可重试一次)+ 后置核验,证据挂到会话槽。
+
+    states(可选出参)= 与 calls 同序的阶段履历,额外填 verified(核验结论)。
     """
     from ._context import _resume_steps
     cache = _resume_steps.get() or {}
@@ -350,13 +407,43 @@ def _run_tool_calls(agent, calls: list) -> list:
         if isinstance(hit, dict) and isinstance(hit.get("result"), str):
             out[i] = (f"(断点续跑:{c.get('name', '')} 这一步此前已完成,"
                       f"以下为上次的结果,不必重做)\n{hit['result']}")
+            if states is not None:
+                while len(states) <= i:
+                    states.append({})
+                states[i] = {"tool": c.get("name", ""), "stage": "succeeded",
+                             "verified": "RESUMED"}
         else:
             todo.append(i)
     if todo:
-        results = _run_tools_batch(agent, [calls[i] for i in todo])
-        for i, r in zip(todo, results):
-            out[i] = _settle(agent, calls[i], r)
+        sub_states: list = []
+        results = _run_tools_batch(agent, [calls[i] for i in todo], states=sub_states)
+        for k, (i, r) in enumerate(zip(todo, results)):
+            report: dict = {}
+            out[i] = _settle(agent, calls[i], r, report=report)
+            if states is not None:
+                while len(states) <= i:
+                    states.append({})
+                st = dict(sub_states[k]) if k < len(sub_states) else {
+                    "tool": calls[i].get("name", "")}
+                st["verified"] = report.get("verified", "")
+                states[i] = st
     return out
+
+
+class ToolReply:
+    """工具循环结果。
+
+    state:REAL/FALLBACK(正常完成)/DEGRADED(请求异常,text 为显式失败话术)。
+    调用方拿到本对象即视为最终结果;只有 None 才允许回退关键词增强链 ——
+    「调用失败」与「能力不支持」必须分开,否则异常被静默降级成关键词假装正常。
+    tool_trace:六阶段履历(requested / executed / succeeded / rejected / failed / verified)。
+    """
+    __slots__ = ("text", "state", "tool_trace")
+
+    def __init__(self, text: str = "", state: str = "", tool_trace=None):
+        self.text = text
+        self.state = state
+        self.tool_trace = tool_trace or []
 
 
 class ToolExecMixin:
@@ -384,34 +471,86 @@ class ToolExecMixin:
 
     def _reply_with_tools(self, task: str, messages: list, stop_event=None, max_rounds: int = 4):
         """LLM 自主工具调用循环(取代'调 LLM 前用关键词猜要不要联网/召回')。
-        返回最终答案文本;若 provider 实际不支持 tools → 返回 None(上层回退关键词增强链)。
-        工具轮用非流式解析,最终文本由上层 chunk 输出。"""
+
+        返回 ToolReply(text, state, tool_trace);None 表示「不具备工具路径」
+        (provider 不支持 / 无 schema / 空回答 / stop),上层回退关键词增强链。
+
+        每轮 call_tools 持独立 CallStatus 并注册到本任务收集器(P0-03.1):
+        调用异常 = DEGRADED → 显式失败话术,**不回退关键词、不冒充成功**;
+        能力不支持 = UNSUPPORTED → 才允许回退。工具轮非流式,最终文本由上层 chunk 输出。
+        """
         from ...core import tools as _tools
+        from ...core.call_status import (
+            CallStatus, DEGRADED, FALLBACK, REAL, UNSUPPORTED, current_collector,
+        )
         if not self.router.supports_tools():
             return None
         schemas = _tools.default_registry().schemas()
         if not schemas:
             return None
+        col = current_collector()
+
+        def _round(conv_, **kw):
+            st = CallStatus()
+            if col is not None:
+                col.add(st)
+            res = self.router.call_tools(self.system_prompt, conv_, schemas,
+                                         agent_id=self.AGENT_ID, status=st, **kw)
+            return st, res
+
+        def _fail(err: str) -> "ToolReply":
+            # DEGRADED:保留失败语义。上层见到本对象即视为最终结果,不再走关键词链
+            if col is not None:
+                col.add_trace(trace)
+            return ToolReply(text=(f"【工具调用失败】模型工具轮请求异常"
+                                   f"({err.split(':')[0]}),本次任务未完成,"
+                                   f"请稍后重试或改用直接对话。"),
+                             state=DEGRADED, tool_trace=trace)
+
+        trace: list = []
+        state = REAL
         conv = list(messages)
-        for _ in range(max_rounds):
+        for rnd in range(max_rounds):
             _compact = getattr(self, "_compact_context", None)
             if _compact is not None:
                 conv = _compact(conv, "tool_loop")
             if stop_event is not None and stop_event.is_set():
                 return None
-            res = self.router.call_tools(self.system_prompt, conv, schemas,
-                                         agent_id=self.AGENT_ID)
+            st, res = _round(conv)
             if not res.get("supported"):
                 return None
+            if res.get("error"):
+                trace.append({"stage": "failed", "round": rnd, "error": res["error"]})
+                return _fail(res["error"])
+            if st.state == FALLBACK:
+                state = FALLBACK
             calls = res.get("tool_calls") or []
             if not calls:
-                return res.get("text") or None
+                text = res.get("text") or ""
+                if not text:
+                    return None   # 空回答视同无有效工具路径,允许回退关键词链
+                if col is not None:
+                    col.add_trace(trace)
+                return ToolReply(text=text, state=state, tool_trace=trace)
+            trace.append({"stage": "requested", "round": rnd,
+                          "tools": [c.get("name", "") for c in calls]})
             conv.append(res["assistant_msg"])
-            results = _run_tool_calls(self, calls)
+            steps: list = []
+            results = _run_tool_calls(self, calls, states=steps)
+            trace.append({"stage": "executed", "round": rnd, "steps": steps})
             for c, result in zip(calls, results):
                 conv.append(self.router.format_tool_result(c, result))
-        final = self.router.call_tools(self.system_prompt, conv, schemas,
-                                       tool_choice="none", agent_id=self.AGENT_ID)
+        st, final = _round(conv, tool_choice="none")
         if not final.get("supported"):
             return None
-        return final.get("text") or None
+        if final.get("error"):
+            trace.append({"stage": "failed", "round": "final", "error": final["error"]})
+            return _fail(final["error"])
+        if st.state == FALLBACK:
+            state = FALLBACK
+        text = final.get("text") or ""
+        if not text:
+            return None
+        if col is not None:
+            col.add_trace(trace)
+        return ToolReply(text=text, state=state, tool_trace=trace)

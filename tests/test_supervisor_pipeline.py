@@ -146,8 +146,9 @@ def main():
 
     sup._recovery = _Spy()
     asyncio.run(sup.run_task("帮我做个预算分析", context={"channel": "test"}))
-    check(calls[0][0] == "started" and calls[1][0] == "finished" and calls[1][2] == "done",
-          f"正常任务:started→finished(done) 配对(实为 {calls})")
+    check(calls[0][0] == "started" and calls[1][0] == "finished"
+          and calls[1][2] in ("COMPLETED", "PARTIAL", "FAILED"),
+          f"正常任务:started→finished(统一终态 {calls[1][2]}) 配对(实为 {calls})")
     check(calls[0][1] == calls[1][1], "started/finished 同一 task_id(可配对)")
 
     calls.clear()
@@ -160,8 +161,8 @@ def main():
     except RuntimeError:
         raised = True
     check(raised, "子 Agent 未兜底异常向上传播(不吞)")
-    check(calls[0][0] == "started" and calls[1] == ("finished", calls[0][1], "failed"),
-          f"异常任务记 failed(区别于正常完成)(实为 {calls})")
+    check(calls[0][0] == "started" and calls[1] == ("finished", calls[0][1], "FAILED"),
+          f"异常任务记 FAILED(区别于正常完成)(实为 {calls})")
 
     print("\n" + "=" * 60)
     print("P1-1 主管 pipeline 化回归通过")

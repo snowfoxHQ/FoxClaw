@@ -20,7 +20,7 @@ class _MockLLM:
     """可配置回答的假 LLM(is_stub=False 表示"有真实模型")。"""
     def __init__(self, resp="OK", raises=False):
         self.resp, self.raises, self.calls, self.is_stub = resp, raises, 0, False
-    def complete(self, system, messages, max_tokens=2048, agent_id=""):
+    def complete(self, system, messages, max_tokens=2048, agent_id="", status=None, **kw):
         self.calls += 1
         if self.raises:
             raise RuntimeError("llm down")

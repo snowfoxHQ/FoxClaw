@@ -6,6 +6,21 @@ from ._context import _reasoning_inject, _act_stream
 from typing import Any
 
 
+def _new_call_status():
+    """为本次 LLM 调用创建独立 CallStatus 并登记到本任务收集器(P0-03.1)。
+
+    归属是「任务」而非 Router 全局 / Agent 实例:contextvar 在 run_task 边界
+    绑定,asyncio.to_thread 复制传播,并发任务互不串扰。无收集器时仍返回
+    独立对象(不注册),调用路径照常填终态。
+    """
+    from ...core.call_status import CallStatus, current_collector
+    st = CallStatus()
+    col = current_collector()
+    if col is not None:
+        col.add(st)
+    return st
+
+
 class LlmMixin:
     AGENT_ID: str
     router: Any
@@ -42,6 +57,31 @@ class LlmMixin:
                 merged = [{"role": "user", "content": str(inj)}] + merged
             messages = merged
         sc = _act_stream.get()
+        # act 路径 LLM 自主工具循环(2026-11-16 接线修复):此前只有 stream_reply
+        # 路径挂了 _reply_with_tools,run_task→CognitivePipeline act→_call_llm 走
+        # 裸 complete,派发子 Agent(finance/office)拿不到任何工具(T6 真实冒烟
+        # 实证:agent 明确报告"会话里没有 web_search")。现与 stream_reply 同一
+        # 判定源(FOXCLAW_TOOL_USE=1 且 provider 支持 tools):先走工具循环,
+        # 模型自主决策调用/回答;工具步骤经 _record_step 落 task_log.jsonl
+        # (evidence 不缺位)。返回 None(provider 不支持/无 schema/stop 置位)→
+        # 回落下方 complete,原行为逐字不变。流式路径(_act_stream 置位)不在此
+        # 接,保持 stream_reply 既有工具循环。
+        if sc is None:
+            from ...core.tools import tool_use_enabled as _tool_use_enabled
+            if _tool_use_enabled() and self.router.supports_tools():
+                _task = next((str(m.get("content") or "") for m in reversed(messages)
+                              if m.get("role") == "user"), "")
+                try:
+                    # 复核者裁定 2026-11-16:工具循环是同步阻塞 I/O(模型工具轮 +
+                    # web_search 网络请求),必须与下方 complete/stream 同一执行
+                    # 语义——移入工作线程,不得阻塞事件循环(否则同循环上的其他
+                    # Agent 任务/请求/异步调度全被拖住)。
+                    _final = await asyncio.to_thread(
+                        self._reply_with_tools, _task, messages)
+                except Exception:
+                    _final = None  # 工具循环任何异常 → 回落普通调用,不阻断任务
+                if _final is not None:
+                    return _final.text
         if sc is not None:
             on_token = sc.get("on_token")
             stop_event = sc.get("stop_event")
@@ -49,7 +89,8 @@ class LlmMixin:
             def _stream_collect():
                 parts = []
                 for chunk in self.router.stream(self.system_prompt, messages, max_tokens,
-                                                self.AGENT_ID, stop_event=stop_event):
+                                                self.AGENT_ID, stop_event=stop_event,
+                                                status=_new_call_status()):
                     parts.append(chunk)
                     if on_token is not None:
                         try:
@@ -64,4 +105,5 @@ class LlmMixin:
                 pass
         return await asyncio.to_thread(
             self.router.complete,
-            self.system_prompt, messages, max_tokens, self.AGENT_ID)
+            self.system_prompt, messages, max_tokens, self.AGENT_ID,
+            status=_new_call_status())

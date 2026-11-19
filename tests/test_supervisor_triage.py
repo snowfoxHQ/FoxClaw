@@ -42,7 +42,7 @@ def main():
 
     calls = []
 
-    def fake(system, messages, max_tokens=2048, agent_id=""):
+    def fake(system, messages, max_tokens=2048, agent_id="", status=None, **kw):
         content = str(messages[-1]["content"]) if messages else ""
         calls.append(content)
         if CLASSIFY_MARK in content:
