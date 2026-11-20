@@ -49,7 +49,18 @@ class MemoryObject(BaseModel):
     # Metadata
     tags: List[str] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    
+
+    # Memory boundaries (borrowed from MemoraX Code four-boundary model)
+    # Defaults keep every legacy JSON record loadable without migration.
+    boundary: Literal["coding", "repo", "user", "procedure"] = "coding"
+    scope: Literal["project", "user", "global"] = "project"
+    status: Literal[
+        "active", "candidate", "verified", "superseded", "deleted"
+    ] = "active"
+    source: str = "agent"
+    evidence: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
     # Temporal
     temporal_weight: float = Field(default=1.0, ge=0.0, le=1.0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
