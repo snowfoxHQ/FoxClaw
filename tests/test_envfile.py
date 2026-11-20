@@ -71,10 +71,10 @@ def test_missing_file_returns_empty(tmp_path):
 
 def test_multiple_shadows_all_reported(tmp_path, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "old-1")
-    monkeypatch.setenv("AMAP_MAPS_API_KEY", "old-2")
+    monkeypatch.setenv("OPENAI_API_KEY", "old-2")
     shadows = load_env_file(_write(
-        tmp_path, "DEEPSEEK_API_KEY=new-1\nAMAP_MAPS_API_KEY=new-2\n"))
-    assert sorted(shadows) == ["AMAP_MAPS_API_KEY", "DEEPSEEK_API_KEY"]
+        tmp_path, "DEEPSEEK_API_KEY=new-1\nOPENAI_API_KEY=new-2\n"))
+    assert sorted(shadows) == ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"]
 
 
 @pytest.mark.parametrize("value", ["1", "true", "True", "yes"])

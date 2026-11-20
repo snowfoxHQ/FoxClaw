@@ -79,7 +79,8 @@ def test_no_whitelist_uses_original_self_answer_path():
     ctx.agent = agent
     _run(sv_dispatch(ctx))
     assert ctx.dispatch_result["result"]["sub_result"] == "LLM 结果"
-    assert (agent.llm_calls, agent.web_calls) == (1, 1)
+    # 自答路径不再做任何联网增强;web_calls 作为哨兵,若被调用即回归
+    assert (agent.llm_calls, agent.web_calls) == (1, 0)
 
 
 def test_fingerprint_mismatch_is_input_invalid_no_fallback():

@@ -1,30 +1,6 @@
 import { escapeHtml } from './util.js?v=2.9';
 import { API, _lastKernelData } from './state.js';
 
-let AMAP_JS_KEY    = "";   // 运行时从后端注入,勿硬编码
-let AMAP_JS_SCODE  = "";   // 运行时从后端注入,勿硬编码
-export async function fetchAMapConfig(){
-  try{
-    const c=await(await fetch(`${API}/config/amap`)).json();
-    AMAP_JS_KEY=c.js_key||""; AMAP_JS_SCODE=c.js_scode||"";
-  }catch(e){}
-}
-let _amapLoaded=false, _amapLoading=false, _amapMap=null;
-export function loadAMap(){
-  return new Promise((resolve,reject)=>{
-    if(_amapLoaded)return resolve(window.AMap);
-    if(!AMAP_JS_KEY)return reject('no-key');
-    if(_amapLoading){const t=setInterval(()=>{if(_amapLoaded){clearInterval(t);resolve(window.AMap);}},200);return;}
-    _amapLoading=true;
-    if(AMAP_JS_SCODE){ window._AMapSecurityConfig={securityJsCode:AMAP_JS_SCODE}; }
-    const s=document.createElement('script');
-    s.src=`https://webapi.amap.com/maps?v=2.0&key=${AMAP_JS_KEY}`;
-    s.onload=()=>{_amapLoaded=true;resolve(window.AMap);};
-    s.onerror=()=>reject('load-fail');
-    document.head.appendChild(s);
-  });
-}
-
 export function kpSet(title,tag,html){
   const t=document.getElementById('kpTitle'); if(t)t.textContent=title;
   const g=document.getElementById('kpTag');   if(g)g.textContent=tag;
@@ -78,11 +54,11 @@ export function renderItinerary(d){
   let h='<div class="kp-add" onclick="openEntry(\'admin\')">＋ 录入行程</div>'
        +'<div class="kp-add" onclick="importDomainFile(\'admin\')">📁 导入文件</div>';
   h+=`<div class="kp-sec"><div class="h">行程地图</div>
-    <div id="amapBox" style="height:160px;border-radius:10px;overflow:hidden;border:1px solid var(--glass-brd);position:relative;background:radial-gradient(circle at 50% 50%,rgba(255,157,0,.08),rgba(8,12,28,.5))">
-      <div id="amapHint" style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;font-size:11px;color:var(--ink-faint);padding:10px">加载地图中…</div>
+    <div id="mapBox" style="height:160px;border-radius:10px;overflow:hidden;border:1px solid var(--glass-brd);position:relative;background:radial-gradient(circle at 50% 50%,rgba(255,157,0,.08),rgba(8,12,28,.5))">
+      <div id="mapHint" style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;font-size:11px;color:var(--ink-faint);padding:10px">绘制示意图…</div>
     </div></div>`;
   h+=itinRouteHTML(d);
-  setTimeout(()=>drawAMap(d.map_data||[]),60);
+  setTimeout(()=>drawMap(d.map_data||[]),60);
   return h||'<div class="kp-empty">暂无行程 · 先导入行程点</div>';
 }
 
@@ -103,38 +79,18 @@ export function itinSideHTML(d){
   let h='<div class="kp-add" onclick="openEntry(\'admin\')">＋ 录入行程</div>'
        +'<div class="kp-add" onclick="importDomainFile(\'admin\')">📁 导入文件</div>';
   const body=itinRouteHTML(d);
-  return h + (body || '<div style="text-align:left;color:var(--ink-faint);font-size:11px;padding:8px 0;line-height:1.8">搜索地点<br>加入行程</div>');
+  return h + (body || '<div style="text-align:left;color:var(--ink-faint);font-size:11px;padding:8px 0;line-height:1.8">暂无行程数据<br>录入后显示示意图</div>');
 }
 
-export function drawAMap(mapData){
-  const box=document.getElementById('amapBox'), hint=document.getElementById('amapHint');
+export function drawMap(mapData){
+  const box=document.getElementById('mapBox');
   if(!box)return;
-  const pois=mapData.filter(x=>x.type==='poi');
-  const routes=mapData.filter(x=>x.type==='route');
-  if(!AMAP_JS_KEY){
-    box.innerHTML=simpleMapSVG(pois,routes);
-    return;
-  }
-  loadAMap().then(AMap=>{
-    box.innerHTML='';
-    const center=pois.length?pois[0].lnglat:[116.40,39.90];
-    _amapMap=new AMap.Map(box,{zoom:11,center,viewMode:'2D'});
-    const pts=[];
-    pois.forEach((p,i)=>{
-      const mk=new AMap.Marker({position:p.lnglat,map:_amapMap,
-        label:{content:`${i+1}.${p.text}`,direction:'top'}});
-      pts.push(p.lnglat);
-    });
-    routes.forEach(r=>{
-      new AMap.Polyline({path:[r.start,r.end],map:_amapMap,
-        strokeColor:'#ff9d00',strokeWeight:4,strokeOpacity:.85});
-    });
-    if(pts.length)_amapMap.setFitView();
-  }).catch(()=>{ box.innerHTML=simpleMapSVG(pois,routes); });
+  box.innerHTML=simpleMapSVG(mapData.filter(x=>x.type==='poi'),
+                              mapData.filter(x=>x.type==='route'));
 }
 
 export function simpleMapSVG(pois,routes){
-  if(!pois.length)return '<div style="display:grid;place-items:center;height:100%;font-size:11px;color:var(--ink-faint)">暂无坐标 · 配置高德 JSAPI Key 后显示真地图</div>';
+  if(!pois.length)return '<div style="display:grid;place-items:center;height:100%;font-size:11px;color:var(--ink-faint)">暂无坐标 · 给行程点填入经纬度后显示示意图</div>';
   const lngs=pois.map(p=>p.lnglat[0]),lats=pois.map(p=>p.lnglat[1]);
   const minx=Math.min(...lngs),maxx=Math.max(...lngs),miny=Math.min(...lats),maxy=Math.max(...lats);
   const W=240,H=150,pad=24;
@@ -147,7 +103,7 @@ export function simpleMapSVG(pois,routes){
     s+=`<text x="${x}" y="${y+3}" font-size="8" fill="#fff" text-anchor="middle" font-family="Orbitron">${i+1}</text>`;
     s+=`<text x="${x}" y="${y-9}" font-size="7" fill="#7e93b8" text-anchor="middle">${p.text}</text>`;});
   s+='</svg>';
-  return s+`<div style="position:absolute;bottom:4px;right:6px;font-size:8px;color:var(--ink-faint)">坐标示意 · 配 JSAPI Key 看真地图</div>`;
+  return s+`<div style="position:absolute;bottom:4px;right:6px;font-size:8px;color:var(--ink-faint)">坐标示意图</div>`;
 }
 
 export function renderSituation(d){
@@ -166,109 +122,19 @@ export function renderSituation(d){
   return h;
 }
 
-let _ovMapRef=null;   // 全屏地图引用,供搜索使用
-export function amapPlaceUrl(name,lng,lat){
-  return `https://www.amap.com/search?query=${encodeURIComponent(name)}&center=${lng},${lat}&zoom=16`;
-}
-export function drawAMapInto(boxId,mapData){
+export function drawMapInto(boxId,mapData){
   const box=document.getElementById(boxId); if(!box)return;
-  const pois=mapData.filter(x=>x.type==='poi');
-  const routes=mapData.filter(x=>x.type==='route');
-  if(!AMAP_JS_KEY){ box.innerHTML=simpleMapSVG(pois,routes); return; }
-  loadAMap().then(AMap=>{
-    box.innerHTML='';
-    const center=pois.length?pois[0].lnglat:[116.40,39.90];
-    const map=new AMap.Map(box,{zoom:12,center,viewMode:'2D'});
-    _ovMapRef=map;
-    AMap.plugin(['AMap.ToolBar','AMap.Scale','AMap.MapType'],()=>{
-      map.addControl(new AMap.ToolBar({position:{top:'90px',right:'20px'}}));
-      map.addControl(new AMap.Scale());
-      map.addControl(new AMap.MapType({
-        defaultType:0,        // 0=标准 1=卫星
-        showTraffic:false,    // 路况开关
-        showRoad:false,       // 卫星图上叠加路网
-      }));
-    });
-    const pts=[];
-    pois.forEach((p,i)=>{
-      const mk=new AMap.Marker({position:p.lnglat,map,label:{content:`${i+1}.${p.text}`,direction:'top'}});
-      mk.on('click',()=>{
-        const info=new AMap.InfoWindow({
-          content:`<div style="padding:8px 6px;font-size:13px;min-width:160px">
-            <b style="font-size:14px">${p.text}</b><br>
-            <span style="color:#666;font-size:11px">${p.remark||''}</span><br>
-            <a href="${amapPlaceUrl(p.text,p.lnglat[0],p.lnglat[1])}" target="_blank"
-               style="display:inline-block;margin-top:8px;padding:5px 12px;background:#3478f6;color:#fff;border-radius:6px;font-size:12px;text-decoration:none">
-               在高德查看详情 ↗</a></div>`,
-          offset:new AMap.Pixel(0,-30)});
-        info.open(map,p.lnglat);
-      });
-      pts.push(p.lnglat);
-    });
-    routes.forEach(r=>{new AMap.Polyline({path:[r.start,r.end],map,strokeColor:'#ff9d00',strokeWeight:5,strokeOpacity:.85,showDir:true});});
-    if(pts.length)map.setFitView();
-  }).catch(()=>{box.innerHTML=simpleMapSVG(pois,routes);});
+  box.innerHTML=simpleMapSVG(mapData.filter(x=>x.type==='poi'),
+                             mapData.filter(x=>x.type==='route'));
 }
 
-let _searchMarker=null;
-export function initMapSearch(){
-  const inp=document.getElementById('mapSearchInput');
-  const resBox=document.getElementById('mapSearchResults');
-  if(!inp||!AMAP_JS_KEY)return;
-  loadAMap().then(AMap=>{
-    AMap.plugin(['AMap.AutoComplete'],()=>{
-      const auto=new AMap.AutoComplete({city:'全国'});
-      let timer=null;
-      inp.addEventListener('input',()=>{
-        clearTimeout(timer);
-        const kw=inp.value.trim();
-        if(!kw){resBox.innerHTML='';return;}
-        timer=setTimeout(()=>{
-          auto.search(kw,(status,result)=>{
-            if(status==='complete'&&result.tips){
-              resBox.innerHTML=result.tips.filter(t=>t.location).slice(0,8).map(t=>
-                `<div class="msr-item" data-lng="${escapeHtml(t.location.lng)}" data-lat="${escapeHtml(t.location.lat)}" data-name="${escapeHtml(t.name)}" data-addr="${escapeHtml((t.district||'')+(t.address||''))}">
-                  <b>${escapeHtml(t.name)}</b><span>${escapeHtml(t.district||'')} ${escapeHtml(t.address||'')}</span></div>`).join('');
-              bindSearchResults();
-            }
-          });
-        },300);
-      });
-    });
-  });
-}
-export function bindSearchResults(){
-  document.querySelectorAll('.msr-item').forEach(it=>{
-    it.addEventListener('click',()=>{
-      const lng=parseFloat(it.dataset.lng),lat=parseFloat(it.dataset.lat),name=it.dataset.name,addr=it.dataset.addr;
-      if(_ovMapRef&&window.AMap){
-        _ovMapRef.setZoomAndCenter(15,[lng,lat]);
-        if(_searchMarker)_ovMapRef.remove(_searchMarker);
-        _searchMarker=new AMap.Marker({position:[lng,lat],map:_ovMapRef,
-          label:{content:name,direction:'top'}});
-        const info=new AMap.InfoWindow({
-          content:`<div style="padding:6px 4px;font-size:13px;min-width:170px"><b>${name}</b><br><span style="color:#666;font-size:11px">${addr}</span><br>
-            <div style="display:flex;gap:6px;margin-top:8px">
-            <button id="addWpBtn" style="padding:6px 12px;background:#ff9d00;border:0;border-radius:6px;color:#fff;cursor:pointer;font-size:12px">＋ 加入行程</button>
-            <a href="${amapPlaceUrl(name,lng,lat)}" target="_blank" style="padding:6px 12px;background:#3478f6;border-radius:6px;color:#fff;font-size:12px;text-decoration:none">详情 ↗</a>
-            </div></div>`,
-          offset:new AMap.Pixel(0,-30)});
-        info.open(_ovMapRef,[lng,lat]);
-        setTimeout(()=>{const b=document.getElementById('addWpBtn');
-          if(b)b.onclick=()=>addWaypointFromSearch(name,addr,lng,lat);},100);
-      }
-      document.getElementById('mapSearchResults').innerHTML='';
-      document.getElementById('mapSearchInput').value=name;
-    });
-  });
-}
 export async function addWaypointFromSearch(name,addr,lng,lat){
   try{
     await fetch(`${API}/itinerary/import`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({rows:[{name,address:addr,lng,lat,start_time:null,duration_min:0,city:''}]})});
     const d=await(await fetch(`${API}/itinerary/plan`)).json();
     _lastKernelData.admin=d;
-    drawAMapInto('ovMap',d.map_data||[]);
+    drawMapInto('ovMap',d.map_data||[]);
     const side=document.querySelector('.ov-side');
     if(side)side.innerHTML=itinSideHTML(d);
     kpSet('行程规划','Ops',renderItinerary(d));  // 同步主面板

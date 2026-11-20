@@ -63,9 +63,8 @@ async def sv_meta_check(ctx: PipelineContext) -> None:
         f"用户问:「{ctx.task}」。请以主管身份友好、简洁地直接回答用户这个问题。\n"
         f"背景信息(供你回答时参考):\n"
         f"- 你统领的团队:\n{team}\n"
-        f"- 关于联网:Foxclaw 已接入百度 AI 搜索,具备联网查询实时信息的能力"
-        f"(当用户问最新版本、新闻、价格等时会自动联网)。所以如果用户问你能不能联网,"
-        f"应回答「可以联网」,而不是说没有联网能力。\n"
+        f"- 关于联网:Foxclaw 不具备联网查询能力,查不到实时信息(最新版本、新闻、价格等)。"
+        f"如果用户问你能不能联网,如实回答「不能」,不要声称可以联网。\n"
         f"请针对用户的实际问题回答,控制在 150 字内,口吻像专业总管,不要自称助手,"
         f"不要答非所问地只做自我介绍。"
     )
@@ -168,7 +167,6 @@ async def sv_dispatch(ctx: PipelineContext) -> None:
             f"问题作答,不要只做自我介绍、不要答非所问。若确属需要专门领域深办的任务,可"
             f"简要引导用户去对应能力,但仍先给出有用的直接回应。"
         )}]
-        _msgs = await asyncio.to_thread(agent._web_augment, ctx.task, _msgs)
         reply = await agent._call_llm(_msgs)
         agent._store_memory(
             content=f"主管自答正面对话「{ctx.task}」", mem_type="decision",

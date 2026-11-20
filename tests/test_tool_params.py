@@ -32,36 +32,36 @@ def main():
     r = default_registry()
 
     print("\n【1】schema 可从注册表取到(执行侧与模型侧同一份真源)")
-    sch = r.param_schema("web_search")
-    check(bool(sch), "web_search 有 parameters schema")
+    sch = r.param_schema("recall_memory")
+    check(bool(sch), "recall_memory 有 parameters schema")
     check(sch.get("required") == ["query"], f"required 声明正确({sch.get('required')})")
     check(bool(r.param_schema("不存在的工具") == {}), "未知工具返回空 schema(不抛异常)")
 
     print("\n【2】必填参数缺失被检出")
-    errs = r.validate_args("web_search", {})
+    errs = r.validate_args("recall_memory", {})
     check(any("query" in e for e in errs), f"缺 query 被检出({errs})")
-    errs = r.validate_args("web_search", {"query": ""})
+    errs = r.validate_args("recall_memory", {"query": ""})
     check(any("query" in e for e in errs), f"空字符串 query 也算缺失({errs})")
 
     print("\n【3】类型不符被检出(C 类:静默失败改为可见)")
-    errs = r.validate_args("web_search", {"query": {"a": 1}})
+    errs = r.validate_args("recall_memory", {"query": {"a": 1}})
     check(any("类型" in e for e in errs), f"dict 传 string 位被检出({errs})")
     errs = r.validate_args("recall_memory", {"query": "x", "top_k": "ten"})
     check(any("类型" in e for e in errs), f"字符串传 integer 被检出({errs})")
     errs = r.validate_args("recall_memory", {"query": "x", "top_k": True})
     check(not any("top_k" in e for e in errs),
           f"bool 不被误判为 integer({errs})")
-    check(r.validate_args("web_search", {"query": "ok", "未声明字段": 1}) == [],
+    check(r.validate_args("recall_memory", {"query": "ok", "未声明字段": 1}) == [],
           "未声明的额外字段不报错(避免过度约束模型)")
 
     print("\n【4】合法入参通过(不误拦)")
-    check(r.validate_args("web_search", {"query": "今天天气"}) == [],
+    check(r.validate_args("recall_memory", {"query": "今天天气"}) == [],
           "合法 query 无错误")
     check(r.validate_args("recall_memory", {"query": "x", "top_k": 8}) == [],
           "合法 top_k 无错误")
 
     print("\n【5】permission Stage 1 真正生效(此前 params={} 恒不触发)")
-    for tool, args, want in [("web_search", {}, "ask"),
+    for tool, args, want in [("recall_memory", {}, "ask"),
                              ("recall_memory", {"query": "x"}, "allow")]:
         sch_t = r.param_schema(tool)
         req = set(sch_t.get("required") or [])

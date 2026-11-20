@@ -20,7 +20,7 @@ from foxclaw.core import failure_policy as policy
 from foxclaw.core import tools as core_tools
 from foxclaw.core import verify as vf
 
-TIMEOUT_TEXT = "(工具 web_search 超过 45s 未返回,已跳过以免拖住整轮)"
+TIMEOUT_TEXT = "(工具 recall_memory 超过 45s 未返回,已跳过以免拖住整轮)"
 
 
 class _Rec:
@@ -41,10 +41,10 @@ def _agent():
 @pytest.mark.parametrize("text,kind", [
     (TIMEOUT_TEXT, policy.TIMEOUT),
     ("(工具 shell 已被策略禁用)", policy.DENIED),
-    ("(联网搜索未配置,已降级)", policy.NOT_CONFIGURED),
+    ("(检索服务未配置,已降级)", policy.NOT_CONFIGURED),
     ("(入参不合法:缺少必填 query)", policy.INVALID_ARGS),
-    ("(联网搜索未返回结果)", policy.EMPTY),
-    ("(工具 web_search 执行异常:boom)", policy.EXCEPTION),
+    ("(工具未返回结果)", policy.EMPTY),
+    ("(工具 recall_memory 执行异常:boom)", policy.EXCEPTION),
     ("中国未来十年的产业趋势如何", policy.OK),
     ("", policy.UNKNOWN),
     ("一切正常", policy.OK),
@@ -64,7 +64,7 @@ def test_retry_only_for_read_only() -> None:
 
 
 def test_decide_never_optimistic() -> None:
-    assert policy.decide("(联网搜索未配置)").action == policy.DEGRADE
+    assert policy.decide("(检索服务未配置)").action == policy.DEGRADE
     assert policy.decide("(工具 x 已被策略禁用)").action == policy.STOP
     assert policy.decide("(看不懂的回注").kind == policy.UNKNOWN
     assert policy.decide("(看不懂的回注").action == policy.HAND_TO_HUMAN
@@ -80,13 +80,13 @@ def test_annotate_leaves_success_untouched() -> None:
 
 
 def test_failure_is_failed_not_verified() -> None:
-    v = vf.verify("web_search", {}, TIMEOUT_TEXT, {"read_only": True})
+    v = vf.verify("recall_memory", {}, TIMEOUT_TEXT, {"read_only": True})
     assert v.status == vf.FAILED
     assert v.reason.startswith("失败类型")
 
 
 def test_empty_result_is_not_success() -> None:
-    v = vf.verify("web_search", {}, "", {"read_only": True})
+    v = vf.verify("recall_memory", {}, "", {"read_only": True})
     assert v.status == vf.FAILED
 
 
@@ -107,11 +107,12 @@ def test_side_effect_without_postcondition_is_unverified() -> None:
         == vf.VERIFIED
 
 
-def test_web_search_without_source_is_unverified() -> None:
-    v = vf.verify("web_search", {}, "【联网搜索结果】据行业报告……", {"read_only": True})
+def test_recall_memory_requires_marker() -> None:
+    v = vf.verify("recall_memory", {}, "有内容但没有标准抬头", {"read_only": True})
     assert v.status == vf.UNVERIFIED
-    assert "来源" in v.reason
-    v2 = vf.verify("web_search", {}, "【联网搜索结果】见 https://example.com/a", {"read_only": True})
+    assert "记忆" in v.reason
+    v2 = vf.verify("recall_memory", {}, "【召回的相关记忆】见 https://example.com/a",
+                   {"read_only": True})
     assert v2.status == vf.VERIFIED
     assert v2.evidence[0].label == "example.com"
 
@@ -127,7 +128,7 @@ def test_evidence_only_counts_real_paths(tmp_path) -> None:
 
 def test_evidence_dedup_and_cap() -> None:
     text = " ".join([f"https://example.com/{i}" for i in range(20)]) + " https://example.com/1"
-    ev = vf.extract_evidence("web_search", text)
+    ev = vf.extract_evidence("recall_memory", text)
     assert len(ev) == vf.MAX_EVIDENCE
     assert len({e.ref for e in ev}) == vf.MAX_EVIDENCE
 
@@ -154,7 +155,7 @@ def test_retries_read_only_once_then_gives_up(monkeypatch) -> None:
 
     monkeypatch.setattr(tool_exec, "_run_tools_batch", fake_batch)
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": True})
-    out = tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {"q": "x"}}])
+    out = tool_exec._run_tool_calls(agent, [{"name": "recall_memory", "args": {"q": "x"}}])
 
     assert len(batches) == 2
     assert "[执行策略]" in out[0] and "不要" in out[0]
@@ -184,13 +185,13 @@ def test_success_text_untouched_and_evidence_recorded(monkeypatch) -> None:
     def fake_batch(a, calls, states=None):
         if states is not None:
             states.extend({"tool": c["name"]} for c in calls)
-        return ["【联网搜索结果】结论 https://example.com/a"] * len(calls)
+        return ["【召回的相关记忆】结论 https://example.com/a"] * len(calls)
 
     monkeypatch.setattr(tool_exec, "_run_tools_batch", fake_batch)
     monkeypatch.setattr(core_tools, "tool_capability", lambda n: {"read_only": True})
-    out = tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {"q": "x"}}])
+    out = tool_exec._run_tool_calls(agent, [{"name": "recall_memory", "args": {"q": "x"}}])
 
-    assert out[0] == "【联网搜索结果】结论 https://example.com/a"
+    assert out[0] == "【召回的相关记忆】结论 https://example.com/a"
     assert len(agent._recovery.steps) == 1
     ev = agent._evidence_list[0]
     assert ev["status"] == vf.VERIFIED
@@ -224,5 +225,5 @@ def test_evidence_is_per_agent() -> None:
 
 
 def test_verify_never_raises_on_weird_input() -> None:
-    assert vf.verify("web_search", {}, "(((", None).status == vf.FAILED
+    assert vf.verify("recall_memory", {}, "(((", None).status == vf.FAILED
     assert vf.verify("unknown_tool", None, "ok", None).status == vf.UNVERIFIED

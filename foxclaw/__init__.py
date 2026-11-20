@@ -22,7 +22,7 @@ for _stream in (sys.stdout, sys.stderr):
 # 版本号单一来源:与 pyproject.toml 保持一致,api.py 的 FastAPI app 版本与
 # /api/system/info 都引用这里,避免三处各写一个值再漂移(曾出现 system_info 硬编码
 # 1.0.0 而 pyproject/app 是 0.1.0 的不一致)。
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 from .core.thought_chain import ThoughtChain
 
@@ -254,11 +254,10 @@ class Foxclaw:
             persist_path=str(self.data_dir / "learning.json"))
         self.office.attach_runtime(self.learning_runtime)
 
-        # 行程内核(路线优化 + 可达性 + 守门人 + 高德接口)现在挂在办公学习 Agent 上 ——
+        # 行程内核(路线优化 + 可达性 + 守门人 + 地图数据)现在挂在办公学习 Agent 上 ——
         # 行政 Agent 下放后,领域内核仍归"离内核最近"的 Agent,编排层不直接读它。
         from .itinerary import ItineraryRuntime
-        self.itinerary_runtime = ItineraryRuntime(
-            amap_key=os.environ.get("AMAP_MAPS_API_KEY"), hmr=self.hmr)
+        self.itinerary_runtime = ItineraryRuntime(hmr=self.hmr)
         self.office.attach_itinerary(self.itinerary_runtime)
 
         # 给主管挂载编排引擎(全局态势 + 跨 Agent 编排)

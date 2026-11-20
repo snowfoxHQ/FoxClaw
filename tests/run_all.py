@@ -87,7 +87,7 @@ TESTS = [
     ("test_tracing.py",      "请求链路追踪(trace_id 贯穿 请求→Agent→LLM·跨线程 span·有界环存)"),
     ("test_emb_cache.py",    "检索/embedding 共享向量缓存(批量只编未命中·跨层共享·LRU 有界·并发)"),
     ("test_multi_chain.py",  "智能体层·多步跨 Agent 链式协作(后一步看得到前序结果·上下文封顶)"),
-    ("test_web_trigger.py",  "联网触发判定(个人数据不误搜·外部话题照搜·纯时间词不触发)"),
+    ("test_personal_data_guard.py", "个人数据闸门(私人问题不外发·技能路由不得旁路)"),
     ("test_evidence_semantic.py", "证据融合语义化(否定词边界·幻影矛盾·语义支持边·降级)"),
     ("test_domain_evals.py", "领域推理评测(漏报/误报率+误报归因到规则+规则实例隔离)"),
     ("test_negotiation.py",  "智能体层·跨域协商闭环(被拒→让步→再裁决·有界·拒绝不降级)"),
@@ -187,8 +187,6 @@ TESTS = [
      "URL 策略"),
     ("test_version_sync.py",
      "版本号五处同步"),
-    ("test_web_search_empty_result.py",
-     "网搜空结果处理"),
     # --- P0-03 主线(2026-11-19,修复方案批次二)---
     ("test_call_status.py",
      "P0-03.1·调用状态四态契约(REAL/FALLBACK/STUB/DEGRADED/UNSUPPORTED)"),

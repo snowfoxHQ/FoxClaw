@@ -1,4 +1,4 @@
-"""AugmentMixin:联网 / 能力知识 / 指令技能的上下文增强。
+"""AugmentMixin:能力知识 / 指令技能的上下文增强。
 
 从 `foxclaw/agents/base.py` 搬移出来的增强类方法(默认关,fail-safe)。
 """
@@ -12,46 +12,6 @@ class AugmentMixin:
     _think: Callable[..., Any]
     available_abilities: Any
     _call_llm: Callable[..., Any]
-    def _web_augment(self, query: str, messages: list[dict]) -> list[dict]:
-        """若问题含时效性,联网搜索并把结果注入 messages(放在用户问题前)。
-        DeepSeek/OpenAI 等基础 API 不自带联网,这里用百度 AI 搜索补上。失败则原样返回。"""
-        try:
-            from ...core import web_search as _ws
-            if not _ws.needs_search(query):
-                return messages
-            print(f"[联网搜索] 触发,查询: {query}")
-            payload = _ws.search_answer(query)
-            if not payload or (not payload.get("answer") and not payload.get("references")):
-                print("[联网搜索] ⚠ 无结果(未配 BAIDU_SEARCH_KEY 或网络不通)")
-                note = ("【系统提示:本次问题需要实时/最新信息,但联网搜索未返回任何结果"
-                        "(可能未配置搜索服务或网络不可用)。请如实告知用户你暂时无法查询实时信息,"
-                        "**切勿编造或凭记忆给出可能过时的答案**(如版本号、新闻、模型列表、价格等)。】")
-                merged = list(messages)
-                for i in range(len(merged) - 1, -1, -1):
-                    if merged[i].get("role") == "user":
-                        m = dict(merged[i]); m["content"] = note + "\n\n" + (m.get("content") or "")
-                        merged[i] = m
-                        return merged
-                return [{"role": "user", "content": note}] + merged
-            n = len(payload.get("references", []))
-            print(f"[联网搜索] ✓ 命中,参考资料 {n} 条")
-            ctx = _ws.format_for_prompt(query, payload)
-            self._think(
-                content=f"联网搜索「{query}」命中,参考 {n} 条",
-                node_type="tool_use", conf=0.9,
-            )
-            merged = list(messages)
-            for i in range(len(merged) - 1, -1, -1):
-                if merged[i].get("role") == "user":
-                    m = dict(merged[i])
-                    m["content"] = ctx + "\n\n" + (m.get("content") or "")
-                    merged[i] = m
-                    return merged
-            return [{"role": "user", "content": ctx}] + merged
-        except Exception as e:
-            print(f"[联网搜索] 异常: {e}")
-            return messages
-
 
     def _ability_augment_enabled(self) -> bool:
         """能力知识增强是否启用。默认**关**(behavior-preserving)。
@@ -133,11 +93,9 @@ class AugmentMixin:
         return best
 
     async def _call_llm_web(self, query: str, messages: list[dict], max_tokens: int = 2048) -> str:
-        """带联网 + 能力知识增强的 LLM 调用:先判断是否需要搜索/能力增强,再回答。
-        联网搜索/能力增强是同步阻塞 I/O(urllib 等百度、HKC 检索),放到线程池执行,
-        避免堵死 async 事件循环(否则百度慢/超时时整个服务、前端轮询全部冻住)。"""
+        """带能力知识 + 指令技能增强的 LLM 调用(名称沿用历史,已不含联网)。
+        增强是同步阻塞 I/O(HKC 检索),放到线程池执行,避免堵死 async 事件循环。"""
         import asyncio
-        aug = await asyncio.to_thread(self._web_augment, query, messages)
-        aug = await asyncio.to_thread(self._ability_augment, query, aug)
+        aug = await asyncio.to_thread(self._ability_augment, query, messages)
         aug = await asyncio.to_thread(self._skill_augment, query, aug)
         return await self._call_llm(aug, max_tokens=max_tokens)

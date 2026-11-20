@@ -236,7 +236,7 @@ class _ToolRouter:
 class _Registry:
     def schemas(self):
         return [{"type": "function",
-                 "function": {"name": "web_search", "parameters": {}}}]
+                 "function": {"name": "recall_memory", "parameters": {}}}]
 
 
 def _tool_agent(rounds):
@@ -247,7 +247,7 @@ def _tool_agent(rounds):
     return ns
 
 
-def _patch_tools(monkeypatch, result="【联网搜索结果】结论 https://example.com/a"):
+def _patch_tools(monkeypatch, result="【召回的相关记忆】\n- 既往结论 https://example.com/a"):
     """工具实际返回可核验内容(带来源链接)→ 后置核验为 verified。"""
     monkeypatch.setattr(tools, "default_registry", lambda: _Registry())
     monkeypatch.setattr(
@@ -255,7 +255,7 @@ def _patch_tools(monkeypatch, result="【联网搜索结果】结论 https://exa
         lambda agent, calls, states=None: [result] * len(calls))
 
 
-_TOOL_ROUND = {"tool_calls": [{"name": "web_search", "args": {}, "id": "c1"}]}
+_TOOL_ROUND = {"tool_calls": [{"name": "recall_memory", "args": {"query": "天气"}, "id": "c1"}]}
 
 
 def test_m12_tool_fact_preserved_when_final_model_fails(monkeypatch):

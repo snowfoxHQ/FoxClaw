@@ -71,7 +71,7 @@ def _guard_tool(agent, name: str, args: dict):
       ② 未知工具 → 不执行;
       ③ **四阶段权限管线**(permission.evaluate):按能力分级裁决 allow/ask/deny——
          只读放行;写/发送/不可逆/外部副作用/未声明的新工具 → **人在回路(HITL)**,只出草稿不自动执行;
-      ④ web_search 的个人数据否决留到执行阶段(需要 query)。
+      ④ 个人数据外发否决留到执行阶段(需要 query 才能判定)。
     纯函数式、无副作用,因此并发调度前可在主线程一次性裁决完。
     """
     import types as _types
@@ -128,36 +128,6 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
             _taint_raise(agent, level)
 
     try:
-        if name == "web_search":
-            from ...core import web_search as _ws
-            q = str((args or {}).get("query", "")).strip()
-            if not q:
-                return "(web_search 缺少 query 参数)"
-            if _ws.is_personal_query(q):
-                return "(该问题属于用户本地数据,已跳过联网;请依据本地领域信息回答)"
-            payload = _ws.search_answer(q)
-            status = payload.get("status")
-            if status is None:
-                # 旧格式兼容({answer, references} 无 status):只有确有内容才算成功;
-                # 旧空格式一律 FAILED,绝不据「空载荷」推断 EMPTY(裁定边界)。
-                status = (_ws.SEARCH_SUCCESS if (payload.get("answer") or
-                                                 payload.get("references"))
-                          else _ws.SEARCH_FAILED)
-            if status == _ws.SEARCH_EMPTY:
-                # 复核者裁定 2026-11-16:搜索服务成功完成查询并明确零命中 →
-                # 与 recall_memory 同语义的 EMPTY 标记(_settle 落 result_status=EMPTY),
-                # 不得与端点失败混同;Agent 回复不参与成功判定。
-                from ...core.tools import EMPTY_RESULT_MARKER
-                return EMPTY_RESULT_MARKER
-            if status != _ws.SEARCH_SUCCESS or (
-                    not payload.get("answer") and not payload.get("references")):
-                # 必须以 "(" 开头:失败文本约定(_step_ok/failure_policy 据此识别),
-                # 否则失败会被当成功步骤落盘(复核者裁定 2026-11-16 边界要求)。
-                return ("(联网搜索失败或未返回结果:搜索服务出错/未配置/网络不可用;"
-                        "请如实告知用户暂时无法查询实时信息,切勿编造版本号/新闻/价格等。)")
-            agent._think(content=f"工具 web_search「{q}」命中", node_type="tool_use", conf=0.9)
-            _raise(_ig.taint_level("web_search"))
-            return _ws.format_for_prompt(q, payload)
         if name == "recall_memory":
             q = str((args or {}).get("query", "")).strip()
             try:
@@ -208,8 +178,8 @@ def _exec_guarded(agent, name: str, args: dict) -> str:
 def _run_tools_batch(agent, calls: list, states: list | None = None) -> list:
     """按能力调度一批 tool_calls,返回与 calls **同序**的结果文本。
 
-    只读 + 显式声明 parallel_safe + 全部过闸 → 并发(典型:web_search + recall_memory
-    同轮发出,不再一个等一个);其余(写/发送/需确认/未声明)一律串行,避免同一批里
+    只读 + 显式声明 parallel_safe + 全部过闸 → 并发(典型:同轮多个 recall_memory
+    调用,不再一个等一个);其余(写/发送/需确认/未声明)一律串行,避免同一批里
     副作用动作互相覆盖 HITL 裁决。
 
     states(可选出参)= 与 calls 同序的阶段履历:[{tool, stage}],

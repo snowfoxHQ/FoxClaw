@@ -187,7 +187,7 @@ def test_mask(value, expect):
 def test_is_secret_heuristics():
     assert settings.is_secret("DEEPSEEK_API_KEY")
     assert settings.is_secret("SOME_TOKEN_X")
-    assert settings.is_secret("AMAP_JS_SCODE")
+    assert settings.is_secret("FOXCLAW_API_KEY")
     assert not settings.is_secret("FOXCLAW_PORT")
 
 

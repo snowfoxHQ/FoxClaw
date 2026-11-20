@@ -25,8 +25,8 @@
 ## 刻意不做的事
 
 - **不统一布尔语义**。现有各处写法不一致且都有意为之:
-  `url_policy` 是 `in ("1","true","yes")`(默认关),`web_search` 是
-  `not in ("0","false","False","")`(默认开)。强行统一 = 静默改变已有行为,
+  有的键用 `in ("1","true","yes")`(默认关),有的用 `not in ("0","false","")`(默认开)。
+  强行统一 = 静默改变已有行为,
   这类"顺手的重构"是回归温床,不动。
 - **不改任何默认值、不接管 `os.environ`**。`get_*` 是纯读函数,不写回环境、不做缓存
   (运行期改环境变量仍然即时生效,与现状一致)。
@@ -57,7 +57,7 @@ PROVIDER_KEY_ENV: dict[str, str] = {
 }
 
 OWNED_PREFIXES = (
-    "FOXCLAW_", "BAIDU_", "AMAP_", "LLM_", "GENERIC_LLM_",
+    "FOXCLAW_", "LLM_", "GENERIC_LLM_",
     "MINIMAX_", "LOCAL_LLM_", "HKC_", "HMR_",
 )
 
@@ -127,10 +127,6 @@ SPECS: tuple[Opt, ...] = (
         "非慢请求的采样率 0~1;超出范围由调用点 clamp,不在这里报错"),
     Opt("FOXCLAW_TRACE_RETAIN", "int", 5000, "追踪",
         "内存里保留的 trace 条数;调用点已有 max(100, ...) 兜底"),
-    Opt("BAIDU_SEARCH_KEY", "str", "", "搜索", "百度 AI 搜索的 key", secret=True),
-    Opt("BAIDU_SEARCH_MODEL", "str", "", "搜索", "百度搜索用的模型名"),
-    Opt("BAIDU_SEARCH_BASE", "str", "", "搜索", "百度搜索的 base_url"),
-    Opt("BAIDU_SEARCH_TIMEOUT", "int", 45, "搜索", "秒;调用点已有 max(5, ...) 兜底"),
     Opt("FOXCLAW_CHANNEL_TRUSTED_SENDERS", "csv", "", "渠道",
         "逗号分隔的可信发送者:<id> / <channel>:<id> / <channel>:*"),
     Opt("FOXCLAW_CHANNEL_TRUST_ALL", "str", "", "渠道",

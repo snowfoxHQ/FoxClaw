@@ -19,8 +19,6 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import foxclaw.core.web_search as ws
-ws.needs_search = lambda q: False
 
 from foxclaw import Foxclaw
 

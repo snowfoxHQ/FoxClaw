@@ -42,19 +42,31 @@ except Exception:
 
 @app.post("/api/knowledge/search")
 async def knowledge_search(p: KnowledgeSearchPayload):
-    """混合检索知识库。HKC 未启用或检索失败时返回空 hits(与整体降级哲学一致)。"""
+    """混合检索知识库。HKC 未启用或检索失败时返回空 hits(与整体降级哲学一致)。
+
+    `semantic=false` 表示向量后端是伪向量(本地模型缺失时 auto 静默退化为 stub):
+    检索照常返回结果,但那是 hash 向量算出的相似度,和语义无关。调用方必须据此
+    判断命中"可不可信",不能把这种情况当成真实知识检索。
+    """
     hkc = _hkc_or_none()
     if hkc is None or not hkc.available:
         return {"available": False, "hits": []}
     try:
+        _ei = hkc.embedding_info
+    except Exception:
+        _ei = {}
+    _flags = {"semantic": bool(_ei.get("semantic")),
+              "embedding": _ei.get("backend", ""),
+              "embedding_degraded": bool(_ei.get("degraded"))}
+    try:
         hits = await asyncio.to_thread(
             hkc.client.search, p.query, p.mode, p.top_k, p.domain)
     except Exception as e:
-        return {"available": True, "hits": [], "error": str(e)}
+        return {"available": True, "hits": [], "error": str(e), **_flags}
     return {"available": True, "hits": [
         {"ku_id": h.ku_id, "score": h.score, "name": h.name,
          "summary": h.summary, "mode": h.mode, "ku_type": getattr(h, "ku_type", "")}
-        for h in hits]}
+        for h in hits], **_flags}
 
 
 @app.post("/api/knowledge/ingest")

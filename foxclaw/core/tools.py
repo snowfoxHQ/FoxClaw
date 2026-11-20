@@ -2,13 +2,13 @@
 Foxclaw — 工具注册表(ToolRegistry / P2 function-calling)
 
 病根(见 docs/internal/TOOL_USE_PLAN.md §0):系统里散落多套"用关键词猜用户意图"的
-启发式(needs_search / _model_augment / _skill_augment …),各管一摊、彼此不知情,
-加一处碰坏一处。根因是 LLM 从没机会"自己决定用哪个工具"。
+启发式(_model_augment / _skill_augment …),各管一摊、彼此不知情,加一处碰坏一处。
+根因是 LLM 从没机会"自己决定用哪个工具"。
 
 本模块给出**单一意图决策源**的地基:把能力声明成 function-calling 工具(JSON Schema),
 交给模型自己选。ToolRegistry 只持有**工具声明(schema)**;工具的**执行**由 Agent 侧
-`_dispatch_tool` 绑定(recall_memory 需要 agent 的 HMR、web_search 走 core.web_search),
-这样注册表保持无状态、可跨 Agent 复用。
+`_dispatch_tool` 绑定(recall_memory 需要 agent 的 HMR),这样注册表保持无状态、
+可跨 Agent 复用。
 
 模型无关:schema 用 OpenAI tools 通用格式;ModelRouter.call_tools 负责按 provider 适配/降级。
 安全:执行前经 per-tool deny(env FOXCLAW_TOOL_DENY,逗号分隔)+ 可接 SkillPolicy 闸。
@@ -33,15 +33,6 @@ def _tool(name: str, description: str, properties: dict, required: list) -> dict
         },
     }
 
-
-WEB_SEARCH = _tool(
-    "web_search",
-    "联网搜索实时/时效性的**外部**信息:新闻、产品的版本与型号、发布动态、价格、汇率、"
-    "股价、天气、排行等。仅当答案依赖当前外部世界、且不在本地时才调用;闲聊、常识、"
-    "以及用户自己的账本/行程/学习/记忆等**本地数据**不要调用本工具。",
-    {"query": {"type": "string", "description": "要检索的关键词或问题(尽量具体)"}},
-    ["query"],
-)
 
 RECALL_MEMORY = _tool(
     "recall_memory",
@@ -139,13 +130,11 @@ def is_tool_denied(name: str) -> bool:
 
 
 def default_registry() -> ToolRegistry:
-    """首批工具:web_search + recall_memory。后续 skills/MCP 可继续 register 进来(P3)。"""
-    return ToolRegistry().register(WEB_SEARCH).register(RECALL_MEMORY)
+    """首批工具:recall_memory。后续 skills/MCP 可继续 register 进来(P3)。"""
+    return ToolRegistry().register(RECALL_MEMORY)
 
 
 TOOL_CAPABILITIES: dict[str, dict] = {
-    "web_search":    {"side_effect": "read", "read_only": True, "external": False,
-                      "destructive": False, "parallel_safe": True},
     "recall_memory": {"side_effect": "read", "read_only": True, "external": False,
                       "destructive": False, "parallel_safe": True},
 }

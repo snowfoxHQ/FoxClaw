@@ -1,10 +1,10 @@
 """
 B 阶段测试 — 行政 Agent 行程内核(行程行为操作系统)
 验证:行程点 → 路线优化(TSP) → 冲突/可达检测 → 地理聚类 → 守门人
-高德 API:有 AMAP_MAPS_API_KEY 用真实路线,否则直线估算。
+距离按坐标直线估算,不依赖任何外部路线服务。
 
-注:本测试**不**断言具体公里数 —— 因为它随"是否配置高德 Key"而变(直线估算 vs 真实路线)。
-断言的是与数据源无关的结构不变式(点数守恒、边数 = 点数-1、距离为正);具体数值只打印。
+注:本测试**不**断言具体公里数 —— 断言的是结构不变式
+(点数守恒、边数 = 点数-1、距离为正);具体数值只打印。
 """
 import sys
 from pathlib import Path
@@ -28,9 +28,7 @@ def main():
 
     rt = ItineraryRuntime()
     n = rt.import_csv(CSV)
-    print(f"\n采集 {n} 个行程点 · 高德接入: {rt.amap_enabled}")
-    if not rt.amap_enabled:
-        print("  (未设 AMAP_MAPS_API_KEY,使用直线距离估算;设置后自动用真实路线)")
+    print(f"\n采集 {n} 个行程点 · 距离按坐标直线估算")
     check(n == 5, f"采集 5 个行程点(实为 {n})")
 
     report = rt.plan(mode="driving")
@@ -78,17 +76,17 @@ def main():
     check(len(report["gatekeeper_verdicts"]) >= 1,
           f"守门人给出 {len(report['gatekeeper_verdicts'])} 条裁决")
 
-    print("\n【高德可视化数据(MapTaskData)】")
+    print("\n【地图可视化数据(MapTaskData)】")
     md = report["map_data"]
     pois = [x for x in md if x["type"] == "poi"]
     routes = [x for x in md if x["type"] == "route"]
     print(f"  {len(pois)} 个 POI 点 + {len(routes)} 条路线段")
-    print("  → 可喂给高德 MCP 生成专属地图,导入高德 APP 一键导航")
+    print("  → 前端据此绘制坐标示意图")
     check(len(pois) == n, f"POI 点数 = 行程点数({len(pois)} == {n})")
     check(len(routes) == n - 1, f"路线段数 = 点数-1,首尾连贯({len(routes)} == {n - 1})")
 
     print("\n" + "=" * 60)
-    print("✓ B 阶段验证完成:行程内核(路线优化+可达性+守门人+高德接口)成立")
+    print("✓ B 阶段验证完成:行程内核(路线优化+可达性+守门人+地图数据)成立")
     print("=" * 60)
 
 

@@ -1,6 +1,8 @@
 """
-Retriever —— 内部检索(委托 InternalSearchEngine 串联 HMR/未来的 HKC)
-与外部检索(联网搜索，当前是百度 AI 搜索)的统一入口。
+Retriever —— 内部检索(委托 InternalSearchEngine 串联 HMR / HKC)的统一入口。
+
+外部端口只是可插拔扩展点,不内置任何联网实现:external_ports 为空时,
+EXTERNAL / HYBRID 路由只返回内部证据。
 """
 from __future__ import annotations
 from .models import SubQuery, RawEvidence, RouteType

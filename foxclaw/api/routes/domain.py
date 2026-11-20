@@ -171,7 +171,7 @@ async def learning_note(p: NotePayload):
 
 @app.get("/api/itinerary/plan")
 async def itinerary_plan(mode: str = "driving"):
-    """行程内核规划:路线优化/可达性/冲突/守门人 + 高德可视化数据。"""
+    """行程内核规划:路线优化/可达性/冲突/守门人 + 地图可视化数据。"""
     try:
         return _api.os_instance().office.plan_itinerary(mode=mode)
     except Exception as e:

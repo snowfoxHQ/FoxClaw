@@ -84,7 +84,7 @@ async function renderSettingDetail(key){
       <div class="sd-sec">五个 Agent</div>
       <div class="sd-kv"><span>主管 Supervisor</span><b>分诊调度 · 全局态势</b></div>
       <div class="sd-kv"><span>财务 Finance</span><b>理财 · 风控 · 守门人</b></div>
-      <div class="sd-kv"><span>行政 Admin</span><b>行程 · 路线 · 高德地图</b></div>
+      <div class="sd-kv"><span>行政 Admin</span><b>行程 · 路线 · 冲突检测</b></div>
       <div class="sd-kv"><span>办公 Office</span><b>学习 · 知识图谱</b></div>
       <div class="sd-kv"><span>助手 Assistant</span><b>通用 · Skill 接入</b></div>
       <div class="sd-sec">三大模块</div>
@@ -138,7 +138,7 @@ async function renderSettingDetail(key){
 const AGENT_META={
   supervisor:{cn:'主管',en:'Supervisor',ac:'#ffc24b',role:'分诊调度 · 全局态势编排'},
   finance:{cn:'财务',en:'Finance',ac:'#00ffb2',role:'理财 · 预算 · 风控守门'},
-  admin:{cn:'行政',en:'Admin',ac:'#ff9d00',role:'行程 · 日程 · 高德地图'},
+  admin:{cn:'行政',en:'Admin',ac:'#ff9d00',role:'行程 · 日程 · 冲突检测'},
   office:{cn:'办公',en:'Office',ac:'#d99a3c',role:'学习 · 知识 · 间隔重复'},
   assistant:{cn:'助手',en:'Assistant',ac:'#38bdf8',role:'通用任务 · Skill 接入'},
 };
@@ -175,15 +175,7 @@ async function renderAgentDetail(aid, body){
     h+='<div class="sd-desc">策略随运行自学习更新,当前无自定义规则覆盖。</div>';
   }
 
-  if(aid==='admin'){
-    h+='<div class="sd-sec">高德地图(行政专属)<span class="badge ro">只读</span></div>';
-    const a=sys?.amap||{};
-    h+=`<div class="sd-kv"><span>Web服务 Key(路线/POI)</span><b style="color:${a.web_key?'var(--green)':'var(--ink-faint)'}">${a.web_key?'已配置':'未配置'}</b></div>`;
-    h+=`<div class="sd-kv"><span>JSAPI Key(前端地图)</span><b style="color:${a.js_key?'var(--green)':'var(--ink-faint)'}">${a.js_key?'已配置':'未配置'}</b></div>`;
-    h+=`<div class="sd-kv"><span>JSAPI 安全密钥</span><b style="color:${a.js_scode?'var(--green)':'var(--ink-faint)'}">${a.js_scode?'已配置':'未配置'}</b></div>`;
-    h+=`<div class="sd-toggle"><span>地图默认样式(暗色)</span><label class="sw"><input type="checkbox" id="pf-mapDark2" ${uiPref.mapStyle==='dark'?'checked':''}><i></i></label></div>`;
-    h+='<div class="sd-note">高德三个 Key 在 <code>.env</code> 配置(AMAP_MAPS_API_KEY / AMAP_JS_KEY / AMAP_JS_SCODE)。</div>';
-  }else if(aid==='finance'){
+  if(aid==='finance'){
     h+='<div class="sd-sec">财务领域参数<span class="badge ro">只读</span></div>';
     h+='<div class="sd-desc">预算阈值、MAD 异常灵敏度、风控规则在财务内核 policy 中定义,随交易数据自学习。守门人对大额/越权操作执行确认或冻结。</div>';
   }else if(aid==='office'){

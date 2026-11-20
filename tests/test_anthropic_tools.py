@@ -143,7 +143,7 @@ def test_call_tools_anthropic_tool_choice_none():
 
 def test_format_tool_result_anthropic():
     r = _router(_fake_client([[]]))
-    out = r.format_tool_result({"id": "toolu_9", "name": "web_search"}, "结果")
+    out = r.format_tool_result({"id": "toolu_9", "name": "recall_memory"}, "结果")
     assert out == {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": "toolu_9", "content": "结果"}]}
 

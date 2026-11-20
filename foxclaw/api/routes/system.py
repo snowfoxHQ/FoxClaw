@@ -53,15 +53,6 @@ async def get_model():
     return _api.os_instance().router.info()
 
 
-@app.get("/api/config/amap")
-async def get_amap_config():
-    """下发前端高德 JSAPI Key + 安全密钥(从 .env 读取,不硬编码在前端)。"""
-    return {
-        "js_key": os.environ.get("AMAP_JS_KEY", ""),
-        "js_scode": os.environ.get("AMAP_JS_SCODE", ""),
-    }
-
-
 @app.get("/api/system/info")
 async def get_system_info():
     """系统级只读信息:版本、运行参数、各 Agent、模块状态(供设置面板展示)。"""
@@ -83,11 +74,6 @@ async def get_system_info():
         "data_dir": os.environ.get("FOXCLAW_DATA_DIR", "./foxclaw_data"),
         "shadow_rounds": settings.get_int("FOXCLAW_SHADOW_ROUNDS"),
         "model": _api.os_instance().router.info(),
-        "amap": {
-            "web_key": bool(os.environ.get("AMAP_MAPS_API_KEY")),
-            "js_key": bool(os.environ.get("AMAP_JS_KEY")),
-            "js_scode": bool(os.environ.get("AMAP_JS_SCODE")),
-        },
         "agents": agents,
     }
 
@@ -265,6 +251,24 @@ async def health_ready():
     hkc_svc = getattr(o, "_hkc_service", None)
     comps["hkc"] = ("ok" if (hkc_svc is not None and getattr(hkc_svc, "available", False))
                     else ("uninitialized" if hkc_svc is None else "degraded"))
+    # embedding 单独成项:向量后端退化(伪向量)时 HKC 本身仍是 ok,但语义检索不可用 ——
+    # 只看 hkc 会把这个降级藏起来,正是"表面正常、实际不可用"的那类假成功。
+    if hkc_svc is None:
+        comps["embedding"] = "uninitialized"
+    else:
+        try:
+            _ei = hkc_svc.embedding_info
+        except Exception:
+            _ei = {}
+        _emb_backend = str(_ei.get("backend") or "")
+        if not _emb_backend:
+            comps["embedding"] = "unknown"
+        elif _ei.get("degraded"):
+            comps["embedding"] = "degraded"
+        elif not _ei.get("semantic"):
+            comps["embedding"] = "stub"
+        else:
+            comps["embedding"] = "ok"
     comps["mcp_server"] = "on" if getattr(o, "mcp_manager", None) is not None else "off"
     down = [k for k, v in comps.items() if v == "down"]
     return {"status": "degraded" if down else "ok", "components": comps, "version": __version__}

@@ -4,7 +4,7 @@ Foxclaw 行程子系统 — 数据模型
   Waypoint(行程点:地点+时间+坐标)、RouteLeg(路线段)、
   ItineraryVerdict(行程守门人裁决)
 核心思想:行程 = 时空中的可计算约束(地理位置 + 时间窗口 + 可达性)。
-坐标格式遵循高德:经度在前,纬度在后 [lng, lat]。
+坐标格式遵循通用惯例:经度在前,纬度在后 [lng, lat]。
 """
 
 from dataclasses import dataclass, field, asdict
@@ -35,7 +35,7 @@ class Waypoint:
 
     @property
     def coord_str(self) -> str:
-        """高德格式坐标字符串 '经度,纬度'"""
+        """坐标字符串 '经度,纬度'"""
         return f"{self.lng},{self.lat}" if self.has_coord else ""
 
     @property
@@ -58,7 +58,7 @@ class RouteLeg:
     mode: TravelMode = "driving"
     distance_km: float = 0.0
     duration_min: float = 0.0
-    source: Literal["estimated", "amap"] = "estimated"
+    source: Literal["estimated"] = "estimated"
     note: str = ""
 
     def to_dict(self) -> dict:

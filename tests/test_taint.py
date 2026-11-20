@@ -6,7 +6,7 @@
   1. injection_guard.taint_level:来源 → 敏感度分级。
   2. permission.evaluate 污点门槛:默认关闭(行为不变)/ 达标+外发 → TAINT_CONFIRM /
      达标+只读 → 不触发 / 未达标 → 不触发。
-  3. base 污点传播:_dispatch_tool 取回 memory/web_search 后会话污点单调上升;
+  3. base 污点传播:_dispatch_tool 取回 memory 后会话污点单调上升;
      会话开始 _taint_reset 清零。
 """
 import os, sys, types
@@ -37,7 +37,7 @@ def _skill(side_effect="read", read_only=True, external=False, destructive=False
 
 
 def test_taint_level_grading():
-    assert IG.taint_level("web_search") == IG.TAINT_EXTERNAL == 1
+    assert IG.taint_level("unknown_source") == IG.TAINT_EXTERNAL == 1
     assert IG.taint_level("knowledge") == IG.TAINT_PERSONAL == 2
     assert IG.taint_level("file") == IG.TAINT_PERSONAL == 2
     assert IG.taint_level("memory") == IG.TAINT_SENSITIVE == 3
@@ -96,15 +96,6 @@ def test_dispatch_recall_memory_raises_taint():
     out = CognitiveAgent._dispatch_tool(a, "recall_memory", {"query": "偏好"})
     assert "喜欢简洁" in out
     assert _taint_get(a) == IG.TAINT_SENSITIVE
-
-
-def test_dispatch_web_search_raises_taint(monkeypatch):
-    from foxclaw.core import web_search as WS
-    monkeypatch.setattr(WS, "search_answer", lambda q: {"answer": "答案ABC", "references": []})
-    a = types.SimpleNamespace(_think=lambda **k: None)
-    out = CognitiveAgent._dispatch_tool(a, "web_search", {"query": "问题"})
-    assert "答案ABC" in out
-    assert _taint_get(a) == IG.TAINT_EXTERNAL
 
 
 if __name__ == "__main__":

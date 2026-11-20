@@ -567,22 +567,6 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
 .ov-grid{display:grid;grid-template-columns:88px 1fr 88px;gap:14px;height:100%}
 .ov-side{overflow:auto;text-align:left}
 
-/* 地图搜索 */
-.map-search{position:absolute;top:16px;left:16px;width:290px;z-index:var(--z-menu)}
-.map-search input{width:100%;padding:12px 15px;border-radius:13px;font-size:13.5px;font-family:var(--font);color:var(--ink);font-weight:500;outline:none;
-  background:var(--glass-strong);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--line);box-shadow:var(--sh-card)}
-.map-search input::placeholder{color:var(--faint);font-weight:400}
-.map-search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.map-search-results{margin-top:8px;border-radius:14px;overflow:hidden;background:var(--glass-strong);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
-.map-search-results:not(:empty){border:1px solid var(--line);box-shadow:var(--sh-pop);max-height:340px;overflow-y:auto}
-.msr-item{padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--line-soft);transition:.14s}
-.msr-item:last-child{border:0}
-.msr-item:hover{background:var(--surface-2)}
-.msr-item b{display:block;font-size:13px;font-weight:600}
-.msr-item span{font-size:11px;color:var(--dim)}
-.amap-maptypecontrol label,.amap-maptypecontrol span{color:var(--ink)!important}
-.amap-maptypecontrol{border-radius:9px!important}
-
 /* 回复浮窗 */
 .reply-pop{position:fixed;left:50%;bottom:130px;transform:translateX(-50%);width:min(680px,86vw);max-height:46vh;z-index:250;display:none;
   background:var(--glass-strong);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);
@@ -847,7 +831,7 @@ canvas.stream-canvas{display:none}          /* 去掉数据流层 */
   .feed-track.rolling{animation:none!important}.feed-scroll{overflow:auto!important}
 }
 @media (prefers-reduced-transparency:reduce){
-  .topbar,.sm-btn,.sd-pop,.model-menu,.slash-menu,.tool-menu,.conn-panel,.core-chat,.core-stage,.reply-pop,.nav-flyout,.nav-menu,.map-search input,.map-search-results,.planet-ov .close{
+  .topbar,.sm-btn,.sd-pop,.model-menu,.slash-menu,.tool-menu,.conn-panel,.core-chat,.core-stage,.reply-pop,.nav-flyout,.nav-menu,.planet-ov .close{
     backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:#fff!important}
 }
 @media (prefers-contrast:more){

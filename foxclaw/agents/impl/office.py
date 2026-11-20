@@ -140,8 +140,7 @@ class OfficeAgent(CognitiveAgent):
         self._think(
             content=f"行程规划:{report['waypoint_count']} 个点,"
                     f"最优路线 {opt.get('total_km','?')} km / {opt.get('total_min','?')} 分钟,"
-                    f"{len(report['conflicts'])} 个冲突,"
-                    f"高德={'已接入' if report['amap_enabled'] else '估算模式'}",
+                    f"{len(report['conflicts'])} 个冲突",
             node_type="reflection", conf=0.9,
         )
         return report

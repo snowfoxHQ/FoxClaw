@@ -3,7 +3,7 @@ import { escapeHtml } from './util.js?v=2.9';
 import { renderMarkdown, renderReply } from './markdown.js?v=2.9';
 import './visuals.js?v=5.36';   // 球体特效默认关 + foxclawVisual.on/off/toggle API
 import { _origin, API, WS, _lastKernelData } from './state.js?v=5.31';
-import { fetchAMapConfig, kpSet, renderFinance, renderLearning, renderItinerary, itinSideHTML, renderSituation, drawAMapInto, initMapSearch } from './domain.js?v=5.31';
+import { kpSet, renderFinance, renderLearning, renderItinerary, itinSideHTML, renderSituation, drawMapInto } from './domain.js?v=5.33';
 import { openSetMenu, switchProvider, uiPref, openAuthSetting } from './settings.js?v=5.36';   // uiPref.ballAnim 默认 false
 import './chat_model_picker.js?v=1.4';   // chat 输入框旁的下拉式模型选择器;v1.4 保存即切换 + BASE URL 自动补 /v1 + 模型 ID 软提示
 
@@ -143,9 +143,8 @@ async function showInCore(agent){
     if(agent==='admin'){
       body.innerHTML=`<div style="position:relative;height:100%;min-height:300px">
         <div id="coreMap" style="width:100%;height:100%;border-radius:10px;overflow:hidden"></div>
-        <div class="map-search"><input id="mapSearchInput" placeholder="🔍 搜索地点…"><div id="mapSearchResults" class="map-search-results"></div></div>
       </div>`;
-      setTimeout(()=>{drawAMapInto('coreMap',d.map_data||[]); initMapSearch();},60);
+      setTimeout(()=>{drawMapInto('coreMap',d.map_data||[]);},60);
     }else if(agent==='office'){
       const items=(d.items||[]);
       const ingest='<div class="ingest-row" style="max-width:520px;margin:0 auto 14px">'
@@ -1147,14 +1146,10 @@ function openOverlay(agent){
       <div class="ov-spacer"></div>
       <div style="position:relative;height:100%">
         <div id="ovMap" style="width:100%;height:100%"></div>
-        <div class="map-search">
-          <input id="mapSearchInput" placeholder="🔍 搜索地点…">
-          <div id="mapSearchResults" class="map-search-results"></div>
-        </div>
       </div>
       <div class="ov-side" id="ovItinSide">${itinSideHTML(d)}</div>
     </div>`;
-    setTimeout(()=>{drawAMapInto('ovMap',d.map_data||[]); initMapSearch();},80);
+    setTimeout(()=>{drawMapInto('ovMap',d.map_data||[]);},80);
   }else if(agent==='office'){
     body.innerHTML=`<div style="height:100%"><canvas id="ovGraph" style="width:100%;height:100%"></canvas></div>`;
     setTimeout(()=>drawKnowledgeGraph('ovGraph',d),80);
@@ -1741,7 +1736,7 @@ const ENTRY_FORMS={
   admin:{title:'录入行程点',sub:'添加一个行程地点',endpoint:'/itinerary/import',
     fields:[
       {k:'name',label:'地点名',type:'text',ph:'客户A会议'},
-      {k:'address',label:'地址(配高德Key可自动定位)',type:'text',ph:'北京市朝阳区三里屯'},
+      {k:'address',label:'地址(仅记录,距离按经纬度算)',type:'text',ph:'北京市朝阳区三里屯'},
       {k:'lng',label:'经度',type:'number',ph:'116.455'},
       {k:'lat',label:'纬度',type:'number',ph:'39.936'},
       {k:'start_time',label:'到达时间',type:'text',ph:'2026-06-10T10:00:00'},
@@ -1785,7 +1780,6 @@ document.getElementById('entrySubmit')?.addEventListener('click',async()=>{
 
 const _bootTry=(fn,name)=>{ try{ const r=fn(); if(r&&r.catch) r.catch(e=>{ try{document.getElementById('upStat').textContent='启动失败:'+name}catch(_){ } }); }
                        catch(e){ try{document.getElementById('upStat').textContent='启动失败:'+name}catch(_){ } } };
-_bootTry(fetchAMapConfig, 'fetchAMapConfig');
 _bootTry(loadStatus, 'loadStatus');
 _bootTry(loadMemStats, 'loadMemStats');
 _bootTry(loadKnowList, 'loadKnowList');

@@ -24,7 +24,6 @@ from typing import Optional
 from .models import SearchResult, RawEvidence, SourceType, RouteType
 from .planner import QueryPlanner
 from .internal_search import InternalSearchEngine
-from .external_search import BaiduWebSearchPort
 from .retriever import Retriever
 from .evidence import EvidenceFusion
 from .strategy import SearchStrategy
@@ -74,9 +73,8 @@ class SearchRuntime:
         self.planner = QueryPlanner()
         self.fusion = EvidenceFusion()
         self.strategy = SearchStrategy()
-        self.external_ports = (
-            external_ports if external_ports is not None else [BaiduWebSearchPort()]
-        )
+        # 不内置外部检索源:只查 HMR / HKC / Agent 态势。
+        self.external_ports = external_ports or []
 
     def search(self, query: str, agent_id: str | None = None, context: dict | None = None,
                internal_only: bool = False) -> SearchResult:

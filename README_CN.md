@@ -28,7 +28,7 @@ Foxclaw:        记忆 = 持续认知运行时,智能体 = 会推理 · 会学�
 
 - **财务内核**:预算推理、MAD 异常检测、订阅膨胀、现金流预测;守门人四权限(veto/freeze/确认/alert),只产出审批请求不自动动钱。**前沿三件套**:结构化证据链(可解释风险)、财务数据图(追溯"谁造成超支")、对账(三级匹配 + 疑似盗刷识别)。
 - **学习内核**:SM-2 间隔重复(掌握度 + 遗忘风险)+ 知识图谱(知识簇发现)。
-- **行程内核**:TSP 路线优化、可达性"赶不及"检测、时间冲突、地理聚类;接高德地图。
+- **行程内核**:TSP 路线优化、可达性"赶不及"检测、时间冲突、地理聚类;按坐标直线估算距离,输出前端示意图数据。
 
 ### 协调 / 技能
 
@@ -70,7 +70,7 @@ foxclaw/
 │   ├── api.py                    FastAPI + WebSocket
 │   ├── core/                     thought_chain / memory_adapter / model_router /
 │   │                             system_bus / truth_pipeline / token_meter /
-│   │                             web_search / compaction / idempotency / recovery
+│   │                             compaction / idempotency / recovery
 │   ├── kernel/                   运行时内核:调度 / 进程 / 能力 / 准入(spine + sentinel)
 │   ├── pipeline/ planning/       任务执行管线 + 规划原语
 │   ├── cognitive/ knowledge/     领域推理 + 真相结晶
@@ -79,7 +79,7 @@ foxclaw/
 │   ├── harness/                  harness.py(三维漂移)+ loop_detection.py + 策略自学习
 │   ├── finance/                  财务内核 + 三件套(evidence/graph/reconcile)
 │   ├── learning/                 学习内核(SM-2 + 知识图谱)
-│   ├── itinerary/                行程内核(TSP + 高德)
+│   ├── itinerary/                行程内核(TSP + 地图数据)
 │   ├── channels/                 渠道抽象层 + 微信/飞书/Telegram/Discord + 闭环调度
 │   ├── skills/                   Skill 接入层 + 权限(permission)/钩子/断路器/循环防护
 │   ├── search/                   HSR 认知搜索(HMR 记忆 + HKC 知识 + 联网,融入)

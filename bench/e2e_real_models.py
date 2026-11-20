@@ -18,9 +18,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import foxclaw.core.web_search as ws  # noqa: E402
-ws.needs_search = lambda q: False
-
 from foxclaw.core.call_status import CallStatus  # noqa: E402
 from foxclaw.core.model_router import ModelRouter  # noqa: E402
 
