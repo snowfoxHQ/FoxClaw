@@ -110,13 +110,37 @@ class CognitivePipeline:
 
 
 @named_stage("perceive")
-def stage_perceive(ctx: PipelineContext) -> None:
-    """感知:把原始输入框定为结构化感知(Step 5)。当前记录轻量输入特征;
-    这里是未来"意图识别/输入解析"的落点。也是逐 stage 事件链的起点。"""
+async def stage_perceive(ctx: PipelineContext) -> None:
+    """感知:把原始输入框定为结构化感知(Step 5)。默认只记轻量输入特征(行为不变)。
+
+    SC-03 opt-in:context['_perceive']=True 时经统一感知准入边界(caps 里的 observe)触发
+    browser.perceive——权限放行后才感知;结果强制 wrap_untrusted(source="browser")并
+    抬升会话污点(_taint_raise,单调不减),后续 action 经 Stage 3.5 审查。
+    未开启/未授权/无边界一律不感知(fail-closed);感知异常不阻断任务(fail-safe)。
+    """
     ctx.perceived = {
         "task_len": len(ctx.task or ""),
         "has_context": bool(ctx.context),
     }
+    if not (ctx.context or {}).get("_perceive"):
+        return
+    _caps = getattr(ctx.agent, "_caps", None)
+    observe = _caps.get("observe") if _caps is not None else None
+    if observe is None:
+        return
+    try:
+        result = await observe(source="browser", scope="page:*", sensitivity="private")
+    except Exception:
+        return
+    if not result.allowed:
+        ctx.perceived.update({"denied": result.reason, "decision_id": result.decision_id})
+        return
+    ctx.perceived.update({
+        "allowed": True, "source": result.source, "scope": result.scope,
+        "wrapped": result.wrapped, "taint": result.taint,
+    })
+    from ..agents.mixins._context import _taint_raise
+    _taint_raise(ctx.agent, result.taint)
 
 
 @named_stage("recall")

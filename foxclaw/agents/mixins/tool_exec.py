@@ -69,7 +69,7 @@ def _guard_tool(agent, name: str, args: dict):
     动作级安全阀(真正的兜底,不指望 prompt 隔离挡住弱模型):
       ① per-tool deny 闸(kill-switch);
       ② 未知工具 → 不执行;
-      ③ **四阶段权限管线**(permission.evaluate):按能力分级裁决 allow/ask/deny——
+      ③ **四阶段权限管线**(统一 PolicyGate,底层 permission.evaluate):按能力分级裁决 allow/ask/deny——
          只读放行;写/发送/不可逆/外部副作用/未声明的新工具 → **人在回路(HITL)**,只出草稿不自动执行;
       ④ 个人数据外发否决留到执行阶段(需要 query 才能判定)。
     纯函数式、无副作用,因此并发调度前可在主线程一次性裁决完。
@@ -99,9 +99,18 @@ def _guard_tool(agent, name: str, args: dict):
     _taint = _taint_get(agent)
     if _untrusted_get(agent):
         _taint = max(_taint, _ig.TAINT_PERSONAL)
-    decision = _perm.evaluate(spec, args or {}, confirmed=False,
-                              taint_level=_taint,
-                              taint_threshold=_ig.TAINT_PERSONAL)
+    _gate = getattr(agent, "_caps", None)
+    _gate = _gate.get("policy_gate") if _gate is not None else None
+    if _gate is not None:
+        decision = _gate.check_action(spec, args or {}, confirmed=False,
+                                      taint_level=_taint,
+                                      taint_threshold=_ig.TAINT_PERSONAL).raw
+        if decision is None:
+            return f"(工具 {name} 被权限策略拒绝:无动作评估器(fail-closed),未执行)", cap
+    else:
+        decision = _perm.evaluate(spec, args or {}, confirmed=False,
+                                  taint_level=_taint,
+                                  taint_threshold=_ig.TAINT_PERSONAL)
     if decision.decision == "deny":
         return f"(工具 {name} 被权限策略拒绝:{decision.reason},未执行)", cap
     if decision.decision == "ask":

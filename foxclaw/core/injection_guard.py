@@ -224,6 +224,10 @@ _TAINT_BY_SOURCE = {
     "knowledge": TAINT_PERSONAL,
     "file": TAINT_PERSONAL,
     "memory": TAINT_SENSITIVE,
+    # SC-03 感知数据:source 标记互不混淆;网页内容=某条页面内容(个人数据级),
+    # 全屏采集=跨上下文可见的私密(最高敏感级)。
+    "browser": TAINT_PERSONAL,
+    "screen": TAINT_SENSITIVE,
 }
 
 

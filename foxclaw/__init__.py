@@ -6,6 +6,7 @@ Foxclaw — 系统入口
 import os
 import sys
 import threading
+from functools import partial
 from pathlib import Path
 
 # 【跨平台启动修复·统一入口】Windows 控制台默认 GBK(cp936),无法编码 ✓/⚠/· 等诊断字符,
@@ -22,7 +23,7 @@ for _stream in (sys.stdout, sys.stderr):
 # 版本号单一来源:与 pyproject.toml 保持一致,api.py 的 FastAPI app 版本与
 # /api/system/info 都引用这里,避免三处各写一个值再漂移(曾出现 system_info 硬编码
 # 1.0.0 而 pyproject/app 是 0.1.0 的不一致)。
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 from .core.thought_chain import ThoughtChain
 
@@ -144,7 +145,10 @@ class Foxclaw:
         # 一套 Verdict 词汇 + 一个接口。evaluate 注入(避免 kernel→skills 环)。
         # 【P3-4】auditor 注入后,每次裁决带 decision_id 并记入治理审计流(非 allow)。
         from .kernel import PolicyGate
-        from .skills.permission import evaluate as _perm_eval
+        from .skills.permission import PermissionRules, evaluate as _perm_eval
+        from .skills.observation import (ObservationRules, evaluate_observation,
+                                         observe as _observe)
+        from .skills.action import browser_act as _browser_act
 
         # 【P-Muse·守门人进程化】FOXCLAW_GUARDIAN=1 时,把动作裁决从「进程内 evaluate」换成
         # 「跨进程 Sentinel」:规则表与真实凭证只存在于守门人进程,主进程(Agent)被 RCE 也
@@ -156,7 +160,8 @@ class Foxclaw:
             self.sentinel = SentinelClient(data_dir=str(self.data_dir))
             action_evaluator = self.sentinel.evaluate
         self.policy_gate = PolicyGate(spine=self.event_spine, action_evaluator=action_evaluator,
-                                      auditor=self.governance_auditor)
+                                      auditor=self.governance_auditor,
+                                      observation_evaluator=evaluate_observation)
 
         # 【P1-3·能力注册中枢】Composition Root 的解析中枢:组件按名解析同伴,不再直接互持。
         # 必须在 Agent 之前建好并注入,以打断 agents⇄search_runtime、Supervisor⇄Orchestrator 两处直接环。
@@ -371,6 +376,24 @@ class Foxclaw:
         from .browser import BrowserService
         self.browser_service = BrowserService(
             headless=os.environ.get("FOXCLAW_BROWSER_HEADLESS", "1") != "0")
+
+        # 【SC-03】感知统一准入边界:Agent(stage_perceive)与 API(/api/browser/perceive)共用。
+        # 默认空规则 = fail-closed(不感知);FOXCLAW_OBSERVE_ALLOW/DENY 显式开闸/锁定,
+        # 逗号分隔的 `source:scope` fnmatch 模式(与 FOXCLAW_TOOL_DENY/POLICY_DENY 同款)。
+        _obs_allow = [s.strip() for s in os.environ.get("FOXCLAW_OBSERVE_ALLOW", "").split(",") if s.strip()]
+        _obs_deny = [s.strip() for s in os.environ.get("FOXCLAW_OBSERVE_DENY", "").split(",") if s.strip()]
+        self.observe = partial(_observe, self.policy_gate, self.browser_service.perceive,
+                               rules=ObservationRules(allow=_obs_allow, deny=_obs_deny))
+        self.capabilities.register("observe", self.observe)
+
+        # 【SC-08】操作意图授权边界:browser Web 动作不再直接执行,先经 check_action 归一化 +
+        # 授权,deny/confirm fail-closed 拒绝。FOXCLAW_BROWSER_ACT_DENY/ASK 显式锁定/提确认,
+        # 逗号分隔的 `browser:action` 或 `browser.*` fnmatch 模式(与 TOOL_DENY 同款)。
+        _act_deny = [s.strip() for s in os.environ.get("FOXCLAW_BROWSER_ACT_DENY", "").split(",") if s.strip()]
+        _act_ask = [s.strip() for s in os.environ.get("FOXCLAW_BROWSER_ACT_ASK", "").split(",") if s.strip()]
+        self.browser_act = partial(_browser_act, self.policy_gate, self.browser_service.act,
+                                   rules=PermissionRules(deny=_act_deny, ask=_act_ask))
+        self.capabilities.register("browser_act", self.browser_act)
 
         # HKC 知识核心(vendor/hkc,同进程 DirectClient)。**惰性装配**:首次访问 self.hkc
         # 才装配——否则每次构造 OS 都会在 data_dir/hkc 开 4 个 SQLite 句柄,现有测试

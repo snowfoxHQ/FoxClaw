@@ -1,9 +1,4 @@
-"""v0.1.7 记忆写入准入测试 —— M1 / M2 / M4 / M5 / M6，全离线。
-
-不注册进 tests/run_all.py（该文件正被用户并行修改）；用
-    python -m pytest tests/test_memory_write_admission_v017.py
-单独跑。
-"""
+"""v0.1.7 记忆写入准入测试 —— M1 / M2 / M4 / M5 / M6，全离线。"""
 import os
 import sys
 import threading

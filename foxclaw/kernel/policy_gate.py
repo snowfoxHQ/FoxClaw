@@ -39,9 +39,10 @@ class Verdict:
 
 class PolicyGate:
     def __init__(self, spine=None, action_evaluator: Optional[Callable] = None,
-                 auditor=None):
+                 auditor=None, observation_evaluator: Optional[Callable] = None):
         self._spine = spine
         self._eval = action_evaluator
+        self._obs_eval = observation_evaluator
         self._auditor = auditor
 
     @property
@@ -103,6 +104,28 @@ class PolicyGate:
                         detail={"stage": getattr(d, "stage", 0),
                                 "tier": v.tier,
                                 "trust_downgrade": getattr(d, "trust_downgrade", False)})
+        return v
+
+    def check_observation(self, obs, rules=None) -> Verdict:
+        """观察通道准入(SC-02):底层是 observation.evaluate_observation(同一 ObservationDecision);
+        归一化为 Verdict,非 allow 发统一 policy.decision.* 审计。与操作通道共享
+        decision_id / _emit / _audit,仅评估器与 source 标记不同。"""
+        if self._obs_eval is None:
+            v = Verdict(False, "deny", "无观察评估器,fail-closed 拒绝", "observation",
+                        None, decision_id=new_decision_id())
+            self._emit(v, getattr(obs, "source", ""))
+            self._audit(v, actor="", action=f"observation:{getattr(obs, 'source', '')}",
+                        detail={"fail_closed": True})
+            return v
+        d = self._obs_eval(obs, rules=rules)
+        level = {"allow": "allow", "deny": "deny"}.get(d.decision, "deny")
+        v = Verdict(allowed=(d.decision == "allow"), level=level,
+                    reason=(d.reason or ""), source="observation", raw=d,
+                    decision_id=new_decision_id())
+        if level != "allow":
+            self._emit(v, getattr(obs, "source", ""))
+            self._audit(v, actor="", action=f"observation:{getattr(obs, 'source', '')}",
+                        detail={"stage": getattr(d, "stage", 0)})
         return v
 
     def _emit(self, v: Verdict, skill_id: str) -> None:

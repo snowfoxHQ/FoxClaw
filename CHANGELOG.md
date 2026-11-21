@@ -4,7 +4,7 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
-## Unreleased
+## 0.1.8 — 2026-11-22
 
 **Removed: built-in web search and map keys**
 
@@ -12,6 +12,36 @@ Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 - The personal-data guard moved to `foxclaw/core/personal_data.py`, so "private data never leaves the machine" is preserved independently of any single transport.
 - Supervisor prompts now state plainly that the system has no live web access, instead of implying it does.
 - Amap is gone as well: `AMAP_MAPS_API_KEY` / `AMAP_JS_KEY` / `AMAP_JS_SCODE`, the `/api/config/amap` route, the itinerary geocoding client, and the front-end JS map loader. Itinerary legs are estimated from coordinates and the map panel renders the built-in SVG sketch from `map_data`.
+
+**Desktop operation safety foundation (Computer Use groundwork)**
+
+This release adds no new "control the computer" capability. It closes the authorization and governance groundwork that any future on-desktop action must build on, so that "being deceived must not cause harm" is enforced before an action ever executes.
+
+**What it can and cannot do (capability and boundary)**
+
+- What it can do now: browser **perception** (`/api/browser/perceive`, reading the page's semantic state) and six browser **actions** (`navigate` / `click` / `type` / `scroll` / `extract` / `wait`). Both paths are now authorized: perception goes through a dedicated observation channel, actions go through operation-intent authorization, and write actions (navigate/click/type) require explicit confirmation before they run.
+- What it still cannot do: shell execution, file reads/writes, mouse/keyboard control, screen capture, OCR, UI Automation, clipboard read/write, window control. These belong to the Windows desktop-control scope and are **not implemented** in this release; none are presented as ready. Their safety groundwork (intent canonicalization, observation/action separation, untrusted perception) is in place, and future tools will enter the unified governance from their first production call path.
+
+**Safety operating rules**
+
+- Authorization is keyed by a canonical operation intent (domain/action/target/effect), not a tool name: re-expressing the same operation under a different tool name hits the same allow/deny rule, so an equivalent path cannot bypass a deny.
+- Perception and operation permissions are fully separated: permission to "look" does not grant permission to "act"; ordinary `read` does not allow screen capture.
+- Perceived data is forced untrusted: browser perception is wrapped (`wrap_untrusted`) before it enters the decision flow, and model summarization, compression or rewriting never lowers the source taint; a page's "please run X" is never treated as user authorization.
+- The tool path joins unified admission: `recall_memory` and future tools no longer bypass `PolicyGate`; they share the same entry, `decision_id` and audit events as the skill path.
+- Browser actions join operation-intent authorization (`/api/browser/act`): denied and unconfirmed write actions fail closed.
+- The sentinel guardian's fail-closed behavior is now covered by regression tests: when the guardian is unreachable, `evaluate` denies and `mcp_call` / `execute_web` return blocked instead of degrading to local direct execution.
+- Compensating-rollback production trigger chain is verified: a failed task compensates executed side-effect steps in reverse order, and a compensation failure escalates to manual handling.
+
+**Constitution (Desktop Operation Constitution DOC-01 ~ DOC-07)**
+
+This release is the engineering landing of the Computer Use governing document, the Desktop Operation Constitution. The clauses now enforced in code:
+
+- **Intent canonicalization (DOC-03)**: allow/deny is decided from the canonical operation intent, not the tool name; an equivalent path after a deny hits the same intent rule.
+- **Perception/operation separation (DOC-04)**: perception channels (read screen/page) and operation channels (click/type/write file) are authorized independently and never inherit each other.
+- **Perception data untrusted (DOC-05)**: screen and web perception data is forced untrusted and its taint propagates; model summarization does not make it trusted.
+- **Verification discipline (DOC-02)**: "effective = has a production call site; wired-but-unused = code exists but nothing calls it" — every item here is verified as `requirement → enforcement point → production call path → test evidence`, never from prose.
+
+Parts of the constitution not yet landed (the desktop execution process, screen capture, UI Automation runtime) are explicitly marked reserved, to be completed in the Windows Desktop Runtime phase — not presented here as done.
 
 ## 0.1.7 — 2026-11-21
 

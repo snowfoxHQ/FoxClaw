@@ -15,6 +15,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from .intent import canonicalize
+
 
 Decision = Literal["allow", "ask", "deny"]
 
@@ -129,6 +131,7 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
     """
     rules = rules or PermissionRules()
     sid = skill.id
+    intent = canonicalize(sid, args)
 
     # 【安全整改】trusted 需宿主显式授权(FOXCLAW_TRUSTED_MODE=1),否则降级 strict——
     # 防止任意调用方传 mode="trusted" 就跳过 Stage 4 确认。
@@ -146,8 +149,11 @@ def evaluate(skill, args: dict, rules: Optional[PermissionRules] = None,
             reason=f"缺少必填参数: {', '.join(missing)}",
             requires_confirmation=True, reason_code=MISSING_PARAMS)
 
-    if rules.hits_deny(sid):
-        return PermissionDecision("deny", 2, reason=f"命中 deny 规则(不可覆盖): {sid}",
+    deny_by_id = rules.hits_deny(sid)
+    deny_by_intent = intent is not None and rules.hits_deny(intent.to_key())
+    if deny_by_id or deny_by_intent:
+        matched = sid if deny_by_id else intent.to_key()
+        return PermissionDecision("deny", 2, reason=f"命中 deny 规则(不可覆盖): {matched}",
                                   tier=TIER_PROHIBITED)
     ask_by_rule = rules.hits_ask(sid)
     allow_by_rule = rules.hits_allow(sid)

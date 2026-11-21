@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxclaw"
-version = "0.1.7"
+version = "0.1.8"
 description = "Foxclaw - a personal agent with memory, built on the HMR memory runtime"
 requires-python = ">=3.11"
 
@@ -182,6 +182,7 @@ python_files = [
     "test_domain_reasoners.py",
     "test_e2e.py",
     "test_emb_cache.py",
+    "test_embedding_backend_visibility.py",
     "test_embedding_singleton.py",
     "test_envfile.py",
     "test_evals_smoke.py",
@@ -206,6 +207,8 @@ python_files = [
     "test_import_path_guard.py",
     "test_injection_guard.py",
     "test_integration.py",
+    "test_intent.py",
+    "test_intent_deny.py",
     "test_itinerary.py",
     "test_kee_semantic.py",
     "test_kernel.py",
@@ -221,16 +224,19 @@ python_files = [
     "test_mcp_server.py",
     "test_memory_admission.py",
     "test_memory_recall.py",
+    "test_memory_write_admission_v017.py",
     "test_metrics.py",
     "test_multi_chain.py",
     "test_multimodal.py",
     "test_negotiation.py",
+    "test_observation.py",
     "test_orchestration.py",
     "test_orchestration_decoupled.py",
     "test_p003_acceptance.py",
     "test_p3_p5_hardening.py",
     "test_parallel_dispatch.py",
     "test_permission_laundering.py",
+    "test_personal_data_guard.py",
     "test_pipeline.py",
     "test_plan_visible.py",
     "test_planner.py",
@@ -240,6 +246,12 @@ python_files = [
     "test_release_check.py",
     "test_resume_checkpoint.py",
     "test_routing.py",
+    "test_sc03_gateway.py",
+    "test_sc04_tool_gate.py",
+    "test_sc05_tool_nonce.py",
+    "test_sc06_compensate.py",
+    "test_sc07_sentinel_failclosed.py",
+    "test_sc08_browser_act_gate.py",
     "test_scheduler.py",
     "test_search.py",
     "test_secrets.py",
