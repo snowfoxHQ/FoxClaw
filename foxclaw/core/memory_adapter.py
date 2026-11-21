@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .shared_write import guard_shared_write
 from .sensitive_write import guard_sensitive_write, scrub_blocked, parse_forget_request
-from .memory_admission import evaluate_write, safe_log, STATED
+from .memory_admission import evaluate_write, safe_log
 from types import SimpleNamespace
 from typing import Any
 
