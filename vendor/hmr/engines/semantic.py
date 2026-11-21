@@ -4,6 +4,7 @@ Handles embedding, indexing, and retrieval
 """
 
 from typing import List, Optional, Dict, Any
+import numpy as np
 from ..core.models import MemoryObject
 
 
@@ -41,24 +42,33 @@ class SemanticMemoryEngine:
                 memory.semantic_summary
             )
         
-        # Store in vector index
-        self.vector_store.add(
-            id=memory.id,
-            embedding=memory.embedding,
-            metadata={
-                "type": memory.type,
-                "title": memory.title,
-                "tags": memory.tags,
-                "temporal_weight": memory.temporal_weight
-            }
-        )
-        
-        # Store in MemoryFS
+        # 文件是权威存储，向量是派生索引：先写文件，再写向量。
+        # 向量失败时回滚文件，避免留下无文件的孤儿向量。
         self.memory_fs.write_memory(memory)
-        
+
+        try:
+            self.vector_store.add(
+                id=memory.id,
+                embedding=memory.embedding,
+                metadata={
+                    "type": memory.type,
+                    "title": memory.title,
+                    "tags": memory.tags,
+                    "temporal_weight": memory.temporal_weight,
+                    "boundary": getattr(memory, "boundary", "coding"),
+                    "scope": getattr(memory, "scope", "project"),
+                }
+            )
+        except Exception:
+            try:
+                self.memory_fs.delete_memory(memory.id)
+            except Exception:
+                pass
+            raise
+
         # Cache
         self.memory_cache[memory.id] = memory
-        
+
         return memory.id
     
     def retrieve(
@@ -99,11 +109,19 @@ class SemanticMemoryEngine:
             else:
                 # Load from MemoryFS
                 memory = self.memory_fs.read_memory(memory_id)
+                if memory is None:
+                    # 孤儿向量：文件已不存在，跳过并清理索引，避免 None.reinforce()
+                    self.memory_cache.pop(memory_id, None)
+                    try:
+                        self.vector_store.delete(memory_id)
+                    except Exception:
+                        pass
+                    continue
                 self.memory_cache[memory_id] = memory
-            
+
             # Reinforce accessed memory
             memory.reinforce()
-            
+
             memories.append(memory)
         
         return memories

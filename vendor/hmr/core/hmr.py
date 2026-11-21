@@ -86,6 +86,7 @@ class HMR:
             config=lifecycle_config or LifecycleConfig()
         )
         self.lifecycle.register_compress_fn(self.compress_memories)
+        self.lifecycle.register_delete_fn(self.delete_memory)
 
         # ── 图层 ──────────────────────────────────────────────────────────────
         self.cwg          = CognitiveWorkspaceGraph(memory_fs=self.memory_fs)
@@ -132,9 +133,7 @@ class HMR:
                 self.vector_store.embedder.dimension):
             print(f"[HMR] embedding 模型已变化，重建向量索引（{len(all_memories)} 条）...")
             self.vector_store.rebuild_from_memories(all_memories)
-            return
-
-        if all_memories and vs_count == 0:
+        elif all_memories and vs_count == 0:
             print(f"[HMR] 重建向量索引（{len(all_memories)} 条）...")
             self.vector_store.rebuild_from_memories(all_memories)
             for mem in all_memories:
@@ -143,6 +142,14 @@ class HMR:
             missing = [m for m in all_memories if m.id not in self.vector_store.vectors]
             if missing:
                 self.vector_store.rebuild_from_memories(missing)
+
+        # 反向对账：向量存在但记忆文件已不存在，清理孤儿向量（S1）
+        valid_ids = {m.id for m in all_memories}
+        orphans = [vid for vid in self.vector_store.vectors if vid not in valid_ids]
+        for vid in orphans:
+            self.vector_store.delete(vid)
+        if orphans:
+            print(f"[HMR] 清理孤儿向量 {len(orphans)} 条")
 
     def _load_workspaces(self):
         for ws in self.memory_fs.list_workspaces():
@@ -577,6 +584,23 @@ class HMR:
         }
 
     # =========================================================================
+    # =========================================================================
+    # delete_memory（存储一致性统一入口，S1）
+    # =========================================================================
+
+    def delete_memory(self, memory_id: str) -> bool:
+        """同时删除记忆文件、memory_index 条目与向量索引。"""
+        if not self.memory_fs.delete_memory(memory_id):
+            return False
+        try:
+            self.vector_store.delete(memory_id)
+        except Exception:
+            # 向量删除失败由启动对账兜底，不影响文件删除语义
+            pass
+        self.semantic_engine.memory_cache.pop(memory_id, None)
+        getattr(self, "_mem_lang", {}).pop(memory_id, None)
+        return True
+
     # 辅助方法
     # =========================================================================
 

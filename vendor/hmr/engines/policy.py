@@ -20,10 +20,11 @@ HMR v2.0 新增
 """
 
 import json
+import math
 import re
 import threading
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections import deque
@@ -83,7 +84,7 @@ class IngestPolicy:
 
     TYPE_LABELS = ["concept", "decision", "execution", "reflection", "task"]
     DEFAULT_WEIGHTS = {
-        # 特征索引: [长度, 数字, 失败词, 成功词, 决策词, 原因词, 已有记忆数, 活跃度, tag数, dep数, 重复度, 有标题, 概念词]
+        # 特征索引: [长度, 数字, 失败词, 成功词, 决策词, 原因词, 已有记忆数, 活跃度, tag数, dep数, 重复度, 有标题]
         "concept":    [ 0.0, -0.1,  -0.2,  0.1,  -0.1,  0.3, -0.1,  0.0,  0.2,  0.1, -0.3,  0.0,  0.6],
         "decision":   [-0.1,  0.0,  -0.2,  0.2,   0.6,  0.1,  0.0,  0.0,  0.1,  0.3, -0.2,  0.1, -0.3],
         "execution":  [ 0.3,  0.4,   0.7,  0.2,  -0.1,  0.1,  0.0,  0.1,  0.0,  0.0, -0.2,  0.0, -0.3],
@@ -535,6 +536,84 @@ class MemoryPolicyEngine:
             "reasoning": f"{'值得存储' if should else '重复或价值低，跳过'} | "
                          f"分类={mtype}（{type_reasons.get(mtype, '')}）| "
                          f"置信度={conf}"
+        }
+
+    # ── 边界路由（借鉴 MemoraX Code 四类记忆边界）────────────────────────────
+
+    BOUNDARY_WORDS = {
+        "user": {
+            "我喜欢", "我不喜欢", "请始终", "请不要", "我的名字", "叫我",
+            "偏好", "语气", "称呼", "答复格式", "每次回复", "记住我对",
+            "i prefer", "i like", "call me", "always reply", "never reply",
+            "my name is", "tone", "verbosity", "preference",
+        },
+        "procedure": {
+            "步骤", "流程", "每次先", "每次都", " checklist", "操作顺序",
+            "执行顺序", "先检查", "再验证", "准则是", "操作规范",
+            "step", "procedure", "workflow", "checklist", "before doing",
+            "after doing", "validation gate",
+        },
+        "repo": {
+            "这个仓库", "本仓库", "架构", "模块划分", "入口文件", "目录结构",
+            "提交", "commit", "pull request", "merge request", "issue",
+            "代码库", "文件路径", "谁负责",
+        },
+        "coding": {
+            "修复", "失败", "踩坑", "导致", "根因", "验证", "测试通过",
+            "决策", "采用", "不要用", "边界条件",
+            "fix", "failed", "bug", "root cause", "verified", "test passed",
+            "pitfall", "regression", "decided",
+        },
+    }
+    BOUNDARY_SCOPE = {
+        "user": "user", "procedure": "user", "repo": "project", "coding": "project",
+    }
+    BOUNDARY_PRIORITY = ("user", "procedure", "repo", "coding")
+
+    def decide_boundary(
+        self,
+        content: str,
+        title: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        规则式判定记忆边界与作用域，不依赖 LLM 或外部服务。
+
+        与 MemoraX 的四类边界对齐：
+          user      → 用户画像/沟通偏好（scope=user）
+          procedure → 可复用流程/检查清单（scope=user）
+          repo      → 仓库结构/提交证据（scope=project）
+          coding    → 工程教训/决策（scope=project，默认）
+
+        相同命中数时按 BOUNDARY_PRIORITY 取更具体的边界。
+        """
+        text = f"{title or ''} {content} {' '.join(tags or [])}".lower()
+        scores: Dict[str, int] = {}
+        for boundary, words in self.BOUNDARY_WORDS.items():
+            scores[boundary] = sum(1 for w in words if w in text)
+
+        # 类型先验：工作流/任务更可能是流程记忆
+        if memory_type in ("workflow", "task"):
+            scores["procedure"] += 1
+        if memory_type == "project":
+            scores["repo"] += 1
+        if memory_type == "agent_memory":
+            scores["user"] += 1
+
+        best = max(
+            self.BOUNDARY_PRIORITY,
+            key=lambda b: (scores[b], -self.BOUNDARY_PRIORITY.index(b)),
+        )
+        boundary = best if scores[best] > 0 else "coding"
+        hits = [b for b in self.BOUNDARY_PRIORITY if scores[b] == scores[best]]
+        return {
+            "boundary": boundary,
+            "scope": self.BOUNDARY_SCOPE[boundary],
+            "reasoning": (
+                f"边界={boundary}（命中 {scores[best]} 次；"
+                f"候选={'/'.join(hits)}）| 作用域={self.BOUNDARY_SCOPE[boundary]}"
+            ),
         }
 
     def decide_recall(

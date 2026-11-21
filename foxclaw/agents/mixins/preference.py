@@ -50,7 +50,7 @@ class PreferenceMixin:
                 "一律以最新的(列在最前的)或当前对话中用户最近一次的表达为准,不要沿用已被更新的旧偏好。**")
 
     def _pref_augment(self, messages):
-        """对话流式路径的偏好注入:把偏好合并进**最后一条 user 消息**(与 _web_augment 同法,避免
+        """对话流式路径的偏好注入:把偏好合并进**最后一条 user 消息**(避免
         连续两条 user 违反模型无关铁律,见 A3)。无偏好 → 原样返回。"""
         ctx = self._prefs_context()
         if not ctx:

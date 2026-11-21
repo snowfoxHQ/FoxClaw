@@ -45,9 +45,9 @@ def test_record_and_replay_steps(tmp_path) -> None:
     rec = RestartRecovery(str(tmp_path / "recovery.jsonl"), fsync=False)
     rec.record_step("t1", {"kind": "stage", "name": "perceive"})
     rec.record_step("t2", {"kind": "stage", "name": "recall"})
-    rec.record_step("t1", {"kind": "tool", "name": "web_search", "key": "k", "result": "r"})
+    rec.record_step("t1", {"kind": "tool", "name": "recall_memory", "key": "k", "result": "r"})
     steps = rec.steps_of("t1")
-    assert [s["name"] for s in steps] == ["perceive", "web_search"]
+    assert [s["name"] for s in steps] == ["perceive", "recall_memory"]
     assert all("event" not in s and "task_id" not in s for s in steps)
     assert rec.steps_of("nope") == []
 
@@ -55,7 +55,7 @@ def test_record_and_replay_steps(tmp_path) -> None:
 def test_compact_log_keeps_steps(tmp_path) -> None:
     rec = RestartRecovery(str(tmp_path / "recovery.jsonl"), fsync=False)
     rec.task_started("t1", "任务一")
-    rec.record_step("t1", {"kind": "tool", "name": "web_search", "key": "k", "result": "r"})
+    rec.record_step("t1", {"kind": "tool", "name": "recall_memory", "key": "k", "result": "r"})
     rec.task_finished("t1", status="done")
     rec.compact_log(keep_recent_days=7)
     assert len(rec.steps_of("t1")) == 1
@@ -64,17 +64,17 @@ def test_compact_log_keeps_steps(tmp_path) -> None:
 
 
 def test_step_key_is_argument_order_insensitive() -> None:
-    a = tool_exec._step_key("web_search", {"q": "x", "n": 3})
-    b = tool_exec._step_key("web_search", {"n": 3, "q": "x"})
+    a = tool_exec._step_key("recall_memory", {"q": "x", "n": 3})
+    b = tool_exec._step_key("recall_memory", {"n": 3, "q": "x"})
     assert a == b
-    assert a != tool_exec._step_key("web_search", {"q": "y", "n": 3})
-    assert a != tool_exec._step_key("recall_memory", {"q": "x", "n": 3})
+    assert a != tool_exec._step_key("recall_memory", {"q": "y", "n": 3})
+    assert a != tool_exec._step_key("write_note", {"q": "x", "n": 3})
 
 
 @pytest.mark.parametrize("text,ok", [
     ("【联网搜索结果】...", True),
     ("【召回的相关记忆】...", True),
-    ("(工具 web_search 未返回:45s 超时)", False),
+    ("(工具 recall_memory 未返回:45s 超时)", False),
     ("(该步需要你确认后才能执行)", False),
     ("(未知工具 foo)", False),
     ("", False),
@@ -95,10 +95,10 @@ def test_run_tool_calls_reuses_completed_steps(monkeypatch) -> None:
     monkeypatch.setattr(tool_exec, "_run_tools_batch", _fake_batch)
     rec = _Rec()
     agent = types.SimpleNamespace(_recovery=rec, _session_id="t1")
-    done = {"name": "web_search", "args": {"q": "天气"}}
+    done = {"name": "recall_memory", "args": {"q": "天气"}}
     todo = {"name": "recall_memory", "args": {"q": "偏好"}}
-    cache = {tool_exec._step_key("web_search", {"q": "天气"}):
-             {"name": "web_search", "result": "【联网搜索结果】晴"}}
+    cache = {tool_exec._step_key("recall_memory", {"q": "天气"}):
+             {"name": "recall_memory", "result": "【召回的相关记忆】晴"}}
     tok = _context._resume_steps.set(cache)
     try:
         out = tool_exec._run_tool_calls(agent, [done, todo])
@@ -115,26 +115,26 @@ def test_run_tool_calls_skips_recording_failures(monkeypatch) -> None:
     def _timeout_batch(agent, calls, states=None):
         if states is not None:
             states.extend({"tool": c["name"], "stage": "failed"} for c in calls)
-        return ["(工具 web_search 未返回:45s 超时)"]
+        return ["(工具 recall_memory 未返回:45s 超时)"]
 
     monkeypatch.setattr(tool_exec, "_run_tools_batch", _timeout_batch)
     rec = _Rec()
     agent = types.SimpleNamespace(_recovery=rec, _session_id="t1")
-    tool_exec._run_tool_calls(agent, [{"name": "web_search", "args": {}}])
+    tool_exec._run_tool_calls(agent, [{"name": "recall_memory", "args": {}}])
     assert rec.steps == [], "失败/超时步不能进 checkpoint(否则续跑会把失败当完成)"
 
 
 def test_load_resume_cache_filters_bad_steps() -> None:
     rows = [
         {"kind": "stage", "name": "act"},
-        {"kind": "tool", "name": "web_search", "key": "k1", "result": "ok"},
-        {"kind": "tool", "name": "web_search", "key": "k2", "result": "x",
+        {"kind": "tool", "name": "recall_memory", "key": "k1", "result": "ok"},
+        {"kind": "tool", "name": "recall_memory", "key": "k2", "result": "x",
          "truncated": True},
-        {"kind": "tool", "name": "web_search", "key": "k3", "result": "  "},
-        {"kind": "tool", "name": "web_search", "result": "no-key"},
+        {"kind": "tool", "name": "recall_memory", "key": "k3", "result": "  "},
+        {"kind": "tool", "name": "recall_memory", "result": "no-key"},
     ]
     fake = types.SimpleNamespace(_recovery=_Rec(rows))
-    assert CognitiveAgent._load_resume_cache(fake, "t1") == {"k1": {"name": "web_search",
+    assert CognitiveAgent._load_resume_cache(fake, "t1") == {"k1": {"name": "recall_memory",
                                                                   "result": "ok"}}
     assert CognitiveAgent._load_resume_cache(fake, "") == {}
     assert CognitiveAgent._load_resume_cache(types.SimpleNamespace(), "t1") == {}

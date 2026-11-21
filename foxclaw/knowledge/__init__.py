@@ -204,6 +204,31 @@ class HKCService:
         的 get_container 依赖指向这同一个已装配容器(依赖倒置,不另开一套)。"""
         return self._container
 
+    @property
+    def embedding_info(self) -> dict:
+        """当前生效的向量后端状态(供启动日志/健康探针/检索接口判断"能不能真检索")。
+
+        `HKC_EMBEDDING=auto`(默认)下本地模型加载失败会静默退化成 StubBackend:
+        伪向量能建索引、能返回结果、分数还挺好看,但和语义完全无关。这种"看起来
+        正常、实际不可用"必须可观测,不能只留一条 warning 日志。
+
+        区分两种 stub:
+          · degraded=True  —— auto/local 下意外退化,语义检索事实上不可用;
+          · degraded=False —— 用户在配置里显式写 stub,属已知取舍。
+        """
+        try:
+            name = str(getattr(self._container, "_embedding_name", "") or "")
+        except Exception:
+            name = ""
+        configured = (os.environ.get("HKC_EMBEDDING") or "auto").strip().lower()
+        is_stub = "stub" in name.lower()
+        return {
+            "backend": name,
+            "configured": configured,
+            "semantic": bool(name) and not is_stub,
+            "degraded": is_stub and configured != "stub",
+        }
+
     def stats(self) -> dict:
         try:
             return self._container.stats()
@@ -251,10 +276,21 @@ def init_hkc(data_dir, api_key=None):
         ).assemble()
         from hkc_api import container as _cm
         _cm._container = container
+        svc = HKCService(container, connect(container=container))
         print(f"[Foxclaw] ✓ HKC 知识核心已进程内融合 (provider={provider}, "
               f"base={'已配置' if llm_base_url else 'provider默认'}, "
               f"key={'已配置' if llm_key else '未配置(抽取将降级)'})")
-        return HKCService(container, connect(container=container))
+        _ei = svc.embedding_info
+        if _ei["degraded"]:
+            print(f"[Foxclaw] ⚠ embedding 退化为伪向量({_ei['backend']}):"
+                  f"本地模型不可用,知识检索只剩无语义结果。"
+                  f"装 sentence-transformers 让语义检索回到可用;"
+                  f"若是有意关闭,显式设 HKC_EMBEDDING=stub 以消除本告警。")
+        elif not _ei["semantic"]:
+            print(f"[Foxclaw] · HKC embedding={_ei['backend']}(显式 stub:语义检索已关闭)")
+        else:
+            print(f"[Foxclaw] · HKC embedding={_ei['backend']}")
+        return svc
     except Exception as e:
         print(f"[Foxclaw] ⚠ HKC 装配失败,知识库降级为空: {e}")
         return None

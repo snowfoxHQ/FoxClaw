@@ -4,6 +4,29 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
+## Unreleased
+
+**Removed: built-in web search and map keys**
+
+- `web_search` is gone end to end: the tool declaration and capability, the dispatch branch, automatic web augmentation, the Baidu-backed search port, the skill entry, prompt wording, and the `BAIDU_SEARCH_*` settings. Its verifier and taint mapping are removed with it.
+- The personal-data guard moved to `foxclaw/core/personal_data.py`, so "private data never leaves the machine" is preserved independently of any single transport.
+- Supervisor prompts now state plainly that the system has no live web access, instead of implying it does.
+- Amap is gone as well: `AMAP_MAPS_API_KEY` / `AMAP_JS_KEY` / `AMAP_JS_SCODE`, the `/api/config/amap` route, the itinerary geocoding client, and the front-end JS map loader. Itinerary legs are estimated from coordinates and the map panel renders the built-in SVG sketch from `map_data`.
+
+## 0.1.7 — 2026-11-21
+
+**Memory write admission (M1/M2/M5)**
+
+- Every memory write now carries a source tag. Only an explicit user signal produces `[stated]`; agent conclusions, search results and tool output are always `[derived]`. An optional strict mode (`FOXCLAW_MEMORY_SOURCE_STRICT`) rejects writes without a declared user source.
+- Calibration rules keep searchable data, one-off mentions, unconfirmed agent details and task-local state out of long-term memory. An already archived fact counts as remembered, so restating it does not create a second write.
+- A poisoning guard rejects instructions that would make future sessions less honest, less safe, less skeptical or unconditionally agreeable — judged by effect, including softened variants. No user instruction can override it.
+
+**Privacy and best-effort (M4/M6)**
+
+- New blocking categories cover minors' identity data and protected attributes. On the consent path, blocked segments are omitted whole rather than replaced with a generalization; "forget X" removes the matching memory and its derivatives. Health and protected attributes still go through the existing three-mode confirmation flow.
+- Memory failures are best-effort: they are logged at a rate limit and the host task continues. No retry storms, no screen-flooding, no unsolicited "shall I remember that for you".
+- M3 versioned writes stay a design placeholder: the HMR adapter holds a reentrant lock and has no cross-session concurrent-write scenario. `if_version` merge support will be implemented when multi-channel concurrency actually appears.
+
 ## 0.1.6 — 2026-11-19
 
 A failed model call can no longer be recorded as a successful answer. Every call carries its own state instead of a router-wide flag, every task settles from evidence instead of from an error string, and memory refuses output that was never verified. Bundled runtime detection, health reporting and test registration are tightened alongside it.

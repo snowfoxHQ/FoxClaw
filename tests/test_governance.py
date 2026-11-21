@@ -25,7 +25,7 @@ def test_loop_detection():
     from foxclaw.harness.loop_detection import ToolLoopDetector
     d = ToolLoopDetector(warning=3, critical=5, circuit_break=8)
     for _ in range(8):
-        v = d.record("web_search", {"q": "天气"})
+        v = d.record("recall_memory", {"q": "天气"})
     check(v.stuck and v.detector == "repeat", "重复调用检测为 repeat")
     d2 = ToolLoopDetector(warning=4, critical=6, circuit_break=10)
     for i in range(6):
@@ -50,14 +50,14 @@ def test_loop_per_session():
     tok = set_loop_session("sess_A")
     try:
         for _ in range(8):
-            va = adp._detector_for(_loop_session.get()).record("web_search", {"q": "天气"})
+            va = adp._detector_for(_loop_session.get()).record("recall_memory", {"q": "天气"})
     finally:
         reset_loop_session(tok)
     check(va.stuck, "会话 A 连续同工具达熔断")
 
     tok = set_loop_session("sess_B")
     try:
-        vb = adp._detector_for(_loop_session.get()).record("web_search", {"q": "天气"})
+        vb = adp._detector_for(_loop_session.get()).record("recall_memory", {"q": "天气"})
     finally:
         reset_loop_session(tok)
     check(not vb.stuck, "会话 B 不受会话 A 污染(独立历史)")

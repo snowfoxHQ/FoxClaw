@@ -1,5 +1,5 @@
 """Foxclaw — Search: 认知搜索内核 (HSR)
-统一内部记忆(HMR)与外部联网检索，供五个 Agent 共享调用。"""
+统一内部记忆(HMR)、知识库(HKC)与 Agent 态势,供五个 Agent 共享调用。"""
 from .models import (
     RouteType, SourceType, SubQuery, SearchPlan,
     RawEvidence, EvidenceNode, EvidenceEdge, EvidenceGraph,
@@ -7,7 +7,6 @@ from .models import (
 )
 from .planner import QueryPlanner
 from .internal_search import InternalSearchEngine
-from .external_search import BaiduWebSearchPort
 from .hkc_read_port import HKCReadPort
 from .agent_port import AgentSourcePort
 from .retriever import Retriever
@@ -19,6 +18,6 @@ __all__ = [
     "RouteType", "SourceType", "SubQuery", "SearchPlan",
     "RawEvidence", "EvidenceNode", "EvidenceEdge", "EvidenceGraph",
     "StrategyDecision", "SearchResult",
-    "QueryPlanner", "InternalSearchEngine", "BaiduWebSearchPort", "HKCReadPort",
+    "QueryPlanner", "InternalSearchEngine", "HKCReadPort",
     "AgentSourcePort", "Retriever", "EvidenceFusion", "SearchStrategy", "SearchRuntime",
 ]

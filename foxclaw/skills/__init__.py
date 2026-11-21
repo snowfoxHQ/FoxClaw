@@ -2,7 +2,7 @@
 Foxclaw Skill 接入层 — 助手的"万能工具箱",同时是对外生态兼容层(原 C 阶段)。
 统一接入三类外部能力:
   - local      本地脚本/函数
-  - mcp        MCP server(stdio/sse,如高德 amap-maps-mcp-server、Gmail)
+  - mcp        MCP server(stdio/sse,如 Gmail)
   - web_api    直接 REST 调用
 助手按需匹配 skill 调用,结果回填 ThoughtChain,受守门人约束:
   只读类(read)直接调;有副作用类(write/send/pay)需确认后执行。
@@ -535,12 +535,6 @@ def build_default_registry() -> SkillRegistry:
         params={"expression": "str"}))
 
     reg.register(SkillSpec(
-        id="amap_route", name="高德路线", description="查询两地真实路线和时间",
-        kind="mcp", triggers=["路线", "怎么走", "多久到", "导航"],
-        side_effect="read", mcp_server="amap-maps", mcp_tool="maps_direction",
-        params={"origin": "str", "destination": "str", "mode": "str"}))
-
-    reg.register(SkillSpec(
         id="gmail_send", name="发送邮件", description="通过 Gmail 发送邮件",
         kind="mcp", triggers=["发邮件", "发送邮件", "email"],
         side_effect="send", external=True, destructive=True, mcp_server="gmail", mcp_tool="send_message",
@@ -551,12 +545,6 @@ def build_default_registry() -> SkillRegistry:
         kind="mcp", triggers=["加日程", "创建会议", "安排日历"],
         side_effect="write", external=True, mcp_server="google-calendar", mcp_tool="create_event",
         params={"title": "str", "start": "str", "end": "str"}))
-
-    reg.register(SkillSpec(
-        id="web_search", name="网页搜索", description="搜索实时网络信息",
-        kind="mcp", triggers=["搜索", "查一下", "最新", "新闻"],
-        side_effect="read", external=True, mcp_server="web-search", mcp_tool="search",
-        params={"query": "str"}))
 
     return reg
 

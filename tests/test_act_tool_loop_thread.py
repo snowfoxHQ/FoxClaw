@@ -1,6 +1,6 @@
 """act 路径工具循环线程归属回归(复核者裁定 2026-11-16)。
 
-工具循环是同步阻塞 I/O(模型工具轮 + web_search 网络请求),必须经
+工具循环是同步阻塞 I/O(模型工具轮 + 本地检索耗时),必须经
 asyncio.to_thread 在工作线程执行——阻塞期间事件循环仍可调度其他协程;
 返回值语义不变(工具循环结果直接作为 _call_llm 返回,router.complete
 不被调用);计量口径零改动(call_tools 的 meter 挂钩不经过本路径)。
@@ -27,7 +27,7 @@ class _LoopAgent(LlmMixin):
     def _reply_with_tools(self, task, messages):
         self.loop_thread = threading.get_ident()
         self.entered.set()
-        # 模拟真实阻塞(web_search 网络等待):直到主协程放行
+        # 模拟真实阻塞(检索等待):直到主协程放行
         self._release.wait(5)
         return ToolReply(text="tool-final", state="REAL", tool_trace=[])
 

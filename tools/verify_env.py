@@ -21,5 +21,5 @@ for k in ("HKC_EMBEDDING_MODEL", "HF_HUB_OFFLINE", "FOXCLAW_API_KEY",
 
 n = sum(1 for k in os.environ if k.startswith((
     "HKC_", "FOXCLAW_", "HF_", "ANTHROPIC_", "OPENAI_", "GOOGLE_",
-    "DASHSCOPE_", "LOCAL_", "AMAP_", "BAIDU_", "MINIMAX_", "DEEPSEEK_")))
+    "DASHSCOPE_", "LOCAL_", "MINIMAX_", "DEEPSEEK_")))
 print(f"TOTAL_PROJECT_KEYS={n}")

@@ -31,7 +31,7 @@ def _tool_msgs():
         {"role": "user", "content": "问题" + "x" * 300},
         {"role": "assistant", "content": "", "tool_calls": [
             {"id": "call_1", "type": "function",
-             "function": {"name": "web_search", "arguments": "{}"}},
+             "function": {"name": "recall_memory", "arguments": "{}"}},
             {"id": "call_2", "type": "function",
              "function": {"name": "recall_memory", "arguments": "{}"}},
         ]},

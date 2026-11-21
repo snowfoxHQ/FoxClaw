@@ -104,7 +104,29 @@ _RULES: dict[str, tuple[str, ...]] = {
         r"(?:CVV|CVC|安全码|有效期)\s*[:：]?\s*\d{3,4}",
         r"\b(?:信用卡|储蓄卡|借记卡)\b",
     ),
+    # M4 v0.1.7：未成年人身份信息（绝不入库）
+    "minor_identity": (
+        r"(?:小学生|初中生|未成年人|未满\s*1[0-7]\s*岁).{0,16}(?:姓名|名字|学校|班级|身份证|学号)",
+        r"(?:儿子|女儿|孩子).{0,10}(?:今年|年龄)?\s*\d{1,2}\s*岁.{0,12}(?:学校|班级|姓名|小学|中学|幼儿园)",
+    ),
+    # M4 v0.1.7：受保护属性（默认不入库，产品层单独同意才放开）
+    "protected_attribute": (
+        r"(?:宗教信仰|信奉|政治立场|性取向).{0,12}(?:是|为|属于|倾向)",
+        r"(?:倾向|属于|信奉|信仰).{0,8}(?:政治立场|性取向|某宗教|佛教|基督教|道教|伊斯兰)",
+    ),
 }
+
+# 命中即整段省略的类目：绝不写泛化替身（M4 无占位符原则）。
+BLOCK_CATEGORIES = (
+    "credential", "identity", "minor_identity", "finance_detail",
+)
+# 健康 / 受保护属性不属于「绝不入库」，仍走三档闸门的待确认流程。
+
+# 「忘记 X」→ 整行删除，派生内容一并清理（M4）。
+_FORGET_REQUEST = re.compile(
+    r"(?:忘记|忘掉|删掉|清除|别记了|移除|forget)\s*(?:关于|有关|我)?\s*(.+?)"
+    r"(?:$|[。！？!?，,；;])"
+)
 
 _COMPILED = {cat: [re.compile(p) for p in pats] for cat, pats in _RULES.items()}
 
@@ -137,6 +159,33 @@ class SensitivityClassifier:
                     hits.append(Hit("finance_detail", "luhn", _mask(digits)))
                     break
         return tuple(hits)
+
+
+def scrub_blocked(content: str) -> str:
+    """M4 无占位符原则：命中阻断类目的整行直接省略，绝不写泛化替身。
+
+    「在管某健康问题」与具体病名同等不入；只保留可分离的日常部分，例如
+    「帮我盯周报——她在休假」只留下值班安排。
+    """
+    classifier = SensitivityClassifier(BLOCK_CATEGORIES)
+    kept: list[str] = []
+    for line in str(content or "").splitlines():
+        hits = classifier.classify(line)
+        card_hit = any(
+            len(re.sub(r"\D", "", m.group(0))) >= 16
+            and _luhn_ok(re.sub(r"\D", "", m.group(0)))
+            for m in _CARD_CANDIDATE.finditer(line)
+        )
+        if hits or card_hit:
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def parse_forget_request(content: str) -> str:
+    """解析「忘记 X」请求，返回 X；非忘记请求返回空串。"""
+    match = _FORGET_REQUEST.search(str(content or ""))
+    return match.group(1).strip() if match else ""
 
 
 @dataclass

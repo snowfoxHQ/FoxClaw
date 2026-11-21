@@ -7,7 +7,7 @@
   3. 知识端口边界:HKCReadPort(client=None) 永远返回 [](降级不报错)
   4. 经 Foxclaw 惰性 search_runtime + aclose teardown
 
-联网(百度)与真实 HKC 检索不在离线回归内;这里验证 HSR 的编排/融合/迭代/降级契约。
+真实 HKC 检索不在离线回归内;这里验证 HSR 的编排/融合/迭代/降级契约。
 """
 import sys, tempfile, shutil, asyncio
 from pathlib import Path

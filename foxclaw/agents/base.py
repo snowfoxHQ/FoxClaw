@@ -437,7 +437,6 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                     yield chunk
         if not used_tools:
             try:
-                messages = self._web_augment(task, messages)
                 messages = self._ability_augment(task, messages)
                 messages = self._skill_augment(task, messages)
                 messages = self._pref_augment(messages)

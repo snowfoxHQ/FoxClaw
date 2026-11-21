@@ -243,7 +243,7 @@ def stage_route(ctx: PipelineContext) -> None:
             return
         if sk is not None and getattr(sk, "external", False):
             try:
-                from ..core.web_search import is_personal_query
+                from ..core.personal_data import is_personal_query
                 if is_personal_query(ctx.task):
                     return
             except Exception:

@@ -221,7 +221,6 @@ TAINT_PERSONAL = 2
 TAINT_SENSITIVE = 3
 
 _TAINT_BY_SOURCE = {
-    "web_search": TAINT_EXTERNAL,
     "knowledge": TAINT_PERSONAL,
     "file": TAINT_PERSONAL,
     "memory": TAINT_SENSITIVE,

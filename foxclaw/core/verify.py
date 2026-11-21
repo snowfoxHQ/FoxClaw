@@ -120,9 +120,6 @@ def extract_evidence(source: str, text: str, limit: int = MAX_EVIDENCE) -> list[
 
 
 _CHECKERS: dict[str, Callable[..., tuple[bool, str]]] = {
-    "web_search": lambda args, text: (
-        (True, "") if _URL_RE.search(text or "")
-        else (False, "搜索结果没有可核对的来源链接")),
     "recall_memory": lambda args, text: (
         (True, "") if (text or "").strip().startswith("【召回的相关记忆】")
         else (False, "未返回记忆条目")),

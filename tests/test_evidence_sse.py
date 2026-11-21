@@ -17,9 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 EVIDENCE = [
-    {"tool": "web_search", "kind": "ok", "status": "verified", "reason": "",
+    {"tool": "recall_memory", "kind": "ok", "status": "verified", "reason": "",
      "evidence": [{"kind": "url", "ref": "https://example.com/a", "label": "example.com",
-                   "source": "web_search", "at": 0}]},
+                   "source": "recall_memory", "at": 0}]},
     {"tool": "send_mail", "kind": "ok", "status": "unverified",
      "reason": "该工具未声明可观察的后置条件", "evidence": []},
 ]
@@ -84,7 +84,7 @@ def test_chat_stream_evidence_event_contract():
     assert "event: evidence" in body, "证据必须以命名事件送出"
     assert len(ev_payloads) == 1, "一轮只上报一次"
     items = ev_payloads[0]["evidence"]
-    assert [i["tool"] for i in items] == ["web_search", "send_mail"]
+    assert [i["tool"] for i in items] == ["recall_memory", "send_mail"]
     assert [i["status"] for i in items] == ["verified", "unverified"]
     assert items[0]["evidence"][0]["ref"] == "https://example.com/a"
     assert "example.com" not in delta_text

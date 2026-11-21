@@ -15,7 +15,7 @@ HMR v1.5 新增
 import threading
 from typing import List, Dict, Optional, Callable, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from ..core.models import MemoryObject
 
 
@@ -88,10 +88,15 @@ class MemoryLifecycleEngine:
         self._lock = threading.Lock()
         self._ingest_counter = 0
         self._compress_fn: Optional[Callable] = None  # 注入 hmr.compress_memories
+        self._delete_fn: Optional[Callable] = None    # 注入 hmr.delete_memory（同步向量）
 
     def register_compress_fn(self, fn: Callable):
         """注入压缩函数（避免循环引用）"""
         self._compress_fn = fn
+
+    def register_delete_fn(self, fn: Callable):
+        """注入统一删除函数，保证剪枝时向量与索引同步清理"""
+        self._delete_fn = fn
 
     def on_ingest(self, new_memory: MemoryObject) -> Optional[LifecycleReport]:
         """
@@ -128,7 +133,7 @@ class MemoryLifecycleEngine:
         """执行生命周期检查（在后台线程中运行）"""
         try:
             # 1. Prune：删除低价值记忆
-            self._prune(memory_type, report)
+            pruned = self._prune(memory_type, report)
 
             # 2. Consolidate：压缩数量过多的记忆
             self._consolidate(memory_type, report)
@@ -162,7 +167,8 @@ class MemoryLifecycleEngine:
 
             if r < self.config.prune_retrievability:
                 # 执行删除
-                deleted = self.memory_fs.delete_memory(mem.id)
+                delete_fn = self._delete_fn or self.memory_fs.delete_memory
+                deleted = delete_fn(mem.id)
                 if deleted:
                     pruned_ids.append(mem.id)
                     report.pruned_count += 1

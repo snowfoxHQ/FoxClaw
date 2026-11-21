@@ -24,7 +24,7 @@ Finance / Office each mount an isomorphic kernel (pure-algorithm layer + externa
 
 - **Finance** — budget reasoning, MAD anomaly detection, cash-flow forecast; gatekeeper with four permissions, emits approval requests rather than moving money. **Advanced trio**: structured evidence chains (explainable risk), financial data graph (trace who caused an overspend), reconciliation (3-tier matching + suspicious-charge detection).
 - **Office** — SM-2 spaced repetition (mastery + forgetting risk) + knowledge graph (cluster discovery).
-- **Office · itinerary** — TSP routing, reachability ("won't make it") detection, time conflicts, geo-clustering; integrates Amap.
+- **Office · itinerary** — TSP routing, reachability ("won't make it") detection, time conflicts, geo-clustering; distances are estimated from coordinates and map data is returned for the UI.
 
 ## Messaging platforms
 

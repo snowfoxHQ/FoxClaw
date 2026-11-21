@@ -6,7 +6,7 @@ P2 function-calling(工具化)守卫测试 —— 全离线,不打真实 LLM/网
   2. ToolRegistry:默认工具集、deny 过滤、tool_use 开关读 env。
   3. ModelRouter.call_tools:不支持 tools 的 provider → supported=False(降级)。
   4. _reply_with_tools:多轮工具循环(调用→回灌→最终答);不支持 → None(fallback)。
-  5. _dispatch_tool:web_search 命中 / 个人数据否决 / recall_memory / deny 闸。
+  5. _dispatch_tool:recall_memory 命中 / deny 闸 / 未知工具拒绝。
 """
 import os, sys, types
 from pathlib import Path
@@ -31,14 +31,13 @@ def test_runtime_context_and_idempotent():
 
 def test_registry_default_and_deny():
     reg = T.default_registry()
-    assert set(reg.names()) == {"web_search", "recall_memory"}
+    assert set(reg.names()) == {"recall_memory"}
     names = [s["function"]["name"] for s in reg.schemas()]
-    assert "web_search" in names and "recall_memory" in names
-    os.environ["FOXCLAW_TOOL_DENY"] = "web_search"
+    assert names == ["recall_memory"]
+    os.environ["FOXCLAW_TOOL_DENY"] = "recall_memory"
     try:
-        names2 = [s["function"]["name"] for s in reg.schemas()]
-        assert "web_search" not in names2 and "recall_memory" in names2
-        assert T.is_tool_denied("web_search")
+        assert reg.schemas() == []
+        assert T.is_tool_denied("recall_memory")
     finally:
         os.environ.pop("FOXCLAW_TOOL_DENY", None)
 
@@ -91,7 +90,7 @@ def _fake_agent(router):
 def test_reply_with_tools_multi_round():
     router = _FakeRouter([
         {"supported": True, "text": "", "assistant_msg": {"role": "assistant", "content": ""},
-         "tool_calls": [{"id": "c1", "name": "web_search", "args": {"query": "最新模型"}}]},
+         "tool_calls": [{"id": "c1", "name": "recall_memory", "args": {"query": "最新模型"}}]},
         {"supported": True, "text": "根据搜索,最新是 X。", "tool_calls": [],
          "assistant_msg": {"role": "assistant", "content": "根据搜索,最新是 X。"}},
     ])
@@ -102,7 +101,7 @@ def test_reply_with_tools_multi_round():
     _, round2_msgs = router.seen[1]
     roles = [m["role"] for m in round2_msgs]
     assert "assistant" in roles and "tool" in roles
-    assert any("RESULT[web_search" in str(m.get("content", "")) for m in round2_msgs)
+    assert any("RESULT[recall_memory" in str(m.get("content", "")) for m in round2_msgs)
 
 
 def test_reply_with_tools_direct_answer_no_tool():
@@ -161,20 +160,6 @@ def test_reply_with_tools_trace_has_six_stage_shape():
     assert "verified" in step
 
 
-def test_dispatch_web_search_ok(monkeypatch):
-    from foxclaw.core import web_search as ws
-    monkeypatch.setattr(ws, "search_answer", lambda q: {"answer": "实时答案XYZ", "references": []})
-    agent = types.SimpleNamespace(_think=lambda **k: None)
-    out = CognitiveAgent._dispatch_tool(agent, "web_search", {"query": "OpenAI 新模型"})
-    assert "实时答案XYZ" in out
-
-
-def test_dispatch_web_search_personal_veto():
-    agent = types.SimpleNamespace(_think=lambda **k: None)
-    out = CognitiveAgent._dispatch_tool(agent, "web_search", {"query": "我本月支出多少"})
-    assert "本地" in out, "私人财务问题不得外发联网"
-
-
 def test_dispatch_recall_memory():
     agent = types.SimpleNamespace(
         _recall_memory=lambda q, top_k=5: [{"content": "用户喜欢灰色"}])
@@ -183,14 +168,14 @@ def test_dispatch_recall_memory():
 
 
 def test_dispatch_denied(monkeypatch):
-    monkeypatch.setenv("FOXCLAW_TOOL_DENY", "web_search")
+    monkeypatch.setenv("FOXCLAW_TOOL_DENY", "recall_memory")
     agent = types.SimpleNamespace(_think=lambda **k: None)
-    out = CognitiveAgent._dispatch_tool(agent, "web_search", {"query": "x"})
+    out = CognitiveAgent._dispatch_tool(agent, "recall_memory", {"query": "x"})
     assert "禁用" in out
 
 
 def test_tool_capability_readonly_and_failclosed():
-    assert T.tool_capability("web_search")["read_only"] is True
+    assert T.tool_capability("recall_memory")["read_only"] is True
     assert T.tool_capability("recall_memory")["side_effect"] == "read"
     cap = T.tool_capability("some_future_write_tool")
     assert cap["read_only"] is False and cap["side_effect"] == "write" and cap["external"] is True
@@ -199,7 +184,7 @@ def test_tool_capability_readonly_and_failclosed():
 def test_permission_gate_allows_readonly_asks_sideeffect():
     import types as _t
     from foxclaw.skills import permission as perm
-    ro = _t.SimpleNamespace(id="tool:web_search", params={}, **T.tool_capability("web_search"))
+    ro = _t.SimpleNamespace(id="tool:recall_memory", params={}, **T.tool_capability("recall_memory"))
     assert perm.evaluate(ro, {}, confirmed=False).decision == "allow"
     send = _t.SimpleNamespace(id="tool:send_email", params={},
                               side_effect="send", read_only=False, external=True, destructive=False)
@@ -209,15 +194,14 @@ def test_permission_gate_allows_readonly_asks_sideeffect():
 
 def test_dispatch_hitl_blocks_side_effect_tool(monkeypatch):
     """核心:若工具被判为有副作用(写/发送),_dispatch_tool 走 HITL——不执行、返回需确认。"""
-    from foxclaw.core import web_search as ws
     called = {"n": 0}
-    monkeypatch.setattr(ws, "search_answer",
-                        lambda q: called.__setitem__("n", called["n"] + 1) or {"answer": "x"})
     monkeypatch.setattr(T, "tool_capability",
                         lambda name: {"side_effect": "send", "read_only": False,
                                       "external": True, "destructive": False})
-    agent = types.SimpleNamespace(_think=lambda **k: None)
-    out = CognitiveAgent._dispatch_tool(agent, "web_search", {"query": "x"})
+    agent = types.SimpleNamespace(
+        _think=lambda **k: None,
+        _recall_memory=lambda q, top_k=5: called.__setitem__("n", called["n"] + 1) or [])
+    out = CognitiveAgent._dispatch_tool(agent, "recall_memory", {"query": "x"})
     assert "确认" in out and called["n"] == 0, "有副作用工具必须 HITL、不自动执行"
 
 

@@ -60,7 +60,7 @@ class LlmMixin:
         # act 路径 LLM 自主工具循环(2026-11-16 接线修复):此前只有 stream_reply
         # 路径挂了 _reply_with_tools,run_task→CognitivePipeline act→_call_llm 走
         # 裸 complete,派发子 Agent(finance/office)拿不到任何工具(T6 真实冒烟
-        # 实证:agent 明确报告"会话里没有 web_search")。现与 stream_reply 同一
+        # 实证:agent 明确报告"会话里没有 recall_memory")。现与 stream_reply 同一
         # 判定源(FOXCLAW_TOOL_USE=1 且 provider 支持 tools):先走工具循环,
         # 模型自主决策调用/回答;工具步骤经 _record_step 落 task_log.jsonl
         # (evidence 不缺位)。返回 None(provider 不支持/无 schema/stop 置位)→
@@ -73,7 +73,7 @@ class LlmMixin:
                               if m.get("role") == "user"), "")
                 try:
                     # 复核者裁定 2026-11-16:工具循环是同步阻塞 I/O(模型工具轮 +
-                    # web_search 网络请求),必须与下方 complete/stream 同一执行
+                    # 记忆检索等本地耗时),必须与下方 complete/stream 同一执行
                     # 语义——移入工作线程,不得阻塞事件循环(否则同循环上的其他
                     # Agent 任务/请求/异步调度全被拖住)。
                     _final = await asyncio.to_thread(

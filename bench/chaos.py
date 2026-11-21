@@ -21,9 +21,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import foxclaw.core.web_search as ws  # noqa: E402
-ws.needs_search = lambda q: False
-
 from foxclaw.core.model_router import ModelRouter, PROVIDER_ENV  # noqa: E402
 
 _SYS = "你是 Foxclaw 助手。"

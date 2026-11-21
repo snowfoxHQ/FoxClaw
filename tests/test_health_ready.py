@@ -20,11 +20,19 @@ os.environ["HKC_EMBEDDING"] = "stub"
 os.environ["FOXCLAW_DATA_DIR"] = tempfile.mkdtemp(prefix="foxclaw_health_")
 
 
-def _stub_os(hmr=None):
-    """最小 OS 桩:健康探针只读这五个属性。router 给非 stub 值,避免干扰 hmr 断言。"""
+def _stub_os(hmr=None, hkc=None):
+    """最小 OS 桩:健康探针只读这几个属性。router 给非 stub 值,避免干扰 hmr 断言。"""
     return types.SimpleNamespace(hmr=hmr, scheduler=object(),
                                  router=types.SimpleNamespace(is_stub=False),
-                                 _hkc_service=None, mcp_manager=None)
+                                 _hkc_service=hkc, mcp_manager=None)
+
+
+def _hkc_stub(backend, semantic, degraded, available=True):
+    return types.SimpleNamespace(
+        available=available,
+        embedding_info={"backend": backend, "semantic": semantic,
+                        "degraded": degraded},
+    )
 
 
 def _ready(monkeypatch, os_stub) -> dict:
@@ -57,6 +65,32 @@ def test_stub_does_not_degrade_top_level(monkeypatch):
 def test_down_triggers_degraded(monkeypatch):
     j = _ready(monkeypatch, _stub_os(hmr=None))
     assert j["status"] == "degraded" and j["components"]["hmr"] == "down", j
+
+
+def test_embedding_component_reports_backend_truth(monkeypatch):
+    """embedding 独立成项:伪向量必须在健康页可见,不能被 hkc=ok 掩盖。"""
+    assert _ready(monkeypatch, _stub_os())["components"]["embedding"] == "uninitialized"
+    ok = _hkc_stub("LocalST(BAAI/bge-small-zh-v1.5,512d)", True, False)
+    degraded = _hkc_stub("Stub(dim=384)", False, True)
+    explicit_stub = _hkc_stub("Stub(dim=384)", False, False)
+    assert _ready(monkeypatch, _stub_os(hkc=ok))["components"]["embedding"] == "ok"
+    assert _ready(monkeypatch, _stub_os(hkc=degraded))["components"]["embedding"] == "degraded"
+    assert _ready(monkeypatch, _stub_os(hkc=explicit_stub))["components"]["embedding"] == "stub"
+
+
+def test_embedding_unknown_backend_not_ok(monkeypatch):
+    """后端名拿不到时不能默认判 ok。"""
+    j = _ready(monkeypatch, _stub_os(hkc=_hkc_stub("", False, False)))
+    assert j["components"]["embedding"] == "unknown", j
+
+
+def test_embedding_degraded_keeps_hkc_and_toplevel(monkeypatch):
+    """两个组件独立:embedding 退化是能力降级,不是组件故障,hkc 仍 ok、顶层仍 ok。"""
+    j = _ready(monkeypatch, _stub_os(hmr=types.SimpleNamespace(backend="HMR"),
+                                     hkc=_hkc_stub("Stub(dim=384)", False, True)))
+    assert j["components"]["hkc"] == "ok", j
+    assert j["components"]["embedding"] == "degraded", j
+    assert j["status"] == "ok", j
 
 
 def test_version_present(monkeypatch):

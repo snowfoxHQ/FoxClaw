@@ -1,40 +1,29 @@
 """
 Foxclaw 行程子系统 — Itinerary Runtime
-行程行为操作系统:采集行程点 → 地理编码(高德或手动) → 路线优化 →
-冲突/可达检测 → 行程守门人。高德可用时自动用真实路线替换估算。
+行程行为操作系统:采集行程点 → 路线优化 → 冲突/可达检测 → 行程守门人。
+距离与时间按坐标做直线估算,不接任何外部地图服务。
 """
 
 import csv
 from pathlib import Path
-from typing import cast
 
-from .models import ItineraryVerdict, TravelMode, Waypoint
-from .reasoning import MODE_SPEED, ItineraryReasoning
-from .amap_client import AMapClient
+from .models import ItineraryVerdict, Waypoint
+from .reasoning import ItineraryReasoning
 
 
 class ItineraryRuntime:
     """行政 Agent 的行程内核。"""
 
-    def __init__(self, amap_key: str | None = None, hmr=None):
+    def __init__(self, hmr=None):
         self.waypoints: list = []
         self.reasoning = ItineraryReasoning()
-        self.amap = AMapClient(amap_key)
         self.hmr = hmr
-
-    @property
-    def amap_enabled(self) -> bool:
-        return self.amap.enabled
 
     def add_waypoint(self, name: str, address: str = "", lng: float | None = None,
                      lat: float | None = None, start_time: str | None = None,
                      duration_min: int = 0, city: str = "") -> dict:
         wp = Waypoint(name=name, address=address, lng=lng, lat=lat,
                       start_time=start_time, duration_min=duration_min, city=city)
-        if not wp.has_coord and address and self.amap_enabled:
-            geo = self.amap.geocode(address, city)
-            if geo:
-                wp.lng, wp.lat = geo
         self.waypoints.append(wp)
         if self.hmr:
             try:
@@ -62,16 +51,7 @@ class ItineraryRuntime:
         return count
 
     def real_leg(self, a: Waypoint, b: Waypoint, mode: str = "driving"):
-        """两点路线:高德可用且有坐标时用真实数据,否则直线估算。"""
-        if self.amap_enabled and a.has_coord and b.has_coord:
-            r = self.amap.route(a.coord_str, b.coord_str, mode, a.city)
-            if r:
-                from .models import RouteLeg
-                return RouteLeg(from_id=a.id, to_id=b.id, from_name=a.name,
-                                to_name=b.name,
-                                mode=cast(TravelMode, mode if mode in MODE_SPEED else "driving"),
-                                distance_km=r["distance_km"],
-                                duration_min=r["duration_min"], source="amap")
+        """两点路线:按坐标直线估算(名称沿用历史,已无外部路线服务)。"""
         return self.reasoning.estimate_leg(a, b, mode)
 
     def plan(self, mode: str = "driving", optimize: bool = True) -> dict:
@@ -84,13 +64,12 @@ class ItineraryRuntime:
         verdicts = self._gatekeeper(conflicts, clusters, dens)
         return {
             "waypoint_count": len(self.waypoints),
-            "amap_enabled": self.amap_enabled,
             "optimized_route": opt,
             "conflicts": conflicts,
             "proximity_clusters": clusters,
             "density": dens,
             "gatekeeper_verdicts": [v.to_dict() for v in verdicts],
-            "map_data": self._to_amap_mapdata(opt),
+            "map_data": self._to_map_data(opt),
         }
 
     def _gatekeeper(self, conflicts, clusters, dens) -> list:
@@ -121,8 +100,8 @@ class ItineraryRuntime:
                 payload={"cluster": cl}))
         return verdicts
 
-    def _to_amap_mapdata(self, opt) -> list:
-        """转成高德 MapTaskData(POI + route),可喂给高德生成可视化地图。"""
+    def _to_map_data(self, opt) -> list:
+        """转成前端地图数据(POI + route 折线)。"""
         data = []
         for wp in self.waypoints:
             if wp.has_coord:
@@ -140,5 +119,4 @@ class ItineraryRuntime:
 
     def status(self) -> dict:
         return {"waypoints": len(self.waypoints),
-                "amap_enabled": self.amap_enabled,
                 "with_coord": sum(1 for w in self.waypoints if w.has_coord)}

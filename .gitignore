@@ -4,15 +4,14 @@
 .env*
 !.env.example
 
-# 内部开发文档:**公开仓库一律排除**。
-# 私有开发库里这些目录默认入库;公开仓库必须忽略,否则一次
-# `git add -A` 就会把内部评审 / 计划 / 审计 / 执行报告推上去。
-docs/internal/
-docs/superpowers/
-docs/reports/
-docs/FIX_EXECUTION_REPORT.md
-docs/REFACTOR_PLAN.md
-docs/SYSTEM_REVIEW_*.md
+# 内部文档(审计/报告/修复方案/superpowers 计划):**不进公开仓**,但纳入本地 git
+# 跟踪,随 dev 私有镜像(snowfoxHQ/foxclaw-dev)备份。
+# 公开仓(Push 目标 origin = snowfoxHQ/foxclaw)的过滤由 tools/sync_public.ps1 的
+# ExcludeDirs/ExcludeFiles/ExcludeGlobs 保证 —— 该脚本不读本文件,白名单式重建树,
+# 且带"新内部路径泄漏即 ABORT"断言,故此处不再重复排除。
+# 历史沿革:0068089 曾把内部文档整体移出跟踪(只留本地),f310440 改回纳入跟踪
+# (只随 dev 备份),对应的 ignore 规则当时未同步删除,导致 48 个文件处于
+# "被忽略但仍跟踪"的矛盾态且每次 git add 都告警;2026-11-19 删除这些失效规则。
 
 # 运行数据(测试现已全用系统临时目录,以下为默认运行目录 + 防御历史遗留)
 foxclaw_data/

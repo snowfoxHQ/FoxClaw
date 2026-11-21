@@ -131,12 +131,12 @@ def test_no_success_evidence_without_execution():
     assert _tool_steps(rec) == []
 
 
-def test_web_search_hit_regression():
-    """T6-001 web_search 证据链不回归：带 URL 命中 → VERIFIED + NON_EMPTY 落盘。"""
+def test_recall_hit_regression():
+    """T6-001 证据链不回归：带 URL 的记忆命中 → VERIFIED + NON_EMPTY 落盘。"""
     rec = _Rec()
-    hit = "搜索结果：foxclaw 项目主页 https://example.com/foxclaw"
-    _te._settle(_agent(rec), {"name": "web_search",
+    hit = "【召回的相关记忆】\n- foxclaw 项目主页 https://example.com/foxclaw"
+    _te._settle(_agent(rec), {"name": "recall_memory",
                               "args": {"query": "foxclaw"}}, hit)
-    steps = _tool_steps(rec, "web_search")
+    steps = _tool_steps(rec, "recall_memory")
     assert len(steps) == 1 and steps[0]["result_status"] == "NON_EMPTY"
     assert "https://example.com/foxclaw" in steps[0]["result"]

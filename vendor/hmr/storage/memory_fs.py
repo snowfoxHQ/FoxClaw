@@ -137,6 +137,7 @@ class MemoryFS:
             if f.exists():
                 with self._lock:
                     f.unlink()
+                    self._remove_from_memory_index(memory_id)
                 return True
         return False
 
@@ -261,6 +262,16 @@ class MemoryFS:
             "updated_at": datetime.utcnow().isoformat()
         }
         self._atomic_write(index_file, index)
+
+    def _remove_from_memory_index(self, memory_id: str):
+        """从索引中移除已删除的记忆（在写入锁内调用）。"""
+        index_file = self.base_path / "index" / "memory_index.json"
+        if not index_file.exists():
+            return
+        index = self._safe_read(index_file) or {}
+        if memory_id in index:
+            del index[memory_id]
+            self._atomic_write(index_file, index)
 
     def _update_runtime_index(self, runtime_id: str, file_path: Path):
         index_file = self.base_path / "index" / "runtime_index.json"

@@ -20,7 +20,8 @@ import threading
 from pathlib import Path
 
 from .shared_write import guard_shared_write
-from .sensitive_write import guard_sensitive_write
+from .sensitive_write import guard_sensitive_write, scrub_blocked, parse_forget_request
+from .memory_admission import evaluate_write, safe_log, STATED
 from types import SimpleNamespace
 from typing import Any
 
@@ -84,7 +85,53 @@ class HMRAdapter:
         s = re.split(r"[。！？!?\n\r]", s, 1)[0].strip()
         return " ".join(s.split())[:24]
 
-    def ingest(self, content: str, type: str = "concept", agent_id: str | None = None,
+    def ingest(self, *args, **kwargs):
+        """M6 尽力而为：记忆写入/判定失败只记日志、主任务继续，不重试风暴、不刷屏。
+
+        M3 版本化写入降级为设计预留：本适配层持有 RLock，HMR 侧无跨会话并发写场景；
+        多端并发写与 if_version 合并留待渠道并发实际出现时再实现。
+        """
+        try:
+            return self._ingest_inner(*args, **kwargs)
+        except Exception as exc:
+            safe_log(f"写入降级（主任务继续）: {type(exc).__name__}", key="ingest_fail")
+            return SimpleNamespace(id="", type=kwargs.get("type", "concept"),
+                                   degraded=True, reason=type(exc).__name__)
+
+    def _existing_contents(self, agent_id: str | None) -> tuple:
+        """已入档内容（M2 第 5 条：已入档 = 已记住）。"""
+        fs = getattr(self._hmr, "memory_fs", None)
+        if fs is None or not hasattr(fs, "list_memories"):
+            return ()
+        try:
+            with self._lock:
+                return tuple(
+                    getattr(m, "content", "") for m in fs.list_memories()
+                    if not agent_id or f"agent:{agent_id}" in (getattr(m, "tags", []) or [])
+                )
+        except Exception:
+            return ()
+
+    def _forget_subject(self, subject: str, agent_id: str | None) -> int:
+        """M4：忘记 X → 整行删除，派生内容一并清理。"""
+        fs = getattr(self._hmr, "memory_fs", None)
+        if fs is None or not hasattr(fs, "list_memories"):
+            return 0
+        removed = 0
+        with self._lock:
+            for m in list(fs.list_memories()):
+                tags = getattr(m, "tags", []) or []
+                if agent_id and f"agent:{agent_id}" not in tags:
+                    continue
+                if subject and subject in str(getattr(m, "content", "")):
+                    try:
+                        if self.delete_memory(getattr(m, "id", "")):
+                            removed += 1
+                    except Exception:
+                        pass
+        return removed
+
+    def _ingest_inner(self, content: str, type: str = "concept", agent_id: str | None = None,
                title: str | None = None, tags: list | None = None, shared: bool = False,
                consent: bool = False, **kwargs):
         """统一摄入接口。agent_id 写入 tags 实现隔离;shared=True 则写入共享层。
@@ -93,7 +140,38 @@ class HMRAdapter:
         consent=True 表示"用户已对该条高敏感内容点头",跳过敏感闸门。唯一允许的调用方是
         `FoxclawOS.approve_sensitive_write`(与 PolicyGate 的 confirmed=True 同一模式):
         别处传 True 等于绕过同意流程。"""
+        # M4 无占位符：仅在用户已同意的写入路径生效。
+        # 非 consent 路径交给三档闸门处理（高敏感内容进 pending，不在此处删除），
+        # 否则会绕过 0.1.4 的待确认语义。
+        if consent:
+            content = scrub_blocked(content)
+            if not str(content or "").strip():
+                return SimpleNamespace(id="", type=type, rejected=True,
+                                       reason="隐私阻断后无可写内容")
+
+        # M4「忘记 X」：整行删除，派生内容一并清理
+        subject = parse_forget_request(content)
+        if subject:
+            removed = self._forget_subject(subject, agent_id)
+            safe_log(f"忘记请求已处理: removed={removed}", key="forget")
+            return SimpleNamespace(id="", type=type, forgotten=True,
+                                   subject=subject, removed=removed)
+
+        # M1 来源标签 + M2 校准 + M5 反投毒（consent 仅跳过 M2，不绕过 M5）
+        verdict = evaluate_write(
+            content,
+            explicit_source_tag=kwargs.pop("source_tag", None),
+            context=kwargs.pop("context", None),
+            existing_contents=self._existing_contents(agent_id),
+            skip_calibration=bool(consent),
+        )
+        if not verdict.allowed:
+            safe_log(f"准入拒绝: {verdict.reason}", key="admission")
+            return SimpleNamespace(id="", type=type, rejected=True,
+                                   reason=verdict.reason, checks=list(verdict.checks))
+
         meta_tags = list(tags or [])
+        meta_tags.append(verdict.source_tag)
         if agent_id:
             meta_tags.append(f"agent:{agent_id}")
         if shared:
@@ -417,6 +495,16 @@ class MockHMR:
 
     def ingest(self, content, type="concept", agent_id=None, shared=False,
                consent=False, **kwargs):
+        if consent:
+            content = scrub_blocked(content)
+        if not str(content or "").strip():
+            return SimpleNamespace(id="", type=type, rejected=True, reason="隐私阻断")
+        verdict = evaluate_write(
+            content, explicit_source_tag=kwargs.pop("source_tag", None),
+            context=kwargs.pop("context", None), skip_calibration=bool(consent),
+        )
+        if not verdict.allowed:
+            return SimpleNamespace(id="", type=type, rejected=True, reason=verdict.reason)
         if shared:
             guard_shared_write(self, agent_id, content, type, kwargs.get("tags") or [])
         if not consent:
@@ -425,7 +513,7 @@ class MockHMR:
                 return SimpleNamespace(id="", type=type, pending=True,
                                        pending_id=blocked.pending_id, reason=blocked.reason,
                                        categories=list(blocked.categories))
-        return SimpleNamespace(id="mock_mem", type=type)
+        return SimpleNamespace(id="mock_mem", type=type, source_tag=verdict.source_tag)
 
     def recall(self, query: str = "", agent_id: str | None = None, top_k: int = 5, **kwargs):
         from types import SimpleNamespace
