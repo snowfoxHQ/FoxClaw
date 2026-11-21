@@ -3,7 +3,6 @@
 锁住:任务归属不串扰(不用 Router 全局布尔/Agent 实例字段)、故障不伪装成功、
 流式中断不补 Stub 文本、Provider 三态区分 UNCONFIGURED 与 INIT_FAILED。
 """
-import os
 import sys
 from pathlib import Path
 
@@ -12,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest  # noqa: E402
 
 from foxclaw.core.call_status import (  # noqa: E402
-    CallStatus, TaskCallCollector, bind_collector, current_collector,
+    CallStatus, bind_collector, current_collector,
     DEGRADED, FALLBACK, PENDING, REAL, STUB, UNSUPPORTED, reset_collector,
 )
 from foxclaw.core.model_router import ModelRouter  # noqa: E402

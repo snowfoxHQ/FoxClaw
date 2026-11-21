@@ -8,7 +8,7 @@ from datetime import datetime
 from ..base import CognitiveAgent
 from ...planning import planner as P
 from ._helpers import (_with_prior, _dispatch_failed, _extract_step_results,
-                       PRIOR_MAX_CHARS, _norm_subtask, _policy_denied,
+                       PRIOR_MAX_CHARS, _policy_denied,
                        register_denial, is_denied)
 from typing import Any, cast
 

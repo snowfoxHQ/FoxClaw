@@ -13,7 +13,7 @@ os.environ["FOXCLAW_SHADOW_ROUNDS"] = "20"
 
 from foxclaw import Foxclaw
 from foxclaw.agents.impl._helpers import (
-    _policy_denied, register_denial, is_denied, _norm_subtask)
+    _policy_denied, register_denial, is_denied)
 
 
 def _blocked_resp(agent="finance"):

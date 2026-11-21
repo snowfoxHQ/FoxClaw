@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    # personal 是实际开发线,此前只有 main/master 触发,导致开发分支全程无检查:
+    # v0.1.6(139e804)一次 CI 都没跑过,v0.1.7 同步到 main 时才第一次被 ruff 扫出
+    # 10 条 F401,全部是 personal 上早已存在的死代码 —— 检查点全压在最末端。
+    # 加 personal 后,这类问题在开发分支推送时即暴露,不再攒到同步那一刻。
+    branches: [ main, master, personal ]
   pull_request:
   workflow_dispatch:
 

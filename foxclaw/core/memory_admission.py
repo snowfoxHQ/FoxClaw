@@ -18,7 +18,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Iterable
 
 STATED = "[stated]"
 DERIVED = "[derived]"

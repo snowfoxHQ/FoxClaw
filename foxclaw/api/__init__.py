@@ -33,7 +33,7 @@ try:
 except ImportError:
     pass  # 未装 python-dotenv 则用系统环境变量
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException as HTTPException
 from typing import Optional
 
 from foxclaw import Foxclaw, __version__

@@ -451,7 +451,7 @@ class ToolExecMixin:
         """
         from ...core import tools as _tools
         from ...core.call_status import (
-            CallStatus, DEGRADED, FALLBACK, REAL, UNSUPPORTED, current_collector,
+            CallStatus, DEGRADED, FALLBACK, REAL, current_collector,
         )
         if not self.router.supports_tools():
             return None

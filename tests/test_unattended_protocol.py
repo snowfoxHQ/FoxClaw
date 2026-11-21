@@ -7,14 +7,13 @@
   4. pending 携带 attended/parked;无人值守下 parked=True
   5. behavior 规则加载:unattended_protocol 可解析、可注入
 """
-import os, sys, tempfile, asyncio
+import os, sys, asyncio
 from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from foxclaw.core.presence import PresenceTracker, default_window, touch, attended
-from foxclaw.core.injection_guard import TAINT_PERSONAL
 
 
 def test_tracker_windowing():
@@ -104,8 +103,7 @@ def test_pending_attended_fields():
     result = r[0]
     assert result["status"] == "needs_confirmation" and result["pending"] is True
     assert result["attended"] is True and result["parked"] is False, result
-    # 无人值守:窗口置 0(此前 touch 立即超窗)
-    r2 = asyncio.run(_act_via_skill(ctx)) if False else None
+    # 无人值守:清掉在场记录后走同一路径(此前 touch 立即超窗)
     from foxclaw.core import presence as _presence
     _presence.forget("sess-u1")
     r3 = asyncio.run(_act_via_skill(ctx))
@@ -116,7 +114,7 @@ def test_pending_attended_fields():
 
 def test_behavior_rule():
     print("\n【5】behavior 规则:unattended_protocol 加载/注入")
-    from foxclaw.behavior.spec import load, prompt_block, resolve
+    from foxclaw.behavior.spec import load, prompt_block
     spec = load()
     r = spec.by_id("unattended_protocol")
     assert r is not None and r.injects, r
