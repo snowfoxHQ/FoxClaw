@@ -63,9 +63,11 @@ def test_import_roots_env_opens_extra_dir(tmp_path, monkeypatch):
     root.mkdir()
     downloads = tmp_path / "downloads"
     downloads.mkdir()
-    f = _csv(downloads / "bank.csv")
+    other = tmp_path / "other"
+    other.mkdir()
+    f = _csv(other / "bank.csv")
     monkeypatch.setenv("FOXCLAW_DATA_DIR", str(root))
-    monkeypatch.setenv("FOXCLAW_IMPORT_ROOTS", f"{downloads}{__import__('os').pathsep}{tmp_path / 'other'}")
+    monkeypatch.setenv("FOXCLAW_IMPORT_ROOTS", f"{downloads};{other}")
 
     assert resolve_import_path(str(f)) == f.resolve()
 
