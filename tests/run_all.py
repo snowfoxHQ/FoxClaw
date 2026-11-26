@@ -220,6 +220,10 @@ TESTS = [
      "SC-07·SentinelClient fail-closed(守门人不可达 evaluate deny/mcp/execute_web blocked)"),
     ("test_sc08_browser_act_gate.py",
      "SC-08·browser/act 操作意图授权(OperationIntent+PolicyGate,deny/confirm fail-closed)"),
+    ("test_desktop.py",
+     "0.1.8·桌面操控子系统(感知/操作/UIA/OCR:观察边界+HITL+fail-closed,非 Windows 降级)"),
+    ("test_desktop_scope.py",
+     "0.1.8·桌面 shell/文件范围限制(工作目录/敏感路径/危险命令/超时与输出上限)"),
 ]
 
 

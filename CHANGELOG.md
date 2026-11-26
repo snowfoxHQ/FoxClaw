@@ -13,14 +13,23 @@ Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 - Supervisor prompts now state plainly that the system has no live web access, instead of implying it does.
 - Amap is gone as well: `AMAP_MAPS_API_KEY` / `AMAP_JS_KEY` / `AMAP_JS_SCODE`, the `/api/config/amap` route, the itinerary geocoding client, and the front-end JS map loader. Itinerary legs are estimated from coordinates and the map panel renders the built-in SVG sketch from `map_data`.
 
-**Desktop operation safety foundation (Computer Use groundwork)**
+**Desktop operation safety foundation and control capability (Computer Use)**
 
-This release adds no new "control the computer" capability. It closes the authorization and governance groundwork that any future on-desktop action must build on, so that "being deceived must not cause harm" is enforced before an action ever executes.
+The desktop-control capability lands on top of the authorization and governance groundwork, which closes first so that "being deceived must not cause harm" is enforced before an action ever executes.
 
 **What it can and cannot do (capability and boundary)**
 
-- What it can do now: browser **perception** (`/api/browser/perceive`, reading the page's semantic state) and six browser **actions** (`navigate` / `click` / `type` / `scroll` / `extract` / `wait`). Both paths are now authorized: perception goes through a dedicated observation channel, actions go through operation-intent authorization, and write actions (navigate/click/type) require explicit confirmation before they run.
-- What it still cannot do: shell execution, file reads/writes, mouse/keyboard control, screen capture, OCR, UI Automation, clipboard read/write, window control. These belong to the Windows desktop-control scope and are **not implemented** in this release; none are presented as ready. Their safety groundwork (intent canonicalization, observation/action separation, untrusted perception) is in place, and future tools will enter the unified governance from their first production call path.
+- Browser: **perception** (`/api/browser/perceive`, reading the page's semantic state) and six **actions** (`navigate` / `click` / `type` / `scroll` / `extract` / `wait`). Both paths are authorized: perception through a dedicated observation channel, actions through operation-intent authorization, and write actions (navigate/click/type) require explicit confirmation before they run.
+- Windows desktop control is implemented end to end. **Perception** — `screen_capture`, `window_list`, `ui_tree` (UI Automation element tree), `ocr` (screen text) — each authorized through the observation channel and fail-closed unless `FOXCLAW_OBSERVE_ALLOW` grants it. **Operation** — `desktop_act` covering mouse/keyboard, window, clipboard, shell, file and UI actions — authorized through operation intent, and every write action requires confirmation before it runs. Both layers are exposed as Agent tool declarations (`screen_capture` / `window_list` / `ui_tree` / `ocr` / `desktop_act`): perception tools run as read, `desktop_act` runs as write and is gated behind confirmation, so an unconfirmed desktop action never executes.
+- **Write confirmation is a one-time nonce, not a boolean**: the first request for a write action only returns a `confirm_nonce` (bound to the action and its arguments, expires in 5 minutes, single use). `/api/desktop/act` runs the action only with both `confirmed=true` and that nonce; `confirmed=true` alone, changed arguments, an expired nonce or a replay are all refused.
+- **Agent-initiated writes stop and go to the user**: the tool loop decides per action — reads (`file:read` / `clipboard:read`) run directly; writes become pending items returned to the caller in `run_task`'s `pending_actions`. The nonce never enters the model context, so the model cannot approve itself. After the user confirms, the caller runs that exact action through `/api/desktop/act`.
+- **High-risk actions are denied by default**: unless `FOXCLAW_DESKTOP_ACT_DENY` is set, `shell:run` and `file:delete` are denied and no nonce can override that. Setting the variable hands the rules to the user (`none` means no default deny).
+- **Execution-layer scope limits** (shared by every entry point, a second gate after authorization):
+  - File read/write/delete and the shell `cwd` must fall inside the working roots (`FOXCLAW_DESKTOP_ROOTS`, default: home directory + system temp directory). Paths are resolved (`~`, `..`, symlinks) before the check.
+  - Sensitive paths are always refused, reads included: credential directories such as `.ssh` / `.aws` / `.gnupg` / `.kube`, `.env`, private keys and certificates, `.git-credentials` and the like, plus system directories; `FOXCLAW_DESKTOP_PROTECT` adds more.
+  - Shell commands matching dangerous patterns (recursive delete, format, shutdown, registry edits, download-and-execute, encoded execution, ...) or touching sensitive paths are refused; timeout is capped at 120 s and output over 64 KB is truncated. A blocklist cannot stop deliberately obfuscated commands, which is why `shell:run` stays denied by default.
+- What it still cannot do: desktop control on macOS/Linux — the perception and operation runtimes are Windows-only (WinRT / UI Automation) with reserved ports.
+- Web confirmation cards: one card per pending desktop action, showing the action and its exact arguments; approving calls `/api/desktop/act` for that action only, denying sends nothing. Pending items from sub-agents are handed up to the supervisor's response. Not wired yet: confirmation replies over messaging channels.
 
 **Safety operating rules**
 
@@ -41,7 +50,7 @@ This release is the engineering landing of the Computer Use governing document, 
 - **Perception data untrusted (DOC-05)**: screen and web perception data is forced untrusted and its taint propagates; model summarization does not make it trusted.
 - **Verification discipline (DOC-02)**: "effective = has a production call site; wired-but-unused = code exists but nothing calls it" — every item here is verified as `requirement → enforcement point → production call path → test evidence`, never from prose.
 
-Parts of the constitution not yet landed (the desktop execution process, screen capture, UI Automation runtime) are explicitly marked reserved, to be completed in the Windows Desktop Runtime phase — not presented here as done.
+The desktop execution process, screen capture and UI Automation runtime are now landed and verified on Windows; non-Windows runtimes remain reserved.
 
 ## 0.1.7 — 2026-11-21
 

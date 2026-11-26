@@ -40,6 +40,7 @@ def test_taint_level_grading():
     assert IG.taint_level("unknown_source") == IG.TAINT_EXTERNAL == 1
     assert IG.taint_level("knowledge") == IG.TAINT_PERSONAL == 2
     assert IG.taint_level("file") == IG.TAINT_PERSONAL == 2
+    assert IG.taint_level("clipboard") == IG.TAINT_PERSONAL == 2
     assert IG.taint_level("memory") == IG.TAINT_SENSITIVE == 3
     assert IG.taint_level("unknown_source") == IG.TAINT_EXTERNAL
 

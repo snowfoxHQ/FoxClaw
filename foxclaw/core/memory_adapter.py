@@ -495,10 +495,17 @@ class MockHMR:
 
     def ingest(self, content, type="concept", agent_id=None, shared=False,
                consent=False, **kwargs):
+        # 与 HMRAdapter._ingest_inner 同一语义：只有用户已同意（consent=True）的写入才删高敏感行；
+        # 非 consent 路径交给下方敏感闸门转成待确认项。此前这里对所有写入先删再判空，
+        # 整句都是高敏感内容时直接返回 rejected，pending 流程永远走不到
+        # （test_sensitive_write 的 4 个用例因此失败）。
         if consent:
             content = scrub_blocked(content)
+            if not str(content or "").strip():
+                return SimpleNamespace(id="", type=type, rejected=True,
+                                       reason="隐私阻断后无可写内容")
         if not str(content or "").strip():
-            return SimpleNamespace(id="", type=type, rejected=True, reason="隐私阻断")
+            return SimpleNamespace(id="", type=type, rejected=True, reason="空内容")
         verdict = evaluate_write(
             content, explicit_source_tag=kwargs.pop("source_tag", None),
             context=kwargs.pop("context", None), skip_calibration=bool(consent),

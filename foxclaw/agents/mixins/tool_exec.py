@@ -40,15 +40,23 @@ class _Spawn:
     __slots__ = ("done", "box", "thread")
 
     def __init__(self, fn):
+        from ...core.call_status import bind_collector, current_collector, reset_collector
         self.done = threading.Event()
         self.box: dict = {}
+        # 裸 threading.Thread 不继承 contextvars:把本任务的调用状态收集器带进工作线程,
+        # 工具内登记的待确认动作(add_pending)才能回到 run_task 返回体。只带收集器这一个
+        # (可变对象引用,写入即主线程可见);污点仍走 taint_sink,语义不变。
+        _col = current_collector()
 
         def _run():
+            tok = bind_collector(_col)[1] if _col is not None else None
             try:
                 self.box["v"] = fn()
             except BaseException as e:
                 self.box["e"] = e
             finally:
+                if tok is not None:
+                    reset_collector(tok)
                 self.done.set()
 
         self.thread = threading.Thread(target=_run, daemon=True, name="sf-tool")
@@ -90,6 +98,8 @@ def _guard_tool(agent, name: str, args: dict):
         return (f"(工具 {name} 入参不合法: {'; '.join(_errs)}。"
                 f"请按工具声明修正参数后重试。)"), {}
     cap = _tools.tool_capability(name)
+    if name == "desktop_act":
+        return _guard_desktop_act(agent, args or {}, cap)
     _schema = _reg.param_schema(name)
     _req = set(_schema.get("required") or [])
     _params = {k: {"required": k in _req, "type": v.get("type")}
@@ -122,6 +132,128 @@ def _guard_tool(agent, name: str, args: dict):
     return None, cap
 
 
+def _guard_desktop_act(agent, args: dict, cap: dict):
+    """desktop_act 按**具体动作**裁决,而不是按工具级能力(工具级固定是 write)。
+
+    此前工具级 write → 一律 ask → 提前返回,连 file:read / clipboard:read 都执行不到,
+    写动作也没有任何把确认交给用户的通道(Agent 只能读不能写,读也读不了)。
+    现在:
+      · 动作级 deny → 这里直接拒绝;
+      · 读动作(allow)/ 写动作(confirm)→ 放行到能力层 skills.desktop.desktop_act:
+        那里带 deny 规则再判一次,写动作签发一次性确认码并登记为待确认项
+        (见 _invoke_desktop_act),**工具路径永远 confirmed=False,模型自己放不了行**。
+    """
+    from ...skills import permission as _perm
+    from ...skills.desktop import desktop_action_spec
+    action = str(args.get("action", "")).strip()
+    spec = desktop_action_spec(action)
+    inner = args.get("args") or {}
+    _gate = getattr(agent, "_caps", None)
+    _gate = _gate.get("policy_gate") if _gate is not None else None
+    if _gate is not None:
+        decision = _gate.check_action(spec, inner, confirmed=False).raw
+        if decision is None:
+            return "(工具 desktop_act 被权限策略拒绝:无动作评估器(fail-closed),未执行)", cap
+    else:
+        decision = _perm.evaluate(spec, inner, confirmed=False)
+    if decision.decision == "deny":
+        return f"(工具 desktop_act 被权限策略拒绝:{decision.reason},未执行)", cap
+    if decision.decision == "ask":
+        agent._think(content=f"桌面动作 {action} 需用户确认({decision.reason}),将生成待确认项",
+                     node_type="decision", conf=0.9)
+    return None, cap
+
+
+# 感知工具 → observe 边界调用参数(source, sensitivity)。与 __init__ 装配的
+# partial(observe, ...) 能力签名一致:cap(source=..., scope="full", sensitivity=...)。
+_OBSERVE_SOURCE = {
+    "screen_capture": ("screen", "sensitive"),
+    "window_list": ("windows", "private"),
+    "ui_tree": ("uia", "sensitive"),
+    "ocr": ("ocr", "sensitive"),
+}
+
+_DESKTOP_READ_ACTIONS = {"clipboard:read", "file:read"}
+
+
+def _caps_of(agent):
+    caps = getattr(agent, "_caps", None)
+    return caps if caps is not None else {}
+
+
+def _invoke_observe_tool(agent, name: str, _raise) -> str:
+    """感知工具:经统一 observe 边界取屏/取窗口/取元素树/取 OCR,结果已 wrap_untrusted。"""
+    cap = _caps_of(agent).get(name)
+    if cap is None:
+        return f"(工具 {name} 的能力未装配,未执行)"
+    source, sensitivity = _OBSERVE_SOURCE[name]
+    try:
+        import asyncio
+        res = asyncio.run(cap(source=source, scope="full", sensitivity=sensitivity))
+    except Exception as e:
+        return f"(工具 {name} 执行异常:{type(e).__name__})"
+    if not getattr(res, "allowed", False):
+        return f"(工具 {name} 未获观察授权:{getattr(res, 'reason', '')},未执行)"
+    _raise(getattr(res, "taint", 0))
+    return getattr(res, "wrapped", "")
+
+
+def _invoke_desktop_act(agent, args: dict, _raise) -> str:
+    """操作工具:经桌面授权边界执行(写动作须 confirmed,否则能力层 fail-closed)。"""
+    from ...core import injection_guard as _ig
+    cap = _caps_of(agent).get("desktop_act")
+    if cap is None:
+        return "(工具 desktop_act 的能力未装配,未执行)"
+    action = str((args or {}).get("action", "")).strip()
+    if not action:
+        return "(工具 desktop_act 缺少必填参数 action,未执行)"
+    inner = (args or {}).get("args") or {}
+    try:
+        import asyncio
+        import json
+        res = asyncio.run(cap(action=action, args=inner, confirmed=False))
+    except Exception as e:
+        return f"(工具 desktop_act 执行异常:{type(e).__name__})"
+    if not isinstance(res, dict):
+        return f"(工具 desktop_act 返回异常结果:{type(res).__name__})"
+    if res.get("denied") and res.get("level") == "confirm" and res.get("confirm_nonce"):
+        _register_desktop_pending(action, inner, res)
+        # 确认码只交给用户(随任务返回体),不放进模型上下文
+        return (f"(桌面操作「{action}」需要用户确认后才会执行:{res.get('reason') or '写操作'}。"
+                f"已生成待确认项交给用户,我不会自行执行;用户确认前不要说它已经完成。)")
+    if res.get("denied") or not res.get("ok"):
+        return (f"(工具 desktop_act 被权限策略拒绝或失败:"
+                f"{res.get('reason') or res.get('error') or '未知原因'},未执行)")
+    if action in _DESKTOP_READ_ACTIONS:
+        source = action.split(":", 1)[0]
+        _raise(_ig.taint_level(source))
+        return _ig.wrap_untrusted(json.dumps(res, ensure_ascii=False, default=str),
+                                  source=source)
+    return json.dumps(res, ensure_ascii=False, default=str)
+
+
+def _register_desktop_pending(action: str, args: dict, res: dict) -> None:
+    """把待确认的桌面写动作登记到本任务收集器,由 run_task 放进 pending_action 返回。"""
+    from ...core.call_status import current_collector
+    from ...skills.desktop import desktop_action_spec
+    col = current_collector()
+    if col is None:
+        return
+    spec = desktop_action_spec(action)
+    col.add_pending({
+        "kind": "desktop",
+        "action": action,
+        "args": dict(args or {}),
+        "message": res.get("reason", ""),
+        "confirm_nonce": res.get("confirm_nonce", ""),
+        "confirm_expires_at": res.get("confirm_expires_at", 0.0),
+        "critical": bool(spec.destructive or spec.external),
+        "decision_id": res.get("decision_id", ""),
+        "hint": ("确认后 POST /api/desktop/act {action, args, confirmed: true, confirm_nonce} 执行;"
+                 "确认码 5 分钟内有效、只能用一次,args 必须原样回传"),
+    })
+
+
 def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -> str:
     """执行工具本体,返回回注模型的文本。
 
@@ -152,6 +284,10 @@ def _invoke_tool(agent, name: str, args: dict, taint_sink: list | None = None) -
             lines = "\n".join(f"- {r.get('content', '')}" for r in res[:top_k])
             _raise(_ig.taint_level("memory"))
             return "【召回的相关记忆】\n" + _ig.wrap_untrusted(lines, source="memory")
+        if name in _OBSERVE_SOURCE:
+            return _invoke_observe_tool(agent, name, _raise)
+        if name == "desktop_act":
+            return _invoke_desktop_act(agent, args, _raise)
     except Exception as e:
         return f"(工具 {name} 执行异常:{type(e).__name__})"
     return f"(未知工具 {name},未执行)"

@@ -223,11 +223,19 @@ TAINT_SENSITIVE = 3
 _TAINT_BY_SOURCE = {
     "knowledge": TAINT_PERSONAL,
     "file": TAINT_PERSONAL,
+    # 剪贴板内容(文本/富文本/可能含账号密码):个人数据级,与 file/browser/knowledge 同级。
+    "clipboard": TAINT_PERSONAL,
     "memory": TAINT_SENSITIVE,
     # SC-03 感知数据:source 标记互不混淆;网页内容=某条页面内容(个人数据级),
     # 全屏采集=跨上下文可见的私密(最高敏感级)。
     "browser": TAINT_PERSONAL,
     "screen": TAINT_SENSITIVE,
+    # UI Automation:元素树结构化暴露任意应用窗口内控件名/文本框值,与 screen 同级。
+    "uia": TAINT_SENSITIVE,
+    # 屏幕 OCR:整屏文字的文本化暴露,与 screen 同级(最高敏感级)。
+    "ocr": TAINT_SENSITIVE,
+    # 窗口列举:标题/类名可能暴露文件名、账户名等,与 screen/uia/ocr 同级。
+    "windows": TAINT_SENSITIVE,
 }
 
 

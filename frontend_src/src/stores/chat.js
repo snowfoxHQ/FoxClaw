@@ -421,7 +421,25 @@ function finalize(msg, res) {
   if (!res || typeof res !== 'object') return
   if (res.interrupted) return void (msg.error = '管线已中断')
   if (res.error === 'harness_blocked') return void (msg.error = '被 harness 策略拦截')
-  if (res.status === 'needs_confirmation') {
+  // Agent 发起的桌面写操作:每条一张确认卡,确认 = 直接执行这一条原样动作(不重跑任务)
+  const desk = Array.isArray(res.pending_actions)
+    ? res.pending_actions.filter((a) => a && a.kind === 'desktop' && a.confirm_nonce)
+    : []
+  if (desk.length) {
+    msg.deskPending = desk.map((a, i) => ({
+      id: `${a.decision_id || 'd'}-${i}`,
+      action: a.action || '',
+      args: a.args || {},
+      confirm_nonce: a.confirm_nonce,
+      expires_at: a.confirm_expires_at || 0,
+      critical: !!a.critical,
+      message: a.message || '',
+      state: 'pending', // pending | running | done | failed | rejected | expired
+      result: '',
+    }))
+    msg.notice = ''
+  }
+  if (res.status === 'needs_confirmation' && !desk.length) {
     const pa = res.pending_action
     // 交互式审批卡只给最危险的操作(critical = send/pay/destructive);
     // 普通待确认仍是文本提示。
@@ -473,6 +491,51 @@ export function rejectAction(msg) {
     msg.pending = null
     msg.notice = t('msg.rejected')
   }
+}
+
+/** 桌面写操作确认:原样回传 action + args + 一次性确认码,后端校验通过才执行这一条。 */
+export async function confirmDesktop(card) {
+  if (!card || card.state !== 'pending') return
+  if (card.expires_at && Date.now() / 1000 > card.expires_at) {
+    card.state = 'expired'
+    card.result = t('desk.expired')
+    return
+  }
+  card.state = 'running'
+  try {
+    const r = await postJSON('/desktop/act', {
+      action: card.action,
+      args: card.args,
+      confirmed: true,
+      confirm_nonce: card.confirm_nonce,
+    })
+    card.confirm_nonce = '' // 一次性:无论成败都不再复用
+    if (r && r.ok !== false && !r.denied && !r.needs_confirmation) {
+      card.state = 'done'
+      card.result = summarizeDesk(r)
+    } else {
+      card.state = 'failed'
+      card.result = (r && (r.error || r.reason)) || t('desk.failed')
+    }
+  } catch (e) {
+    card.confirm_nonce = ''
+    card.state = 'failed'
+    card.result = e.message || t('desk.failed')
+  }
+}
+
+/** 拒绝桌面写操作:不发任何请求,确认码随卡片作废(5 分钟后后端自然过期)。 */
+export function rejectDesktop(card) {
+  if (!card || card.state !== 'pending') return
+  card.confirm_nonce = ''
+  card.state = 'rejected'
+  card.result = t('desk.rejected')
+}
+
+function summarizeDesk(r) {
+  const s = r.stdout ?? r.content ?? r.message ?? r.text
+  if (typeof s === 'string' && s.trim()) return s.length > 400 ? s.slice(0, 400) + '…' : s
+  return t('desk.done')
 }
 
 async function readSSE(res, onEvent) {

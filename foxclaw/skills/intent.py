@@ -104,9 +104,9 @@ def register(name: str, domain: str, action: str, *,
 @dataclass(frozen=True)
 class ObservationIntent:
     """观察意图(frozen)。感知通道与操作通道正交:观察暴露隐私,授权看 scope。"""
-    source: str        # "screen" | "browser" | "clipboard" | "uia" | "windows"
+    source: str        # "screen" | "browser" | "clipboard" | "uia" | "windows" | "ocr"
     scope: str         # "full" | "window:<id>" | "app:<name>" | "resource:<uri>"
-    sensitivity: str = "public"   # 接 taint_level(SC-03 污点传播,SC-02 只定义语义)
+    sensitivity: str = "public"   # SC-02 语义标签;污点由 taint_level(source) 决定,与此无关
 
     def to_key(self) -> str:
         """观察规则匹配键:source:scope(范围限制靠此生效)。"""

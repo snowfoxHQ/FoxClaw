@@ -119,10 +119,24 @@ def extract_evidence(source: str, text: str, limit: int = MAX_EVIDENCE) -> list[
     return out
 
 
+def _desktop_act_checker(args: dict | None, text: str) -> tuple[bool, str]:
+    """desktop_act 内 read/write 混合:read 动作(file:read/clipboard:read)有确定性
+    后置条件(ok:true + 数据),write 动作无可观察后置条件,按 action 细分。"""
+    from ..skills.desktop import desktop_action_spec
+    action = str((args or {}).get("action", ""))
+    if desktop_action_spec(action).side_effect != "read":
+        return False, "写操作无可观察的后置条件"
+    t = text or ""
+    if '"ok": true' in t or '"ok":true' in t:
+        return True, ""
+    return False, "读操作未返回成功标记(ok:true)"
+
+
 _CHECKERS: dict[str, Callable[..., tuple[bool, str]]] = {
     "recall_memory": lambda args, text: (
         (True, "") if (text or "").strip().startswith("【召回的相关记忆】")
         else (False, "未返回记忆条目")),
+    "desktop_act": _desktop_act_checker,
 }
 
 

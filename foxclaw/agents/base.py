@@ -648,7 +648,11 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                               session_id=session_id, stop_event=stop_event)
         # P0-03.3:本任务的调用状态收集器——contextvar 绑定,asyncio.to_thread 复制传播;
         # 归属是任务而非 Agent 实例,同一实例并发跑多任务时互不串扰。
-        from ..core.call_status import bind_collector, reset_collector, settle_task_status
+        from ..core.call_status import (bind_collector, current_collector, reset_collector,
+                                        settle_task_status)
+        # 主管分派子 Agent 时子任务会绑定新收集器:记住父收集器,子任务的待确认桌面动作
+        # 需要上交,否则只留在子任务返回体里,主管汇总后用户就看不到确认卡片了。
+        _parent_col = current_collector()
         _col, _col_tok = bind_collector()
 
         def _stage_hook(name, _ctx):
@@ -696,6 +700,19 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                         "hint": "确认后带 context={'_confirmed': <skill_id>, '_confirm_nonce': '<确认码>'} "
                                 "重跑本任务以执行(绑定到 skill_id 更安全;_confirmed=True 为概括确认)",
                     }
+            # Agent 工具循环里发起、等待用户确认的桌面写操作(确认码不进模型上下文,只在这里交给调用方)。
+            # 确认 = 直接执行这一条原样动作(POST /api/desktop/act + confirm_nonce),不重跑整个任务:
+            # 重跑会让模型重新规划,参数一变确认码就对不上。
+            _desk_pend = _col.pending_actions()
+            if _desk_pend:
+                if _parent_col is not None and _parent_col is not _col:
+                    for _p in _desk_pend:
+                        _parent_col.add_pending(_p)
+                resp["pending_actions"] = _desk_pend
+                if not skill_incomplete:
+                    resp["status"] = "needs_confirmation"
+                    resp["pending_action"] = _desk_pend[0]
+                    skill_incomplete = True
             blocked = skill_incomplete or ctx.interrupted
             self._emit_execution(task, ctx.result, blocked=blocked, context=context)
             self._maybe_store_preference(task)

@@ -92,6 +92,9 @@ dev = [
 # 浏览器子系统(HIR-Browser)。playwright 是重可选依赖:装了才启用真实浏览器,
 # 未装则 /api/browser/* 优雅降级(available=False)。装后还需 `playwright install chromium`。
 browser = ["playwright>=1.44.0"]
+# 桌面操控子系统(第一批:感知层)。mss 跨平台截屏,Pillow 编码 PNG;未装则
+# /api/desktop/* 优雅降级(available=False)。窗口列举走 ctypes,零额外依赖。
+desktop = ["mss>=9.0", "Pillow>=10.0"]
 # Google Gemini provider。model_router 在 FOXCLAW_PROVIDER=google 时才惰性 import
 # google.generativeai;未装则该分支 ImportError(其余 provider 不受影响)。此前只在
 # 文档里写「pip install google-generativeai」,依赖表无对应声明,属 R1 检测出的缺口。
@@ -176,6 +179,8 @@ python_files = [
     "test_conflict_dismiss.py",
     "test_content_guard.py",
     "test_context_compaction_wiring.py",
+    "test_desktop.py",
+    "test_desktop_scope.py",
     "test_dispatch.py",
     "test_domain_evals.py",
     "test_domain_import.py",

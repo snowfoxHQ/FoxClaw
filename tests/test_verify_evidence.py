@@ -117,6 +117,28 @@ def test_recall_memory_requires_marker() -> None:
     assert v2.evidence[0].label == "example.com"
 
 
+def test_desktop_act_read_verified() -> None:
+    v = vf.verify("desktop_act", {"action": "file:read"},
+                  '<untrusted source="file">\n{"ok": true, "content": "x"}\n</untrusted>',
+                  {"read_only": False})
+    assert v.status == vf.VERIFIED
+
+
+def test_desktop_act_read_without_ok_marker_unverified() -> None:
+    v = vf.verify("desktop_act", {"action": "clipboard:read"},
+                  '<untrusted source="clipboard">\n{"text": "x"}\n</untrusted>',
+                  {"read_only": False})
+    assert v.status == vf.UNVERIFIED
+
+
+def test_desktop_act_write_unverified() -> None:
+    v = vf.verify("desktop_act", {"action": "shell:run"},
+                  '{"ok": true, "returncode": 0}',
+                  {"read_only": False})
+    assert v.status == vf.UNVERIFIED
+    assert "后置条件" in v.reason
+
+
 def test_evidence_only_counts_real_paths(tmp_path) -> None:
     ghost = "C:/definitely/not/here/x.md"
     assert vf.extract_evidence("read_file", f"读了 {ghost}") == []

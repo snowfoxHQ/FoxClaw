@@ -6,7 +6,6 @@ PolicyGate.check_observation 分流。
   - fail-closed:未声明感知源 / 未授权观察一律拒绝
   - deny 优先
   - 跨通道独立:操作 read 不自动放行屏幕;观察授权不当操作授权用
-  - sensitivity → taint(SC-03 污点传播语义基础)
   - check_observation:评估器缺失 fail-closed;allow/deny 归一化为 Verdict + decision_id
 """
 import sys
@@ -46,10 +45,12 @@ def test_deny_overrides_allow():
     assert evaluate_observation(ObservationIntent("screen", "window:1"), rules).decision == "allow"
 
 
-def test_taint_from_sensitivity():
+def test_decision_carries_no_taint():
+    # 污点不在此层判定:sensitivity 是 SC-02 语义标签,SC-03 污点由 taint_level(source) 决定。
     d = evaluate_observation(ObservationIntent("browser", "page", sensitivity="sensitive"),
                              ObservationRules(allow=["browser:*"]))
-    assert d.decision == "allow" and d.taint == 2, d
+    assert d.decision == "allow"
+    assert not hasattr(d, "taint")
 
 
 def test_channels_independent():

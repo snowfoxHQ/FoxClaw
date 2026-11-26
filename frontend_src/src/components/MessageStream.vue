@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue'
-import { chat, confirmAction, rejectAction, retry } from '../stores/chat.js'
+import { chat, confirmAction, confirmDesktop, rejectAction, rejectDesktop, retry } from '../stores/chat.js'
 import { mdToHTML } from '../lib/md.js'
 import { t } from '../lib/i18n.js'
 
@@ -148,6 +148,31 @@ function canRetry(i) {
               <button class="c-ok" @click="confirmAction(m)">{{ t('msg.confirmOk') }}</button>
               <button class="c-no" @click="rejectAction(m)">{{ t('msg.confirmNo') }}</button>
             </div>
+          </div>
+
+          <div v-for="c in (m.deskPending || [])" :key="c.id"
+               class="confirm-card desk-card" :class="['st-' + c.state, { crit: c.critical }]"
+               role="alertdialog" aria-live="assertive">
+            <div class="c-head">
+              <span class="c-badge">{{ c.critical ? '!' : '⚠' }}</span>
+              <b class="c-title">{{ t('desk.title') }}</b>
+              <code class="d-act">{{ c.action }}</code>
+            </div>
+            <pre class="d-args">{{ JSON.stringify(c.args, null, 2) }}</pre>
+            <p v-if="c.message" class="c-msg">{{ c.message }}</p>
+            <p class="d-hint">{{ t('desk.hint') }}</p>
+            <div v-if="c.state === 'pending' || c.state === 'running'" class="c-acts">
+              <button class="c-ok" :disabled="c.state === 'running'" @click="confirmDesktop(c)">
+                {{ c.state === 'running' ? t('desk.running') : t('desk.ok') }}
+              </button>
+              <button class="c-no" :disabled="c.state === 'running'" @click="rejectDesktop(c)">
+                {{ t('msg.confirmNo') }}
+              </button>
+            </div>
+            <p v-else class="d-res">
+              <b>{{ t('desk.st.' + c.state) }}</b>
+              <span v-if="c.result"> · {{ c.result }}</span>
+            </p>
           </div>
 
           <div v-if="m.error" class="err">✕ {{ m.error }}</div>
@@ -406,6 +431,22 @@ function canRetry(i) {
   border: 1px solid var(--line);
 }
 .c-no:hover { color: var(--red); border-color: rgba(229, 72, 77, 0.4); }
+
+/* 桌面写操作确认卡:动作与参数原样展示,用户看清楚再点 */
+.desk-card.crit { border-color: rgba(229, 72, 77, 0.45); }
+.desk-card.crit .c-badge { background: var(--red); }
+.d-act { font-size: 11.5px; padding: 1px 7px; border-radius: 6px; background: rgba(0, 0, 0, 0.05); }
+.d-args {
+  margin: 0; max-height: 180px; overflow: auto;
+  font-size: 11.5px; line-height: 1.5; padding: 7px 9px;
+  border-radius: 6px; background: rgba(0, 0, 0, 0.04);
+  white-space: pre-wrap; word-break: break-all;
+}
+.d-hint { margin: 0; font-size: 11px; color: var(--dim); }
+.d-res { margin: 0; font-size: 12px; color: var(--dim); white-space: pre-wrap; word-break: break-word; }
+.st-done .d-res b { color: var(--green, #2f9e5b); }
+.st-failed .d-res b, .st-expired .d-res b { color: var(--red); }
+.c-ok:disabled, .c-no:disabled { opacity: 0.55; cursor: default; }
 
 .a-acts { display: flex; gap: 6px; opacity: 0; transition: opacity 0.13s; }
 .msg:hover .a-acts,

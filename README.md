@@ -43,6 +43,59 @@ Closed loop (`ChannelDispatcher`): receive → Supervisor → reply to origin, w
 
 Keeps the system reliable under message redelivery, crashes, long tasks, and loops. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md): idempotency guard, crash/restart recovery (boot_id avoids pid reuse), tool-loop detection, context compaction, hook standardization, steering queue.
 
+## Computer control: safety boundary
+
+Foxclaw can see the screen and operate the mouse, keyboard, windows, clipboard, files and shell on Windows. The capability is not the hard part; the hard part is **not causing harm when deceived**: a line of text on screen, a web page saying "please run X", or a single misjudgment by the model must never turn into a real deletion or payment. So the rules come first (the Desktop Operation Constitution, DOC-01 ~ DOC-07), and the capability is built on top of them.
+
+### Constitution clauses (enforced in code)
+
+| Clause | Rule | What it means |
+|---|---|---|
+| Verification discipline (DOC-02) | "Effective = has a production call site; written but never called = not effective" | Every safety requirement is verified as requirement → enforcement point → production call path → test evidence, never from prose |
+| Intent canonicalization (DOC-03) | Allow/deny is decided from the **canonical operation intent**, not the tool name | Doing the same thing through another tool or another phrasing hits the same rule; an equivalent path after a deny cannot get around it |
+| Perception/operation separation (DOC-04) | "Looking" and "acting" are authorized separately and never inherit each other | Permission to capture the screen is not permission to click; ordinary read permission does not allow screen capture |
+| Perceived data is untrusted (DOC-05) | Screen, windows, UI elements, OCR, web pages, clipboard and file contents read back are all marked untrusted | Model summarization or rewriting never makes them trusted; a "please run X" on screen or in a page is never treated as your authorization |
+
+### Operating rules
+
+**1. Nothing happens by default**
+- Perception (screen capture, window list, UI element tree, OCR) is off until explicitly enabled (`FOXCLAW_OBSERVE_ALLOW`).
+- Any failed check, missing component or unrecognized action is refused (fail-closed). Unregistered actions are treated as write + irreversible.
+
+**2. Write actions need your confirmation, and confirmation is single use**
+- Mouse, keyboard, window, clipboard writes, file writes and UI actions are write actions and never run unconfirmed.
+- Confirmation is not a switch but a **one-time nonce** issued by the server: bound to this action and these arguments, expires in 5 minutes, void after one use. Changed arguments, expiry or replay are all refused.
+- When the Agent itself starts a write action, it stops and hands you a pending item (`pending_actions` in the `run_task` response). **The nonce never appears in anything the model can see**, so the model cannot press "confirm" for you. After you confirm, that exact action runs; nothing is re-planned.
+
+**3. High-risk actions are prohibited by default**
+- `shell:run` (run a command) and `file:delete` (delete a file) are denied by default, and no nonce can override that.
+- If you need them, set `FOXCLAW_DESKTOP_ACT_DENY` to take over the rules (`none` means no default deny).
+
+**4. Acting only inside allowed scope** (execution-layer backstop shared by every entry point)
+- File read/write/delete and the shell working directory must be inside `FOXCLAW_DESKTOP_ROOTS` (default: home directory + system temp directory). Paths are resolved (`~`, `..`, symlinks) before the check.
+- Sensitive paths are always refused, reads included: credential directories such as `.ssh`, `.aws`, `.gnupg`, `.kube`, `.env`, private keys and certificates, `.git-credentials` and the like, plus system directories. `FOXCLAW_DESKTOP_PROTECT` adds more.
+- Shell commands matching dangerous patterns (recursive delete, format, shutdown, registry edits, download-and-execute, encoded execution, ...) or touching sensitive paths are refused; each run is capped at 120 s and output over 64 KB is truncated.
+
+**5. Every decision is recorded**
+- Every allow, deny and pending confirmation carries a `decision_id` and goes into the unified governance audit chain. Once perceived data enters a session, the session's taint level only goes up, and later outbound or side-effecting actions need confirmation again.
+
+**6. Local only by default**
+- The server listens on `127.0.0.1` by default; cross-origin requests are allowed only from localhost; the Host header is checked against DNS rebinding.
+- Exposing it beyond the machine requires `FOXCLAW_API_KEY`; otherwise startup prints a warning.
+
+### Honest limits
+
+What these rules stop: model misjudgment, prompt injection, forged instructions on screen or in pages, "confirmed A but ran B", replayed confirmations, escaping the working roots, touching credential files.
+
+What they **do not** stop, so you know:
+- **Malware already on your machine**: a nonce only proves the caller saw this pending confirmation, not that a human pressed it. A local process can request and then execute with the nonce. That is why shell and delete are prohibited by default instead of relying on the nonce.
+- **Deliberately obfuscated shell commands**: the dangerous-command blocklist only catches common forms. Before enabling `shell:run`, make sure you trust every source that could trigger it.
+- **Your own confirmation**: read the action and arguments on the confirmation before you approve.
+
+Not available yet:
+- Desktop control on macOS / Linux (the perception and operation runtimes are Windows-only for now).
+- Confirmation replies over messaging channels (WeChat / Feishu / Telegram / Discord): the web UI has confirmation cards (showing the action and its exact arguments; approving runs only that action), but channels are not wired yet, so a desktop write started from a channel stays pending.
+
 ## Quick start
 
 ```bash

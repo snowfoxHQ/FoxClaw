@@ -43,6 +43,40 @@ RECALL_MEMORY = _tool(
     ["query"],
 )
 
+SCREEN_CAPTURE = _tool(
+    "screen_capture",
+    "截取当前屏幕(全屏),返回 base64 PNG 图像与像素尺寸。当需要看清用户当前屏幕上"
+    "显示的内容时调用。",
+    {}, [])
+
+WINDOW_LIST = _tool(
+    "window_list",
+    "列举当前所有可见窗口(句柄/标题/窗口类名)。当需要定位或了解用户当前打开了哪些"
+    "窗口时调用。",
+    {}, [])
+
+UI_TREE = _tool(
+    "ui_tree",
+    "枚举前台窗口的可交互元素树(UI Automation),返回控件名/类型/坐标。当需要精确"
+    "定位要点击或输入的位置时调用(比坐标点击更可靠)。",
+    {}, [])
+
+OCR = _tool(
+    "ocr",
+    "对当前屏幕做 OCR 文字识别,返回整屏文本与逐词坐标框。当需要读取屏幕上显示的"
+    "文字内容时调用。",
+    {}, [])
+
+DESKTOP_ACT = _tool(
+    "desktop_act",
+    "执行一个桌面操作(键鼠/窗口/剪贴板/shell/文件/UI)。action 形如 mouse:click、"
+    "keyboard:type、window:focus、clipboard:read、shell:run、file:read、file:write、"
+    "ui:click 等。写/副作用操作须经用户确认后才执行。",
+    {"action": {"type": "string", "description": "操作标识,如 mouse:click / shell:run / file:write"},
+     "args": {"type": "object", "description": "操作参数,如点击坐标 {x,y} / 输入文本 {text} / 命令 {command}"}},
+    ["action"],
+)
+
 
 class ToolRegistry:
     """工具声明注册表(无状态,只持 schema)。执行由 Agent 侧按 name 分派。"""
@@ -130,13 +164,32 @@ def is_tool_denied(name: str) -> bool:
 
 
 def default_registry() -> ToolRegistry:
-    """首批工具:recall_memory。后续 skills/MCP 可继续 register 进来(P3)。"""
-    return ToolRegistry().register(RECALL_MEMORY)
+    """工具集:recall_memory + 桌面操控(感知 4 + 操作 1)。"""
+    return (ToolRegistry()
+            .register(RECALL_MEMORY)
+            .register(SCREEN_CAPTURE)
+            .register(WINDOW_LIST)
+            .register(UI_TREE)
+            .register(OCR)
+            .register(DESKTOP_ACT))
 
 
 TOOL_CAPABILITIES: dict[str, dict] = {
     "recall_memory": {"side_effect": "read", "read_only": True, "external": False,
                       "destructive": False, "parallel_safe": True},
+    "screen_capture": {"side_effect": "read", "read_only": True, "external": False,
+                       "destructive": False, "parallel_safe": True},
+    "window_list": {"side_effect": "read", "read_only": True, "external": False,
+                    "destructive": False, "parallel_safe": True},
+    "ui_tree": {"side_effect": "read", "read_only": True, "external": False,
+                "destructive": False, "parallel_safe": True},
+    "ocr": {"side_effect": "read", "read_only": True, "external": False,
+            "destructive": False, "parallel_safe": True},
+    # desktop_act 覆盖 read(file:read/clipboard:read) 与 write(键鼠/shell/文件)混合动作,
+    # 工具级统一 write(HITL),不标 destructive(否则触发 SC-05 critical 契约);精确
+    # destructive 由能力层 desktop_action_spec 按具体 action 细分。
+    "desktop_act": {"side_effect": "write", "read_only": False, "external": False,
+                    "destructive": False, "parallel_safe": False},
 }
 _DEFAULT_CAP = {"side_effect": "write", "read_only": False, "external": True, "destructive": False}
 

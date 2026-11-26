@@ -15,10 +15,7 @@ from dataclasses import dataclass, field
 from ..core.injection_guard import taint_level, wrap_untrusted
 
 # 已知感知 source 白名单(约束7:未声明 source → fail-closed)。
-_KNOWN_SOURCES = {"screen", "browser", "clipboard", "uia", "windows"}
-
-# sensitivity → taint_level(SC-03 污点传播消费,SC-02 只定义语义)。
-_SENSITIVITY_TAINT = {"public": 0, "private": 1, "sensitive": 2}
+_KNOWN_SOURCES = {"screen", "browser", "clipboard", "uia", "windows", "ocr"}
 
 
 @dataclass(frozen=True)
@@ -26,7 +23,6 @@ class ObservationDecision:
     decision: str        # "allow" | "deny"
     reason: str = ""
     stage: int = 0
-    taint: int = 0       # sensitivity → taint_level,SC-03 污点传播消费
 
 
 @dataclass
@@ -41,10 +37,11 @@ def _hits(patterns: list[str], key: str) -> bool:
 
 
 def evaluate_observation(obs, rules: ObservationRules | None = None) -> ObservationDecision:
-    """观察通道判定(鸭子类型:取 obs.source / obs.scope / obs.sensitivity)。
+    """观察通道判定(鸭子类型:取 obs.source / obs.scope)。
 
     顺序:未声明 source → fail-closed 拒;deny 命中 → 拒;allow 命中(scope 覆盖) → 放;
-    其余 → 拒(未授权不观察)。
+    其余 → 拒(未授权不观察)。污点不在此层判定——SC-03 污点传播由 taint_level(source)
+    按来源单一事实源决定(见 observe),sensitivity 仅是 SC-02 的意图语义标签。
     """
     rules = rules or ObservationRules()
     source = getattr(obs, "source", "")
@@ -56,9 +53,7 @@ def evaluate_observation(obs, rules: ObservationRules | None = None) -> Observat
     if _hits(rules.deny, key) or _hits(rules.deny, f"{source}:*"):
         return ObservationDecision("deny", f"命中观察 deny 规则: {key}", stage=1)
     if _hits(rules.allow, key) or _hits(rules.allow, f"{source}:*"):
-        return ObservationDecision("allow", f"命中观察 allow 规则: {key}", stage=2,
-                                   taint=_SENSITIVITY_TAINT.get(
-                                       getattr(obs, "sensitivity", "public"), 0))
+        return ObservationDecision("allow", f"命中观察 allow 规则: {key}", stage=2)
     return ObservationDecision("deny", f"未授权观察: {key}", stage=1)
 
 

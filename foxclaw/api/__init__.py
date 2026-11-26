@@ -233,6 +233,9 @@ from .routes import orchestration  # noqa: F401
 # ── 浏览器子系统:routes/browser.py(import 即注册) ────────────────
 from .routes import browser  # noqa: F401
 
+# ── 桌面操控子系统:routes/desktop.py(import 即注册) ────────────────
+from .routes import desktop  # noqa: F401
+
 # ── 知识核心(HKC):routes/knowledge.py(import 即注册) ────────────────
 from .routes import knowledge  # noqa: F401
 

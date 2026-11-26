@@ -149,6 +149,7 @@ class Foxclaw:
         from .skills.observation import (ObservationRules, evaluate_observation,
                                          observe as _observe)
         from .skills.action import browser_act as _browser_act
+        from .skills.desktop import desktop_act as _desktop_act
 
         # 【P-Muse·守门人进程化】FOXCLAW_GUARDIAN=1 时,把动作裁决从「进程内 evaluate」换成
         # 「跨进程 Sentinel」:规则表与真实凭证只存在于守门人进程,主进程(Agent)被 RCE 也
@@ -394,6 +395,44 @@ class Foxclaw:
         self.browser_act = partial(_browser_act, self.policy_gate, self.browser_service.act,
                                    rules=PermissionRules(deny=_act_deny, ask=_act_ask))
         self.capabilities.register("browser_act", self.browser_act)
+
+        # 桌面操控子系统(第一批:感知层)。构造极轻,首次感知才 import mss/Pillow;
+        # 缺失时 available()=False 降级。感知复用统一 observe 边界,screen/windows 已在观察白名单。
+        from .desktop import DesktopService
+        self.desktop_service = DesktopService()
+        self.screen_capture = partial(_observe, self.policy_gate, self.desktop_service.capture,
+                                      rules=ObservationRules(allow=_obs_allow, deny=_obs_deny))
+        self.window_list = partial(_observe, self.policy_gate, self.desktop_service.list_windows,
+                                   rules=ObservationRules(allow=_obs_allow, deny=_obs_deny))
+        self.capabilities.register("screen_capture", self.screen_capture)
+        self.capabilities.register("window_list", self.window_list)
+
+        # UI Automation 感知入口：枚举前台窗口可交互元素（source=uia，最高敏感级污点）。
+        # 复用统一 observe 边界，默认空规则 fail-closed；FOXCLAW_OBSERVE_ALLOW=uia:* 开闸。
+        self.ui_tree = partial(_observe, self.policy_gate, self.desktop_service.ui_tree,
+                               rules=ObservationRules(allow=_obs_allow, deny=_obs_deny))
+        self.capabilities.register("ui_tree", self.ui_tree)
+
+        # 屏幕 OCR 感知入口：整屏文字 + 逐词坐标（source=ocr，与 screen 同级最高敏感污点）。
+        # 复用统一 observe 边界，默认空规则 fail-closed；FOXCLAW_OBSERVE_ALLOW=ocr:* 开闸。
+        self.ocr = partial(_observe, self.policy_gate, self.desktop_service.ocr,
+                           rules=ObservationRules(allow=_obs_allow, deny=_obs_deny))
+        self.capabilities.register("ocr", self.ocr)
+
+        # 【SC-08 扩展】桌面操作意图授权边界:键鼠/窗口/剪贴板/shell/文件不再直接执行,
+        # 先经 check_action 归一化 + 授权,deny/confirm fail-closed 拒绝。FOXCLAW_DESKTOP_ACT_DENY/ASK
+        # 显式锁定/提确认,逗号分隔的 `desktop:shell:*` / `desktop.*` fnmatch 模式(与 BROWSER_ACT 同款)。
+        # 未设置 FOXCLAW_DESKTOP_ACT_DENY 时默认拒绝任意 shell 与删文件(desktop_deny_rules);
+        # 显式设置即完全接管,设为 none 表示不加默认拒绝。
+        from .skills.desktop import desktop_deny_rules as _desktop_deny_rules
+        _dact_deny = _desktop_deny_rules(os.environ.get("FOXCLAW_DESKTOP_ACT_DENY"))
+        _dact_ask = [s.strip() for s in os.environ.get("FOXCLAW_DESKTOP_ACT_ASK", "").split(",") if s.strip()]
+        # 写动作的「已确认」必须带服务端签发的一次性 nonce(绑定动作+参数),
+        # 不再信任调用方自报的 confirmed=true。与技能路径共用同一个 ConfirmationBroker。
+        self.desktop_act = partial(_desktop_act, self.policy_gate, self.desktop_service.act,
+                                   rules=PermissionRules(deny=_dact_deny, ask=_dact_ask),
+                                   confirms=self.confirm_broker)
+        self.capabilities.register("desktop_act", self.desktop_act)
 
         # HKC 知识核心(vendor/hkc,同进程 DirectClient)。**惰性装配**:首次访问 self.hkc
         # 才装配——否则每次构造 OS 都会在 data_dir/hkc 开 4 个 SQLite 句柄,现有测试

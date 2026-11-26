@@ -37,10 +37,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -94,17 +94,19 @@ jobs:
 
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 143 个测试文件逐个起子进程顺序跑,平时 18–24 分钟;25 分钟上限经常被打满
+    # (#50/#53/#56/#57/#59/#62 都是超时被取消,不是测试失败)。
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Cache pip + HF models
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/pip
@@ -145,6 +147,17 @@ jobs:
           coverage report
           coverage xml
 
+      - name: Upload failure logs
+        # run_all.py 把每个失败测试的完整输出写到 tests/_fail_<文件>.txt;
+        # 不上传的话,只能看到「exit code 1」,不知道是哪个测试、为什么。
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v6
+        with:
+          name: regression-failures
+          path: tests/_fail_*.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
   audit:
     # 依赖漏洞门。此前 SCA 只覆盖 Dockerfile 与前端 package.json,Python 侧完全空白 ——
     # 实测全局环境 34 个包挂着 278 条已知漏洞(pyjwt 15、starlette 14、filelock 9…),
@@ -159,10 +172,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 

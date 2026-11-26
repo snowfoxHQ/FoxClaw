@@ -48,6 +48,7 @@ class TaskCallCollector:
     def __init__(self) -> None:
         self._items: list = []
         self._trace: list = []
+        self._pending: list = []
         self._lock = threading.Lock()
 
     def add_trace(self, entries) -> None:
@@ -65,6 +66,20 @@ class TaskCallCollector:
     def tool_trace(self) -> list:
         with self._lock:
             return list(self._trace)
+
+    def add_pending(self, item: dict) -> None:
+        """登记一个「需用户确认后才执行」的待办动作(如 Agent 发起的桌面写操作)。
+
+        工具循环在工作线程里跑,模型只拿到「需确认」文本;真正的确认码与参数经这里
+        随任务返回体交给调用方(用户/UI),不进入模型上下文。
+        """
+        if item:
+            with self._lock:
+                self._pending.append(dict(item))
+
+    def pending_actions(self) -> list:
+        with self._lock:
+            return [dict(p) for p in self._pending]
 
     def new(self) -> CallStatus:
         """创建并登记一个新的调用状态(初始 PENDING)。"""
