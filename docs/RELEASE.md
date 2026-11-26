@@ -91,11 +91,9 @@ git tag -a v0.1.4 "$(git rev-parse origin/main)" -m "v0.1.4"
 git push origin v0.1.4
 ```
 
-> **tag 必须打在 `origin/main` 上,不是本地 HEAD。** 本地 `personal` 分支是开发分支,
-> 含未导出的内部文档与中间提交;`origin/main` 由 `tools/sync_public.ps1` 从 HEAD 重新构造
-> (同一份树、不同 SHA)。把 tag 打在本地 HEAD 再 push,会把内部历史一起推到公开仓,
-> 导出白名单形同虚设。所以先 `git fetch origin`,用 `origin/main` 的 SHA 打 tag ——
-> 前提是这次要发的改动已经 `sync_public.ps1 -Apply` 过。
+> **tag 必须打在已推送到 `origin/main` 的提交上。** 唯一开发分支是 `main`，
+> 日常改动直接提交并推送 `git push origin main`；不要给尚未推送的本地提交打 tag。
+> 内部文档由 `.gitignore` 排除，推送前还会由 `.githooks/pre-push` 检查。
 
 `.github/workflows/release.yml` 的 `build` job 会:校验版本/tag → 构建 → `build.cjs` +
 npm pack → 产物结构校验 → 上传 `python-dist` / `npm-tgz` 两个 artifact;
@@ -121,11 +119,11 @@ Actions → Release → Run workflow:
 > 这么出去的。想要真正的审门,先去 Settings → Environments 给 `pypi` / `npm` 各加
 > Required reviewers,再触发发布。
 
-## 4. 发版后回写现状并同步(每次都做)
+## 4. 发版后回写现状并推送(每次都做)
 
 发布成功后,把实测结果回写本文开头的现状表(已占版本、latest、产物条目数、传播延迟),
-提交后**立刻**跑 `tools/sync_public.ps1 -Apply` 推到 `origin/main`。不要攒到下次发版——
-攒着只会让公开仓的文档持续失真,而且差异越积越大,下次同步越容易出错。
+提交后**立刻**直接运行 `git push origin main`。不要攒到下次发版——
+攒着只会让公开仓的文档持续失真,而且差异越积越大。
 
 tag 是不可变快照,`origin/main` 是不断前进的公开状态,两者 SHA 不同是**正常语义**,
 不是"不一致"。唯一的判断标准是「公开仓里的文档与事实是否相符」;为了"让 tag 等于 main"
@@ -158,17 +156,10 @@ tag 是不可变快照,`origin/main` 是不断前进的公开状态,两者 SHA �
 
 | 位置 | 用途 |
 |---|---|
-| `origin/main` | 唯一对外分支。由 `tools/sync_public.ps1` 从本地 HEAD 构造后推送,只含导出白名单 |
-| 本地 `personal` | 开发分支。中间提交都在这里,不直接 push 到 `origin` |
-| `dev` | 私有镜像,异地备份。整份开发历史 + 内部文档,不参与发布,不构建产物 |
+| 本地 `main` / `origin/main` | 唯一开发与发布分支；审核提交后直接推送到 `origin` |
+| 本地内部文档 | `.gitignore` 排除，不纳入 Git；不要用 `git add -f` 强制跟踪 |
 
-`origin/main` 由脚本重新构造,和 `personal` 的 SHA 天然不同(同一份树、不同父历史),
-所以 tag 只认 `origin/main`。
-
-内部文档(`docs/internal`、`docs/reports`、`docs/superpowers`、`FIX_EXECUTION_REPORT.md`、
-`REFACTOR_PLAN.md`、`SYSTEM_REVIEW_*.md`)在 `.gitignore` 里,靠 `git add -f` 手动纳入跟踪,
-只随 `dev` 备份;导出脚本另有排除表兜底,二者不同步也不会泄漏——但改 `.gitignore` 或
-排除表时两处都要看。
+内部文档与本地同步工具由 `.gitignore` 忽略，并由 pre-push 守卫阻止误推。
 
 旧名 `SnowFoxClaw` 已不存在——GitHub 上查无此仓,也没有改名跳转。切 OIDC 时 publisher
 的 repo 必须写 `FoxClaw`:registry 侧对大小写不敏感,GitHub 侧 OIDC 校验按仓库真实名匹配,

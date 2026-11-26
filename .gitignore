@@ -4,14 +4,17 @@
 .env*
 !.env.example
 
-# 内部文档(审计/报告/修复方案/superpowers 计划):**不进公开仓**,但纳入本地 git
-# 跟踪,随 dev 私有镜像(snowfoxHQ/foxclaw-dev)备份。
-# 公开仓(Push 目标 origin = snowfoxHQ/foxclaw)的过滤由 tools/sync_public.ps1 的
-# ExcludeDirs/ExcludeFiles/ExcludeGlobs 保证 —— 该脚本不读本文件,白名单式重建树,
-# 且带"新内部路径泄漏即 ABORT"断言,故此处不再重复排除。
-# 历史沿革:0068089 曾把内部文档整体移出跟踪(只留本地),f310440 改回纳入跟踪
-# (只随 dev 备份),对应的 ignore 规则当时未同步删除,导致 48 个文件处于
-# "被忽略但仍跟踪"的矛盾态且每次 git add 都告警;2026-11-19 删除这些失效规则。
+# 本地内部文档与旧同步工具不进 Git；项目只在 main 上直接推送到 origin。
+docs/internal/
+docs/superpowers/
+docs/reports/
+docs/FIX_EXECUTION_REPORT.md
+docs/REFACTOR_PLAN.md
+docs/SYSTEM_REVIEW_*.md
+tools/sync_public.ps1
+tools/sync_obsidian.ps1
+MOBILE_EVAL.tmp.md
+.claude/
 
 # 运行数据(测试现已全用系统临时目录,以下为默认运行目录 + 防御历史遗留)
 foxclaw_data/
@@ -58,7 +61,6 @@ dist/
 新建文件夹/
 
 # 编辑器/IDE 本机配置(含本机路径,不跨机共享)
-.claude/launch.json
 .vscode/settings.json
 
 # 本地工具缓存/数据(workbuddy 的记忆与临时文件,非源码,不入库)
@@ -67,6 +69,8 @@ dist/
 # 备份文件(bak 冗余文件不入库;确需保留请移出仓库)
 *.bak
 *.bak-*
+*.log
+*.err
 
 # run_all.py 失败时落盘的单测完整输出(临时诊断产物,不入库)
 tests/_fail_*.txt
