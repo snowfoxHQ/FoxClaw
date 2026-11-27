@@ -1,133 +1,85 @@
 # Foxclaw · A Personal Agent with Memory
 
-A **personal agent with memory** — to a user, an agent that remembers; to a developer, an agent runtime built on the HMR memory runtime: three collaborating agents, cross-layer Harness governance, with the memory/cognition layer fully decoupled from any LLM.
-
-```
-Traditional frameworks:  memory = storage,           agents = stateless execution
-Foxclaw:               memory = living cognitive runtime, agents = reason · learn · evolve
-```
+A **personal agent with memory** — it remembers your preferences and context, and helps you complete tasks in messaging channels and on your computer. Memory and reasoning are independent of any single model, so switching models does not lose what it has learned.
 
 ## What it is
 
-Foxclaw is not "yet another agent framework" but a personal agent that actually remembers; under the hood, an agent runtime. Its moats are independent of any LLM:
+Foxclaw is a local-first personal agent. It treats memory as a continuously running cognitive layer rather than a retrieval cache that resets with each session: reasoning, calibration and learning happen in that layer, decoupled from the LLM.
 
-- **ThoughtChain** — each agent's reasoning is an auditable, comparable directed graph, not a log
-- **Harness** — three-dimensional drift detection (semantic / tool / scope) + shadow-mode self-calibration + policy self-learning
-- **Evolution** — every harness truncation teaches the policy; the system gets sharper with use
-- **Runtime governance** — idempotency, crash recovery, loop detection, etc., keeping the system reliable under real-world operation
+- Three collaborating agents: **Supervisor** (coordination), **Finance** and **Office** (learning and itinerary). Each holds isolated memory and exchanges only what is needed through a shared layer.
+- **Skills**: external capabilities mounted on demand; anything with side effects requires confirmation.
+- **Channels**: WeChat, Feishu, Telegram and Discord, with replies returning to the channel where the request started.
 
-Three agents: Supervisor (coordination), Finance, Office (learning + itinerary). Each has isolated memory and policy evolution, mounts external ecosystems via the Skill layer, and connects to mainstream messaging platforms via the channel layer. The former Assistant and Admin responsibilities are now **instruction skills** (`skills/general-assistant`, `skills/schedule-itinerary`) mounted on demand, not separate agents.
-
-## Domain kernels
-
-Finance / Office each mount an isomorphic kernel (pure-algorithm layer + external tool interface + gatekeeper):
-
-- **Finance** — budget reasoning, MAD anomaly detection, cash-flow forecast; gatekeeper with four permissions, emits approval requests rather than moving money. **Advanced trio**: structured evidence chains (explainable risk), financial data graph (trace who caused an overspend), reconciliation (3-tier matching + suspicious-charge detection).
-- **Office** — SM-2 spaced repetition (mastery + forgetting risk) + knowledge graph (cluster discovery).
-- **Office · itinerary** — TSP routing, reachability ("won't make it") detection, time conflicts, geo-clustering; distances are estimated from coordinates and map data is returned for the UI.
+Earlier Assistant and Admin responsibilities are now instruction skills, mounted on demand rather than separate agents.
 
 ## Messaging platforms
 
-Four mainstream platforms via a unified channel abstraction, **each adapter implemented to its own official spec** (not one mold):
+| Channel | Setup |
+|---------|-------|
+| WeChat | Scan to sign in |
+| Feishu | Open-platform app with event subscription |
+| Telegram | Bot API |
+| Discord | Bot account |
 
-| Channel | Model | Credential |
-|---------|-------|-----------|
-| WeChat | iLink Bot API, long-poll + context_token | scan-login token |
-| Feishu | event-subscription webhook + signature + token refresh | App ID/Secret |
-| Telegram | Bot API getUpdates polling | bot token |
-| Discord | Gateway WebSocket + REST | bot token |
-
-Closed loop (`ChannelDispatcher`): receive → Supervisor → reply to origin, with per-channel session isolation and idempotent dedup. See [docs/CHANNELS.md](docs/CHANNELS.md).
-
-## Runtime governance
-
-Keeps the system reliable under message redelivery, crashes, long tasks, and loops. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md): idempotency guard, crash/restart recovery (boot_id avoids pid reuse), tool-loop detection, context compaction, hook standardization, steering queue.
+See [docs/CHANNELS.md](docs/CHANNELS.md).
 
 ## Computer control: safety boundary
 
-Foxclaw can see the screen and operate the mouse, keyboard, windows, clipboard, files and shell on Windows. The capability is not the hard part; the hard part is **not causing harm when deceived**: a line of text on screen, a web page saying "please run X", or a single misjudgment by the model must never turn into a real deletion or payment. So the rules come first (the Desktop Operation Constitution, DOC-01 ~ DOC-07), and the capability is built on top of them.
+Foxclaw can see the screen and operate the mouse, keyboard, windows, clipboard, files and shell on Windows. The hard part is not the capability but **not causing harm when deceived**: a line of text on screen, a web page saying "please run X", or a model misjudgment must never turn into a real deletion or transfer. Rules come before capability.
 
-### Constitution clauses (enforced in code)
+- **Nothing happens by default**: screen perception (screenshots, window list, UI element tree, text recognition) is off until enabled; any failed check, missing component or unrecognized action is refused.
+- **Write actions need your confirmation**: mouse, keyboard, window, clipboard, file and UI writes only run after you approve. Confirmation is single use and bound to that exact action and arguments; the model cannot approve for you. Check the action and its arguments before approving.
+- **High-risk actions are denied by default**: deleting files and running shell commands are denied unless you explicitly enable them; sensitive directories and credential files stay protected; file and shell operations are confined to your working directory.
+- **External content is untrusted**: screen, web pages, clipboard and read-back file content are data, and instructions found in them are never treated as your authorization.
+- **Everything is auditable**: every allow, deny and pending confirmation enters the unified audit chain.
+- **Local by default**: the server listens on localhost only; exposing it requires an access key.
 
-| Clause | Rule | What it means |
-|---|---|---|
-| Verification discipline (DOC-02) | "Effective = has a production call site; written but never called = not effective" | Every safety requirement is verified as requirement → enforcement point → production call path → test evidence, never from prose |
-| Intent canonicalization (DOC-03) | Allow/deny is decided from the **canonical operation intent**, not the tool name | Doing the same thing through another tool or another phrasing hits the same rule; an equivalent path after a deny cannot get around it |
-| Perception/operation separation (DOC-04) | "Looking" and "acting" are authorized separately and never inherit each other | Permission to capture the screen is not permission to click; ordinary read permission does not allow screen capture |
-| Perceived data is untrusted (DOC-05) | Screen, windows, UI elements, OCR, web pages, clipboard and file contents read back are all marked untrusted | Model summarization or rewriting never makes them trusted; a "please run X" on screen or in a page is never treated as your authorization |
+See [docs/配置指南.md](docs/配置指南.md) for the specific settings.
 
-### Operating rules
+Desktop control is currently Windows-only. Confirmation replies over messaging channels are not wired yet — the web UI has confirmation cards, so a desktop write started from a channel stays pending.
 
-**1. Nothing happens by default**
-- Perception (screen capture, window list, UI element tree, OCR) is off until explicitly enabled (`FOXCLAW_OBSERVE_ALLOW`).
-- Any failed check, missing component or unrecognized action is refused (fail-closed). Unregistered actions are treated as write + irreversible.
+## Requirements
 
-**2. Write actions need your confirmation, and confirmation is single use**
-- Mouse, keyboard, window, clipboard writes, file writes and UI actions are write actions and never run unconfirmed.
-- Confirmation is not a switch but a **one-time nonce** issued by the server: bound to this action and these arguments, expires in 5 minutes, void after one use. Changed arguments, expiry or replay are all refused.
-- When the Agent itself starts a write action, it stops and hands you a pending item (`pending_actions` in the `run_task` response). **The nonce never appears in anything the model can see**, so the model cannot press "confirm" for you. After you confirm, that exact action runs; nothing is re-planned.
-
-**3. High-risk actions are prohibited by default**
-- `shell:run` (run a command) and `file:delete` (delete a file) are denied by default, and no nonce can override that.
-- If you need them, set `FOXCLAW_DESKTOP_ACT_DENY` to take over the rules (`none` means no default deny).
-
-**4. Acting only inside allowed scope** (execution-layer backstop shared by every entry point)
-- File read/write/delete and the shell working directory must be inside `FOXCLAW_DESKTOP_ROOTS` (default: home directory + system temp directory). Paths are resolved (`~`, `..`, symlinks) before the check.
-- Sensitive paths are always refused, reads included: credential directories such as `.ssh`, `.aws`, `.gnupg`, `.kube`, `.env`, private keys and certificates, `.git-credentials` and the like, plus system directories. `FOXCLAW_DESKTOP_PROTECT` adds more.
-- Shell commands matching dangerous patterns (recursive delete, format, shutdown, registry edits, download-and-execute, encoded execution, ...) or touching sensitive paths are refused; each run is capped at 120 s and output over 64 KB is truncated.
-
-**5. Every decision is recorded**
-- Every allow, deny and pending confirmation carries a `decision_id` and goes into the unified governance audit chain. Once perceived data enters a session, the session's taint level only goes up, and later outbound or side-effecting actions need confirmation again.
-
-**6. Local only by default**
-- The server listens on `127.0.0.1` by default; cross-origin requests are allowed only from localhost; the Host header is checked against DNS rebinding.
-- Exposing it beyond the machine requires `FOXCLAW_API_KEY`; otherwise startup prints a warning.
-
-### Honest limits
-
-What these rules stop: model misjudgment, prompt injection, forged instructions on screen or in pages, "confirmed A but ran B", replayed confirmations, escaping the working roots, touching credential files.
-
-What they **do not** stop, so you know:
-- **Malware already on your machine**: a nonce only proves the caller saw this pending confirmation, not that a human pressed it. A local process can request and then execute with the nonce. That is why shell and delete are prohibited by default instead of relying on the nonce.
-- **Deliberately obfuscated shell commands**: the dangerous-command blocklist only catches common forms. Before enabling `shell:run`, make sure you trust every source that could trigger it.
-- **Your own confirmation**: read the action and arguments on the confirmation before you approve.
-
-Not available yet:
-- Desktop control on macOS / Linux (the perception and operation runtimes are Windows-only for now).
-- Confirmation replies over messaging channels (WeChat / Feishu / Telegram / Discord): the web UI has confirmation cards (showing the action and its exact arguments; approving runs only that action), but channels are not wired yet, so a desktop write started from a channel stays pending.
+- **Python 3.11+** (3.12 is most stable)
+- Windows: do not place the project under OneDrive-managed folders (Documents/Desktop/Pictures). Use a path like `C:\foxclaw`.
 
 ## Quick start
 
 ```bash
-python -m venv .venv                      # isolated env — don't pollute the system Python
+python -m venv .venv
 .venv\Scripts\activate                    # macOS / Linux: source .venv/bin/activate
-pip install -r requirements.txt           # pinned closure generated from pyproject.toml
-pip install -e . --no-deps                # foxclaw itself, without re-resolving deps
-python tests/run_all.py        # full regression (all green)
-export DEEPSEEK_API_KEY=sk-...  # or ANTHROPIC_API_KEY; unset → stub
+pip install -r requirements.txt
+pip install -e . --no-deps
+python tests/run_all.py                   # full regression
+export DEEPSEEK_API_KEY=sk-...            # or ANTHROPIC_API_KEY
 python -m uvicorn foxclaw.api:app --port 8000
 ```
 
-> `requirements.txt` is generated by `uv pip compile pyproject.toml --universal -o requirements.txt` — don't hand-edit.
-> `--universal` is required: without it the compile is platform-specific and drags Windows-only packages
-> (e.g. `pywin32`) into the list, which breaks installation on Linux CI. With it, platform deps carry
-> `; sys_platform == ...` markers and pip skips what doesn't apply.
-> Re-run after changing dependencies in `pyproject.toml`, otherwise the lock lags behind the declaration.
-
 See [docs/RUN.md](docs/RUN.md). Chinese docs: [README_CN.md](README_CN.md). Release history: [CHANGELOG.md](CHANGELOG.md).
 
-> **Windows**: don't place the project under OneDrive-managed folders (Documents/Desktop/Pictures); Python can't create dirs inside redirect placeholders. Use a path like `C:\foxclaw`.
+### Docker
+
+```bash
+docker build -t foxclaw .
+docker run -d --name foxclaw \
+  -p 8000:8000 \
+  --env-file .env \
+  -v foxclaw_data:/app/foxclaw_data \
+  foxclaw
+```
+
+Inject secrets through `--env-file .env`, never into the image. Mount a volume for persistent data. The server listens on port `8000` and is meant for local access; set an access key before exposing it.
 
 ## Knowledge base (HKC) model config
 
-HKC's knowledge base uses **two different types of models**, each for one job, both configured in `.env` — no code changes:
+HKC uses **two different types of models**, both configured in `.env`:
 
 | Stage | Model type | What it does | Config keys |
 |-------|-----------|-------------|-------------|
 | Write (ingesting books/files) | **Generative LLM** (reads & emits JSON) | Extracts entities / concepts / facts / claims from each chunk | `HKC_LLM_*` |
 | Retrieve (querying) | **embedding** (text → vector) | Vectorizes knowledge & queries, ranks by semantic similarity | `HKC_EMBEDDING_*` |
 
-They are not interchangeable: an embedding model cannot generate text (can't produce JSON), and an LLM is not suited to vector search.
+They are not interchangeable: an embedding model cannot generate text, and an LLM is not suited to vector search.
 
 ### First, pick your case
 
@@ -146,12 +98,12 @@ HKC_LLM_BASE_URL=http://localhost:11434/v1   # Ollama's OpenAI-compatible endpoi
 HKC_LLM_TIMEOUT=180                          # local models are slow; relax the default 60s
 HKC_EXTRACT_CONCURRENCY=2                    # 1–2 for local, up to 5 for cloud APIs
 HKC_EXTRACT_BATCH=8                          # optional: extract N chunks per call, saves tokens & time; default 1 = per-chunk
-HKC_MAX_CHUNKS_PER_DOC=800                   # optional: per-doc chunk cap; default 800 (~1.25M chars); 0 = no cap, see below
+HKC_MAX_CHUNKS_PER_DOC=800                   # optional: per-doc chunk cap; default 800 (~1.25M chars); 0 = no cap
 ```
 
 ### Case B · public cloud model (no local model)
 
-`HKC_LLM_MODEL` is the platform's **public model id** (passed through verbatim); `HKC_LLM_API_KEY` is the platform's **real key**:
+`HKC_LLM_MODEL` is the platform's **public model id**; `HKC_LLM_API_KEY` is the platform's **real key**:
 
 | Platform | `HKC_LLM_PROVIDER` | `HKC_LLM_API_KEY` | `HKC_LLM_MODEL` example | `HKC_LLM_BASE_URL` |
 |---|---|---|---|---|
@@ -170,22 +122,22 @@ HKC_LLM_MODEL=deepseek-chat
 
 ### Retrieval model (embedding)
 
-The retrieval model does **not** use Ollama; it uses sentence-transformers, and auto-downloads weights from HuggingFace when missing locally:
+The retrieval model uses sentence-transformers, and auto-downloads weights from HuggingFace when missing locally:
 
 ```bash
 HKC_EMBEDDING=local
 HKC_EMBEDDING_MODEL=BAAI/bge-m3          # auto-downloads on first use (~2.2 GB); or a local path like C:\...\bge-m3
 ```
 
-Leave it unset if you don't need semantic precision (defaults to `stub` pseudo-semantics, works out of the box).
+Leave it unset if you do not need semantic precision (defaults to `stub` pseudo-semantics, works out of the box).
 
 ### Where to put the key, and precedence
 
 - **`.env` is the source of truth** — read at startup; restart after editing.
-- The "extraction model" section in the planet page's connection settings is an **optional runtime override** (stored in browser localStorage, may override `.env` on refresh); leave it blank to always follow `.env`.
-- The page's first "API Key" field is the backend auth token (`.env`'s `FOXCLAW_API_KEY`), unrelated to the model keys.
+- The "extraction model" section in the planet page's connection settings is an **optional runtime override** stored in browser localStorage; leave it blank to always follow `.env`.
+- The page's first "API Key" field is the backend auth token (`.env`'s `FOXCLAW_API_KEY`), unrelated to model keys.
 
-> Note: switching the embedding model changes the vector dimension (e.g. 384 → 1024), so you must rebuild the knowledge index (clear and re-ingest).
+> Switching the embedding model changes the vector dimension (e.g. 384 → 1024), so you must rebuild the knowledge index.
 
 ### How much can I ingest at once?
 
@@ -193,13 +145,13 @@ Leave it unset if you don't need semantic precision (defaults to `stub` pseudo-s
 
 | Entry point | Limit | On overflow |
 |---|---|---|
-| File upload (`/knowledge/ingest/file`, `/ingest/file/async`) | **20 MB per file** | `413 file too large` |
-| Pasted text (`/knowledge/ingest/text`) | **2,000,000 characters** | `413 text too large` |
-| Chunks per document | **800 by default** (~1.25M chars); `HKC_MAX_CHUNKS_PER_DOC=0` disables the cap | Only the first N chunks are processed, with a "document too large" warning |
+| File upload | **20 MB per file** | `413 file too large` |
+| Pasted text | **2,000,000 characters** | `413 text too large` |
+| Chunks per document | **800 by default** (~1.25M chars); `HKC_MAX_CHUNKS_PER_DOC=0` disables the cap | Only the first N chunks are processed, with a warning |
 
-Supported formats: `.pdf` `.md` `.markdown` `.txt` `.epub` `.mobi` `.azw3` `.azw` `.docx` `.xlsx`. `.doc` is not supported, and **scanned PDFs get no OCR** — image-only pages yield no text at all.
+Supported formats: `.pdf` `.md` `.markdown` `.txt` `.epub` `.mobi` `.azw3` `.azw` `.docx` `.xlsx`. `.doc` is not supported, and scanned PDFs get no OCR.
 
-**A chunk is the billing and timing unit**, and it is fixed:
+**A chunk is the billing and timing unit** and is fixed:
 
 ```
 max 1792 chars per chunk, 224 chars of overlap
@@ -215,15 +167,15 @@ max 1792 chars per chunk, 224 chars of overlap
 | 1M chars | ~1 MB | ~640 | ~1 hour |
 | 7M chars (ceiling) | ~20 MB | ~4400 | ~7 hours |
 
-Token ratio: **~4k input + 2k output tokens per 10k characters** (batch extraction already amortizes the system prompt) — multiply by your provider's rates. English content is 2–3× the characters of CJK for the same bytes, so it costs proportionally more.
+Token ratio: **~4k input + 2k output tokens per 10k characters** — multiply by your provider's rates. English content is 2–3× the characters of CJK for the same bytes, so it costs proportionally more.
 
 **Practical guidance:**
 
-- **Keep single files at 2–5 MB.** That covers an ordinary ebook, finishes within tens of minutes, and lets you watch progress.
-- **Leave `HKC_MAX_CHUNKS_PER_DOC` at its default of 800.** Read the section below before lifting it — the reason is not just "it's slow".
-- **Use file upload, not paste, for anything long.** `/ingest/text` is synchronous and holds the request; `/ingest/file/async` runs in a background thread and exposes `processed/total` progress.
-- **Re-uploading the same file is free.** Content SHA-256 is checked first and duplicates return `409 already ingested`.
-- **When extraction fails, check the log keyword first.** "JSON parse failed" means the model's output was cut off mid-JSON (common with dense CJK documents) — lower `HKC_EXTRACT_BATCH` or raise `HKC_EXTRACT_MAX_TOKENS` (default 8192, the output ceiling). Only when that keyword is absent should you check the API key or network.
+- **Keep single files at 2–5 MB** — an ordinary ebook finishes within tens of minutes.
+- **Leave `HKC_MAX_CHUNKS_PER_DOC` at its default of 800** until you have read the section below.
+- **Use file upload, not paste, for anything long** — uploads run in the background with progress.
+- **Re-uploading the same file is free** — a content hash is checked first and duplicates are rejected.
+- **When extraction fails, check the log for "JSON parse failed"** first — lower `HKC_EXTRACT_BATCH` or raise `HKC_EXTRACT_MAX_TOKENS` (default 8192). Only when that message is absent should you check the API key or network.
 
 ### Per-document chunk cap: why the default is 800
 
@@ -233,22 +185,22 @@ Token ratio: **~4k input + 2k output tokens per 10k characters** (batch extracti
 |---|---|---|---|---|
 | **800 (default)** | ~1.25M | 800 | ~1.3 hours | ~$0.4 |
 | 2000 | ~3.1M | 2000 | ~3.3 hours | ~$1 |
-| 0 (uncapped, i.e. a full 20 MB file) | ~7M | ~4400 | **7+ hours** | ~$2.3 |
+| 0 (uncapped) | ~7M | ~4400 | **7+ hours** | ~$2.3 |
 
-> Costs are rough order-of-magnitude estimates at DeepSeek list prices; scale for your provider.
+> Costs are rough order-of-magnitude estimates at DeepSeek list prices.
 
-**Why not raise it (and especially not to 0):** uploads accept up to 20 MB. With no chunk cap, one accidental upload — a 20 MB scanned PDF, a rotated log dump — runs in the background for the better part of a day while billing the whole time. Ingestion runs on a background thread with no checkpoint and no rollback button: you either watch it finish or kill the whole service. The default exists to stop obviously unreasonable volumes up front, not to be as restrictive as possible.
+**Why not raise it (especially not to 0):** uploads accept up to 20 MB. With no cap, one accidental upload runs in the background for most of a day while billing the whole time, with no checkpoint or rollback. The default exists to stop obviously unreasonable volumes up front.
 
-**Why not shrink it either:** past the cap only the first N chunks are processed, and the **whole file's SHA-256 is already recorded** as ingested. Re-uploading the same file is rejected with `409`. So a truncated ingest cannot be completed by "raising the cap and sending it again" — you must split the file by chapter and upload the parts separately. 800 chunks leaves enough headroom that ordinary documents and normal ebooks never hit the cap.
+**Why not shrink it either:** past the cap only the first N chunks are processed, but the whole file's content hash is already recorded, so a re-upload is rejected. A truncated ingest cannot be completed by raising the cap and sending the file again — you must split it by chapter. 800 chunks leaves enough headroom that ordinary documents never hit the cap.
 
-**If you genuinely need a whole book,** raise the cap (or set 0) for that one ingest and set it back to 800 afterwards. A "document too large: split into N chunks" warning in the log means truncation happened, and it reports how much was dropped.
+**If you genuinely need a whole book**, raise the cap for that one ingest and set it back to 800 afterwards. A "document too large" warning in the log means truncation happened and reports how much was dropped.
 
-## Philosophy
+## Memory isolation
 
-Memory and cognition are fully decoupled from the LLM. The model is a replaceable text generator; the real moat (ThoughtChain audit + Harness drift + policy self-learning + domain kernels) exists independently of any model.
+Private memory is isolated per agent (Finance's preferences are invisible to Office); when collaboration is needed, only necessary coordination records are exchanged through a shared layer. Sharing does not break isolation.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Use it, modify it, ship it, sell it; just keep the copyright notice.
+MIT — see [LICENSE](LICENSE).
 
 The runtimes vendored under `vendor/` keep their own licenses (see `vendor/hkc/LICENSE`).
