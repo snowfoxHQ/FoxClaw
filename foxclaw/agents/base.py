@@ -582,6 +582,38 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             return {}
         return cache
 
+    def _task_context_start(self, session_id: str, task: str,
+                            constraints, resume_tid: str = ""):
+        """创建/恢复 TaskContext(基准 v1.0 §L1)。
+
+        恢复路径:约束与验收条件以**已落盘快照**为权威——续跑调用方传新约束不生效,
+        防「恢复时放宽约束」。fail-safe:快照损坏/缺失时按新建处理,不阻塞任务。
+        """
+        from ..core.task_context import TaskContext
+        rec = getattr(self, "_recovery", None)
+        if resume_tid and rec is not None:
+            prev = {}
+            try:
+                prev = rec.task_state_of(resume_tid)
+            except Exception:
+                prev = {}
+            if prev:
+                try:
+                    return TaskContext.from_resumed(prev, session_id)
+                except Exception:
+                    pass
+        return TaskContext.create(session_id, task, constraints)
+
+    def _save_task_state(self, session_id: str, tc) -> None:
+        """TaskContext 快照落盘(经 recovery 的 JSONL 追加通道,fail-safe)。"""
+        rec = getattr(self, "_recovery", None)
+        if rec is None or tc is None:
+            return
+        try:
+            rec.record_task_state(session_id, tc.to_dict())
+        except Exception:
+            pass
+
     def _cognitive_pipeline(self):
         """本 Agent 的认知管线(v2 ②)。默认 recall→act 两个 stage;领域 Agent 可覆盖以
         插入/替换 stage(后续步骤加 verify/reflect/plan/route/perceive)。缓存一份即可
@@ -592,7 +624,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             pipe = self._pipeline_cache = CognitivePipeline(DEFAULT_STAGES)
         return pipe
 
-    async def run_task(self, task: str, context: dict | None = None, stop_event=None) -> dict:
+    async def run_task(self, task: str, context: dict | None = None, stop_event=None,
+                       constraints=None) -> dict:
         """统一任务生命周期:开会话 → [认知管线:recall → act] → 组装返回。
         Harness BLOCK 统一在此兜底为结构化错误。返回
         {"result",...,"session_id","agent","thought_summary", **extra}。
@@ -604,8 +637,14 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
 
         断点续跑(P1,opt-in):`context={"_resume_task_id": <上次 task_id>}` → 装载上次已完成
         的工具步骤,命中即复用结果不再重复执行;返回体带 `resumed_from` / `resumed_steps`
-        说明续了哪一次、复用了多少步。"""
-        return await self._run_task_core(task, context, stop_event=stop_event, on_stage=None)
+        说明续了哪一次、复用了多少步。
+
+        constraints(G2·TaskContext,opt-in):用户明确提出的任务约束,随任务开始写入
+        TaskContext 并落盘,创建后不可被模型放宽;恢复路径以已落盘快照为权威。
+        HTTP 路径可经 `context={"_constraints": [...]}` 传入(免改本签名)。
+        返回体带 `task_context`(任务状态快照)。"""
+        return await self._run_task_core(task, context, stop_event=stop_event, on_stage=None,
+                                         constraints=constraints)
 
     @staticmethod
     def _pinned_session(session_id: str, context: dict | None) -> str:
@@ -619,7 +658,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         return pinned or session_id
 
     async def _run_task_core(self, task: str, context: dict | None = None,
-                             stop_event=None, on_stage=None) -> dict:
+                             stop_event=None, on_stage=None, constraints=None) -> dict:
         """run_task 的执行核心 —— 供同步 `run_task` 与流式 `run_task_stream` **共用**,避免两份
         生命周期逻辑漂移。`on_stage`(D1):逐 stage 进度回调,透传给管线;None=同步路径不回调,
         与改前 run_task 行为逐字一致。"""
@@ -644,6 +683,12 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         _resume_tid = str(context.get("_resume_task_id") or "").strip()
         _resume_cache = self._load_resume_cache(_resume_tid) if _resume_tid else {}
         _resume_tok = _resume_steps.set(_resume_cache) if _resume_cache else None
+        # 【G2·TaskContext】任务级结构化状态随任务创建/恢复。constraints 优先取显式参数,
+        # 其次 context['_constraints'](HTTP 路径免改签名);恢复路径下约束/验收条件以已
+        # 落盘快照为权威(_task_context_start),防「恢复时放宽约束」。
+        _constraints = constraints if constraints is not None else context.get("_constraints")
+        _tc = self._task_context_start(session_id, task, _constraints, _resume_tid)
+        self._save_task_state(session_id, _tc)
         ctx = PipelineContext(agent=self, task=task, context=context,
                               session_id=session_id, stop_event=stop_event)
         # P0-03.3:本任务的调用状态收集器——contextvar 绑定,asyncio.to_thread 复制传播;
@@ -658,6 +703,11 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         def _stage_hook(name, _ctx):
             """stage 边界:记一条 checkpoint(跑到哪一步),再转发给调用方的流式回调。"""
             self._record_stage(session_id, name)
+            try:  # 【G2】stage 边界同步一份 TaskContext 快照(fail-safe)
+                _tc.set_focus(name)
+                self._save_task_state(session_id, _tc)
+            except Exception:
+                pass
             if on_stage is not None:
                 on_stage(name, _ctx)
 
@@ -725,6 +775,12 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 interrupted=bool(ctx.interrupted),
                 blocked=bool(skill_incomplete))
             resp["task_status"] = task_status
+            try:  # 【G2】终态快照:状态随结算落盘,终态任务归档(不再参与自动续跑)
+                _tc.set_status(task_status)
+                resp["task_context"] = _tc.to_dict()
+                self._save_task_state(session_id, _tc)
+            except Exception:
+                pass
             self._on_task_settled(session_id, task_status)
             return resp
         except HarnessBlockedError as e:
@@ -734,10 +790,20 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
             if _hooks is not None:
                 _hooks.fire("agent_end", "", {"task": task, "agent_id": self.AGENT_ID,
                                               "error": "harness_blocked"})
+            try:  # 【G2】被拦截任务同样落终态快照(fail-safe)
+                _tc.set_status("BLOCKED")
+                self._save_task_state(session_id, _tc)
+            except Exception:
+                pass
             self._on_task_settled(session_id, "BLOCKED")
             return {"error": "harness_blocked", "reason": e.result.reason,
                     "session_id": session_id, "task_status": "BLOCKED"}
         except Exception:
+            try:  # 【G2】异常路径落 FAILED 终态快照(fail-safe)
+                _tc.set_status("FAILED")
+                self._save_task_state(session_id, _tc)
+            except Exception:
+                pass
             self._on_task_settled(session_id, "FAILED")
             raise
         finally:

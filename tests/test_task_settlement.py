@@ -17,6 +17,7 @@ from foxclaw.core import call_status as cs
 from foxclaw.core.call_status import (
     CallStatus, TaskCallCollector, settle_task_status,
 )
+from foxclaw.core.task_context import TaskContext
 
 
 def _col(*states, trace=None):
@@ -100,6 +101,10 @@ def _ns_agent(pipe, settled):
     ns._record_stage = lambda *a: None
     ns._emit_execution = lambda *a, **k: None
     ns._maybe_store_preference = lambda t: None
+    # 【G2】TaskContext:假 Agent 也走真实状态对象(结算测试顺带锁住 task_context 与结算并存)
+    ns._task_context_start = lambda sid, task, cons, resume_tid="": TaskContext.create(
+        sid, task, cons)
+    ns._save_task_state = lambda sid, tc: None
     ns._on_task_settled = lambda sid, status: settled.append((sid, status))
     ns.thought_chain = types.SimpleNamespace(get_summary=lambda aid: "")
     ns.router = types.SimpleNamespace()

@@ -171,6 +171,42 @@ class RestartRecovery:
             return out
         return out[-limit:] if limit else out
 
+    def record_task_state(self, task_id: str, state: dict) -> None:
+        """追加一份 TaskContext 快照(event=task_state)。
+
+        TaskContext 对象是内存中的任务状态,本日志只是它的持久化通道——与 step 事件
+        同一定位:fail-safe,写失败绝不影响任务执行。恢复用 `task_state_of()`。
+        """
+        if not task_id or not isinstance(state, dict):
+            return
+        self._append({"event": "task_state", "task_id": task_id,
+                      "ts": time.time(), "state": state})
+
+    def task_state_of(self, task_id: str) -> dict:
+        """回放日志,取该 task **最新一份** TaskContext 快照(无快照返回空 dict)。
+
+        只读、容错:文件不存在/行损坏/中途写一半都跳过,不抛异常。
+        """
+        latest: dict = {}
+        if not task_id or not os.path.exists(self.log_path):
+            return latest
+        try:
+            with open(self.log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except Exception:
+                        continue
+                    if (ev.get("event") == "task_state" and ev.get("task_id") == task_id
+                            and isinstance(ev.get("state"), dict)):
+                        latest = ev["state"]
+        except Exception:
+            return latest
+        return latest
+
     def scan_interrupted(self) -> list[TaskRecord]:
         """启动时调用:重建日志状态,找出被中断的任务。
 
@@ -313,12 +349,15 @@ class RestartRecovery:
                                  "status": rec.status, "finished": rec.finished})
         keep_ids = {e["task_id"] for e in keep if e.get("event") == "start"}
         steps = self._raw_steps(keep_ids)
+        states = self._latest_task_states(keep_ids)
         try:
             tmp = self.log_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 for e in keep:
                     f.write(json.dumps(e, ensure_ascii=False) + "\n")
                 for e in steps:
+                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
+                for e in states:
                     f.write(json.dumps(e, ensure_ascii=False) + "\n")
             os.replace(tmp, self.log_path)
         except Exception:
@@ -344,6 +383,30 @@ class RestartRecovery:
         except Exception:
             return out
         return out
+
+    def _latest_task_states(self, task_ids: set) -> list:
+        """扫原始日志取指定任务各自**最新一份** task_state 快照(compact 用;
+        每任务只留最后一份,防止压实后快照无限堆积)。"""
+        latest: dict[str, dict] = {}
+        if not task_ids or not os.path.exists(self.log_path):
+            return []
+        try:
+            with open(self.log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except Exception:
+                        continue
+                    tid = ev.get("task_id")
+                    if (ev.get("event") == "task_state" and tid in task_ids
+                            and isinstance(ev.get("state"), dict)):
+                        latest[tid] = ev
+        except Exception:
+            return []
+        return list(latest.values())
 
     def active_count(self) -> int:
         return len(self._active)
