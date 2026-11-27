@@ -27,6 +27,7 @@ _THINK_LOCK = threading.RLock()
 _GATE_UNSET = object()
 
 from .mixins._context import (
+    _active_tc,
     _agent_ctx_get,
     _agent_ctx_set,
     _taint_get,
@@ -689,6 +690,9 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         _constraints = constraints if constraints is not None else context.get("_constraints")
         _tc = self._task_context_start(session_id, task, _constraints, _resume_tid)
         self._save_task_state(session_id, _tc)
+        # 【G3·Finish Gate】挂当前任务状态(contextvar 隔离,并发任务互不串写):
+        # _settle 据此把已核验的文件产物落 artifacts,供终局结构检查
+        _tc_tok = _active_tc.set(_tc)
         ctx = PipelineContext(agent=self, task=task, context=context,
                               session_id=session_id, stop_event=stop_event)
         # P0-03.3:本任务的调用状态收集器——contextvar 绑定,asyncio.to_thread 复制传播;
@@ -774,9 +778,24 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 _col, ctx.result,
                 interrupted=bool(ctx.interrupted),
                 blocked=bool(skill_incomplete))
+            # 【G3·Finish Gate】终局确定性核验:不依赖模型自我报告,只查执行期落账的
+            # 产物证据。结构检查失败 → 拒绝成功终态(模型不能宣布没做成的任务完成)。
+            from ..core import finish_gate as _fgate
+            try:
+                _gate = _fgate.evaluate(_tc)
+            except Exception:
+                _gate = None
+            if _gate is not None:
+                resp["finish_gate"] = _gate
+                if _gate["status"] == _fgate.FAIL and task_status == "COMPLETED":
+                    task_status = "FAILED"
+                    if isinstance(resp.get("result"), str):
+                        resp["result"] += "\n" + _fgate.reject_message(_gate)
             resp["task_status"] = task_status
             try:  # 【G2】终态快照:状态随结算落盘,终态任务归档(不再参与自动续跑)
                 _tc.set_status(task_status)
+                if _gate is not None:
+                    _tc.set_last_verified_state(f"finish_gate={_gate['status']}")
                 resp["task_context"] = _tc.to_dict()
                 self._save_task_state(session_id, _tc)
             except Exception:
@@ -812,6 +831,8 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                 _reasoning_inject.reset(_inject_tok)
             if _resume_tok is not None:
                 _resume_steps.reset(_resume_tok)
+            if _tc_tok is not None:
+                _active_tc.reset(_tc_tok)
 
     def run_task_stream(self, task: str, context: dict | None = None, stop_event=None):
         """流式任务执行(D1):**同步 generator**,逐 stage 吐进度 + act 逐 token 出字 + 最终结果。

@@ -12,7 +12,7 @@
 import threading
 import time
 
-from ._context import _taint_get, _taint_raise, _untrusted_get
+from ._context import _active_tc, _taint_get, _taint_raise, _untrusted_get
 from ...core import settings
 from ...core.injection_guard import redact_obj, redact_secrets
 from typing import Any
@@ -402,9 +402,40 @@ def _step_ok(result: str) -> bool:
 
     工具失败/超时/需确认/未执行的回注文本全部以 "(" 开头(见 _guard_tool/_timeout_text/
     _invoke_tool 的兜底),据此判定;复用它们等于把一次失败当成已完成,绝不能干。
+
+    【G3】_settle 的记账判定已改为**结构化失败结论**(failure_policy 的 kind +
+    verify 的三态),不再依赖本函数的文本约定;本函数保留给 checkpoint 回放匹配与
+    测试,逐步退场。
     """
     r = (result or "").strip()
     return bool(r) and not r.startswith("(")
+
+
+_FILE_ARTIFACT_ACTIONS = {"file:write": "file", "file:append": "file",
+                          "file:delete": "file_deleted"}
+
+
+def _record_artifact(agent, args: dict) -> None:
+    """把已核验的文件写/删落进 TaskContext 产物引用(fail-safe)。
+
+    产物引用是 Finish Gate 的检查对象——必须是**执行并核验通过**的步骤,不是模型
+    声明; Gate 在任务终局据它做结构检查(文件存在/非空/已删除)。
+    """
+    tc = _active_tc.get()
+    if tc is None:
+        return
+    try:
+        action = str((args or {}).get("action", ""))
+        kind = _FILE_ARTIFACT_ACTIONS.get(action)
+        if kind is None:
+            return
+        inner = args.get("args") if isinstance(args.get("args"), dict) else {}
+        ref = str(inner.get("path") or args.get("path") or "")
+        if not ref:
+            return
+        tc.add_artifact(kind, ref)
+    except Exception:
+        pass
 
 
 def _record_step(agent, call: dict, result: str,
@@ -473,6 +504,7 @@ def _settle(agent, call: dict, result: str, report: dict | None = None) -> str:
     """
     from ...core import tools as _tools
     from ...core import verify as _verify
+    from ...core import failure_policy as _fpol
     from ._context import _evidence_add
     name = call.get("name", "")
     args = call.get("args") or {}
@@ -496,7 +528,14 @@ def _settle(agent, call: dict, result: str, report: dict | None = None) -> str:
             "result_status": "EMPTY" if is_empty else "NON_EMPTY",
             "reason": v.reason, "evidence": [e.to_dict() for e in v.evidence],
         })
-        if v.status != _verify.FAILED and (_step_ok(result) or is_empty):
+        # 【G3·Finish Gate】核验通过的文件写/删 → 产物引用落 TaskContext
+        # (只认 VERIFIED,不认模型声明;Gate 终局据此做结构检查)
+        if v.status == _verify.VERIFIED:
+            _record_artifact(agent, args)
+        # 【G3】记账判定改为结构化失败结论:failure_policy 的 kind(OK=无失败)+
+        # verify 三态(FAILED 不记),不再依赖「文本以 ( 开头」的字符串约定
+        # (_step_ok 保留给 checkpoint 回放匹配)。
+        if v.status != _verify.FAILED and (kind == _fpol.OK or is_empty):
             _record_step(agent, call, result,
                          result_status="EMPTY" if is_empty else "NON_EMPTY")
         if report is not None:

@@ -121,15 +121,47 @@ def extract_evidence(source: str, text: str, limit: int = MAX_EVIDENCE) -> list[
 
 def _desktop_act_checker(args: dict | None, text: str) -> tuple[bool, str]:
     """desktop_act 内 read/write 混合:read 动作(file:read/clipboard:read)有确定性
-    后置条件(ok:true + 数据),write 动作无可观察后置条件,按 action 细分。"""
+    后置条件(ok:true + 数据),write 动作按 action 细分(【G3】file:* 直接查磁盘)。"""
     from ..skills.desktop import desktop_action_spec
     action = str((args or {}).get("action", ""))
     if desktop_action_spec(action).side_effect != "read":
-        return False, "写操作无可观察的后置条件"
+        return _desktop_write_postcondition(action, args or {})
     t = text or ""
     if '"ok": true' in t or '"ok":true' in t:
         return True, ""
     return False, "读操作未返回成功标记(ok:true)"
+
+
+def _desktop_write_postcondition(action: str, args: dict) -> tuple[bool, str]:
+    """写动作的确定性后置条件(【G3·Finish Gate】)。
+
+    file:write / file:append / file:delete 的证据就在磁盘上,直接查,不再一律
+    UNVERIFIED;其余写动作(键鼠/shell/窗口)没有可观察后置条件,保持诚实 UNVERIFIED。
+    注意:工具层参数嵌套在 args['args'] 下(_invoke_desktop_act 的传参形态)。
+    """
+    inner = args.get("args") if isinstance(args.get("args"), dict) else {}
+    path = str(inner.get("path") or args.get("path") or "")
+    if action in ("file:write", "file:append"):
+        if not path:
+            return False, "file 写动作缺少 path 参数,无从核验"
+        try:
+            if not os.path.exists(path):
+                return False, f"写入目标未落盘:{path}"
+            if os.path.isfile(path) and os.path.getsize(path) == 0:
+                return False, f"写入目标为空文件:{path}"
+        except OSError as e:
+            return False, f"核验写入目标失败:{type(e).__name__}"
+        return True, ""
+    if action == "file:delete":
+        if not path:
+            return False, "file:delete 缺少 path 参数,无从核验"
+        try:
+            if os.path.exists(path):
+                return False, f"删除目标仍然存在:{path}"
+        except OSError as e:
+            return False, f"核验删除目标失败:{type(e).__name__}"
+        return True, ""
+    return False, "写操作无可观察的后置条件"
 
 
 _CHECKERS: dict[str, Callable[..., tuple[bool, str]]] = {

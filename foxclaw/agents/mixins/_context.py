@@ -20,6 +20,12 @@ _act_stream: contextvars.ContextVar = contextvars.ContextVar(
 _resume_steps: contextvars.ContextVar = contextvars.ContextVar(
     "foxclaw_resume_steps", default=None)
 
+# 【G3·Finish Gate】当前任务的 TaskContext(并发任务经 contextvar 隔离,互不串写)。
+# 由 _run_task_core 在任务开始时 set / finally 里 reset;_settle 用它把已核验的
+# 文件产物落进 artifacts,供任务终局的确定性结构检查(finish_gate.evaluate)。
+_active_tc: contextvars.ContextVar = contextvars.ContextVar(
+    "foxclaw_active_task_context", default=None)
+
 _reasoning_inject: contextvars.ContextVar = contextvars.ContextVar(
     "foxclaw_reasoning_inject", default=None)
 
