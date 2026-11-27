@@ -17,8 +17,6 @@
 """
 from __future__ import annotations
 
-import time
-
 PROGRAMMATIC = "programmatic"
 SEMANTIC = "semantic"
 VISUAL = "visual"

@@ -12,7 +12,6 @@ import sys
 import types
 from pathlib import Path
 
-os_env = None  # noqa: 占位,env 设置见下
 import os
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
