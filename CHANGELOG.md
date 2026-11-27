@@ -6,222 +6,117 @@ Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
 ## 0.1.9 — 2026-11-28
 
-**Reliable computer use: governed execution, task state, and finish verification** (per the frozen "FoxClaw Computer Use Architecture Baseline v1.0")
+**More reliable computer task execution**
 
-- **Dual-mode execution governance**: `FOXCLAW_EXECUTION_BACKEND` = `local` / `serve` / `auto`. Skill, desktop and browser write paths submit a governance contract to the Serve MCP instead of a blanket "unsupported" block; `requires_audit` actions are always forced onto Serve, `auto` never silently degrades them to local, and an unhealthy Serve fails closed. Routing only changes where an action runs — never its authorization semantics (same intent canonicalization and PolicyGate admission on every path).
-- **Browser write confirmation closes the loop**: `/api/browser/act` now uses the same server-issued one-time nonce as desktop (`confirmed=true` alone is refused; the nonce binds action + argument fingerprint, expires, and is single-use). Replays and argument drift are rejected.
-- **TaskContext — explicit task state**: each task carries a structured state object (goal, user constraints, acceptance criteria, focus, completed/pending, discovered facts with sources, unresolved conflicts, artifacts), persisted as JSONL snapshots on the recovery channel and restorable after a restart. Constraints and acceptance criteria are generated at task start and cannot be relaxed afterwards — resuming from a snapshot keeps the original constraints even if the caller passes different ones.
-- **Finish Gate — deterministic final verification**: at task settlement a checker registry verifies file artifacts on disk (exists / non-empty / deleted) and produces PASS / FAIL / UNKNOWN. `UNKNOWN` is never treated as a pass. If a structural check fails, a task is refused `COMPLETED` and demoted with structured reasons returned to the caller. File write/delete steps are now verified on disk instead of being blanket-`unverified`, and step checkpointing uses structured failure verdicts instead of a text-prefix convention.
-- **Three-channel selection (Programmatic → Semantic → Visual)**: a task may declare a channel plan; the runtime decides deterministically — degrading to pixel-level (Visual) actions requires executed probe evidence (e.g. the UIA tree has no matching element), guessing is refused. Authorization is untouched by channel switches: every action still passes the same PolicyGate admission. UIA batch execution (`ui:batch`) runs up to 20 element operations in one pass, authorized and confirmed as a single action with per-operation results.
+- **Unified execution governance**: local and governed execution modes are aligned, with consistent authorization rules across desktop, browser and skill operations. When the governance service is unavailable, high-risk actions do not bypass safety limits.
+- **Stronger operation authorization**: improved user confirmation for browser actions, preventing unauthorized execution, confirmation reuse and argument substitution.
+- **Task state management**: structured task state that stores the goal, user constraints, progress and artifacts, with recovery after interruption.
+- **Finish verification**: an independent check of file artifacts and task postconditions, distinguishing success, failure and undetermined results.
+- **Multi-channel computer use**: better coordination between programmatic, semantic and visual interaction, reducing unnecessary screenshots and coordinate-based actions on complex desktop tasks.
+- **UI automation**: improved UI Automation batch operations for Windows desktop interaction.
+
+Safety and reliability:
+
+- Consistent permissions across channels.
+- Better source tracking for web, screen and external data.
+- Improved operation auditing, failure handling and task state records.
+- Stronger checks between task execution and the final result.
 
 ## 0.1.8 — 2026-11-27
 
-**Removed: built-in web search and map keys**
+**Computer use arrives; privacy boundary tightened**
 
-- `web_search` is gone end to end: the tool declaration and capability, the dispatch branch, automatic web augmentation, the Baidu-backed search port, the skill entry, prompt wording, and the `BAIDU_SEARCH_*` settings. Its verifier and taint mapping are removed with it.
-- The personal-data guard moved to `foxclaw/core/personal_data.py`, so "private data never leaves the machine" is preserved independently of any single transport.
-- Supervisor prompts now state plainly that the system has no live web access, instead of implying it does.
-- Amap is gone as well: `AMAP_MAPS_API_KEY` / `AMAP_JS_KEY` / `AMAP_JS_SCODE`, the `/api/config/amap` route, the itinerary geocoding client, and the front-end JS map loader. Itinerary legs are estimated from coordinates and the map panel renders the built-in SVG sketch from `map_data`.
-
-**Desktop operation safety foundation and control capability (Computer Use)**
-
-The desktop-control capability lands on top of the authorization and governance groundwork, which closes first so that "being deceived must not cause harm" is enforced before an action ever executes.
-
-**What it can and cannot do (capability and boundary)**
-
-- Browser: **perception** (`/api/browser/perceive`, reading the page's semantic state) and six **actions** (`navigate` / `click` / `type` / `scroll` / `extract` / `wait`). Both paths are authorized: perception through a dedicated observation channel, actions through operation-intent authorization, and write actions (navigate/click/type) require explicit confirmation before they run.
-- Windows desktop control is implemented end to end. **Perception** — `screen_capture`, `window_list`, `ui_tree` (UI Automation element tree), `ocr` (screen text) — each authorized through the observation channel and fail-closed unless `FOXCLAW_OBSERVE_ALLOW` grants it. **Operation** — `desktop_act` covering mouse/keyboard, window, clipboard, shell, file and UI actions — authorized through operation intent, and every write action requires confirmation before it runs. Both layers are exposed as Agent tool declarations (`screen_capture` / `window_list` / `ui_tree` / `ocr` / `desktop_act`): perception tools run as read, `desktop_act` runs as write and is gated behind confirmation, so an unconfirmed desktop action never executes.
-- **Write confirmation is a one-time nonce, not a boolean**: the first request for a write action only returns a `confirm_nonce` (bound to the action and its arguments, expires in 5 minutes, single use). `/api/desktop/act` runs the action only with both `confirmed=true` and that nonce; `confirmed=true` alone, changed arguments, an expired nonce or a replay are all refused.
-- **Agent-initiated writes stop and go to the user**: the tool loop decides per action — reads (`file:read` / `clipboard:read`) run directly; writes become pending items returned to the caller in `run_task`'s `pending_actions`. The nonce never enters the model context, so the model cannot approve itself. After the user confirms, the caller runs that exact action through `/api/desktop/act`.
-- **High-risk actions are denied by default**: unless `FOXCLAW_DESKTOP_ACT_DENY` is set, `shell:run` and `file:delete` are denied and no nonce can override that. Setting the variable hands the rules to the user (`none` means no default deny).
-- **Execution-layer scope limits** (shared by every entry point, a second gate after authorization):
-  - File read/write/delete and the shell `cwd` must fall inside the working roots (`FOXCLAW_DESKTOP_ROOTS`, default: home directory + system temp directory). Paths are resolved (`~`, `..`, symlinks) before the check.
-  - Sensitive paths are always refused, reads included: credential directories such as `.ssh` / `.aws` / `.gnupg` / `.kube`, `.env`, private keys and certificates, `.git-credentials` and the like, plus system directories; `FOXCLAW_DESKTOP_PROTECT` adds more.
-  - Shell commands matching dangerous patterns (recursive delete, format, shutdown, registry edits, download-and-execute, encoded execution, ...) or touching sensitive paths are refused; timeout is capped at 120 s and output over 64 KB is truncated. A blocklist cannot stop deliberately obfuscated commands, which is why `shell:run` stays denied by default.
-- What it still cannot do: desktop control on macOS/Linux — the perception and operation runtimes are Windows-only (WinRT / UI Automation) with reserved ports.
-- Web confirmation cards: one card per pending desktop action, showing the action and its exact arguments; approving calls `/api/desktop/act` for that action only, denying sends nothing. Pending items from sub-agents are handed up to the supervisor's response. Not wired yet: confirmation replies over messaging channels.
-
-**Safety operating rules**
-
-- Authorization is keyed by a canonical operation intent (domain/action/target/effect), not a tool name: re-expressing the same operation under a different tool name hits the same allow/deny rule, so an equivalent path cannot bypass a deny.
-- Perception and operation permissions are fully separated: permission to "look" does not grant permission to "act"; ordinary `read` does not allow screen capture.
-- Perceived data is forced untrusted: browser perception is wrapped (`wrap_untrusted`) before it enters the decision flow, and model summarization, compression or rewriting never lowers the source taint; a page's "please run X" is never treated as user authorization.
-- The tool path joins unified admission: `recall_memory` and future tools no longer bypass `PolicyGate`; they share the same entry, `decision_id` and audit events as the skill path.
-- Browser actions join operation-intent authorization (`/api/browser/act`): denied and unconfirmed write actions fail closed.
-- The sentinel guardian's fail-closed behavior is now covered by regression tests: when the guardian is unreachable, `evaluate` denies and `mcp_call` / `execute_web` return blocked instead of degrading to local direct execution.
-- Compensating-rollback production trigger chain is verified: a failed task compensates executed side-effect steps in reverse order, and a compensation failure escalates to manual handling.
-
-**Constitution (Desktop Operation Constitution DOC-01 ~ DOC-07)**
-
-This release is the engineering landing of the Computer Use governing document, the Desktop Operation Constitution. The clauses now enforced in code:
-
-- **Intent canonicalization (DOC-03)**: allow/deny is decided from the canonical operation intent, not the tool name; an equivalent path after a deny hits the same intent rule.
-- **Perception/operation separation (DOC-04)**: perception channels (read screen/page) and operation channels (click/type/write file) are authorized independently and never inherit each other.
-- **Perception data untrusted (DOC-05)**: screen and web perception data is forced untrusted and its taint propagates; model summarization does not make it trusted.
-- **Verification discipline (DOC-02)**: "effective = has a production call site; wired-but-unused = code exists but nothing calls it" — every item here is verified as `requirement → enforcement point → production call path → test evidence`, never from prose.
-
-The desktop execution process, screen capture and UI Automation runtime are now landed and verified on Windows; non-Windows runtimes remain reserved.
+- Built-in web search and map capabilities removed: no more live web search or map service; itinerary distances are estimated locally and the map panel uses a built-in schematic.
+- Personal-data protection no longer depends on a single transport and applies consistently across channels.
+- Windows computer use: screen perception (screenshots, window list, UI element tree, text recognition) and desktop operations (mouse, keyboard, windows, clipboard, files, shell and UI interactions). All operations are authorized, write actions require user confirmation, and unconfirmed actions never run.
+- Browser operations: page perception plus navigate, click, type, scroll, extract and wait; write actions require confirmation as well.
+- High-risk protection: deleting files and running shell commands are denied by default and must be explicitly enabled by the user; sensitive directories and credential files stay protected; file and shell operations are confined to the working directory.
+- Perception and operation are authorized separately; screen and web content is treated as untrusted, so instructions found on a page are never treated as user authorization; every authorization decision is recorded in the unified audit chain.
+- Desktop control is currently Windows-only.
 
 ## 0.1.7 — 2026-11-21
 
-**Memory write admission (M1/M2/M5)**
+**Better memory quality and privacy**
 
-- Every memory write now carries a source tag. Only an explicit user signal produces `[stated]`; agent conclusions, search results and tool output are always `[derived]`. An optional strict mode (`FOXCLAW_MEMORY_SOURCE_STRICT`) rejects writes without a declared user source.
-- Calibration rules keep searchable data, one-off mentions, unconfirmed agent details and task-local state out of long-term memory. An already archived fact counts as remembered, so restating it does not create a second write.
-- A poisoning guard rejects instructions that would make future sessions less honest, less safe, less skeptical or unconditionally agreeable — judged by effect, including softened variants. No user instruction can override it.
-
-**Privacy and best-effort (M4/M6)**
-
-- New blocking categories cover minors' identity data and protected attributes. On the consent path, blocked segments are omitted whole rather than replaced with a generalization; "forget X" removes the matching memory and its derivatives. Health and protected attributes still go through the existing three-mode confirmation flow.
-- Memory failures are best-effort: they are logged at a rate limit and the host task continues. No retry storms, no screen-flooding, no unsolicited "shall I remember that for you".
-- M3 versioned writes stay a design placeholder: the HMR adapter holds a reentrant lock and has no cross-session concurrent-write scenario. `if_version` merge support will be implemented when multi-channel concurrency actually appears.
+- Memory provenance: only content the user explicitly states is recorded as a user statement; assistant conclusions, search results and tool output are labelled separately and never mixed in as user facts.
+- Tighter long-term memory admission: one-off mentions, unconfirmed details and task-local state no longer enter long-term memory; restating a fact does not create a duplicate.
+- Poisoning protection: instructions that would weaken honesty, safety or independent judgement are rejected, including softened variants, and cannot be overridden by user instruction.
+- Expanded privacy blocking: new categories for minors' identity data and protected attributes; blocked content is omitted rather than stored, and "forget X" removes the matching memory and its derivatives.
+- Memory write failures no longer interrupt the main task or trigger retries and unsolicited prompts.
 
 ## 0.1.6 — 2026-11-19
 
-A failed model call can no longer be recorded as a successful answer. Every call carries its own state instead of a router-wide flag, every task settles from evidence instead of from an error string, and memory refuses output that was never verified. Bundled runtime detection, health reporting and test registration are tightened alongside it.
+**Truthful results and task settlement**
 
-**Call state**
-
-- New `foxclaw/core/call_status.py`: one `CallStatus` per model call, held by a task-level `TaskCallCollector` registered through a contextvar. The collector travels with the task (including across `asyncio.to_thread`), so two concurrent tasks on one Router instance no longer read each other's verdict — the root cause of "task A degraded, task B reported success". The old `Router._call_degraded` field and the deprecated `take_call_degraded()` are removed.
-- Six states, and `PENDING` is the initial one: `REAL` (first provider succeeded), `FALLBACK` (primary failed, fallback succeeded), `STUB` (no provider configured), `DEGRADED` (all providers failed / stream cut / empty response), `UNSUPPORTED` (provider lacks the capability — not a failure). A call path that returns without setting a terminal state is a bug by definition.
-- Streaming paths fall back to a non-streaming call when the stream breaks, carrying a `partial` mark for the content that already went out. `UNSUPPORTED` and `DEGRADED` are now distinct: "this provider cannot do tools" no longer looks like "the model broke".
-- The tool loop records a six-stage history (`requested` / `executed` / `succeeded` / `rejected` / `failed` / `verified`) into the same collector, including the old string-returning path — a direct answer from the tool loop is treated as "no state object" instead of crashing on `.state`.
-
-**Task settlement and memory admission**
-
-- `settle_task_status` in `call_status.py` is the single settlement entry: `COMPLETED` (required result present and postconditions met), `PARTIAL` (some real result), `FAILED` (no valid result), `INTERRUPTED`, `BLOCKED` (harness stop / awaiting confirmation). Settlement reads the collected states and tool history — never an error-message string.
-- Degraded is not success: `STUB` / `DEGRADED` / `PENDING` become `PARTIAL` only when a verified tool fact also exists, otherwise `FAILED`. A task waiting for confirmation settles `BLOCKED` with its own `task_status` field instead of being written into memory as a finished task.
-- `admit_memory` is the only admission gate for model-produced content: the fact channel requires both `executed` and `verified` evidence (a rejected, timed-out or unverified tool output cannot be labelled a fact — "it came from a tool" is not enough), and the derived channel refuses anything produced under `STUB` / `DEGRADED` / `PENDING`.
-- The accounting ledger registers its own real write as a verified tool fact, so "ledger succeeded, analysis degraded" settles `PARTIAL` rather than `FAILED`; a dry run registers nothing, with a regression test guarding against the upgrade.
-
-**Health, search and tool results**
-
-- `GET /health/ready` judges the memory runtime by the backend it reports: a stub backend is no longer reported as `ok`. The endpoint distinguishes ready / degraded / not-ready with the reason attached.
-- `web_search` classifies results into three states and marks an empty result explicitly (`EMPTY` with evidence) instead of returning an empty string that downstream reads as success; tool outputs get the same treatment, so an empty result is no longer indistinguishable from a successful one.
-- Tool evidence goes through `verify` before it can support a claim, so an unverifiable "done" does not count as done.
-
-**G1 supervisor**
-
-- The supervisor's own-answer path runs Python numeric computation in-process via `foxclaw/g1/python_numeric.py`: a fixed whitelist is checked at the function entry (`_g1_whitelist_match`, shared with `sv_plan`), a hit executes the injected executor and keeps the original dispatch result structure, and a fingerprint/version mismatch returns `INPUT_INVALID` without falling back to the model. G1 hits skip shared-memory writes and record `shared_memory=skipped`; `sv_plan` hits skip `_llm_plan()` so the planning stage makes no model call.
-- The executor moved out of the runner: no callable is injected into it any more, and Foxclaw no longer depends on an external ACM runtime.
-
-**Release and test governance**
-
-- `tools/release_check.py` detects the bundled runtime by top-level package name (`hmr*` / `hkc_*`): a placeholder package is now an `error` instead of a `warn`, because since 0.1.5 the runtime ships inside the wheel and a package without it is broken on arrival.
-- New `tools/check_test_registration.py`, wired into CI: every `tests/test_*.py` on disk must appear in both the `python_files` whitelist and the `run_all` registry. 47 unregistered files were found and added — the suite is now 133 files with no gaps. The CI step runs in warn-only mode for one cycle before it becomes a hard gate.
-- Fixed: `python_files` had drifted from the actual test files (a test could pass when run directly but never run in CI). This release makes the two paths cover the same set.
+- Model calls are recorded accurately: real success, fallback success, no model configured, degraded failure and unsupported capability are distinguished; a failed call is never logged as a success, and concurrent tasks keep their call states isolated.
+- Interrupted streaming falls back to a non-streaming call and marks the content already emitted.
+- Task settlement is evidence-based: the final state is derived from actual results and postconditions, a degraded call is never a complete success, and a task awaiting confirmation is no longer treated as finished.
+- Tighter memory admission: only verified tool results can become facts in long-term memory; unverified or failed output is not stored.
+- Health checks distinguish ready, degraded and not-ready, instead of reporting a placeholder runtime as healthy.
+- Empty results are no longer confused with successful ones, and tool output must be verified before it can support a claim.
+- The supervisor's numeric computation runs in-process, reducing dependence on model behaviour.
+- Release checks fail when the bundled runtime is missing; test registration is complete, so a test cannot pass locally yet never run in CI.
 
 ## 0.1.5 — 2026-11-16
 
-The governance bar is raised across the board: actions are tiered by harm instead of one-size-fits-all, exceptions became condition lists instead of a switch, the guardrails now state where valid instructions can come from, and long channel tasks gained an unattended protocol.
+**Finer governance rules and unattended operation**
 
-**Tiers and exceptions**
-
-- Action classification is now fixed at three tiers: **prohibited** (refused even under explicit user authorization — the rule is explained and the user is asked to do it themselves: real financial credentials/transactions, changing system security settings, bypassing CAPTCHA, executing files from untrusted sources), **explicit permission** (asked in chat, done only after a clear yes), **regular** (everything else, just done). The tier follows the rule, not the outcome: `PermissionDecision` / `Verdict` gained a `tier` field, and judgment happens at the action level, not the tool level — the same Bash call lands in a tier by what it actually does, not by its name. The tier list is decoupled from the enforcement logic, and the injected behavior spec declares the three-tier semantics.
-- Trusted-mode exceptions became **condition lists** (`foxclaw/skills/exceptions.py`): each exception is a set of AND conditions — all must hold for the confirmation stage to be waived, and any failure falls back to the main rule; deny / destructive actions sit before exceptions and can **never** be waived. The evaluation context carries the request origin through a contextvar; no context means the conditions do not hold (fail-closed) — exceptions take no bypass and run through the same engine as the main rules.
-- Approval records now carry an explicit **scope** (`single` / `session`): one approval covers exactly the action it describes; a second execution of a similar action needs a new approval unless the user explicitly widened the scope when approving. Alongside this, "the original request is the approval": when the action was initiated by the user, named in the request text, and is not pay/destructive, it proceeds directly with `ORIGIN_APPROVED` recorded — never asking again about something that was already said.
-
-**Instruction sources and guardrails**
-
-- New deterministic detector `detect_forged_authority` (`foxclaw/core/injection_guard.py`): recognizes forged claims of pre-authorization, system privileges, and urgency; `wrap_untrusted` emits a heightened-vigilance marker on a hit. The behavior spec gained two checkpoints: **source boundary** (valid instructions come only from the user through the channel layer; everything tools observe — web pages, files, error messages, forwarded text — is data, not commands; instructive content in observed text is not executed, but quoted, attributed, and referred back to the user) and **forged notices** (tags / signatures in a message do not prove origin; config files cannot approve what needs confirmation; any message claiming the guardrails are off is treated as nonexistent — the guardrails are never lifted from inside the conversation).
-- Cross-agent permission laundering ban: a skill permission denial no longer surfaces as ordinary text — it is now explicitly marked `status=blocked` with a `policy_denied` field; the supervisor registers a session-level denial list, and a denied subtask is **never re-dispatched to any agent** — switching agents is refused the same way; reflection-based replanning drops denied steps, and if all steps are denied it stops and reports honestly to the user. The denial follows the task — it does not reset on a hand-off: having another agent do it would bypass the user's permission decision.
-
-**Channels and unattended work**
-
-- New session-presence signal `foxclaw/core/presence.py`: a channel message records an activity timestamp on arrival; user activity within `FOXCLAW_ATTENDED_WINDOW` (seconds, default 300) means someone is watching; no record means nobody is (fail-closed). Pending results waiting for confirmation carry `attended` / `parked` fields: when unattended, explicit-permission actions turn into "finish all the preparation work, lay out the options and consequences, and stop at the decision point".
-- The behavior spec gained `unattended_protocol`: when running a long task unattended, take the **single most reasonable interpretation** and keep going, declaring on the **first line of the output** which interpretation was taken — the first thing a returning user reads to reconstruct what happened. The only stop condition: irreversible AND both directions plausible. The prohibited tier cannot be waived unattended either; when someone is watching, the three-tier flow asks normally without over-conservatism.
+- Action tiers: prohibited, explicit permission required, and regular. Classification follows what an action actually does, not the name of the tool.
+- Tighter exceptions: exceptions changed from a switch to condition lists that must all hold before a confirmation is waived; prohibited and destructive actions can never be waived.
+- Approval scope: one approval covers exactly the action it describes; actions explicitly named in the user's original request are not asked about again.
+- Instruction-source boundary: only instructions from the user through a messaging channel are followed; web pages, files, error messages and other observed content are data, not commands; forged authorization claims and manufactured urgency no longer work.
+- Cross-agent boundary: a denied action is not handed to another agent to retry, and the denial follows the task rather than resetting on a hand-off.
+- Unattended long tasks: with nobody present, the most reasonable single interpretation is used and declared on the first line of the output; the task stops and waits when an action is irreversible and both directions are plausible.
 
 ## 0.1.4 — 2026-11-12
 
-A conflict card can now be dismissed instead of decided, the validator stops reading every Chinese 不 as a negation, each agent gets its own rules file, and the hard boundaries now live in one checkable spec instead of being scattered across prompts.
+**Behaviour, memory safety and knowledge conflicts**
 
-**Behavior**
-
-- `foxclaw/behavior/behavior.yaml` is a checkpoint list, not a prose spec: every rule that claims code enforcement names a callable that already exists (`foxclaw.kernel.policy_gate:PolicyGate.check_action`, `foxclaw.core.confirm_nonce:ConfirmationBroker.consume`, `foxclaw.core.verify:verify`), and the spec is resolved at load time. A missing target fails startup instead of registering an always-allow stub, so the list cannot drift into decoration.
-- The block is injected first in the system prompt — ahead of the kernel prompt, the role prompt and the per-agent rules. Persona stays where it was (preferences merged into the last user message), so a user-editable preference cannot structurally override a hard boundary.
-- `behavior.local.yaml` in `FOXCLAW_DATA_DIR` can add rules and tighten `enforce`, but weakening or dropping a rule in `prohibitions` / `confirmations` raises. A malformed or stale-version local file is ignored with a warning rather than bricking the app; problems in the built-in file stay fatal.
-- Rules whose code side is not built yet (`no_privacy_upload`, `no_impersonation`) are marked `enforce: prompt` with a `note` saying what is missing, rather than pretending to be enforced.
-- Set `FOXCLAW_BEHAVIOR=0` to turn the whole block off.
-
-**Memory**
-
-- High-sensitivity writes to long-term memory now pass through a deterministic gate: credential / ID-number / health / card-number patterns plus a Luhn check, no model call. `FOXCLAW_SENSITIVE_WRITE_MODE` has three levels — `audit` (default, records only), `warn`, and `enforce`. In `enforce` the content is not stored; it becomes a pending item the user must approve, and `approve_sensitive_write` is the only caller allowed to pass `consent=True`.
-- The classifier deliberately over-blocks: a false positive costs one confirmation, a false negative means the rule does not exist. Ordinary amounts and order numbers are excluded on purpose — otherwise the finance agent would be unusable.
-- `GET /api/memory/pending`, `POST /api/memory/pending/{id}/approve` and `/reject` expose the queue. The memory panel lists what is waiting, with 记住 / 丢弃 buttons, and when a write is held back the agent says so in the thought chain instead of silently dropping it.
-- `confirm_high_sensitivity` is now `enforce: both` in the behavior spec; the checkpoint resolves to the real gate.
-
-**Content safety**
-
-- New gate at `foxclaw/core/content_guard.py`: deterministic, no model call. Both the user request and the model output are checked, and a hit is cut off with a fixed line ("Let's talk about something else." / 「我们换个话题聊聊吧。」) — no explanation, no elaboration, no counter-question, no alternative offered. A refusal must not become a channel for leaking information or continuing the thread.
-- Built-in rules cover **solicitation only** (making drugs or explosives, fraud and money laundering, breaking into someone's systems, forging documents, suicide methods, sexual content involving minors). Narrow wording, low false-positive rate, works out of the box. Mentioning is not asking: a book about the history of explosives, a paper on money-laundering sentencing, an order number, `born in '91` all pass.
-- The platform-review categories (political, sexual, violent) run to tens of thousands of terms; hard-coding them is neither practical nor maintainable as the rules change. Deployers mount an external lexicon through `FOXCLAW_CONTENT_LEXICON` (comma-separated files, one term per line, optional `term<TAB>category`); `tools/build_content_lexicon.py` does the conversion (encoding detection, category filtering, category inferred from the file name, read-back verification), and which categories to mount is their call. **Nothing is checked against it unless it is mounted** — by default only the built-in rules run.
-- `FOXCLAW_CONTENT_GUARD_MODE` has three levels: `enforce` (default), `audit` (records only), `off`. Enforcement is the default because this layer exists to backstop a shipped product; a default that does not fire is not a backstop. The built-in rules are narrow enough not to interrupt ordinary conversation.
-- Normalization defeats full-width characters, zero-width characters and inserted spaces. Pinyin, homophones and character-splitting are explicitly out of scope for a deterministic layer — this is a speed bump, not a wall.
-- Knowledge-base ingestion and attachment bodies are **not** filtered: that is the user's own material. The gate sits on the request and the output only, so a history book or a legal statute is not mistaken for a violation.
-- New `no_harmful_content` rule in the behavior spec (`enforce: both`), and a new §8 "content boundaries" in `KERNEL_PROMPT` spelling out the refusal pattern and the difference between 「material」 and 「instructions」.
-- `docs/CONTENT_GUARD.md` / `docs/CONTENT_GUARD_CN.md` document mounting, lexicon format, conversion and false-positive tuning. No political, sexual or violent list is bundled; mounting one, and which mode to run, is the deployer's decision.
-
-**Agents**
-
-- An agent now loads `foxclaw/agents/rules/<AGENT_ID>/*.md` into its system prompt when it starts. The files are re-read on every prompt assembly, so editing rules needs no code change; the block is appended after the role prompt and yields to the safety rules above it. Set `FOXCLAW_AGENT_RULES=0` to turn it off.
-- Ships with `foxclaw/agents/rules/finance/RULES.md` — Personal Finance Agent Rules v1.0 (data truthfulness, bookkeeping accuracy, privacy, calculation conventions, advice limits, anomaly handling, memory boundaries, supervisor collaboration). The file is package data, so it travels inside the wheel instead of being silently dropped.
-
-**Knowledge**
-
-- `POST /conflicts/{id}/dismiss` and `POST /conflicts/bulk-dismiss` (SDK: `dismiss_conflict` / `dismiss_conflicts`) close a card without picking a winner: both claims stay `active` and nothing is marked `superseded`. A claim that was `disputed` only because of that card goes back to `active` once no open conflict mentions it.
-- Conflict detection no longer flips polarity on topical similarity alone. The negated side now also has to overlap lexically with the other statement (character-bigram Jaccard ≥ 0.40) and stay close in embedding space (cosine ≥ 0.35); both thresholds are constructor parameters (`neg_flip_min_cos`, `neg_flip_min_overlap`).
-- Descriptive `不` / `无` compounds (`不变`, `不同`, `不管`, `不再`, `无需`, `不可观测`, `不可控` …) no longer count as stance negation.
-- The conflict card gained a secondary "false positive" button beside "accept selected claim".
-- `tools/recheck_conflicts.py` re-scores existing open cards with the current rule and batch-closes those that no longer hold. It dry-runs by default; `--apply` submits through the running service, so the in-process conflict set and the vector index stay in step.
+- Centralized behaviour specification: hard boundaries live in one verifiable list whose rules must point to implemented capabilities; user preferences cannot override them, and local configuration can only tighten them.
+- Sensitive memory confirmation: high-sensitivity content (credentials, ID numbers, health, card numbers) is checked before entering long-term memory; in strict mode it is not stored until the user approves. The check deliberately errs on the side of blocking.
+- Memory confirmation panel: a queue of pending writes that the user can approve or discard in place.
+- Agent rules: each agent can load its own rules file; editing rules needs no code change, and safety rules take precedence on conflict.
+- Content safety: a deterministic gate checks both user requests and model output, stopping with a fixed message and no elaboration. Built-in rules cover only explicit solicitation of illegal or harmful content; the user's own documents and attachments are not filtered. Deployers may mount an external lexicon.
+- Knowledge conflicts: a conflict card can be marked as a false positive instead of forcing a choice; negation is no longer inferred from the mere presence of a negative word; batch re-checking of stored conflicts was added.
 
 ## 0.1.3 — 2026-11-11
 
-Bilingual interface, and Settings moved where it belongs.
+**Bilingual interface**
 
-**Interface**
-
-- New i18n layer (`lib/i18n.js` plus en/zh dictionaries): sidebar, menus, chat, stage, settings and toast strings all resolve through the dictionaries; a missing key falls back to the key, so nothing renders blank.
-- Settings gains "Interface → Language" with instant Chinese / English switching, persisted in `localStorage` (`foxclawLang`) and kept across reloads.
-- Date and number formatting follow the language (`zh-CN` / `en-US`), and `<html lang>` stays in sync.
-- Settings moved out of the "More" popover into a pinned entry at the bottom of the left rail, separated by a rule and left unaffected by session-list scrolling.
-- The version badge in the top bar reads `/api/system/info`; it no longer falls back to a hard-coded `v3.0`.
-
-**Docs**
-
-- README reconciled with the repository as it actually is: agent count, channels, ingest caps, chunk geometry, supported formats and internal links all verified one by one, with a test to keep them from drifting again.
+- The interface switches instantly between Chinese and English, with date and number formats following the language and persisting across reloads.
+- Settings moved to a pinned entry at the bottom of the left rail.
+- The version badge reads the server's version instead of a hard-coded one.
+- README reconciled with the repository and covered by a drift test.
 
 ## 0.1.2 — 2026-11-10
 
-Version consolidation and skill installation.
+**Version consolidation and skill installation**
 
-- Version number unified across five places (`pyproject.toml` / `foxclaw/__init__.py` / `npm/package.json` / `npm/index.js` / `frontend_src/package.json`), guarded by `tests/test_version_sync.py` so npm and PyPI cannot drift apart.
-- `foxclaw skills install` accepts ClawHub / GitHub / URL / local archives; the tools panel can install an instruction skill straight from an uploaded `SKILL.md` or OpenClaw package.
-- First run asks how to address you (editable in settings); an optional new-version check was added.
-- `tools/sync_public.ps1` now builds the public tree directly instead of relying on a local clone.
-- Type annotations closed out: mypy went from 645 to 0, and CI turned into a ratchet that may only go down.
-- Explanatory comments stripped repo-wide, so the public tree no longer carries internal notes.
+- Version numbers unified across channels to prevent npm and PyPI drift.
+- Skill installation supports ClawHub, GitHub, URLs and local packages; the tools panel can install directly from an uploaded package.
+- First run asks how to address the user, editable in settings; an optional update check was added.
+- Type annotations closed out, and release artifacts no longer carry internal notes.
 
 ## 0.1.1 — 2026-11-09
 
-npm-only republish; there is no matching version bump in the repository.
+**npm-only republish**
 
-- The npm package excludes internal docs (`docs/reports` and friends) and debug leftovers, aborting the pack when any are detected — 0.1.1 had shipped internal documents in the public package.
-- `build.cjs` now runs before `npm pack`, fixing GitHub Release assets that were 2 KB empty shells.
-- `pyproject` gained a readme, so the PyPI page is no longer description-less.
-- `requirements.txt` is compiled with `uv pip compile --universal` so platform-specific dependencies carry markers; CI gained a dependency audit gate.
-- MIT license and metadata added.
+- The npm package excludes internal documents and debug leftovers, aborting the pack when either is detected.
+- Fixed empty 2 KB GitHub Release assets.
+- Package metadata completed, so the PyPI page is no longer description-less.
+- The dependency lockfile is generated for universal platforms, and CI gained a dependency audit.
 
 ## 0.1.0 — 2026-11-06
 
-First public release, on both channels: PyPI `foxclaw` and npm `foxclaw`.
+**First public release**, on PyPI and npm.
 
-- Runtime: FastAPI service plus the `foxclaw` command-line entry point.
-- Agents: multiple agents collapsed into three (assistant / office / knowledge); the rest were demoted to instruction skills.
-- Knowledge (HKC) and memory (HMR) embedded via `vendor/`: knowledge is extractable and searchable, and review scheduling runs on SM-2.
-- Governance: policy gate, audit hash chain, shadow learning and circuit breaker; import paths are allow-listed and skill side effects default to fail-closed.
-- Config: typed reads instead of raw `.env`, and `foxclaw config check` turns a misconfiguration from a crash into a message.
-- Security: DNS rebinding, browser SSRF and untrusted channel instructions closed off; channel path signatures plus one-shot nonces for sensitive actions.
-- Pipeline: visible plans, reasoning emitted as its own SSE event, step-level checkpoints for resume-after-interrupt.
-- Frontend: Vue3 three-column renderer, persistent feature entries in the left rail, dual-state inspector on the right.
+- Runtime: FastAPI service and a command-line entry point.
+- Agents: three collaborating agents, with other capabilities demoted to instruction skills.
+- Knowledge and memory embedded in the repository, with extraction, retrieval and spaced-repetition review.
+- Governance: policy checks, audit records, shadow learning and a circuit breaker; skill side effects are denied by default.
+- Config: typed reads and a configuration check command that turns misconfiguration into a clear message.
+- Security: DNS rebinding, browser SSRF and untrusted channel instructions closed off; one-time confirmation for sensitive actions.
+- Pipeline: visible plans, reasoning emitted as its own event and step-level resume checkpoints.
+- Frontend: a Vue3 three-column renderer.
 
-> Both packages are **placeholders**: `vendor/` (HKC / HMR) is not shipped, so a fresh install only gets the importable skeleton. See [docs/RELEASE.md](docs/RELEASE.md).
+> Both packages are **placeholders**: the embedded runtimes are not shipped, so a fresh install only gets the importable skeleton. See [docs/RELEASE.md](docs/RELEASE.md).
