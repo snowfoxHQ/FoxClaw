@@ -584,7 +584,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         return cache
 
     def _task_context_start(self, session_id: str, task: str,
-                            constraints, resume_tid: str = ""):
+                            constraints, resume_tid: str = "", channel_plan=None):
         """创建/恢复 TaskContext(基准 v1.0 §L1)。
 
         恢复路径:约束与验收条件以**已落盘快照**为权威——续跑调用方传新约束不生效,
@@ -603,7 +603,7 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
                     return TaskContext.from_resumed(prev, session_id)
                 except Exception:
                     pass
-        return TaskContext.create(session_id, task, constraints)
+        return TaskContext.create(session_id, task, constraints, channel_plan=channel_plan)
 
     def _save_task_state(self, session_id: str, tc) -> None:
         """TaskContext 快照落盘(经 recovery 的 JSONL 追加通道,fail-safe)。"""
@@ -688,7 +688,11 @@ class CognitiveAgent(AugmentMixin, LlmMixin, MemoryMixin,
         # 其次 context['_constraints'](HTTP 路径免改签名);恢复路径下约束/验收条件以已
         # 落盘快照为权威(_task_context_start),防「恢复时放宽约束」。
         _constraints = constraints if constraints is not None else context.get("_constraints")
-        _tc = self._task_context_start(session_id, task, _constraints, _resume_tid)
+        # 【G4·三通道】子目标的通道声明(创建时定,创建后不可放宽);恢复路径以快照为权威。
+        _chan_plan = context.get("_channel_plan") if isinstance(
+            context.get("_channel_plan"), dict) else None
+        _tc = self._task_context_start(session_id, task, _constraints, _resume_tid,
+                                       channel_plan=_chan_plan)
         self._save_task_state(session_id, _tc)
         # 【G3·Finish Gate】挂当前任务状态(contextvar 隔离,并发任务互不串写):
         # _settle 据此把已核验的文件产物落 artifacts,供终局结构检查

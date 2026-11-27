@@ -14,7 +14,7 @@ from .input import mouse_sync, keyboard_sync
 from .clipboard import clipboard_read_sync, clipboard_write_sync
 from .shell import shell_run_sync
 from .file_ops import file_read_sync, file_write_sync, file_delete_sync
-from .uia import ui_tree_sync, ui_action_sync, uia_available
+from .uia import ui_tree_sync, ui_action_sync, ui_batch_sync, uia_available
 from .ocr import ocr_sync, ocr_available
 from . import scope as _scope
 
@@ -134,6 +134,8 @@ class DesktopService:
 
     async def _act_ui(self, sub, a):
         locator = a.get("locator")
+        if sub == "batch":
+            return await self._run(ui_batch_sync, a.get("ops"))
         if sub == "click":
             loc = await self._run(ui_action_sync, "locate", locator)
             if not loc.get("ok"):

@@ -135,7 +135,7 @@ def _ns_agent(pipe, settled):
     ns._record_stage = lambda *a: None
     ns._emit_execution = lambda *a, **k: None
     ns._maybe_store_preference = lambda t: None
-    ns._task_context_start = lambda sid, task, cons, resume_tid="": _TC.create(
+    ns._task_context_start = lambda sid, task, cons, resume_tid="", **_k: _TC.create(
         sid, task, cons)
     ns._save_task_state = lambda sid, tc: None
     ns._on_task_settled = lambda sid, status: settled.append((sid, status))

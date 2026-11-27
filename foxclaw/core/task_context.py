@@ -31,7 +31,8 @@ _GOAL = 2000
 _FIELDS = {"task_id", "goal", "constraints", "acceptance_criteria", "current_focus",
            "completed", "pending", "discovered_facts", "unresolved_conflicts",
            "artifacts", "last_verified_state", "status", "schema_version",
-           "created_at", "updated_at", "resumed_from"}
+           "created_at", "updated_at", "resumed_from",
+           "channel_plan", "channel_probes"}
 
 
 def _clip(text, limit) -> str:
@@ -69,15 +70,33 @@ class TaskContext:
             "created_at": float(d.get("created_at") or time.time()),
             "updated_at": float(d.get("updated_at") or time.time()),
             "resumed_from": _clip(d.get("resumed_from"), 128),
+            # 【G4·三通道】任务级通道声明(创建时定,与 constraints 同为不可放宽项)
+            # + 能力探测证据(只认探测结果,授权结果绝不进这里,见 channel_policy)。
+            "channel_plan": self._norm_plan(d.get("channel_plan")),
+            "channel_probes": _bounded(d.get("channel_probes") or []),
         }
+
+    @staticmethod
+    def _norm_plan(raw) -> dict:
+        if not isinstance(raw, dict):
+            return {}
+        pref = str(raw.get("preferred") or "")
+        fb = str(raw.get("fallback") or "")
+        from .channel_policy import CHANNELS
+        pref = pref if pref in CHANNELS else ""
+        fb = fb if fb in CHANNELS and fb != pref else ""
+        return {"preferred": pref, "fallback": fb} if pref else {}
 
     # ---------- 构造 ----------
 
     @classmethod
-    def create(cls, task_id: str, goal: str, constraints=None) -> "TaskContext":
+    def create(cls, task_id: str, goal: str, constraints=None,
+               channel_plan: dict | None = None) -> "TaskContext":
         """任务开始时创建:验收条件由 goal + constraints 显式生成。
         goal 是语义要求(无法确定性验证 → 初始 unknown,不许假装 pass);
-        每条用户约束是约束检查(初始 pending,G3 接确定性检查器)。"""
+        每条用户约束是约束检查(初始 pending,G3 接确定性检查器)。
+        channel_plan(G4):子目标的通道声明 {preferred, fallback},创建时定,
+        创建后不可改(与 constraints 同为不可放宽项)。"""
         goal = _clip(goal, _GOAL)
         if isinstance(constraints, str):  # 防御:传字符串别被逐字符拆开
             constraints = [constraints]
@@ -87,6 +106,7 @@ class TaskContext:
                      for i, c in enumerate(constraints)]
         return cls({"task_id": task_id, "goal": goal, "constraints": constraints,
                     "acceptance_criteria": criteria, "status": STATUS_IN_PROGRESS,
+                    "channel_plan": channel_plan,
                     "created_at": time.time(), "updated_at": time.time()})
 
     @classmethod
@@ -147,6 +167,10 @@ class TaskContext:
         return tuple(self._data["constraints"])
 
     @property
+    def channel_plan(self) -> dict:
+        return dict(self._data["channel_plan"])
+
+    @property
     def acceptance_criteria(self) -> list:
         return copy.deepcopy(self._data["acceptance_criteria"])
 
@@ -178,6 +202,14 @@ class TaskContext:
         self._data["discovered_facts"] = _bounded(
             self._data["discovered_facts"]
             + [{"fact": _clip(fact, _FACT), "source": _clip(source, 128),
+                "ts": time.time()}])
+        self._touch()
+
+    def add_probe(self, channel: str, ok: bool, detail: str = ""):
+        """【G4】能力探测结果(证据,非授权):只由 channel_policy.record_probe 落账。"""
+        self._data["channel_probes"] = _bounded(
+            self._data["channel_probes"]
+            + [{"channel": channel, "ok": bool(ok), "detail": _clip(detail, 200),
                 "ts": time.time()}])
         self._touch()
 

@@ -117,7 +117,7 @@ def _ns_agent(pipe, settled):
     ns._maybe_store_preference = lambda t: None
     # 【G2】TaskContext:假 Agent 也走真实状态对象
     from foxclaw.core.task_context import TaskContext
-    ns._task_context_start = lambda sid, task, cons, resume_tid="": TaskContext.create(
+    ns._task_context_start = lambda sid, task, cons, resume_tid="", **_k: TaskContext.create(
         sid, task, cons)
     ns._save_task_state = lambda sid, tc: None
     ns._on_task_settled = lambda sid, status: settled.append((sid, status))

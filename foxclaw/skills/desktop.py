@@ -42,6 +42,8 @@ _DESKTOP_ACTION_META = {
     "ui:expand": ("write", False, False),
     "ui:collapse": ("write", False, False),
     "ui:click": ("write", False, False),
+    # 【G4】批量 UIA 操作:整批参数作为一次动作授权/确认(批内不产生豁免)。
+    "ui:batch": ("write", False, False),
 }
 
 # 域级 intent(domain=desktop, action=category)供 desktop.shell / desktop.file 等域级 deny；
@@ -57,6 +59,48 @@ def desktop_action_spec(action: str) -> SimpleNamespace:
     return SimpleNamespace(id=f"desktop:{action}", kind="desktop", side_effect=side_effect,
                            destructive=destructive, external=external, read_only=None,
                            trust_level=None, params={}, arg_passthrough=True)
+
+
+def _channel_guard(plan, probes, action: str) -> dict | None:
+    """【G4·三通道】执行前确定性校验:声明了非 Visual 首选时,Visual 动作必须有降级证据。
+
+    这是 Runtime 决策点,不是授权:deny/confirm 仍由 PolicyGate 先行、独立裁决;
+    无声明(默认)时本守卫不干预,行为与改前一致。见 core/channel_policy。
+    """
+    from ..core import channel_policy as _chan
+    why = _chan.visual_gate(plan, probes, action)
+    if not why:
+        return None
+    return {"ok": False, "denied": True, "reason": why, "level": "blocked",
+            "channel_guard": True, "execution_backend": "blocked"}
+
+
+def _active_task_ctx():
+    """读当前任务的 TaskContext(contextvar;HTTP 直连路径无任务上下文 → None,守卫不干预)。
+
+    懒导入防循环:agents.mixins._context → core.*;skills.desktop 在调用期才取。
+    """
+    try:
+        from ..agents.mixins._context import _active_tc
+        return _active_tc.get()
+    except Exception:
+        return None
+
+
+def _tc_plan() -> dict:
+    tc = _active_task_ctx()
+    try:
+        return tc.channel_plan if tc is not None else {}
+    except Exception:
+        return {}
+
+
+def _tc_probes() -> list:
+    tc = _active_task_ctx()
+    try:
+        return (tc.to_dict().get("channel_probes") or []) if tc is not None else []
+    except Exception:
+        return []
 
 
 async def desktop_act(policy_gate, act, action, args, rules=None, confirmed=False,
@@ -95,6 +139,12 @@ async def desktop_act(policy_gate, act, action, args, rules=None, confirmed=Fals
         if nonce_reject:
             out["nonce_reject"] = nonce_reject
         return out
+    # 【G4·三通道】授权之后、执行之前的 Runtime 侧确定性校验:声明了非 Visual
+    # 首选时,Visual 动作必须有探测降级证据(声明制——无声明不干预)。
+    _chan_guard = _channel_guard(_tc_plan(), _tc_probes(), action)
+    if _chan_guard is not None:
+        _chan_guard["decision_id"] = verdict.decision_id
+        return _chan_guard
     route = (executor.route(spec) if executor is not None
              and spec.side_effect != "read" else None)
     if route is not None and route.backend == "blocked":

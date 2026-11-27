@@ -223,15 +223,37 @@ def _invoke_desktop_act(agent, args: dict, _raise) -> str:
                 f"执行落点:blocked。已生成待确认项交给用户,我不会自行执行;"
                 f"用户确认前不要说它已经完成。)")
     if res.get("denied") or not res.get("ok"):
+        # 【G4·三通道】语义通道探测失败是**能力证据**(ui:locate 找不到元素/ui:click
+        # 定位失败),落进 TaskContext 供 Visual 降级裁决;授权拒绝不是探测,不落账。
+        if not res.get("denied") and action in ("ui:locate", "ui:click"):
+            _record_probe_evidence(action, res)
         return (f"(工具 desktop_act 被权限策略拒绝或失败:"
                 f"{res.get('reason') or res.get('error') or '未知原因'},"
                 f"执行落点:{res.get('execution_backend') or 'blocked'},未执行)")
+    # 【G4·三通道】探测成功同样是证据(ui:locate/ui:tree 类)
+    if action in ("ui:locate", "ui:tree"):
+        _record_probe_evidence(action, res)
     if action in _DESKTOP_READ_ACTIONS:
         source = action.split(":", 1)[0]
         _raise(_ig.taint_level(source))
         return _ig.wrap_untrusted(json.dumps(res, ensure_ascii=False, default=str),
                                   source=source)
     return json.dumps(res, ensure_ascii=False, default=str)
+
+
+def _record_probe_evidence(action: str, res: dict) -> None:
+    """把语义通道(UIA)探测结果落进当前任务的 TaskContext(fail-safe)。
+
+    只认**能力探测结果**(元素找到/找不到),授权拒绝不是探测、绝不落账——
+    "没授权"不能当降级理由(基准 §L2:通道切换不产生授权豁免)。
+    """
+    from ...core import channel_policy as _chan
+    tc = _active_tc.get()
+    if tc is None:
+        return
+    ok = bool(res.get("ok"))
+    detail = str(res.get("error") or res.get("name") or res.get("root") or "")
+    _chan.record_probe(tc, "semantic", ok, detail)
 
 
 def _register_desktop_pending(action: str, args: dict, res: dict) -> None:
