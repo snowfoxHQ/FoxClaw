@@ -6,7 +6,7 @@
 
 import asyncio
 import uuid
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -79,6 +79,8 @@ class SkillInstallPayload(BaseModel):
     timeout: float = 10.0
     mcp_server: str = ""
     mcp_tool: str = ""
+    execution_backend: Literal["local", "serve", "auto"] | None = None
+    requires_audit: bool = False
     acknowledged: bool = False
 
 
@@ -91,6 +93,7 @@ class SkillTestPayload(BaseModel):
     confirmed: bool = False
     mode: str = "strict"
     confirm_nonce: str = ""
+    idempotency_key: str = ""
 
 
 _SKILL_KINDS = {"web_api", "mcp"}
@@ -128,6 +131,7 @@ async def ahs_install_skill(p: SkillInstallPayload):
         endpoint=p.endpoint, http_method=p.http_method, http_headers=dict(p.http_headers),
         param_location=p.param_location, allow_local=p.allow_local, timeout=p.timeout,
         mcp_server=p.mcp_server, mcp_tool=p.mcp_tool, source="user",
+        execution_backend=p.execution_backend, requires_audit=p.requires_audit,
     )
     verdict = review_install(spec)
     if verdict["verdict"] == "deny":
@@ -174,7 +178,8 @@ async def ahs_test_skill(skill_id: str, p: SkillTestPayload):
         raise HTTPException(404, "技能不存在")
     res = await asyncio.to_thread(_api.os_instance().skill_adapter.invoke,
                                   sp, p.args, p.confirmed, p.mode,
-                                  confirm_nonce=p.confirm_nonce)
+                                  confirm_nonce=p.confirm_nonce,
+                                  idempotency_key=p.idempotency_key)
     return res.to_dict()
 
 
@@ -389,6 +394,18 @@ async def ahs_run(payload: AHSRunPayload):
         return {"success": False, "summary": f"执行链异常: {e}"}
     finally:
         reset_loop_session(token)
+
+
+@app.get("/api/serve/contracts/{contract_id}")
+async def serve_query_contract(contract_id: str):
+    """查询 Serve 契约状态；steps.args 保留服务端的 redacted_fields 与 *** 脱敏值。"""
+    executor = _api.os_instance().execution_executor
+    try:
+        result = await asyncio.to_thread(executor.query_contract, contract_id)
+    except Exception as exc:
+        raise HTTPException(503, f"Serve 契约查询失败({type(exc).__name__})") from None
+    return {"status": result.status, "category": result.category.value,
+            "contract": result.data, "execution_backend": "serve"}
 
 
 @app.get("/api/ahs/breaker")

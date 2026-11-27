@@ -42,51 +42,68 @@ def _get_bridge() -> _Bridge:
         return _bridge
 
 
-async def _ssrf_request_hook(request):
+async def _ssrf_request_hook(request, allowed_hosts=()):
     """httpx 请求钩子:对每个即将发出的请求(初始 + 重定向 follow-up)校验 host。
     堵 redirect-SSRF + DNS 重绑定 + 配置漂移(恶意 server 把你导去内网/云元数据)。"""
     from .review import _is_internal_host
     host = (request.url.host or "").lower()
+    if host in allowed_hosts and request.url.scheme in ("http", "https"):
+        return
     if await asyncio.to_thread(_is_internal_host, host):
         raise RuntimeError(f"MCP 连接被拒:目标解析到内网/本地/元数据地址({host})")
 
 
-def _safe_httpx_factory(headers=None, timeout=None, auth=None):
+def _safe_httpx_factory(headers=None, timeout=None, auth=None, allowed_hosts=()):
     import httpx
     return httpx.AsyncClient(
         headers=headers,
         timeout=timeout if timeout is not None else httpx.Timeout(30.0),
         auth=auth,
         follow_redirects=True,
-        event_hooks={"request": [_ssrf_request_hook]},
+        event_hooks={"request": [lambda request: _ssrf_request_hook(
+            request, frozenset(h.lower() for h in allowed_hosts))]},
     )
 
 
 @asynccontextmanager
-async def _connect(url, headers, transport):
+async def _connect(url, headers, transport, allowed_hosts=()):
     if transport == "sse":
-        async with sse_client(url, headers=headers, httpx_client_factory=_safe_httpx_factory) as (read, write):
+        async with sse_client(url, headers=headers, httpx_client_factory=lambda **kw: _safe_httpx_factory(
+                **kw, allowed_hosts=allowed_hosts)) as (read, write):
             async with ClientSession(read, write) as s:
                 await s.initialize()
                 yield s
     else:
-        async with streamablehttp_client(url, headers=headers, httpx_client_factory=_safe_httpx_factory) as (read, write, _):
+        async with streamablehttp_client(url, headers=headers, httpx_client_factory=lambda **kw: _safe_httpx_factory(
+                **kw, allowed_hosts=allowed_hosts)) as (read, write, _):
             async with ClientSession(read, write) as s:
                 await s.initialize()
                 yield s
 
 
-async def _amcp_list_tools(url, headers, transport):
-    async with _connect(url, headers, transport) as s:
+async def _amcp_list_tools(url, headers, transport, allowed_hosts=()):
+    async with _connect(url, headers, transport, allowed_hosts) as s:
         return list((await s.list_tools()).tools)
 
 
-async def _amcp_call_tool(url, headers, transport, name, args):
-    async with _connect(url, headers, transport) as s:
+async def _amcp_call_tool(url, headers, transport, name, args, allowed_hosts=()):
+    async with _connect(url, headers, transport, allowed_hosts) as s:
         r = await s.call_tool(name, args or {})
         text = "".join(getattr(c, "text", "") for c in (r.content or []))
         return {"isError": bool(getattr(r, "isError", False)), "content": text,
                 "structured": getattr(r, "structuredContent", None)}
+
+
+def call_streamable_http_tool(url: str, headers: dict, name: str, args: dict,
+                              *, timeout: float = 10.0) -> dict:
+    """调用显式配置的治理端点；仅放行该端点主机，重定向到其他主机仍受 SSRF 拦截。"""
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
+        raise ValueError("MCP URL 缺少主机名")
+    return _get_bridge().run(
+        _amcp_call_tool(url, headers, "streamable_http", name, args, (host,)),
+        timeout=timeout)
 
 
 def _norm(cfg: dict) -> dict:

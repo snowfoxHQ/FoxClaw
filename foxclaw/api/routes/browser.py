@@ -16,6 +16,9 @@ class BrowserActPayload(BaseModel):
     value: object | None = None
     meta: dict = {}
     confirmed: bool = False
+    # 写动作确认:首次调用返回 confirm_nonce,确认后带 confirmed=true + 该 nonce 重发
+    # (同动作、同参数、有效期内、只能用一次)。只带 confirmed=true 不带 nonce 一律按未确认处理。
+    confirm_nonce: str = ""
 
 
 @app.get("/api/browser/status")
@@ -44,7 +47,10 @@ async def browser_perceive():
 async def browser_act(p: BrowserActPayload):
     """执行一个 Web 动作,返回校验后最新语义结构。
     SC-08:先经操作意图授权边界(os.browser_act → check_action),deny/confirm fail-closed
-    拒绝,不再直接执行;write 副作用动作需前端带 confirmed=true 才放行。"""
+    拒绝,不再直接执行;write 副作用动作需前端带 confirmed=true **和**首次调用返回的
+    confirm_nonce 才放行(nonce 一次性、绑参数、5 分钟过期)。"""
     payload = p.model_dump()
     confirmed = payload.pop("confirmed", False)
-    return await _api.os_instance().browser_act(p.type, payload, confirmed=confirmed)
+    confirm_nonce = payload.pop("confirm_nonce", "")
+    return await _api.os_instance().browser_act(p.type, payload, confirmed=confirmed,
+                                                confirm_nonce=confirm_nonce)

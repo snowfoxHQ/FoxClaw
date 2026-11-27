@@ -220,10 +220,12 @@ def _invoke_desktop_act(agent, args: dict, _raise) -> str:
         _register_desktop_pending(action, inner, res)
         # 确认码只交给用户(随任务返回体),不放进模型上下文
         return (f"(桌面操作「{action}」需要用户确认后才会执行:{res.get('reason') or '写操作'}。"
-                f"已生成待确认项交给用户,我不会自行执行;用户确认前不要说它已经完成。)")
+                f"执行落点:blocked。已生成待确认项交给用户,我不会自行执行;"
+                f"用户确认前不要说它已经完成。)")
     if res.get("denied") or not res.get("ok"):
         return (f"(工具 desktop_act 被权限策略拒绝或失败:"
-                f"{res.get('reason') or res.get('error') or '未知原因'},未执行)")
+                f"{res.get('reason') or res.get('error') or '未知原因'},"
+                f"执行落点:{res.get('execution_backend') or 'blocked'},未执行)")
     if action in _DESKTOP_READ_ACTIONS:
         source = action.split(":", 1)[0]
         _raise(_ig.taint_level(source))

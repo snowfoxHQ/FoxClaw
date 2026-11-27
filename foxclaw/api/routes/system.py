@@ -75,6 +75,9 @@ async def get_system_info():
         "shadow_rounds": settings.get_int("FOXCLAW_SHADOW_ROUNDS"),
         "model": _api.os_instance().router.info(),
         "agents": agents,
+        "execution_backend": _api.os_instance().execution_executor.execution_backend,
+        "serve_health": _api.os_instance().execution_executor.health,
+        "recent_degradation": _api.os_instance().execution_executor.recent_degradation,
     }
 
 

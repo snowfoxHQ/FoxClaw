@@ -21,7 +21,7 @@ class SkillBoxMixin:
         return reg.catalog() if reg else []
 
     def use_skill(self, task: str, args: dict | None = None, confirmed: bool = False,
-                  confirm_nonce: str = "") -> dict:
+                  confirm_nonce: str = "", idempotency_key: str = "") -> dict:
         """按任务匹配 skill 并调用,结果回填 ThoughtChain,过守门人。
 
         `confirm_nonce`:critical(send/pay/destructive)操作确认时回传的一次性确认码
@@ -53,7 +53,8 @@ class SkillBoxMixin:
             result = adp.invoke(skill, args or {}, confirmed=confirmed,
                                 confirm_nonce=confirm_nonce,
                                 taint_level=_taint,
-                                taint_threshold=_ig.TAINT_PERSONAL)
+                                taint_threshold=_ig.TAINT_PERSONAL,
+                                idempotency_key=idempotency_key)
         finally:
             reset_loop_session(token)
         self._think(

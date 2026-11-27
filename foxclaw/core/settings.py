@@ -136,6 +136,16 @@ SPECS: tuple[Opt, ...] = (
     Opt("FOXCLAW_CHANNEL_SIGNING_KEY_ID", "str", "", "渠道", "密钥轮换标识"),
     Opt("FOXCLAW_BROWSER_ALLOW_PRIVATE", "str", "", "浏览器",
         "1/true/yes 才允许访问内网地址"),
+    Opt("FOXCLAW_EXECUTION_BACKEND", "choice", "local", "执行治理",
+        "local / serve / auto", ("local", "serve", "auto")),
+    Opt("FOXCLAW_SERVE_URL", "str", "", "执行治理",
+        "Snowserve governance MCP 的 streamable-http URL"),
+    Opt("FOXCLAW_SERVE_TOKEN", "str", "", "执行治理",
+        "Serve bearer token；优先使用受保护的 TOKEN_FILE", secret=True),
+    Opt("FOXCLAW_SERVE_TOKEN_FILE", "str", "", "执行治理",
+        "包含 Serve bearer token 的受保护文件路径"),
+    Opt("FOXCLAW_SERVE_HEALTH_INTERVAL", "float", 30.0, "执行治理",
+        "Serve 健康检查间隔（秒）", lo=0.1),
 )
 
 SPEC_BY_NAME: dict[str, Opt] = {o.name: o for o in SPECS}

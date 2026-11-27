@@ -285,9 +285,13 @@ class Foxclaw:
         # broker 自身线程安全)。
         from .core.confirm_nonce import ConfirmationBroker
         self.confirm_broker = ConfirmationBroker()
+        from .skills.executor import GovernanceExecutor
+        self.execution_executor = GovernanceExecutor()
+        self.capabilities.register("execution_executor", self.execution_executor)
         self.skill_adapter = SkillAdapter(
             self.skill_registry, mcp_clients={}, policy_gate=self.policy_gate,
-            sentinel=self.sentinel, confirms=self.confirm_broker)
+            sentinel=self.sentinel, confirms=self.confirm_broker,
+            executor=self.execution_executor)
         # MCP 连接器(第2期):把连上的 MCP 客户端接到 SkillAdapter.mcp_clients
         from .skills.mcp_client import McpManager
         from .skills.mcp_store import McpStore
@@ -390,10 +394,16 @@ class Foxclaw:
         # 【SC-08】操作意图授权边界:browser Web 动作不再直接执行,先经 check_action 归一化 +
         # 授权,deny/confirm fail-closed 拒绝。FOXCLAW_BROWSER_ACT_DENY/ASK 显式锁定/提确认,
         # 逗号分隔的 `browser:action` 或 `browser.*` fnmatch 模式(与 TOOL_DENY 同款)。
+        # 【SC-08】操作意图授权边界:browser Web 动作不再直接执行,先经 check_action 归一化 +
+        # 授权,deny/confirm fail-closed 拒绝。FOXCLAW_BROWSER_ACT_DENY/ASK 显式锁定/提确认,
+        # 逗号分隔的 `browser:action` 或 `browser.*` fnmatch 模式(与 TOOL_DENY 同款)。
+        # 写动作确认与 desktop 同款:一次性 nonce 绑定动作+参数,不信任自报 confirmed=true。
         _act_deny = [s.strip() for s in os.environ.get("FOXCLAW_BROWSER_ACT_DENY", "").split(",") if s.strip()]
         _act_ask = [s.strip() for s in os.environ.get("FOXCLAW_BROWSER_ACT_ASK", "").split(",") if s.strip()]
         self.browser_act = partial(_browser_act, self.policy_gate, self.browser_service.act,
-                                   rules=PermissionRules(deny=_act_deny, ask=_act_ask))
+                                   rules=PermissionRules(deny=_act_deny, ask=_act_ask),
+                                   confirms=self.confirm_broker,
+                                   executor=self.execution_executor)
         self.capabilities.register("browser_act", self.browser_act)
 
         # 桌面操控子系统(第一批:感知层)。构造极轻,首次感知才 import mss/Pillow;
@@ -431,7 +441,8 @@ class Foxclaw:
         # 不再信任调用方自报的 confirmed=true。与技能路径共用同一个 ConfirmationBroker。
         self.desktop_act = partial(_desktop_act, self.policy_gate, self.desktop_service.act,
                                    rules=PermissionRules(deny=_dact_deny, ask=_dact_ask),
-                                   confirms=self.confirm_broker)
+                                   confirms=self.confirm_broker,
+                                   executor=self.execution_executor)
         self.capabilities.register("desktop_act", self.desktop_act)
 
         # HKC 知识核心(vendor/hkc,同进程 DirectClient)。**惰性装配**:首次访问 self.hkc
@@ -586,6 +597,9 @@ class Foxclaw:
     async def aclose(self):
         """系统级异步 teardown:释放持有原生资源的子系统(浏览器专用线程/会话)。
         由 API lifespan 关停时调用;幂等。"""
+        executor = getattr(self, "execution_executor", None)
+        if executor is not None:
+            executor.close()
         svc = getattr(self, "browser_service", None)
         if svc is not None:
             try:

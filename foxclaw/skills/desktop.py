@@ -58,7 +58,8 @@ def desktop_action_spec(action: str) -> SimpleNamespace:
 
 
 async def desktop_act(policy_gate, act, action, args, rules=None, confirmed=False,
-                      confirms=None, confirm_nonce: str = "", session: str = "") -> dict:
+                      confirms=None, confirm_nonce: str = "", session: str = "",
+                      executor=None) -> dict:
     """桌面动作授权边界。
 
     confirms(ConfirmationBroker)注入时,「已确认」不再信任调用方自报的布尔值:
@@ -81,10 +82,29 @@ async def desktop_act(policy_gate, act, action, args, rules=None, confirmed=Fals
             confirmed = False
             nonce_reject = why
     verdict = policy_gate.check_action(spec, args, rules=rules, confirmed=confirmed)
-    if not verdict.allowed:
+    if verdict.level == "deny":
         out = {"ok": False, "denied": True, "reason": verdict.reason,
-               "level": verdict.level, "decision_id": verdict.decision_id}
+               "level": verdict.level, "decision_id": verdict.decision_id,
+               "execution_backend": "blocked"}
         if confirms is not None and verdict.level == "confirm":
+            ch = confirms.issue(session, spec.id, args)
+            out["confirm_nonce"] = ch["nonce"]
+            out["confirm_expires_at"] = ch["expires_at"]
+        if nonce_reject:
+            out["nonce_reject"] = nonce_reject
+        return out
+    route = (executor.route(spec) if executor is not None
+             and spec.side_effect != "read" else None)
+    if route is not None and route.backend != "local":
+        return {"ok": False, "denied": True,
+                "reason": "尚不支持受治理桌面操作",
+                "level": "blocked", "decision_id": verdict.decision_id,
+                "execution_backend": "blocked"}
+    if verdict.level == "confirm":
+        out = {"ok": False, "denied": True, "reason": verdict.reason,
+               "level": verdict.level, "decision_id": verdict.decision_id,
+               "execution_backend": "blocked"}
+        if confirms is not None:
             ch = confirms.issue(session, spec.id, args)
             out["confirm_nonce"] = ch["nonce"]
             out["confirm_expires_at"] = ch["expires_at"]
@@ -94,6 +114,9 @@ async def desktop_act(policy_gate, act, action, args, rules=None, confirmed=Fals
     result = await act(action, args)
     result = dict(result) if isinstance(result, dict) else {"ok": True, "data": result}
     result["decision_id"] = verdict.decision_id
+    result["execution_backend"] = "local"
+    if route is not None and route.degraded:
+        result["execution_warning"] = route.message
     return result
 
 

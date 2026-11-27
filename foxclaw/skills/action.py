@@ -26,10 +26,51 @@ def browser_action_spec(type_: str) -> SimpleNamespace:
                            trust_level=None, params={})
 
 
-async def browser_act(policy_gate, act, type_, args, rules=None, confirmed=False) -> dict:
-    verdict = policy_gate.check_action(browser_action_spec(type_), args or {},
-                                       rules=rules, confirmed=confirmed)
-    if not verdict.allowed:
+async def browser_act(policy_gate, act, type_, args, rules=None, confirmed=False,
+                      confirms=None, confirm_nonce: str = "", session: str = "",
+                      executor=None) -> dict:
+    """浏览器 Web 动作授权边界。
+
+    confirms(ConfirmationBroker)注入时,「已确认」不再信任调用方自报的布尔值
+    (与 desktop_act 同一模式):写动作首次调用 → check_action 返回 confirm →
+    签发一次性 nonce(绑定 动作 + 参数指纹 + 有效期)随拒绝结果返回;再次调用须带
+    confirmed=true **且** 该 nonce,consume 校验通过才视为已确认。confirms=None
+    保持旧语义,供单测/进程内调用。
+    """
+    args = args or {}
+    spec = browser_action_spec(type_)
+    nonce_reject = ""
+    if confirms is not None and confirmed:
+        ok, why = confirms.consume(session, confirm_nonce, action=spec.id, args=args)
+        if not ok:
+            confirmed = False
+            nonce_reject = why
+    verdict = policy_gate.check_action(spec, args, rules=rules, confirmed=confirmed)
+    if verdict.level == "deny":
         return {"ok": False, "denied": True, "reason": verdict.reason,
-                "level": verdict.level, "decision_id": verdict.decision_id}
-    return await act(args or {"type": type_})
+                "level": verdict.level, "decision_id": verdict.decision_id,
+                "execution_backend": "blocked"}
+    route = (executor.route(spec) if executor is not None
+             and spec.side_effect != "read" else None)
+    if route is not None and route.backend != "local":
+        return {"ok": False, "denied": True, "reason": "尚不支持受治理桌面操作",
+                "level": "blocked", "decision_id": verdict.decision_id,
+                "execution_backend": "blocked"}
+    if verdict.level == "confirm":
+        out = {"ok": False, "denied": True, "reason": verdict.reason,
+               "level": verdict.level, "decision_id": verdict.decision_id,
+               "execution_backend": "blocked"}
+        if confirms is not None:
+            ch = confirms.issue(session, spec.id, args)
+            out["confirm_nonce"] = ch["nonce"]
+            out["confirm_expires_at"] = ch["expires_at"]
+        if nonce_reject:
+            out["nonce_reject"] = nonce_reject
+        return out
+    result = await act(args or {"type": type_})
+    if isinstance(result, dict):
+        result = dict(result)
+        result["execution_backend"] = "local"
+        if route is not None and route.degraded:
+            result["execution_warning"] = route.message
+    return result

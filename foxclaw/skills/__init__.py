@@ -62,6 +62,8 @@ class SkillSpec:
     allow_local: bool = False
     enabled: bool = True
     source: str = "builtin"
+    execution_backend: Literal["local", "serve", "auto"] | None = None
+    requires_audit: bool = False
 
     def trust_level(self) -> str:
         """信任分级(治理信号)。外部 kind 优先(不管谁注册):mcp 调外部 server=低、
@@ -91,6 +93,9 @@ class SkillResult:
     loop_warning: Optional[dict] = None
     confirm_nonce: str = ""
     confirm_expires_at: float = 0.0
+    execution_backend: str = ""
+    contract_id: str = ""
+    idempotency_key: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -163,12 +168,16 @@ class SkillAdapter:
 
     def __init__(self, registry: SkillRegistry, mcp_clients: dict | None = None,
                  rules=None, breaker=None, hooks=None, policy_gate=None, sentinel=None,
-                 confirms=None):
+                 confirms=None, executor=None):
         self.registry = registry
         self.confirms = confirms
         self.mcp_clients: dict | McpManager = mcp_clients or {}
         self.policy_gate = policy_gate
         self.sentinel = sentinel
+        if executor is None:
+            from .executor import GovernanceExecutor
+            executor = GovernanceExecutor(start_monitor=False)
+        self.executor = executor
         self.skill_policy: SkillPolicy | None = None
         from .permission import PermissionRules
         self.rules = rules or PermissionRules()
@@ -198,7 +207,8 @@ class SkillAdapter:
     def invoke(self, skill: SkillSpec, args: dict,
                confirmed: bool = False, mode: str = "strict",
                confirm_nonce: str = "", taint_level: int = 0,
-               taint_threshold: int = 0, pre_approved: bool = False) -> SkillResult:
+               taint_threshold: int = 0, pre_approved: bool = False,
+               idempotency_key: str = "") -> SkillResult:
         """调用 skill:pre钩子 → 权限管线 → 断路器 → 执行 → 记账 → post/error钩子。
 
         `confirm_nonce`:关键操作(send/pay/destructive)的二次确认码。注入了
@@ -220,7 +230,8 @@ class SkillAdapter:
                                       confirm_nonce=confirm_nonce,
                                       taint_level=taint_level,
                                       taint_threshold=taint_threshold,
-                                      pre_approved=pre_approved)
+                                      pre_approved=pre_approved,
+                                      idempotency_key=idempotency_key)
 
     def _audit_terminal(self, skill: SkillSpec, verdict, outcome: str,
                         reason: str, detail: dict | None = None) -> None:
@@ -242,20 +253,25 @@ class SkillAdapter:
     def _invoke_inner(self, skill: SkillSpec, args: dict,
                       confirmed: bool, mode: str, evaluate,
                       confirm_nonce: str = "", taint_level: int = 0,
-                      taint_threshold: int = 0, pre_approved: bool = False) -> SkillResult:
+                      taint_threshold: int = 0, pre_approved: bool = False,
+                      idempotency_key: str = "") -> SkillResult:
 
+        _is_write = getattr(skill, "side_effect", "write") != "read"
         pol = self.skill_policy
         if pol is not None and pol.is_blocked(skill.id):
             self._audit_terminal(skill, None, "deny", "该技能已被策略封杀(deny)",
                                  {"gate": "skill_policy"})
-            return SkillResult(skill.id, False, status="blocked", message="该技能已被策略封杀(deny)")
+            return SkillResult(skill.id, False, status="blocked",
+                               message="该技能已被策略封杀(deny)",
+                               execution_backend="blocked" if _is_write else "")
 
         pre = self.hooks.fire("pre_skill", skill.id, {"args": args, "skill": skill.to_dict()})
         if pre.blocked:
             self._audit_terminal(skill, None, "deny", f"pre钩子阻断: {pre.reason}",
                                  {"gate": "pre_skill_hook"})
             return SkillResult(skill.id, False, status="blocked",
-                               message=f"pre钩子阻断: {pre.reason}")
+                               message=f"pre钩子阻断: {pre.reason}",
+                               execution_backend="blocked" if _is_write else "")
         if pre.modified_args is not None:
             args = pre.modified_args
 
@@ -285,8 +301,13 @@ class SkillAdapter:
                                 pre_approved=pre_approved)
         if decision.decision == "deny":
             return SkillResult(skill.id, False, status="blocked",
-                message=f"权限拒绝(阶段{decision.stage}): {decision.reason}")
-        if decision.decision == "ask":
+                message=f"权限拒绝(阶段{decision.stage}): {decision.reason}",
+                execution_backend="blocked" if _is_write else "")
+        _route = self.executor.route(skill) if _is_write else None
+        if _route is not None and _route.backend == "blocked":
+            return SkillResult(skill.id, False, status="blocked",
+                               message=_route.message, execution_backend="blocked")
+        if decision.decision == "ask" and (_route is None or _route.backend != "serve"):
             _msg = f"需确认(阶段{decision.stage}): {decision.reason}"
             _extra: dict = {}
             if self.confirms is not None and _critical:
@@ -298,7 +319,9 @@ class SkillAdapter:
                 if _nonce_reject:
                     _msg += f"[上次确认码未通过:{_nonce_reject}]"
             return SkillResult(skill.id, False, status="needs_confirmation",
-                               message=_msg, **_extra)
+                               message=_msg,
+                               execution_backend="blocked" if _is_write else "",
+                               **_extra)
         _downgrade = decision.trust_downgrade
 
         if not self.breaker.allow(skill.id):
@@ -307,20 +330,58 @@ class SkillAdapter:
                                  f"断路器开启(连续失败 {st['failures']} 次)",
                                  {"gate": "circuit_breaker", "failures": st["failures"]})
             return SkillResult(skill.id, False, status="circuit_open",
-                message=f"「{skill.name}」连续失败 {st['failures']} 次,断路器已开启,暂停调用")
+                message=f"「{skill.name}」连续失败 {st['failures']} 次,断路器已开启,暂停调用",
+                execution_backend="blocked" if _is_write else "")
 
         try:
-            res = self._dispatch(skill, args, _downgrade)
+            if _route is not None and _route.backend == "serve":
+                submitted = self.executor.submit(skill, args, idempotency_key=idempotency_key)
+                if submitted.category.value == "accepted":
+                    requires_approval = bool(submitted.data.get("requires_approval"))
+                    contract = submitted.contract_id
+                    if requires_approval:
+                        res = SkillResult(
+                            skill.id, False, output=submitted.data,
+                            status="needs_approval",
+                            message=f"已提交审批（契约号：{contract}）",
+                            execution_backend="serve", contract_id=contract,
+                            idempotency_key=submitted.idempotency_key)
+                    else:
+                        res = SkillResult(
+                            skill.id, False, output=submitted.data,
+                            status="submitted",
+                            message=f"已提交 Serve 契约（契约号：{contract}），等待服务端确认",
+                            execution_backend="serve", contract_id=contract,
+                            idempotency_key=submitted.idempotency_key)
+                else:
+                    res = SkillResult(
+                        skill.id, False, output=submitted.data,
+                        status="blocked",
+                        message=submitted.message or f"Serve 契约状态：{submitted.status}",
+                        execution_backend="blocked", contract_id=submitted.contract_id,
+                        idempotency_key=submitted.idempotency_key)
+            else:
+                res = self._dispatch(skill, args, _downgrade)
+                if _is_write:
+                    res.execution_backend = "local"
+                    if _route is not None and _route.degraded:
+                        res.output = {**res.output, "execution_warning": _route.message}
+                        res.message = f"{res.message}；{_route.message}"
             if res.success:
                 self.breaker.record_success(skill.id)
+                self.hooks.fire("post_skill", skill.id, {"result": res.to_dict()})
+            elif res.status in ("needs_approval", "submitted"):
                 self.hooks.fire("post_skill", skill.id, {"result": res.to_dict()})
             else:
                 self.breaker.record_failure(skill.id)
                 self.hooks.fire("on_error", skill.id, {"result": res.to_dict()})
             self._audit_terminal(
-                skill, verdict, "success" if res.success else "failed",
+                skill, verdict, ("success" if res.success else
+                                 "pending" if res.status in ("needs_approval", "submitted")
+                                 else "failed"),
                 res.message, {"kind": skill.kind,
-                              "trust_downgrade": _downgrade})
+                              "trust_downgrade": _downgrade,
+                              "execution_backend": res.execution_backend})
             loop = self._detector_for(_loop_session.get()).record(skill.id, args, res.output)
             if loop.stuck:
                 res.loop_warning = loop.to_dict()
@@ -332,7 +393,8 @@ class SkillAdapter:
             self._audit_terminal(skill, verdict, "failed", f"调用异常: {e}",
                                  {"kind": skill.kind, "exception": True})
             return SkillResult(skill.id, False, status="blocked",
-                               message=f"调用失败: {e}")
+                               message=f"调用失败: {e}",
+                               execution_backend="blocked" if _is_write else "")
 
     def _dispatch(self, skill: SkillSpec, args: dict, downgrade: bool) -> SkillResult:
         """按 kind 实际分派调用。"""

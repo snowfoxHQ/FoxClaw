@@ -149,7 +149,7 @@ def _build_args(skill, task_text: str, upstream: dict) -> dict:
     return {"task": task_text, "upstream_outputs": dict(upstream)}
 
 
-def _rollback(executed, registry, res: CompositionResult):
+def _rollback(executed, registry, res: CompositionResult, adapter=None):
     """逆序回滚已执行且有副作用的步骤。
 
     executed: [(skill_id, output)] 按执行顺序。
@@ -166,6 +166,19 @@ def _rollback(executed, registry, res: CompositionResult):
         comp = getattr(skill, "compensate", None)
         if comp is not None:
             try:
+                if adapter is not None:
+                    executor = getattr(adapter, "executor", None)
+                    route = executor.route(skill) if executor is not None else None
+                    if route is not None and route.backend != "local":
+                        raise RuntimeError(route.message or "补偿操作未获准本地执行")
+                    gate = getattr(adapter, "policy_gate", None)
+                    if gate is not None:
+                        verdict = gate.check_action(
+                            skill, {"output": output}, rules=adapter.rules,
+                            confirmed=False)
+                        if verdict.level != "allow":
+                            raise RuntimeError(
+                                f"补偿操作权限裁决为 {verdict.level}: {verdict.reason}")
                 comp(output)
                 res.rollback_log.append({"skill": sid, "status": "compensated",
                                          "detail": "已调用补偿动作撤销副作用"})
@@ -218,6 +231,7 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
     executed = []
 
     resume_at = None
+    resume_pending = resume_state or {}
     if resume_state:
         for tid, sid, output in resume_state.get("completed_steps", []):
             upstream[sid] = output
@@ -236,13 +250,42 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
         skill = registry.get(sid)
         call_args = _build_args(skill, t.name, upstream)
         _nonce = (resume_state or {}).get("confirm_nonce", "") or ""
-        out = _invoke(adapter, skill, call_args, confirmed, _nonce)
+        if (t.id == (resume_state or {}).get("resume_at")
+                and (resume_state or {}).get("kind") == "serve"
+                and (resume_state or {}).get("contract_id")):
+            try:
+                status = adapter.executor.query_contract(
+                    (resume_state or {})["contract_id"]).status
+            except Exception:
+                status = "unknown"
+            if status in {"pending", "executing", "approved", "unknown"}:
+                res.pending_confirmation = dict(resume_pending)
+                res.final_output = {"pending": True, "at": t.id,
+                                    "contract_id": resume_pending["contract_id"]}
+                return res
+            from . import SkillResult
+            if status not in {"succeeded", "verified"}:
+                out = SkillResult(
+                    skill.id, False, status="blocked",
+                    message=f"Serve 契约 {resume_pending['contract_id']} 终态为 {status}",
+                    execution_backend="blocked",
+                    contract_id=resume_pending["contract_id"])
+            else:
+                out = SkillResult(
+                    skill.id, True,
+                    output={"contract_id": resume_pending["contract_id"],
+                            "status": status},
+                    message=f"Serve 契约已完成（{resume_pending['contract_id']}）",
+                    execution_backend="serve",
+                    contract_id=resume_pending["contract_id"])
+        else:
+            out = _invoke(adapter, skill, call_args, confirmed, _nonce)
         res.stages.append(StageResult(stage=i, skill_id=sid, result=out.to_dict()))
         if out.success:
             upstream[sid] = out.output
             executed.append((sid, out.output))
             res.completed_steps.append((t.id, sid, out.output))
-        elif out.status == "needs_confirmation":
+        elif out.status in ("needs_confirmation", "needs_approval"):
             res.pending_confirmation = {
                 "task_id": t.id,
                 "skill_id": sid,
@@ -254,16 +297,26 @@ def compose(plan_obj: Plan, registry, adapter, confirmed: bool = False,
                 "confirm_nonce": getattr(out, "confirm_nonce", "") or "",
                 "confirm_expires_at": getattr(out, "confirm_expires_at", 0.0) or 0.0,
             }
+            if out.status == "needs_approval":
+                res.pending_confirmation.update({
+                    "kind": "serve", "contract_id": out.contract_id,
+                    "execution_backend": out.execution_backend,
+                    "idempotency_key": out.idempotency_key,
+                })
             res.final_output = {
                 "pending": True,
                 "at": t.id,
                 "completed": [s[0] for s in res.completed_steps],
             }
+            if out.status == "needs_approval":
+                res.final_output["contract_id"] = out.contract_id
             return res
         else:
             res.failed.append(t.id)
             res.final_output = {"error": out.message, "failed_at": t.id}
-            _rollback(executed, registry, res)
+            if out.idempotency_key:
+                res.final_output["idempotency_key"] = out.idempotency_key
+            _rollback(executed, registry, res, adapter=adapter)
             return res
     res.final_output = upstream
     return res
@@ -319,8 +372,11 @@ class AHSPipeline:
 
         success = not c.failed and bool(c.stages) and not c.pending_confirmation
         if c.pending_confirmation:
-            summary = (f"执行 {len(c.stages)} 步,待确认:"
-                       f"{c.pending_confirmation['skill_id']}")
+            if c.pending_confirmation.get("kind") == "serve":
+                summary = c.pending_confirmation.get("message", "已提交 Serve 审批")
+            else:
+                summary = (f"执行 {len(c.stages)} 步,待确认:"
+                           f"{c.pending_confirmation['skill_id']}")
         elif c.failed:
             summary = f"执行 {len(c.stages)} 步,部分失败:{','.join(c.failed)}"
         else:
