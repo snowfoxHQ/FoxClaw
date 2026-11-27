@@ -4,7 +4,7 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
-## 0.1.8 — 2026-11-22
+## 0.1.8 — 2026-11-27
 
 **Removed: built-in web search and map keys**
 
