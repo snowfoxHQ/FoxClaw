@@ -115,7 +115,7 @@ Safety and reliability:
 - Knowledge and memory embedded in the repository, with extraction, retrieval and spaced-repetition review.
 - Governance: policy checks, audit records, shadow learning and a circuit breaker; skill side effects are denied by default.
 - Config: typed reads and a configuration check command that turns misconfiguration into a clear message.
-- Security: DNS rebinding, browser SSRF and untrusted channel instructions closed off; one-time confirmation for sensitive actions.
+- Security: fixed several safety issues and strengthened confirmation for sensitive actions.
 - Pipeline: visible plans, reasoning emitted as its own event and step-level resume checkpoints.
 - Frontend: a Vue3 three-column renderer.
 
