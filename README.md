@@ -6,7 +6,7 @@ A **personal agent with memory** — it remembers your preferences and context, 
 
 Foxclaw is a local-first personal agent. It treats memory as a continuously running cognitive layer rather than a retrieval cache that resets with each session: reasoning, calibration and learning happen in that layer, decoupled from the LLM.
 
-- Three collaborating agents: **Supervisor** (coordination), **Finance** and **Office** (learning and itinerary). Each holds isolated memory and exchanges only what is needed through a shared layer.
+- Three agents: **Supervisor** (coordination), **Finance** and **Office** (learning and itinerary). They collaborate while each holds isolated memory and exchanges only what is needed through a shared layer.
 - **Skills**: external capabilities mounted on demand; anything with side effects requires confirmation.
 - **Channels**: WeChat, Feishu, Telegram and Discord, with replies returning to the channel where the request started.
 
