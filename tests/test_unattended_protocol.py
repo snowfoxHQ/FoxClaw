@@ -52,6 +52,10 @@ async def _test_channel_touch():
     from foxclaw.channels.dispatcher import ChannelDispatcher
     from foxclaw.channels import InboundMessage
 
+    tracker = PresenceTracker()
+    tracker.touch("zero-window", now=1000.0)
+    assert tracker.attended("zero-window", window=0.0, now=1000.000001) is False
+
     dispatched = {}
 
     class FakeSup:
@@ -67,9 +71,7 @@ async def _test_channel_touch():
     sid = dispatched["session_id"]
     assert sid and attended(sid) is True, "渠道消息到达应已 touch"
     assert dispatched["attended_ctx"] is True
-    # 超窗后无人值守
-    assert attended(sid, window=0.0) is False
-    print("  ✓ 消息到达即 touch,context.attended=True;超窗判定无人值守")
+    print("  ✓ 窗口过期按注入时间判定;消息到达即 touch,context.attended=True")
 
 
 def test_channel_touch():
