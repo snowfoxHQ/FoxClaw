@@ -4,6 +4,16 @@ Changes from the first public release 0.1.0 to the current version, newest first
 
 Chinese version: [CHANGELOG_CN.md](CHANGELOG_CN.md).
 
+## 0.1.9 — 2026-11-28
+
+**Reliable computer use: governed execution, task state, and finish verification** (per the frozen "FoxClaw Computer Use Architecture Baseline v1.0")
+
+- **Dual-mode execution governance**: `FOXCLAW_EXECUTION_BACKEND` = `local` / `serve` / `auto`. Skill, desktop and browser write paths submit a governance contract to the Serve MCP instead of a blanket "unsupported" block; `requires_audit` actions are always forced onto Serve, `auto` never silently degrades them to local, and an unhealthy Serve fails closed. Routing only changes where an action runs — never its authorization semantics (same intent canonicalization and PolicyGate admission on every path).
+- **Browser write confirmation closes the loop**: `/api/browser/act` now uses the same server-issued one-time nonce as desktop (`confirmed=true` alone is refused; the nonce binds action + argument fingerprint, expires, and is single-use). Replays and argument drift are rejected.
+- **TaskContext — explicit task state**: each task carries a structured state object (goal, user constraints, acceptance criteria, focus, completed/pending, discovered facts with sources, unresolved conflicts, artifacts), persisted as JSONL snapshots on the recovery channel and restorable after a restart. Constraints and acceptance criteria are generated at task start and cannot be relaxed afterwards — resuming from a snapshot keeps the original constraints even if the caller passes different ones.
+- **Finish Gate — deterministic final verification**: at task settlement a checker registry verifies file artifacts on disk (exists / non-empty / deleted) and produces PASS / FAIL / UNKNOWN. `UNKNOWN` is never treated as a pass. If a structural check fails, a task is refused `COMPLETED` and demoted with structured reasons returned to the caller. File write/delete steps are now verified on disk instead of being blanket-`unverified`, and step checkpointing uses structured failure verdicts instead of a text-prefix convention.
+- **Three-channel selection (Programmatic → Semantic → Visual)**: a task may declare a channel plan; the runtime decides deterministically — degrading to pixel-level (Visual) actions requires executed probe evidence (e.g. the UIA tree has no matching element), guessing is refused. Authorization is untouched by channel switches: every action still passes the same PolicyGate admission. UIA batch execution (`ui:batch`) runs up to 20 element operations in one pass, authorized and confirmed as a single action with per-operation results.
+
 ## 0.1.8 — 2026-11-27
 
 **Removed: built-in web search and map keys**

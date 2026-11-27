@@ -4,6 +4,16 @@
 
 英文版:[CHANGELOG.md](CHANGELOG.md)。
 
+## 0.1.9 — 2026-11-28
+
+**可靠的电脑操控:受治理执行、任务状态与完成核验**(依据已冻结的《FoxClaw Computer Use 架构基准 v1.0》)
+
+- **双模执行治理**:`FOXCLAW_EXECUTION_BACKEND` = `local` / `serve` / `auto`。技能、桌面、浏览器的写路径不再一律「尚不支持」,改为向 Serve 治理 MCP 提交执行契约;requires_audit 动作强制走 Serve,auto 模式绝不把需审计动作静默降级到本地,Serve 不健康时 fail-closed。路由只改变执行去处,不改变授权语义——所有路径共用同一套意图归一化与 PolicyGate 准入。
+- **浏览器写确认闭环**:`/api/browser/act` 对齐桌面模式,写确认改为服务端签发的一次性 nonce(只带 `confirmed=true` 一律拒绝;nonce 绑定动作+参数指纹、限时、一次性),重放与参数漂移均被拒。
+- **TaskContext —— 显式任务状态**:每个任务一份结构化状态对象(目标、用户约束、验收条件、当前焦点、已完成/待办、带来源的执行事实、未决冲突、产物引用),经 recovery 的 JSONL 通道落快照、重启可恢复。约束与验收条件任务开始时生成、之后不可放宽——断点续跑以已落盘快照为权威,调用方传新约束不生效。
+- **Finish Gate —— 终局确定性核验**:任务结算时按检查器注册表对产物文件做磁盘级检查(存在/非空/已删除),输出 PASS / FAIL / UNKNOWN 三态;UNKNOWN 绝不当 PASS。结构检查失败时拒绝 COMPLETED、降级并回注结构化原因。file 写/删不再一律 unverified(磁盘就是后置条件),步骤 checkpoint 记账改用结构化失败结论,不再依赖「文本以 ( 开头」约定。
+- **三通道选择(Programmatic → Semantic → Visual)**:任务可声明通道计划;Runtime 侧确定性决策——降级到像素级(Visual)动作必须先有执行过的探测证据(如 UIA 树无匹配元素),凭猜测直接 Visual 一律拒绝。通道切换不产生授权豁免:每次操作仍各自过同一 PolicyGate 准入。UIA 批量执行(`ui:batch`)单进程一次跑最多 20 条元素操作,整批作为一次动作完成授权与确认,逐条回报结果。
+
 ## 0.1.8 — 2026-11-27
 
 **移除:内置联网搜索与地图 Key**
