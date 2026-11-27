@@ -21,9 +21,11 @@ _BROWSER_ACTION_META = {
 
 def browser_action_spec(type_: str) -> SimpleNamespace:
     side_effect, external = _BROWSER_ACTION_META.get(type_, ("write", False))
+    # arg_passthrough:browser 动作参数即操作本体,且已按完整参数在本边界完成授权;
+    # Serve 契约必须携带同一参数(声明式白名单只用于技能参数)。
     return SimpleNamespace(id=f"browser:{type_}", kind="browser", side_effect=side_effect,
                            destructive=False, external=external, read_only=None,
-                           trust_level=None, params={})
+                           trust_level=None, params={}, arg_passthrough=True)
 
 
 async def browser_act(policy_gate, act, type_, args, rules=None, confirmed=False,
@@ -52,10 +54,13 @@ async def browser_act(policy_gate, act, type_, args, rules=None, confirmed=False
                 "execution_backend": "blocked"}
     route = (executor.route(spec) if executor is not None
              and spec.side_effect != "read" else None)
-    if route is not None and route.backend != "local":
-        return {"ok": False, "denied": True, "reason": "尚不支持受治理桌面操作",
+    if route is not None and route.backend == "blocked":
+        return {"ok": False, "denied": True, "reason": route.message,
                 "level": "blocked", "decision_id": verdict.decision_id,
                 "execution_backend": "blocked"}
+    if route is not None and route.backend == "serve":
+        # 与技能路径同一语义:确认由 Serve 契约审批承担,不走本地 nonce。
+        return executor.submit_action(spec, args, decision_id=verdict.decision_id)
     if verdict.level == "confirm":
         out = {"ok": False, "denied": True, "reason": verdict.reason,
                "level": verdict.level, "decision_id": verdict.decision_id,

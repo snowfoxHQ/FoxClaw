@@ -238,6 +238,10 @@ class GovernanceExecutor:
     @staticmethod
     def _operation_args(skill, args: dict) -> dict:
         """Allow only declared operation parameters; exclude task/memory/context payloads."""
+        if getattr(skill, "arg_passthrough", False):
+            # desktop/browser 等边界动作:参数即操作本体,且已按完整参数在本地边界完成授权;
+            # Serve 契约必须携带同一参数。声明式白名单只用于技能参数(剥离 context 载荷)。
+            return dict(args or {})
         params = getattr(skill, "params", None) or {}
         properties = params.get("properties") if isinstance(params, dict) else None
         allowed = set(properties if isinstance(properties, dict) else params)
@@ -317,6 +321,31 @@ class GovernanceExecutor:
         status = str(data.get("status") or "unknown")
         return ServeResult(status, self._category(status), data,
                            str(data.get("reason") or ""))
+
+    def submit_action(self, spec, args: dict, decision_id: str = "") -> dict:
+        """desktop/browser 边界共用的 Serve 提交归一化。
+
+        与 SkillAdapter 的 serve 分支同一语义:accepted+requires_approval → needs_approval
+        (确认由 Serve 契约审批承担,不走本地 nonce);accepted → submitted;其余一律 blocked。
+        授权语义不随执行去处改变;decision_id 随响应回传以便审计关联。
+        """
+        submitted = self.submit(spec, args)
+        if submitted.category.value == "accepted":
+            requires_approval = bool(submitted.data.get("requires_approval"))
+            status = "needs_approval" if requires_approval else "submitted"
+            message = (f"已提交审批（契约号：{submitted.contract_id}）" if requires_approval
+                       else f"已提交 Serve 契约（契约号：{submitted.contract_id}），等待服务端确认")
+            return {"ok": False, "denied": False, "status": status, "level": status,
+                    "message": message, "execution_backend": "serve",
+                    "contract_id": submitted.contract_id,
+                    "idempotency_key": submitted.idempotency_key,
+                    "decision_id": decision_id, "data": submitted.data}
+        return {"ok": False, "denied": True,
+                "reason": submitted.message or f"Serve 契约状态：{submitted.status}",
+                "level": "blocked", "execution_backend": "blocked",
+                "contract_id": submitted.contract_id,
+                "idempotency_key": submitted.idempotency_key,
+                "decision_id": decision_id}
 
     def confirm_action(self, contract_id: str, decision: str) -> ServeResult:
         data = self._call("serve_confirm_action", {

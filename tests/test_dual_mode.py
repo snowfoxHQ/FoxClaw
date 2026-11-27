@@ -59,6 +59,7 @@ class FakeGate:
                               trust_downgrade=False)
         return SimpleNamespace(raw=raw, level={"allow": "allow", "ask": "confirm",
                                                "deny": "deny"}[self.decision],
+                               reason="test policy",
                                allowed=self.decision == "allow", decision_id="decision-1")
 
 
@@ -324,32 +325,85 @@ def test_args_sent_to_serve_are_only_declared_operation_parameters():
     assert set(submitted) == {"action_intent", "args", "idempotency_key"}
 
 
-def test_browser_and_desktop_write_fail_closed_but_reads_stay_local():
+def test_browser_and_desktop_write_submit_to_serve_and_reads_stay_local():
     executor, fake = _executor("serve")
     gate = FakeGate()
-    browser_calls = []
+    act_calls = []
     async def browser_impl(args):
-        browser_calls.append(args)
+        act_calls.append(("browser", args))
         return {"ok": True}
     async def desktop_impl(action, args):
-        browser_calls.append((action, args))
+        act_calls.append(("desktop", action, args))
         return {"ok": True}
 
-    blocked_browser = asyncio.run(browser_act(
+    served_browser = asyncio.run(browser_act(
         gate, browser_impl, "click", {"target": "5"}, confirmed=True, executor=executor))
-    blocked_desktop = asyncio.run(desktop_act(
+    served_desktop = asyncio.run(desktop_act(
         gate, desktop_impl, "mouse:click", {"x": 1}, confirmed=True, executor=executor))
-    assert blocked_browser["execution_backend"] == blocked_desktop["execution_backend"] == "blocked"
-    assert "尚不支持受治理桌面操作" in blocked_browser["reason"]
-    assert not browser_calls
+    assert served_browser["execution_backend"] == served_desktop["execution_backend"] == "serve"
+    assert served_browser["status"] == served_desktop["status"] == "needs_approval"
+    assert served_browser["contract_id"] == served_desktop["contract_id"] == "contract-1"
+    assert served_browser["denied"] is False and served_desktop["denied"] is False
+    assert served_browser["decision_id"] and served_desktop["decision_id"]
+    # 本地通道未执行
+    assert not act_calls
+    submitted = [args for name, args in fake.calls if name == "serve_submit_action"]
+    assert len(submitted) == 2
+    # 边界动作参数整体透传(授权已按完整参数完成);意图用规范化 id
+    assert {"target": "5"} in [s["args"] for s in submitted]
+    assert {"x": 1} in [s["args"] for s in submitted]
+    intents = {s["action_intent"] for s in submitted}
+    assert intents == {"browser:click", "desktop:mouse:click"}
 
+    # read 动作不路由,继续本地执行
     read_browser = asyncio.run(browser_act(
         gate, browser_impl, "scroll", {"type": "scroll"}, executor=executor))
     read_desktop = asyncio.run(desktop_act(
         gate, desktop_impl, "clipboard:read", {}, executor=executor))
     assert read_browser["execution_backend"] == read_desktop["execution_backend"] == "local"
-    assert len(browser_calls) == 2
+    assert len(act_calls) == 2
+    assert [name for name, _ in fake.calls].count("serve_submit_action") == 2
+
+
+def test_desktop_browser_serve_unhealthy_fail_closed():
+    executor, fake = _executor("serve", health="degraded")
+    gate = FakeGate()
+    async def browser_impl(args):
+        raise AssertionError("Serve 不健康时不应本地执行")
+    async def desktop_impl(action, args):
+        raise AssertionError("Serve 不健康时不应本地执行")
+    br = asyncio.run(browser_act(
+        gate, browser_impl, "click", {"target": "5"}, confirmed=True, executor=executor))
+    dt = asyncio.run(desktop_act(
+        gate, desktop_impl, "mouse:click", {"x": 1}, confirmed=True, executor=executor))
+    assert br["execution_backend"] == dt["execution_backend"] == "blocked"
+    assert "fail-closed" in br["reason"] and "fail-closed" in dt["reason"]
     assert not any(name == "serve_submit_action" for name, _ in fake.calls)
+
+
+def test_policy_deny_precedes_serve_for_desktop_browser():
+    executor, fake = _executor("serve")
+    async def impl(*_a, **_kw):
+        raise AssertionError("deny 不应执行")
+    br = asyncio.run(browser_act(FakeGate("deny"), impl, "click", {"target": "5"},
+                                 confirmed=True, executor=executor))
+    dt = asyncio.run(desktop_act(FakeGate("deny"), impl, "mouse:click", {"x": 1},
+                                 confirmed=True, executor=executor))
+    assert br["denied"] is True and dt["denied"] is True
+    assert br["level"] == dt["level"] == "deny"
+    assert not any(name == "serve_submit_action" for name, _ in fake.calls)
+
+
+def test_serve_path_confirmation_is_the_serve_contract_not_local_nonce():
+    """ask/confirm 语义在 serve 路径由 Serve 契约审批承担,不走本地 nonce。"""
+    executor, fake = _executor("serve")
+    async def impl(*_a, **_kw):
+        raise AssertionError("serve 路径不应本地执行")
+    r = asyncio.run(browser_act(FakeGate("ask"), impl, "click", {"target": "5"},
+                                executor=executor))
+    assert r["execution_backend"] == "serve" and r["status"] == "needs_approval"
+    assert "confirm_nonce" not in r
+    assert any(name == "serve_submit_action" for name, _ in fake.calls)
 
 
 def test_desktop_browser_auto_fallback_only_when_serve_unavailable():
@@ -360,8 +414,8 @@ def test_desktop_browser_auto_fallback_only_when_serve_unavailable():
     async def desktop_impl(action, args):
         act_calls.append(("desktop", action, args))
         return {"ok": True}
-    for health, expected in (("ok", "blocked"), ("degraded", "local")):
-        executor, _ = _executor("auto", health=health)
+    for health, expected in (("ok", "serve"), ("degraded", "local")):
+        executor, fake = _executor("auto", health=health)
         br = asyncio.run(browser_act(
             FakeGate(), browser_impl, "click", {"target": "5"},
             confirmed=True, executor=executor))
@@ -369,6 +423,7 @@ def test_desktop_browser_auto_fallback_only_when_serve_unavailable():
             FakeGate(), desktop_impl, "mouse:click", {"x": 1},
             confirmed=True, executor=executor))
         assert br["execution_backend"] == dt["execution_backend"] == expected
+    # ok→serve(不落地),degraded→local(落地两笔)
     assert len(act_calls) == 2
 
 def test_write_entrypoints_are_routed_and_api_paths_use_the_wrappers():
